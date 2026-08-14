@@ -1,0 +1,7 @@
+.next
+node_modules
+pnpm-lock.yaml
+mobile/node_modules
+mobile/.expo
+AGENTS.md
+supabase/migrations

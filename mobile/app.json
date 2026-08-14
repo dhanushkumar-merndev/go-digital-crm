@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Go Digital Marketing CRM",
+    "slug": "go-digital-marketing-crm",
+    "scheme": "godigitalcrm",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Go Digital Marketing CRM to scan a one-time mobile link QR code."
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Go Digital Marketing CRM to record an active test-drive route."
+        }
+      ],
+      "expo-sqlite"
+    ],
+    "ios": { "supportsTablet": false, "bundleIdentifier": "com.godigitalmarketing.crm" },
+    "android": {
+      "package": "com.godigitalmarketing.crm",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION"
+      ]
+    },
+    "experiments": { "typedRoutes": true }
+  }
+}

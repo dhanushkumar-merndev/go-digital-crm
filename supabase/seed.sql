@@ -1,0 +1,33 @@
+insert into public.permissions (permission_key, module, description) values
+  ('customer.view', 'customers', 'View customers in authorized context'),
+  ('customer.create', 'customers', 'Create a customer after reviewing possible matches'),
+  ('customer.link', 'customers', 'Link a reviewed possible customer match'),
+  ('lead.view', 'leads', 'View leads within data scope'),
+  ('lead.create', 'leads', 'Create a lead'),
+  ('lead.update', 'leads', 'Update a lead'),
+  ('lead.assign', 'leads', 'Assign or reassign a lead'),
+  ('call.view', 'calls', 'View calls within data scope'),
+  ('call.create', 'calls', 'Create or sync a call'),
+  ('test_drive.manage', 'test-drives', 'Manage test drives'),
+  ('quotation.manage', 'quotations', 'Manage quotations'),
+  ('booking.manage', 'bookings', 'Manage bookings'),
+  ('user.manage', 'administration', 'Manage users within authority ceiling'),
+  ('role.manage', 'administration', 'Manage delegated roles and permissions'),
+  ('integration.manage', 'integrations', 'Manage tenant provider connections'),
+  ('document.upload', 'documents', 'Upload a validated private document'),
+  ('document.download', 'documents', 'Download an authorized private document'),
+  ('email.send', 'communications', 'Send an approved transactional email'),
+  ('approval.decide', 'approvals', 'Decide approvals within authority limit'),
+  ('credit.consume', 'credits', 'Consume credits for an eligible feature'),
+  ('credit.allocate', 'credits', 'Allocate or adjust credits'),
+  ('audit.view', 'audit', 'View audit events within scope'),
+  ('support.request', 'support', 'Request time-limited support access'),
+  ('support.approve', 'support', 'Approve or terminate support access')
+on conflict (permission_key) do update set module = excluded.module, description = excluded.description;
+
+insert into public.modules (module_key, name) values
+  ('customers', 'Customers'), ('leads', 'Leads'), ('calls', 'Calls'), ('appointments', 'Appointments'),
+  ('test-drives', 'Test Drives'), ('quotations', 'Quotations'), ('bookings', 'Bookings'), ('inventory', 'Inventory'),
+  ('finance', 'Finance'), ('insurance', 'Insurance'), ('rto', 'RTO'), ('exchange', 'Exchange'), ('delivery', 'Delivery'),
+  ('customer-care', 'Customer Care'), ('marketing', 'Digital Marketing'), ('integrations', 'Integrations'), ('ai', 'AI Features')
+on conflict (module_key) do update set name = excluded.name;

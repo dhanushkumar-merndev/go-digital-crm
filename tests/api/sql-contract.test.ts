@@ -1,0 +1,31 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+const migrations = [
+  '202608140001_core.sql',
+  '202608140002_business_modules.sql',
+  '202608140003_security_hardening.sql',
+]
+  .map((name) => readFileSync(join(process.cwd(), 'supabase', 'migrations', name), 'utf8'))
+  .join('\n');
+
+describe('database security contract', () => {
+  it('never defines a Team Leader role', () =>
+    expect(migrations).toContain('roles_no_team_leader'));
+  it('keeps Pending out of the lifecycle enum', () =>
+    expect(migrations).toContain(
+      "create type public.lead_lifecycle as enum ('New', 'Contacted', 'Qualified', 'Appointment Scheduled', 'Transferred to Sales', 'Lost')",
+    ));
+  it('derives lead work state instead of mutating lifecycle', () => {
+    expect(migrations).toContain('leads_with_work_state');
+    expect(migrations).toContain("then 'PENDING'");
+  });
+  it('enforces RLS and immutable audit/credit ledgers', () => {
+    expect(migrations).toContain('force row level security');
+    expect(migrations).toContain('audit_logs_immutable');
+    expect(migrations).toContain('credit_ledger_immutable');
+  });
+  it('enforces one selected branch-scope mode', () =>
+    expect(migrations).toContain('valid_branch_scope'));
+});
