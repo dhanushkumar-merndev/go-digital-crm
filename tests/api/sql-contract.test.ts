@@ -1,14 +1,18 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const migrations = [
-  '202608140001_core.sql',
-  '202608140002_business_modules.sql',
-  '202608140003_security_hardening.sql',
-]
-  .map((name) => readFileSync(join(process.cwd(), 'supabase', 'migrations', name), 'utf8'))
+const migrationDirectory = join(process.cwd(), 'supabase', 'migrations');
+const migrations = readdirSync(migrationDirectory)
+  .filter((name) => name.endsWith('.sql'))
+  .sort()
+  .map((name) => readFileSync(join(migrationDirectory, name), 'utf8'))
   .join('\n');
+
+const edgeHttp = readFileSync(
+  join(process.cwd(), 'supabase', 'functions', '_shared', 'http.ts'),
+  'utf8',
+);
 
 describe('database security contract', () => {
   it('never defines a Team Leader role', () =>
@@ -28,4 +32,10 @@ describe('database security contract', () => {
   });
   it('enforces one selected branch-scope mode', () =>
     expect(migrations).toContain('valid_branch_scope'));
+
+  it('allows authenticated browser clients to complete an Edge Function preflight', () => {
+    expect(edgeHttp).toContain("'access-control-allow-origin': '*'");
+    expect(edgeHttp).toContain("request.method !== 'OPTIONS'");
+    expect(edgeHttp).toContain('authorization, apikey, content-type');
+  });
 });

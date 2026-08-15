@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import QRCode from 'qrcode';
 import { LoaderCircle, QrCode } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -11,48 +11,65 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
 
-export function MobileLinkDialog({ children }: { children: React.ReactNode }) {
+export function MobileLinkDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [qr, setQr] = useState<string>();
   const [expiresAt, setExpiresAt] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
-  async function createChallenge(open: boolean, force = false) {
-    if (!open || (qr && !force)) return;
-    if (!hasSupabaseConfig()) {
-      setError('Configure Supabase to create a secure one-time mobile link.');
-      return;
-    }
-    setLoading(true);
-    setError(undefined);
-    try {
-      const { data, error: functionError } = await createClient().functions.invoke<{
-        ok: boolean;
-        data?: { qr_payload: string; expires_at: string };
-      }>('mobile-link-create', { body: {} });
-      if (functionError || !data?.data) throw functionError ?? new Error('CHALLENGE_MISSING');
-      const challenge = data.data;
-      setQr(
-        await QRCode.toDataURL(challenge.qr_payload, {
-          width: 240,
-          margin: 1,
-          errorCorrectionLevel: 'M',
-        }),
-      );
-      setExpiresAt(challenge.expires_at);
-    } catch {
-      setError('A mobile link could not be created. Check your session and try again.');
-    } finally {
-      setLoading(false);
-    }
-  }
+  const challengeInFlight = useRef(false);
+
+  const createChallenge = useCallback(
+    async (force = false) => {
+      const expired = expiresAt ? Date.parse(expiresAt) <= Date.now() : false;
+      if ((qr && !force && !expired) || challengeInFlight.current) return;
+      if (!hasSupabaseConfig()) {
+        setError('Configure Supabase to create a secure one-time mobile link.');
+        return;
+      }
+      challengeInFlight.current = true;
+      if (force || expired) {
+        setQr(undefined);
+        setExpiresAt(undefined);
+      }
+      setLoading(true);
+      setError(undefined);
+      try {
+        const { data, error: functionError } = await createClient().functions.invoke<{
+          ok: boolean;
+          data?: { qr_payload: string; expires_at: string };
+        }>('mobile-link-create', { body: {} });
+        if (functionError || !data?.data) throw functionError ?? new Error('CHALLENGE_MISSING');
+        const challenge = data.data;
+        setQr(
+          await QRCode.toDataURL(challenge.qr_payload, {
+            width: 240,
+            margin: 1,
+            errorCorrectionLevel: 'M',
+          }),
+        );
+        setExpiresAt(challenge.expires_at);
+      } catch {
+        setError('A mobile link could not be created. Check your session and try again.');
+      } finally {
+        challengeInFlight.current = false;
+        setLoading(false);
+      }
+    },
+    [expiresAt, qr],
+  );
+
   return (
-    <Dialog onOpenChange={(open) => void createChallenge(open)}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent onOpenAutoFocus={() => void createChallenge()}>
         <DialogHeader>
           <div className="mb-2 grid size-10 place-items-center rounded-lg bg-blue-50 text-blue-700">
             <QrCode className="size-5" />
@@ -87,10 +104,7 @@ export function MobileLinkDialog({ children }: { children: React.ReactNode }) {
         <Button
           variant="outline"
           className="mt-3 w-full"
-          onClick={() => {
-            setQr(undefined);
-            void createChallenge(true, true);
-          }}
+          onClick={() => void createChallenge(true)}
         >
           Generate a new code
         </Button>

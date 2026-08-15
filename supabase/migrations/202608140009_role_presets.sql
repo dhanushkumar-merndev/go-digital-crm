@@ -4,7 +4,7 @@ create or replace function public.provision_default_roles(target_organization_id
 returns integer language plpgsql security definer set search_path = '' as $$
 declare inserted_count integer;
 begin
-  if auth.role() <> 'service_role' and not app_private.is_platform_admin() then raise exception using errcode = '42501', message = 'PLATFORM_AUTHORITY_REQUIRED'; end if;
+  if auth.role() <> 'service_role' then raise exception using errcode = '42501', message = 'SERVICE_ROLE_REQUIRED'; end if;
   if not exists (select 1 from public.organizations where id = target_organization_id and deleted_at is null) then raise exception using errcode = 'P0002', message = 'ORGANIZATION_NOT_FOUND'; end if;
   insert into public.roles (organization_id, name, role_key, authority_level, system_role, mfa_required) values
     (target_organization_id, 'Business Owner', 'business_owner', 900, true, true),
@@ -31,14 +31,14 @@ begin
   where r.organization_id = target_organization_id and (
     r.role_key = 'client_admin'
     or (r.role_key = 'system_administrator' and p.permission_key not in ('credit.allocate','support.approve'))
-    or (r.role_key = 'business_owner' and p.permission_key in ('customer.view','audit.view','credit.allocate','support.request','support.approve','user.manage'))
-    or (r.role_key = 'gm_sales' and p.permission_key in ('customer.view','lead.view','approval.decide','audit.view','document.download'))
-    or (r.role_key = 'showroom_manager' and p.permission_key in ('customer.view','customer.link','lead.view','lead.update','lead.assign','call.view','test_drive.manage','quotation.manage','booking.manage','approval.decide','document.download'))
-    or (r.role_key = 'team_manager' and p.permission_key in ('customer.view','customer.link','lead.view','lead.update','lead.assign','call.view','test_drive.manage','quotation.manage','booking.manage','document.download'))
-    or (r.role_key = 'sales_consultant' and p.permission_key in ('customer.view','customer.create','customer.link','lead.view','lead.update','call.view','call.create','test_drive.manage','quotation.manage','booking.manage','credit.consume','document.upload','document.download','email.send'))
-    or (r.role_key = 'telecaller_bdc' and p.permission_key in ('customer.view','customer.create','customer.link','lead.view','lead.update','call.view','call.create','credit.consume','document.upload','document.download','email.send'))
+    or (r.role_key = 'business_owner' and p.permission_key in ('customer.view','quotation.view','booking.view','audit.view','credit.allocate','support.request','support.approve','user.manage','integration.view'))
+    or (r.role_key = 'gm_sales' and p.permission_key in ('customer.view','lead.view','quotation.view','booking.view','approval.decide','audit.view','document.download'))
+    or (r.role_key = 'showroom_manager' and p.permission_key in ('customer.view','customer.link','lead.view','lead.update','lead.assign','call.view','message.view','task.view','task.create','task.update','task.complete','task.cancel','task.assign','test_drive.manage','quotation.view','quotation.manage','booking.view','booking.manage','approval.decide','document.download'))
+    or (r.role_key = 'team_manager' and p.permission_key in ('customer.view','customer.link','lead.view','lead.update','lead.assign','call.view','message.view','task.view','task.create','task.update','task.complete','task.cancel','task.assign','test_drive.manage','quotation.view','quotation.manage','booking.view','booking.manage','document.download'))
+    or (r.role_key = 'sales_consultant' and p.permission_key in ('customer.view','customer.create','customer.link','lead.view','lead.create','lead.update','call.view','call.create','message.view','message.send','task.view','task.create','task.update','task.complete','task.cancel','test_drive.manage','quotation.view','quotation.manage','booking.view','booking.manage','credit.consume','document.upload','document.download','email.send'))
+    or (r.role_key = 'telecaller_bdc' and p.permission_key in ('customer.view','customer.create','customer.link','lead.view','lead.create','lead.update','call.view','call.create','message.view','message.send','task.view','task.create','task.update','task.complete','task.cancel','credit.consume','document.upload','document.download','email.send'))
     or (r.role_key in ('inventory_manager','finance_manager','insurance_manager','rto_manager','exchange_manager','delivery_manager','customer_relationship_manager') and p.permission_key in ('customer.view','document.upload','document.download','email.send'))
-    or (r.role_key = 'digital_marketing_manager' and p.permission_key in ('lead.view','document.upload','document.download'))
+    or (r.role_key = 'digital_marketing_manager' and p.permission_key in ('lead.view','document.upload','document.download','integration.view'))
   ) on conflict do nothing;
 
   insert into public.audit_logs (organization_id, actor_id, action, resource_type, resource_id, metadata)

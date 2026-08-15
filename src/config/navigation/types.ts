@@ -17,11 +17,14 @@ export type RoleKey =
   | 'customer-care'
   | 'digital-marketing';
 
+export type NavigationCapability = 'users.manage.delegated';
+
 export type NavItem = {
   title: string;
   slug: string;
   icon: string;
   optional?: boolean;
+  requiredCapability?: NavigationCapability;
 };
 
 export type RoleNavigation = {

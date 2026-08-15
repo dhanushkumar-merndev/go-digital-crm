@@ -1,4 +1,4 @@
-import { failure, success } from '../_shared/http.ts';
+import { failure, preflight, success } from '../_shared/http.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
 
 function base64Url(bytes: Uint8Array) {
@@ -15,6 +15,8 @@ async function sha256(value: string) {
 }
 
 Deno.serve(async (request) => {
+  const preflightResponse = preflight(request);
+  if (preflightResponse) return preflightResponse;
   const requestId = request.headers.get('x-request-id') ?? crypto.randomUUID();
   if (request.method !== 'POST')
     return failure('METHOD_NOT_ALLOWED', 'Only POST is supported.', requestId, 405);

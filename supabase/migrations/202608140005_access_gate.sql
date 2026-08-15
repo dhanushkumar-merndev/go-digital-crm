@@ -12,9 +12,14 @@ begin
   end if;
   select * into organization_row from public.organizations where id = profile_row.organization_id;
   if not found or organization_row.status in ('SUSPENDED','REJECTED','SOFT_DELETED') then return jsonb_build_object('authenticated', true, 'destination', 'ACCOUNT_LOCKED'); end if;
-  select ura, r into assignment_row, role_row from public.user_role_assignments ura join public.roles r on r.id = ura.role_id
-    where ura.user_id = auth.uid() and ura.active order by r.authority_level desc limit 1;
+  select ura.* into assignment_row
+  from public.user_role_assignments ura
+  join public.roles r on r.id = ura.role_id
+  where ura.user_id = auth.uid() and ura.active
+  order by r.authority_level desc
+  limit 1;
   if not found then return jsonb_build_object('authenticated', true, 'destination', 'NO_ROLE'); end if;
+  select * into role_row from public.roles where id = assignment_row.role_id;
   route_role_key := case role_row.role_key
     when 'telecaller_bdc' then 'telecaller' when 'inventory_manager' then 'inventory' when 'finance_manager' then 'finance'
     when 'insurance_manager' then 'insurance' when 'rto_manager' then 'rto' when 'exchange_manager' then 'exchange'

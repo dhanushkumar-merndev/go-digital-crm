@@ -1,5 +1,5 @@
 import { z } from 'npm:zod@4';
-import { failure, success } from '../_shared/http.ts';
+import { failure, preflight, success } from '../_shared/http.ts';
 import { authenticatedClient } from '../_shared/supabase.ts';
 
 const point = z.object({
@@ -14,6 +14,8 @@ const schema = z.object({
   encoded_polyline: z.string().max(100000).optional(),
 });
 Deno.serve(async (request) => {
+  const preflightResponse = preflight(request);
+  if (preflightResponse) return preflightResponse;
   const requestId = request.headers.get('x-request-id') ?? crypto.randomUUID();
   if (request.method !== 'POST')
     return failure('METHOD_NOT_ALLOWED', 'Only POST is supported.', requestId, 405);

@@ -1,5 +1,5 @@
 import { z } from 'npm:zod@4';
-import { failure, success } from '../_shared/http.ts';
+import { failure, preflight, success } from '../_shared/http.ts';
 import { serviceClient } from '../_shared/supabase.ts';
 
 const schema = z.object({ challenge_id: z.uuid(), nonce: z.string().min(32).max(100) });
@@ -17,6 +17,8 @@ async function sha256(value: string) {
 }
 
 Deno.serve(async (request) => {
+  const preflightResponse = preflight(request);
+  if (preflightResponse) return preflightResponse;
   const requestId = request.headers.get('x-request-id') ?? crypto.randomUUID();
   if (request.method !== 'POST')
     return failure('METHOD_NOT_ALLOWED', 'Only POST is supported.', requestId, 405);

@@ -14,7 +14,7 @@ Production-oriented foundation for the multi-tenant automobile dealership CRM de
 - Trigger.dev v4 long-running recording ingestion and scheduled retention work
 - Expo Router mobile MVP for Telecaller and Sales Consultant, SecureStore sessions, AsyncStorage state and SQLite test-drive route buffering
 
-The web app has an environment-safe preview mode when Supabase variables are absent. Preview data is intentionally isolated in `src/lib/demo-page-repository.ts`; production authorization and domain persistence live at the Supabase boundary.
+The web app has an explicit local visual-preview mode. Preview data is isolated in `src/lib/demo-page-repository.ts` and is never rendered merely because configuration is missing. Production authorization and domain persistence live at the Supabase boundary.
 
 ## Local web development
 
@@ -23,11 +23,17 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:3000`. Without Supabase variables, the home route opens the Telecaller preset and the role switcher exposes the approved role workspaces for visual/manual QA.
+Open `http://localhost:3000`. Normal development requires configured Supabase public values and fails closed when they are absent.
+
+For local screenshot/manual QA only, set `NEXT_PUBLIC_ENABLE_LOCAL_PREVIEW=true` and run `pnpm dev`. The flag must be the literal `true`, is honored only when `NODE_ENV=development`, and exposes the role switcher plus isolated sample workspaces. It is ignored by production builds even if accidentally set.
 
 ## Configuration
 
 Copy `.env.example` to `.env.local` and supply the configured project values. Never expose `SUPABASE_SERVICE_ROLE_KEY`, Tigris credentials, Brevo credentials, Trigger credentials, encryption keys or provider secrets through `NEXT_PUBLIC_*` or `EXPO_PUBLIC_*` variables.
+
+Add the deployed `/auth/callback` URL to Supabase Auth redirect URLs; the recovery request adds a validated `next=/reset-password` query. Password-recovery delivery also requires production custom SMTP (Brevo per `AGENTS.md`). Public `NEXT_PUBLIC_*` values are embedded at build time, so configure them before the Vercel build rather than only after deployment.
+
+Sample workspace records remain preview-only. Until each live Supabase query/RPC adapter is wired, configured deployments display a closed data-boundary state instead of demo customer or lead data.
 
 Apply the migrations in order and seed catalogs:
 
@@ -60,6 +66,8 @@ pnpm --dir mobile typecheck
 ```
 
 Automated tests intentionally cover backend/API/domain contracts only. UI validation remains manual per the product contract.
+
+Production release order, environment ownership, rollback guidance and current external blockers are documented in [the deployment runbook](./docs/deployment-runbook.md). Repository deployment commands are pinned, but they are never executed by CI automatically; production changes require an authorized operator and the release gates in that runbook.
 
 ## Important invariants
 

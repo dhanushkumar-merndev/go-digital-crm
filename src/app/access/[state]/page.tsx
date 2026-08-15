@@ -1,12 +1,18 @@
 'use client';
 
-import { CircleAlert, Clock3, LockKeyhole, ShieldCheck, UserRoundX } from 'lucide-react';
+import { CircleAlert, Clock3, LockKeyhole, Settings2, ShieldCheck, UserRoundX } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MfaGate } from '@/features/auth/mfa-gate';
+import { BusinessOwnerOnboarding } from '@/features/auth/business-owner-onboarding';
 
 const states = {
+  configuration: {
+    title: 'CRM configuration is unavailable',
+    body: 'This deployment cannot access its Supabase project configuration. CRM data and authenticated routes remain closed until an administrator completes the environment setup and redeploys.',
+    icon: Settings2,
+  },
   locked: {
     title: 'Account access is unavailable',
     body: 'This account or dealership is inactive, suspended, rejected, or scheduled for controlled deletion. Contact an authorized administrator and share your account email.',
@@ -32,6 +38,7 @@ const states = {
 export default function AccessStatePage() {
   const { state } = useParams<{ state: string }>();
   if (state === 'mfa') return <MfaGate />;
+  if (state === 'onboarding') return <BusinessOwnerOnboarding />;
   const content = states[state as keyof typeof states] ?? states.locked;
   const Icon = content.icon;
   return (

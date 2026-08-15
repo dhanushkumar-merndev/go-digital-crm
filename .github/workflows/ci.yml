@@ -1,0 +1,116 @@
+name: API and build checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Web, mobile, and API contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate committed configuration contracts
+        run: |
+          pnpm env:check:example
+          pnpm check:supabase-config
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type-check web and workers
+        run: pnpm typecheck
+
+      - name: Type-check mobile
+        run: pnpm typecheck:mobile
+
+      - name: Validate Expo dependencies and configuration
+        run: pnpm mobile:doctor
+
+      - name: Run API and backend tests
+        run: pnpm test:api
+
+      - name: Build Next.js with Webpack
+        run: pnpm build:webpack
+
+  edge-functions:
+    name: Deno Edge Function type-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version-file: .dvmrc
+          cache: true
+
+      - name: Type-check every Edge Function entrypoint
+        run: deno check supabase/functions/_shared/*.ts supabase/functions/*/index.ts
+
+  database-migrations:
+    name: Fresh Supabase migration chain
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@46f7f98c7f948ad727d22c1e67fab04c223a0520 # v3.0.0
+        with:
+          version: 2.114.0
+
+      - name: Start local PostgreSQL
+        run: supabase db start
+
+      - name: Rebuild schema from migrations and seed
+        run: supabase db reset
+
+      - name: Lint database functions
+        run: supabase db lint --local --level error --fail-on error
+
+      - name: Stop local PostgreSQL
+        if: always()
+        run: supabase stop --no-backup

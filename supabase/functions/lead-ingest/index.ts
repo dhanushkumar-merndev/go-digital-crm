@@ -1,13 +1,11 @@
 import { z } from 'npm:zod@4';
-import { failure, success } from '../_shared/http.ts';
-import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
+import { failure, preflight, success } from '../_shared/http.ts';
+import { authenticatedClient } from '../_shared/supabase.ts';
 
 const schema = z.object({
   organization_id: z.uuid(),
   branch_id: z.uuid(),
   team_id: z.uuid().optional(),
-  connection_id: z.uuid().optional(),
-  external_lead_id: z.string().trim().min(1).max(250).optional(),
   source: z.enum([
     'Facebook',
     'Instagram',
@@ -27,10 +25,11 @@ const schema = z.object({
   phone: z.string().trim().min(7).max(24),
   email: z.email().optional(),
   interested_model: z.string().trim().max(160).optional(),
-  raw_payload: z.unknown().optional(),
 });
 
 Deno.serve(async (request) => {
+  const preflightResponse = preflight(request);
+  if (preflightResponse) return preflightResponse;
   const requestId = request.headers.get('x-request-id') ?? crypto.randomUUID();
   if (request.method !== 'POST')
     return failure('METHOD_NOT_ALLOWED', 'Only POST is supported.', requestId, 405);
@@ -43,30 +42,29 @@ Deno.serve(async (request) => {
     if (!parsed.success)
       return failure('INVALID_PAYLOAD', 'Lead data is incomplete or invalid.', requestId, 422);
     const input = parsed.data;
-    const normalizedPhone = input.phone.replace(/[^\d+]/g, '');
-    const { data: permitted } = await client.rpc('authorize_action', {
+    const { data: leadId, error } = await client.rpc('create_lead', {
       target_organization_id: input.organization_id,
-      target_permission: 'lead.create',
       target_branch_id: input.branch_id,
+      target_team_id: input.team_id ?? null,
+      lead_source: input.source,
+      lead_customer_name: input.customer_name,
+      lead_phone: input.phone,
+      lead_email: input.email ?? null,
+      lead_source_detail: input.source_detail ?? null,
+      lead_campaign: input.campaign ?? null,
+      lead_interested_model: input.interested_model ?? null,
     });
-    if (!permitted)
-      return failure(
-        'PERMISSION_DENIED',
-        'You cannot create leads in this organization.',
-        requestId,
-        403,
-      );
-    const admin = serviceClient();
-    const { data, error } = await admin
-      .from('leads')
-      .upsert(
-        { ...input, normalized_phone: normalizedPhone, raw_payload: input.raw_payload ?? null },
-        { onConflict: 'organization_id,connection_id,external_lead_id', ignoreDuplicates: true },
-      )
-      .select('id')
-      .maybeSingle();
-    if (error) throw error;
-    return success({ lead_id: data?.id ?? null, duplicate: !data }, requestId, data ? 201 : 200);
+    if (error) {
+      if (error.message.includes('PERMISSION_DENIED'))
+        return failure(
+          'PERMISSION_DENIED',
+          'You cannot create leads in this organization.',
+          requestId,
+          403,
+        );
+      throw error;
+    }
+    return success({ lead_id: leadId }, requestId, 201);
   } catch {
     return failure(
       'LEAD_INGEST_FAILED',

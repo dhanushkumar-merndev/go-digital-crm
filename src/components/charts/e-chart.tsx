@@ -5,8 +5,13 @@ import { useEffect, useRef } from 'react';
 import type { ChartKind } from '@/lib/domain';
 
 type Datum = { name: string; value: number; secondary?: number };
+type SeriesNames = [string, string];
 
-function optionFor(kind: ChartKind, data: Datum[]): echarts.EChartsCoreOption {
+function optionFor(
+  kind: ChartKind,
+  data: Datum[],
+  seriesNames?: SeriesNames,
+): echarts.EChartsCoreOption {
   const text = '#667085';
   const grid = { left: 42, right: 20, top: 20, bottom: 32 };
   if (kind === 'donut')
@@ -41,9 +46,7 @@ function optionFor(kind: ChartKind, data: Datum[]): echarts.EChartsCoreOption {
           gap: 3,
           label: { color: '#fff', fontSize: 11 },
           itemStyle: { borderColor: '#fff', borderWidth: 2 },
-          data: data
-            .slice(0, 5)
-            .map((item, index) => ({ ...item, value: Math.max(12, 96 - index * 17) })),
+          data: data.slice(0, 5),
         },
       ],
     };
@@ -70,14 +73,14 @@ function optionFor(kind: ChartKind, data: Datum[]): echarts.EChartsCoreOption {
       color: ['#2563eb', '#bfdbfe'],
       series: [
         {
-          name: 'Actual',
+          name: seriesNames?.[0] ?? 'Actual',
           type: 'bar',
           barMaxWidth: 22,
           itemStyle: { borderRadius: [4, 4, 0, 0] },
           data: data.map((item) => item.value),
         },
         {
-          name: 'Target',
+          name: seriesNames?.[1] ?? 'Target',
           type: 'bar',
           barMaxWidth: 22,
           itemStyle: { borderRadius: [4, 4, 0, 0] },
@@ -90,7 +93,7 @@ function optionFor(kind: ChartKind, data: Datum[]): echarts.EChartsCoreOption {
     color: ['#2563eb', '#14b8a6'],
     series: [
       {
-        name: 'Current',
+        name: seriesNames?.[0] ?? 'Current',
         type: 'line',
         smooth: true,
         symbolSize: 7,
@@ -98,7 +101,7 @@ function optionFor(kind: ChartKind, data: Datum[]): echarts.EChartsCoreOption {
         data: data.map((item) => item.value),
       },
       {
-        name: 'Previous',
+        name: seriesNames?.[1] ?? 'Previous',
         type: 'line',
         smooth: true,
         symbolSize: 6,
@@ -112,22 +115,24 @@ export function EChart({
   kind,
   data,
   className = 'h-72',
+  seriesNames,
 }: {
   kind: ChartKind;
   data: Datum[];
   className?: string;
+  seriesNames?: SeriesNames;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!ref.current) return;
     const chart = echarts.init(ref.current, undefined, { renderer: 'svg' });
-    chart.setOption(optionFor(kind, data));
+    chart.setOption(optionFor(kind, data, seriesNames));
     const observer = new ResizeObserver(() => chart.resize());
     observer.observe(ref.current);
     return () => {
       observer.disconnect();
       chart.dispose();
     };
-  }, [kind, data]);
+  }, [kind, data, seriesNames]);
   return <div ref={ref} className={className} role="img" aria-label={`${kind} chart`} />;
 }

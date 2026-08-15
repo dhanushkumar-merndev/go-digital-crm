@@ -347,6 +347,10 @@ begin
       bool_or(c.column_name = 'team_id') as has_team,
       bool_or(c.column_name = 'assigned_user_id') as has_owner
     from information_schema.columns c
+    join information_schema.tables table_row
+      on table_row.table_schema = c.table_schema
+     and table_row.table_name = c.table_name
+     and table_row.table_type = 'BASE TABLE'
     where c.table_schema = 'public' and c.column_name in ('organization_id','branch_id','team_id','assigned_user_id')
     group by c.table_name
     having bool_or(c.column_name = 'organization_id')

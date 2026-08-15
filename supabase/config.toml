@@ -1,0 +1,87 @@
+project_id = "go-digital-marketing-crm"
+
+# Public provider/callback boundaries perform their own one-time-state,
+# challenge, anti-spoofing-key or HMAC verification. Supabase gateway JWT
+# verification must be disabled only for these named functions.
+[functions.integration-oauth-callback]
+verify_jwt = false
+
+[functions.provider-webhook-meta]
+verify_jwt = false
+
+[functions.provider-webhook-whatsapp]
+verify_jwt = false
+
+[functions.provider-webhook-generic]
+verify_jwt = false
+
+[functions.mobile-link-exchange]
+verify_jwt = false
+
+# User-initiated functions stay behind gateway JWT verification in addition to
+# their internal user, permission, scope and payload checks.
+[functions.credit-consume]
+verify_jwt = true
+
+[functions.integration-connect-whatsapp]
+verify_jwt = true
+
+[functions.integration-assets-list]
+verify_jwt = true
+
+[functions.integration-assets-map]
+verify_jwt = true
+
+[functions.integration-oauth-start]
+verify_jwt = true
+
+[functions.integration-test]
+verify_jwt = true
+
+[functions.integration-webhook-config]
+verify_jwt = true
+
+[functions.lead-ingest]
+verify_jwt = true
+
+[functions.mobile-link-create]
+verify_jwt = true
+
+[functions.object-upload-finalize]
+verify_jwt = true
+
+[functions.presign-download]
+verify_jwt = true
+
+[functions.presign-upload]
+verify_jwt = true
+
+[functions.send-email]
+verify_jwt = true
+
+[functions.send-message]
+verify_jwt = true
+
+[functions.support-session-accept]
+verify_jwt = true
+
+[functions.support-session-end]
+verify_jwt = true
+
+[functions.support-session-request]
+verify_jwt = true
+
+[functions.test-drive-anchor]
+verify_jwt = true
+
+[functions.test-drive-complete]
+verify_jwt = true
+
+[functions.tenant-provision]
+verify_jwt = true
+
+[functions.tenant-user-invite]
+verify_jwt = true
+
+[functions.tenant-user-update]
+verify_jwt = true

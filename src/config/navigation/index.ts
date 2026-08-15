@@ -1,7 +1,16 @@
-import type { NavItem, RoleKey, RoleNavigation } from './types';
+import { NAVIGATION_CAPABILITIES } from './access';
+import type { NavItem, NavigationCapability, RoleKey, RoleNavigation } from './types';
 
-const items = (definitions: Array<[string, string, string]>) =>
-  definitions.map(([title, slug, icon]): NavItem => ({ title, slug, icon }));
+type ItemDefinition = [string, string, string, NavigationCapability?];
+
+const items = (definitions: ItemDefinition[]) =>
+  definitions.map(([title, slug, icon, requiredCapability]): NavItem => ({
+    title,
+    slug,
+    icon,
+    optional: Boolean(requiredCapability),
+    requiredCapability,
+  }));
 
 export const roleNavigation: Record<RoleKey, RoleNavigation> = {
   telecaller: {
@@ -83,7 +92,7 @@ export const roleNavigation: Record<RoleKey, RoleNavigation> = {
       ['Lost Leads', 'lost-leads', 'CircleOff'],
       ['Escalations', 'escalations', 'TriangleAlert'],
       ['Reports', 'reports', 'FileChartColumn'],
-      ['Users', 'users', 'UserCog'],
+      ['Users', 'users', 'UserCog', NAVIGATION_CAPABILITIES.MANAGE_DELEGATED_USERS],
     ]),
   },
   'gm-sales': {
@@ -105,7 +114,7 @@ export const roleNavigation: Record<RoleKey, RoleNavigation> = {
       ['Lost Leads', 'lost-leads', 'CircleOff'],
       ['Escalations', 'escalations', 'TriangleAlert'],
       ['Reports', 'reports', 'FileChartColumn'],
-      ['Users', 'users', 'UserCog'],
+      ['Users', 'users', 'UserCog', NAVIGATION_CAPABILITIES.MANAGE_DELEGATED_USERS],
     ]),
   },
   'client-admin': {
@@ -322,3 +331,7 @@ export const roleKeys = Object.keys(roleNavigation) as RoleKey[];
 export function isRoleKey(value: string): value is RoleKey {
   return value in roleNavigation;
 }
+
+export { EMPTY_NAVIGATION_ACCESS, filterNavigationItems, NAVIGATION_CAPABILITIES } from './access';
+export type { NavigationAccess } from './access';
+export type { NavigationCapability } from './types';
