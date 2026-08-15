@@ -1,9 +1,5 @@
-import { WorkListScreen } from '@/components/work-list-screen';
+import { TestDriveScreen } from '@/features/test-drives/test-drive-screen';
+
 export default function TestDrives() {
-  return (
-    <WorkListScreen
-      title="Test Drives"
-      subtitle="Scheduled, active and completed route summaries"
-    />
-  );
+  return <TestDriveScreen />;
 }

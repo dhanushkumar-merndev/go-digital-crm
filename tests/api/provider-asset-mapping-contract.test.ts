@@ -17,6 +17,10 @@ describe('provider asset discovery and branch mapping contract', () => {
     expect(adapter).toContain("grant_type: 'refresh_token'");
     expect(adapter).toContain('token.refresh_token ?? credential.refresh_token');
     expect(list).toContain('refreshOAuthCredential(provider, currentCredential)');
+    const refreshedCredential = adapter
+      .split('refreshed: true,')[1]
+      ?.split('export async function discoverProviderAssets')[0];
+    expect(refreshedCredential?.match(/access_token: token\.access_token/g)).toHaveLength(1);
   });
 
   it('discovers current provider asset families without returning Meta page tokens', () => {

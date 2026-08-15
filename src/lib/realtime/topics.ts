@@ -8,7 +8,10 @@ export type TenantRealtimeResource =
   | 'support'
   | 'administration'
   | 'sales'
-  | 'inventory';
+  | 'inventory'
+  | 'operations'
+  | 'customer-care'
+  | 'marketing';
 
 export type PlatformRealtimeResource =
   'dealerships' | 'onboarding' | 'support' | 'health' | 'retention' | 'integrations';

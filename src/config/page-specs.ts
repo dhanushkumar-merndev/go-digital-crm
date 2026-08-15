@@ -42,10 +42,32 @@ const pageFamily = (slug: string) => {
     return 'leads';
   if (slug.includes('assignment')) return 'assignment';
   if (slug.includes('follow-up')) return 'followups';
+  if (slug === 'tasks') return 'tasks';
   if (slug.includes('call')) return 'calls';
   if (slug.includes('appointment')) return 'appointments';
   if (slug.includes('test-drive')) return 'test-drives';
   if (slug.includes('quotation')) return 'quotations';
+  if (
+    [
+      'finance-cases',
+      'pending-documents',
+      'applications',
+      'disbursement',
+      'insurance-cases',
+      'rto-cases',
+      'exchange',
+      'exchange-requests',
+      'evaluations',
+      'accepted-exchanges',
+      'upcoming-deliveries',
+      'delivery-planner',
+      'pending-checklist',
+      'ready-for-delivery',
+      'delivered',
+      'delivery-photos',
+    ].includes(slug)
+  )
+    return 'cases';
   if (slug.includes('booking') || slug.includes('deliver')) return 'bookings';
   if (slug.includes('performance') || slug.includes('ranking') || slug.includes('comparison'))
     return 'performance';
@@ -159,6 +181,24 @@ const familyConfig: Record<
       { label: 'Completed today', value: '31', change: '+14%', trend: 'up' },
     ],
     primaryAction: 'Schedule follow-up',
+  },
+  tasks: {
+    description: 'Plan lead-linked work, prioritize due items and record completion outcomes.',
+    columns: columns(
+      ['task', 'Task'],
+      ['customer', 'Customer'],
+      ['scheduled', 'Due'],
+      ['priority', 'Priority', true],
+      ['stage', 'Status', true],
+      ['owner', 'Owner'],
+    ),
+    metrics: [
+      { label: 'Overdue', value: '0' },
+      { label: 'Due today', value: '0' },
+      { label: 'Upcoming', value: '0' },
+      { label: 'Completed today', value: '0' },
+    ],
+    primaryAction: 'Create task',
   },
   calls: {
     description: 'Track call outcomes, recording availability and customer contact performance.',

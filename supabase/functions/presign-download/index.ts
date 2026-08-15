@@ -43,16 +43,25 @@ Deno.serve(async (request) => {
       (!platformReviewer && context.organization_id !== file.organization_id)
     )
       return failure('ACCESS_NOT_READY', 'CRM access is not available.', requestId, 403);
-    const { data: authorized, error: authorizationError } = await client.rpc(
-      'authorize_object_action',
-      {
+    let authorized: boolean | null = null;
+    let authorizationError: unknown = null;
+    if (file.resource_type === 'report_export') {
+      const result = await client.rpc('authorize_report_export_download', {
+        target_export_id: file.resource_id,
+      });
+      authorized = result.data;
+      authorizationError = result.error;
+    } else {
+      const result = await client.rpc('authorize_object_action', {
         target_organization_id: file.organization_id,
         target_branch_id: file.branch_id,
         target_resource_type: file.resource_type,
         target_resource_id: file.resource_id,
         target_action: 'DOWNLOAD',
-      },
-    );
+      });
+      authorized = result.data;
+      authorizationError = result.error;
+    }
     if (authorizationError || !authorized)
       return failure('PERMISSION_DENIED', 'You cannot download this file.', requestId, 403);
 

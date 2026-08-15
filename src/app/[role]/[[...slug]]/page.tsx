@@ -3,11 +3,17 @@ import { notFound, redirect } from 'next/navigation';
 import { WorkspacePage } from '@/components/domain/workspace-page';
 import { BranchTeamWorkspace } from '@/features/administration/branch-team-workspace';
 import { CallWorkspace } from '@/features/calls/call-workspace';
+import { CustomerCareWorkspace } from '@/features/customer-care/customer-care-workspace';
+import { MarketingWorkspace } from '@/features/marketing/marketing-workspace';
+import { ReportExportWorkspace } from '@/features/reports/report-export-workspace';
+import { TenantDashboard } from '@/features/dashboards/tenant-dashboard';
 import { RoleWorkspace } from '@/features/administration/role-workspace';
 import { UserWorkspace } from '@/features/administration/users/user-workspace';
 import { IntegrationWorkspace } from '@/features/integrations/integration-workspace';
 import { InventoryWorkspace } from '@/features/inventory/inventory-workspace';
 import { LeadWorkspace } from '@/features/leads/lead-workspace';
+import { OperationalCaseWorkspace } from '@/features/operations/operational-case-workspace';
+import { operationalCaseRoute } from '@/features/operations/operational-case-query';
 import { ProductionDataUnavailable } from '@/components/shared/production-data-unavailable';
 import { isRoleKey } from '@/config/navigation';
 import { DealershipWorkspace } from '@/features/platform/dealership-workspace';
@@ -16,6 +22,8 @@ import { PlatformDashboard } from '@/features/platform/platform-dashboard';
 import { RetentionWorkspace } from '@/features/platform/retention/retention-workspace';
 import { SupportSessionWorkspace } from '@/features/platform/support-session-workspace';
 import { SalesDocumentWorkspace } from '@/features/sales/sales-document-workspace';
+import { TaskWorkspace } from '@/features/tasks/task-workspace';
+import { TestDriveWorkspace } from '@/features/test-drives/test-drive-workspace';
 import { WorkWorkspace } from '@/features/work/workspace';
 import { getPageSpec } from '@/config/page-specs';
 import { isLocalPreviewMode } from '@/lib/runtime/runtime-mode';
@@ -87,6 +95,23 @@ export default async function RolePage({ params }: Props) {
     !isLocalPreviewMode()
   )
     return <InventoryWorkspace key={`${role}:${slug[0]}`} spec={spec} role={role} slug={slug[0]} />;
+  if (
+    role === 'customer-care' &&
+    ['dashboard', 'customer-cases', 'feedback', 'reviews', 'complaints-escalations'].includes(
+      slug[0],
+    ) &&
+    !isLocalPreviewMode()
+  )
+    return <CustomerCareWorkspace spec={spec} role={role} slug={slug[0]} />;
+  if (
+    role === 'digital-marketing' &&
+    ['dashboard', 'lead-sources', 'campaigns', 'social-posts', 'performance'].includes(slug[0]) &&
+    !isLocalPreviewMode()
+  )
+    return <MarketingWorkspace spec={spec} slug={slug[0]} />;
+  if (slug[0] === 'reports' && !isLocalPreviewMode()) return <ReportExportWorkspace spec={spec} />;
+  if (slug[0] === 'dashboard' && !isLocalPreviewMode())
+    return <TenantDashboard spec={spec} role={role} />;
   if (spec.category === 'leads' && !isLocalPreviewMode())
     return <LeadWorkspace spec={spec} slug={slug[0]} role={role} />;
   if (spec.category === 'calls' && !isLocalPreviewMode())
@@ -95,6 +120,20 @@ export default async function RolePage({ params }: Props) {
     return <WorkWorkspace kind="followups" spec={spec} role={role} />;
   if (spec.category === 'appointments' && !isLocalPreviewMode())
     return <WorkWorkspace kind="appointments" spec={spec} role={role} />;
+  if (
+    slug[0] === 'tasks' &&
+    (role === 'telecaller' || role === 'sales-consultant') &&
+    !isLocalPreviewMode()
+  )
+    return <TaskWorkspace spec={spec} role={role} />;
+  if (
+    spec.category === 'test-drives' &&
+    (role === 'sales-consultant' || role === 'team-manager' || role === 'showroom-manager') &&
+    !isLocalPreviewMode()
+  )
+    return <TestDriveWorkspace spec={spec} role={role} />;
+  if (operationalCaseRoute(role, slug[0]) && !isLocalPreviewMode())
+    return <OperationalCaseWorkspace spec={spec} role={role} slug={slug[0]} />;
   if (spec.category === 'quotations' && !isLocalPreviewMode())
     return <SalesDocumentWorkspace kind="quotations" spec={spec} role={role} />;
   if (spec.category === 'bookings' && !isLocalPreviewMode())

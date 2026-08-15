@@ -39,6 +39,20 @@ function SheetContent({
 function SheetTitle({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Title>) {
   return <DialogPrimitive.Title className={cn('font-semibold', className)} {...props} />;
 }
+function SheetHeader({ className, ...props }: React.ComponentProps<'div'>) {
+  return <div className={cn('flex flex-col gap-1.5 px-4 py-5 pr-12', className)} {...props} />;
+}
+function SheetFooter({ className, ...props }: React.ComponentProps<'div'>) {
+  return (
+    <div
+      className={cn(
+        'flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:justify-end',
+        className,
+      )}
+      {...props}
+    />
+  );
+}
 function SheetDescription({
   className,
   ...props
@@ -51,4 +65,4 @@ function SheetDescription({
   );
 }
 
-export { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle };
+export { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle };

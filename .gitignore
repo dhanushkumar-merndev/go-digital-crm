@@ -18,3 +18,6 @@ coverage
 .DS_Store
 npm-debug.log*
 pnpm-debug.log*
+
+# local Supabase CLI link state
+/supabase/.temp/

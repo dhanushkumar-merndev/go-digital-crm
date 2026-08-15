@@ -712,7 +712,8 @@ begin
   lead_access := app_private.has_permission(customer_row.organization_id, 'lead.view');
   call_access := app_private.has_permission(customer_row.organization_id, 'call.view');
   message_access := app_private.has_permission(customer_row.organization_id, 'message.view');
-  test_drive_access := app_private.has_permission(customer_row.organization_id, 'test_drive.manage');
+  test_drive_access := app_private.has_permission(customer_row.organization_id, 'test_drive.view')
+    or app_private.has_permission(customer_row.organization_id, 'test_drive.manage');
   quotation_access := app_private.has_permission(customer_row.organization_id, 'quotation.view')
     or app_private.has_permission(customer_row.organization_id, 'quotation.manage');
   booking_access := app_private.has_permission(customer_row.organization_id, 'booking.view')

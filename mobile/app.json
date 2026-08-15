@@ -18,7 +18,10 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow Go Digital Marketing CRM to record an active test-drive route."
+          "locationAlwaysAndWhenInUsePermission": "Allow Go Digital Marketing CRM to record an active test-drive route.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       "expo-sqlite"

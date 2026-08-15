@@ -67,6 +67,7 @@
     "echarts": "latest",
     "idb-keyval": "latest",
     "lucide-react": "latest",
+    "maplibre-gl": "^6.3.0",
     "next": "16.3.0",
     "qrcode": "latest",
     "react": "19.2.8",
@@ -78,6 +79,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/geojson": "^7946.0.16",
     "@types/node": "^20",
     "@types/qrcode": "latest",
     "@types/react": "^19",

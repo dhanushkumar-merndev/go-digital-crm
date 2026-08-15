@@ -105,7 +105,8 @@ export function TaskFormDialog({
         <DialogHeader>
           <DialogTitle>{record ? 'Edit task' : 'Create task'}</DialogTitle>
           <DialogDescription>
-            Tasks are linked to an authorized customer opportunity and remain inside your data scope.
+            Tasks are linked to an authorized customer opportunity and remain inside your data
+            scope.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -140,12 +141,15 @@ export function TaskFormDialog({
                   }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder={options.isPending ? 'Loading…' : 'Select opportunity'} />
+                    <SelectValue
+                      placeholder={options.isPending ? 'Loading…' : 'Select opportunity'}
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {(options.data ?? []).map((option) => (
                       <SelectItem key={option.lead_id} value={option.lead_id}>
-                        {option.customer_name} · {option.interested_model ?? 'Vehicle TBD'} · {option.branch_name}
+                        {option.customer_name} · {option.interested_model ?? 'Vehicle TBD'} ·{' '}
+                        {option.branch_name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -189,10 +193,14 @@ export function TaskFormDialog({
                   setPriority(value);
                 }}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   {['LOW', 'NORMAL', 'HIGH', 'URGENT'].map((value) => (
-                    <SelectItem key={value} value={value}>{value}</SelectItem>
+                    <SelectItem key={value} value={value}>
+                      {value}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -207,7 +215,9 @@ export function TaskFormDialog({
                     setStatus(value);
                   }}
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="OPEN">Open</SelectItem>
                     <SelectItem value="IN_PROGRESS">In progress</SelectItem>
@@ -239,8 +249,13 @@ export function TaskFormDialog({
             </Alert>
           )}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={mutation.isPending || !leadId || !title.trim() || !dueAt}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={mutation.isPending || (!record && !leadId) || !title.trim() || !dueAt}
+            >
               {mutation.isPending ? 'Saving…' : record ? 'Save task' : 'Create task'}
             </Button>
           </div>
@@ -326,7 +341,9 @@ export function TaskActionDialog({
             </Alert>
           )}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Back</Button>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Back
+            </Button>
             <Button
               type="submit"
               disabled={mutation.isPending || (action === 'cancel' && note.trim().length < 3)}

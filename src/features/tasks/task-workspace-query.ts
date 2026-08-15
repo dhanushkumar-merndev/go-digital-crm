@@ -16,7 +16,13 @@ export type TaskStatusFilter = (typeof taskStatusFilters)[number];
 export const taskPriorityFilters = ['all', 'LOW', 'NORMAL', 'HIGH', 'URGENT'] as const;
 export type TaskPriorityFilter = (typeof taskPriorityFilters)[number];
 
-export const taskSorts = ['due:asc', 'due:desc', 'updated:desc', 'priority:desc', 'customer:asc'] as const;
+export const taskSorts = [
+  'due:asc',
+  'due:desc',
+  'updated:desc',
+  'priority:desc',
+  'customer:asc',
+] as const;
 export type TaskSort = (typeof taskSorts)[number];
 
 export type TaskQuery = {

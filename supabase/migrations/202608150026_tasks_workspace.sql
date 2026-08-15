@@ -157,7 +157,8 @@ begin
   exception when invalid_parameter_value then
     raise exception using errcode = '22023', message = 'INVALID_TIMEZONE';
   end;
-  day_start := (current_date at time zone target_timezone);
+  day_start := date_trunc('day', now() at time zone target_timezone)
+    at time zone target_timezone;
   day_end := day_start + interval '1 day';
   if normalized_search ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then
     search_uuid := normalized_search::uuid;

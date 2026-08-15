@@ -1696,6 +1696,9 @@ begin
           when 'work' then
             app_private.has_permission(app_private.realtime_topic_organization(), 'lead.view')
             or app_private.has_permission(
+              app_private.realtime_topic_organization(), 'test_drive.view'
+            )
+            or app_private.has_permission(
               app_private.realtime_topic_organization(), 'test_drive.manage'
             )
           when 'notifications' then true

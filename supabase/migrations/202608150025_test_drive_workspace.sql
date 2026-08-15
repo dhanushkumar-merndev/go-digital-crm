@@ -1,9 +1,11 @@
 begin;
 
--- Test drives remain a separately authorized sales workflow. Existing custom
--- roles keep explicit control; frozen tenant roles are backfilled below.
-insert into public.permissions (permission_key, module, description)
-values ('test_drive.manage', 'test-drives', 'Schedule and progress test drives within authorized data scope')
+-- Viewing completed/active drive evidence is separate from lifecycle mutation.
+-- Existing custom roles keep explicit control; frozen tenant roles are
+-- backfilled below.
+insert into public.permissions (permission_key, module, description) values
+  ('test_drive.view', 'test-drives', 'View test drives within authorized data scope'),
+  ('test_drive.manage', 'test-drives', 'Schedule and progress test drives within authorized data scope')
 on conflict (permission_key) do update
 set module = excluded.module,
     description = excluded.description;
@@ -14,11 +16,22 @@ from public.roles role_row
 cross join public.permissions permission_row
 where role_row.organization_id is not null
   and role_row.system_role
-  and role_row.role_key in (
-    'client_admin', 'system_administrator', 'showroom_manager',
-    'team_manager', 'sales_consultant'
+  and (
+    (
+      role_row.role_key in (
+        'business_owner', 'client_admin', 'system_administrator', 'gm_sales',
+        'showroom_manager', 'team_manager', 'sales_consultant'
+      )
+      and permission_row.permission_key = 'test_drive.view'
+    )
+    or (
+      role_row.role_key in (
+        'client_admin', 'system_administrator', 'showroom_manager',
+        'team_manager', 'sales_consultant'
+      )
+      and permission_row.permission_key = 'test_drive.manage'
+    )
   )
-  and permission_row.permission_key = 'test_drive.manage'
 on conflict do nothing;
 
 create or replace function app_private.apply_default_test_drive_role_permissions()
@@ -28,17 +41,23 @@ security definer
 set search_path = ''
 as $$
 begin
-  if new.organization_id is not null
-    and new.system_role
-    and new.role_key in (
-      'client_admin', 'system_administrator', 'showroom_manager',
-      'team_manager', 'sales_consultant'
-    )
-  then
+  if new.organization_id is not null and new.system_role then
     insert into public.role_permissions (role_id, permission_id)
     select new.id, permission_row.id
     from public.permissions permission_row
-    where permission_row.permission_key = 'test_drive.manage'
+    where (
+      new.role_key in (
+        'business_owner', 'client_admin', 'system_administrator', 'gm_sales',
+        'showroom_manager', 'team_manager', 'sales_consultant'
+      )
+      and permission_row.permission_key = 'test_drive.view'
+    ) or (
+      new.role_key in (
+        'client_admin', 'system_administrator', 'showroom_manager',
+        'team_manager', 'sales_consultant'
+      )
+      and permission_row.permission_key = 'test_drive.manage'
+    )
     on conflict do nothing;
   end if;
   return new;
@@ -79,6 +98,38 @@ alter table public.test_drive_feedback
   add column if not exists version bigint not null default 1,
   add column if not exists updated_at timestamptz not null default now();
 
+-- Normalize legacy rows written through the original mobile RPCs before the
+-- stricter lifecycle checks begin protecting new writes. The legacy anchor RPC
+-- updated only test_drives, so its appointment can otherwise remain SCHEDULED.
+update public.test_drives
+set status = 'READY',
+    updated_at = now()
+where status = 'SCHEDULED';
+
+update public.test_drive_appointments appointment_row
+set status = case drive_row.status
+      when 'READY' then 'SCHEDULED'
+      else drive_row.status
+    end,
+    version = appointment_row.version + 1,
+    updated_at = now()
+from public.test_drives drive_row
+where drive_row.organization_id = appointment_row.organization_id
+  and drive_row.appointment_id = appointment_row.id
+  and appointment_row.status is distinct from case drive_row.status
+    when 'READY' then 'SCHEDULED'
+    else drive_row.status
+  end;
+
+update public.test_drives drive_row
+set route_finalized_at = coalesce(summary_row.finalized_at, summary_row.created_at),
+    updated_at = now()
+from public.test_drive_route_summaries summary_row
+where summary_row.organization_id = drive_row.organization_id
+  and summary_row.test_drive_id = drive_row.id
+  and drive_row.status = 'COMPLETED'
+  and drive_row.route_finalized_at is null;
+
 alter table public.test_drive_appointments drop constraint if exists test_drive_appointments_status_check;
 alter table public.test_drive_appointments
   add constraint test_drive_appointments_status_check
@@ -88,12 +139,18 @@ alter table public.test_drive_appointments
   add constraint test_drive_appointments_schedule_check
   check (
     version > 0
+    and stock_unit_id is not null
     and expected_duration_minutes between 15 and 480
     and (vehicle_registration is null or char_length(btrim(vehicle_registration)) between 4 and 24)
     and (
-      status <> 'CANCELLED'
+      (
+        status in ('SCHEDULED', 'ACTIVE', 'COMPLETED')
+        and cancelled_at is null
+        and cancellation_reason is null
+      )
       or (
-        cancelled_at is not null
+        status = 'CANCELLED'
+        and cancelled_at is not null
         and char_length(btrim(cancellation_reason)) between 5 and 1000
       )
     )
@@ -108,16 +165,86 @@ alter table public.test_drives
   add constraint test_drives_lifecycle_check
   check (
     version > 0
+    and appointment_id is not null
     and (start_odometer is null or start_odometer between 0 and 2000000)
     and (end_odometer is null or end_odometer between 0 and 2000000)
     and (end_odometer is null or start_odometer is null or end_odometer >= start_odometer)
     and (distance_meters is null or distance_meters >= 0)
     and (duration_seconds is null or duration_seconds >= 0)
-    and (route_finalized_at is null or status = 'COMPLETED')
     and (
-      status <> 'CANCELLED'
+      (reached_at is null and reached_anchor is null)
       or (
-        cancelled_at is not null
+        reached_at is not null
+        and reached_anchor is not null
+        and started_at is not null
+        and reached_at >= started_at
+        and (completed_at is null or reached_at <= completed_at)
+      )
+    )
+    and (
+      route_finalized_at is null
+      or (
+        status = 'COMPLETED'
+        and completed_at is not null
+        and route_finalized_at >= completed_at
+      )
+    )
+    and (
+      (
+        status = 'READY'
+        and started_at is null
+        and completed_at is null
+        and start_anchor is null
+        and end_anchor is null
+        and start_odometer is null
+        and end_odometer is null
+        and reached_at is null
+        and reached_anchor is null
+        and distance_meters is null
+        and duration_seconds is null
+        and cancelled_at is null
+        and cancellation_reason is null
+      )
+      or (
+        status = 'ACTIVE'
+        and started_at is not null
+        and start_anchor is not null
+        and start_odometer is not null
+        and completed_at is null
+        and end_anchor is null
+        and end_odometer is null
+        and distance_meters is null
+        and duration_seconds is null
+        and cancelled_at is null
+        and cancellation_reason is null
+      )
+      or (
+        status = 'COMPLETED'
+        and started_at is not null
+        and completed_at is not null
+        and completed_at >= started_at
+        and start_anchor is not null
+        and end_anchor is not null
+        and start_odometer is not null
+        and end_odometer is not null
+        and distance_meters is not null
+        and duration_seconds is not null
+        and cancelled_at is null
+        and cancellation_reason is null
+      )
+      or (
+        status = 'CANCELLED'
+        and started_at is null
+        and completed_at is null
+        and start_anchor is null
+        and end_anchor is null
+        and start_odometer is null
+        and end_odometer is null
+        and reached_at is null
+        and reached_anchor is null
+        and distance_meters is null
+        and duration_seconds is null
+        and cancelled_at is not null
         and char_length(btrim(cancellation_reason)) between 5 and 1000
       )
     )
@@ -150,6 +277,16 @@ create index if not exists test_drive_appointments_workspace_idx
   on public.test_drive_appointments (organization_id, status, scheduled_at, id);
 create index if not exists test_drive_appointments_scope_workspace_idx
   on public.test_drive_appointments (organization_id, branch_id, team_id, scheduled_at, id);
+create index if not exists test_drive_appointments_stock_schedule_idx
+  on public.test_drive_appointments (
+    organization_id, stock_unit_id, status, scheduled_at, id
+  )
+  where stock_unit_id is not null and status in ('SCHEDULED', 'ACTIVE');
+create index if not exists test_drive_appointments_assignee_schedule_idx
+  on public.test_drive_appointments (
+    organization_id, assigned_user_id, status, scheduled_at, id
+  )
+  where status in ('SCHEDULED', 'ACTIVE');
 create index if not exists test_drives_workspace_idx
   on public.test_drives (organization_id, status, updated_at desc, id desc);
 create index if not exists test_drives_owner_workspace_idx
@@ -160,6 +297,11 @@ create unique index if not exists test_drives_one_per_appointment_idx
 create unique index if not exists test_drive_active_vehicle_idx
   on public.test_drive_appointments (organization_id, stock_unit_id)
   where stock_unit_id is not null and status = 'ACTIVE';
+create unique index if not exists test_drive_active_consultant_idx
+  on public.test_drive_appointments (organization_id, assigned_user_id)
+  where status = 'ACTIVE';
+create index if not exists quotations_test_drive_conversion_idx
+  on public.quotations (organization_id, lead_id, created_at desc, id desc);
 create unique index if not exists test_drive_mutation_request_unique_idx
   on public.audit_logs (organization_id, actor_id, request_id)
   where request_id is not null and action like 'test_drive.%';
@@ -194,6 +336,11 @@ alter table public.test_drive_appointments
   add constraint test_drive_appointments_stock_org_fk
   foreign key (organization_id, stock_unit_id)
   references public.stock_units (organization_id, id) not valid;
+alter table public.test_drive_appointments drop constraint if exists test_drive_appointments_creator_org_fk;
+alter table public.test_drive_appointments
+  add constraint test_drive_appointments_creator_org_fk
+  foreign key (organization_id, created_by)
+  references public.profiles (organization_id, id) not valid;
 
 alter table public.test_drives drop constraint if exists test_drives_appointment_org_fk;
 alter table public.test_drives
@@ -225,6 +372,248 @@ alter table public.test_drives
   add constraint test_drives_assignee_org_fk
   foreign key (organization_id, assigned_user_id)
   references public.profiles (organization_id, id) not valid;
+
+alter table public.test_drive_route_summaries
+  drop constraint if exists test_drive_route_summaries_drive_org_fk;
+alter table public.test_drive_route_summaries
+  add constraint test_drive_route_summaries_drive_org_fk
+  foreign key (organization_id, test_drive_id)
+  references public.test_drives (organization_id, id) not valid;
+alter table public.test_drive_route_points
+  drop constraint if exists test_drive_route_points_drive_org_fk;
+alter table public.test_drive_route_points
+  add constraint test_drive_route_points_drive_org_fk
+  foreign key (organization_id, test_drive_id)
+  references public.test_drives (organization_id, id) not valid;
+alter table public.test_drive_feedback
+  drop constraint if exists test_drive_feedback_drive_org_fk;
+alter table public.test_drive_feedback
+  add constraint test_drive_feedback_drive_org_fk
+  foreign key (organization_id, test_drive_id)
+  references public.test_drives (organization_id, id) not valid;
+alter table public.live_tracking_sessions
+  drop constraint if exists live_tracking_sessions_drive_org_fk;
+alter table public.live_tracking_sessions
+  add constraint live_tracking_sessions_drive_org_fk
+  foreign key (organization_id, test_drive_id)
+  references public.test_drives (organization_id, id) not valid;
+alter table public.live_tracking_sessions
+  drop constraint if exists live_tracking_sessions_requester_org_fk;
+alter table public.live_tracking_sessions
+  add constraint live_tracking_sessions_requester_org_fk
+  foreign key (organization_id, requested_by)
+  references public.profiles (organization_id, id) not valid;
+
+-- Duplicated scope columns keep historical queries fast, but every newly
+-- scheduled row must still agree with its canonical lead, customer, team,
+-- assignee and stock-unit branch.
+create or replace function app_private.validate_test_drive_appointment_scope()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not exists (
+    select 1
+    from public.branches branch_row
+    where branch_row.organization_id = new.organization_id
+      and branch_row.id = new.branch_id
+      and branch_row.active
+      and branch_row.deleted_at is null
+  ) then
+    raise exception using errcode = '23514', message = 'TEST_DRIVE_BRANCH_MISMATCH';
+  end if;
+  if new.team_id is null or not exists (
+    select 1
+    from public.teams team_row
+    where team_row.organization_id = new.organization_id
+      and team_row.branch_id = new.branch_id
+      and team_row.id = new.team_id
+      and team_row.active
+  ) then
+    raise exception using errcode = '23514', message = 'TEST_DRIVE_TEAM_MISMATCH';
+  end if;
+  if new.lead_id is null or not exists (
+    select 1
+    from public.leads lead_row
+    where lead_row.organization_id = new.organization_id
+      and lead_row.id = new.lead_id
+      and lead_row.branch_id = new.branch_id
+      and lead_row.team_id = new.team_id
+      and lead_row.customer_id = new.customer_id
+      and lead_row.assigned_user_id = new.assigned_user_id
+      and lead_row.deleted_at is null
+  ) then
+    raise exception using errcode = '23514', message = 'TEST_DRIVE_LEAD_SCOPE_MISMATCH';
+  end if;
+  if not exists (
+    select 1
+    from public.stock_units stock_row
+    where stock_row.organization_id = new.organization_id
+      and stock_row.id = new.stock_unit_id
+      and stock_row.branch_id = new.branch_id
+      and stock_row.deleted_at is null
+  ) then
+    raise exception using errcode = '23514', message = 'TEST_DRIVE_STOCK_SCOPE_MISMATCH';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists test_drive_appointments_validate_scope
+on public.test_drive_appointments;
+create trigger test_drive_appointments_validate_scope
+before insert or update of organization_id, branch_id, team_id, customer_id,
+  lead_id, assigned_user_id, stock_unit_id
+on public.test_drive_appointments
+for each row execute function app_private.validate_test_drive_appointment_scope();
+
+create or replace function app_private.validate_test_drive_scope()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.appointment_id is null or not exists (
+    select 1
+    from public.test_drive_appointments appointment_row
+    where appointment_row.organization_id = new.organization_id
+      and appointment_row.id = new.appointment_id
+      and appointment_row.branch_id = new.branch_id
+      and appointment_row.team_id = new.team_id
+      and appointment_row.customer_id = new.customer_id
+      and appointment_row.lead_id = new.lead_id
+      and appointment_row.assigned_user_id = new.assigned_user_id
+  ) then
+    raise exception using errcode = '23514', message = 'TEST_DRIVE_APPOINTMENT_SCOPE_MISMATCH';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists test_drives_validate_scope on public.test_drives;
+create trigger test_drives_validate_scope
+before insert or update of organization_id, branch_id, team_id, appointment_id,
+  customer_id, lead_id, assigned_user_id
+on public.test_drives
+for each row execute function app_private.validate_test_drive_scope();
+
+-- Inventory cannot allocate, transfer, retire or otherwise make a vehicle
+-- unavailable while it backs a scheduled/active test drive. This closes the
+-- race between the independently authorized inventory and test-drive RPCs.
+create or replace function app_private.protect_test_drive_stock()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if exists (
+    select 1
+    from public.test_drive_appointments appointment_row
+    where appointment_row.organization_id = old.organization_id
+      and appointment_row.stock_unit_id = old.id
+      and appointment_row.status in ('SCHEDULED', 'ACTIVE')
+  ) and (
+    new.organization_id is distinct from old.organization_id
+    or new.branch_id is distinct from old.branch_id
+    or new.deleted_at is distinct from old.deleted_at
+    or (
+      new.status is distinct from old.status
+      and new.status <> 'AVAILABLE'
+    )
+  ) then
+    raise exception using errcode = '23514', message = 'TEST_DRIVE_PREVENTS_STOCK_CHANGE';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists stock_units_protect_test_drive on public.stock_units;
+create trigger stock_units_protect_test_drive
+before update of organization_id, branch_id, status, deleted_at
+on public.stock_units
+for each row execute function app_private.protect_test_drive_stock();
+
+create or replace function app_private.protect_test_drive_stock_allocation()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.status in (
+    'ACTIVE', 'PENDING', 'SUGGESTED', 'RESERVED', 'ALLOCATED', 'ON_HOLD'
+  ) and exists (
+    select 1
+    from public.test_drive_appointments appointment_row
+    where appointment_row.organization_id = new.organization_id
+      and appointment_row.stock_unit_id = new.stock_unit_id
+      and appointment_row.status in ('SCHEDULED', 'ACTIVE')
+  ) then
+    raise exception using errcode = '23514', message = 'TEST_DRIVE_PREVENTS_STOCK_ALLOCATION';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists stock_allocations_protect_test_drive
+on public.stock_allocations;
+create trigger stock_allocations_protect_test_drive
+before insert or update of organization_id, stock_unit_id, status
+on public.stock_allocations
+for each row execute function app_private.protect_test_drive_stock_allocation();
+
+-- This migration normalizes the only legacy lifecycle differences above. Do
+-- not leave new tenant-integrity guarantees permanently untrusted.
+alter table public.test_drive_appointments
+  validate constraint test_drive_appointments_status_check;
+alter table public.test_drive_appointments
+  validate constraint test_drive_appointments_schedule_check;
+alter table public.test_drive_appointments
+  validate constraint test_drive_appointments_branch_org_fk;
+alter table public.test_drive_appointments
+  validate constraint test_drive_appointments_team_org_fk;
+alter table public.test_drive_appointments
+  validate constraint test_drive_appointments_customer_org_fk;
+alter table public.test_drive_appointments
+  validate constraint test_drive_appointments_lead_org_fk;
+alter table public.test_drive_appointments
+  validate constraint test_drive_appointments_assignee_org_fk;
+alter table public.test_drive_appointments
+  validate constraint test_drive_appointments_stock_org_fk;
+alter table public.test_drive_appointments
+  validate constraint test_drive_appointments_creator_org_fk;
+alter table public.test_drives
+  validate constraint test_drives_status_check;
+alter table public.test_drives
+  validate constraint test_drives_lifecycle_check;
+alter table public.test_drives
+  validate constraint test_drives_appointment_org_fk;
+alter table public.test_drives
+  validate constraint test_drives_branch_org_fk;
+alter table public.test_drives
+  validate constraint test_drives_team_org_fk;
+alter table public.test_drives
+  validate constraint test_drives_customer_org_fk;
+alter table public.test_drives
+  validate constraint test_drives_lead_org_fk;
+alter table public.test_drives
+  validate constraint test_drives_assignee_org_fk;
+alter table public.test_drive_route_summaries
+  validate constraint test_drive_route_summaries_drive_org_fk;
+alter table public.test_drive_route_points
+  validate constraint test_drive_route_points_drive_org_fk;
+alter table public.test_drive_feedback
+  validate constraint test_drive_feedback_detail_check;
+alter table public.test_drive_feedback
+  validate constraint test_drive_feedback_drive_org_fk;
+alter table public.live_tracking_sessions
+  validate constraint live_tracking_sessions_drive_org_fk;
+alter table public.live_tracking_sessions
+  validate constraint live_tracking_sessions_requester_org_fk;
 
 create or replace function app_private.test_drive_request_fingerprint(payload jsonb)
 returns text
@@ -289,6 +678,9 @@ begin
   if jsonb_typeof(target_location) <> 'object'
     or octet_length(target_location::text) > 2000
   then return false; end if;
+  if not (target_location ? 'label') and not (target_location ? 'latitude') then
+    return false;
+  end if;
   if target_location ? 'label' and (
     jsonb_typeof(target_location->'label') <> 'string'
     or char_length(btrim(target_location->>'label')) not between 1 and 240
@@ -310,22 +702,73 @@ exception when others then
 end;
 $$;
 
+create or replace function app_private.can_access_test_drive(
+  target_organization_id uuid,
+  target_test_drive_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.test_drives drive_row
+    where drive_row.organization_id = target_organization_id
+      and drive_row.id = target_test_drive_id
+      and (
+        app_private.has_permission(target_organization_id, 'test_drive.view')
+        or app_private.has_permission(target_organization_id, 'test_drive.manage')
+      )
+      and app_private.has_permission(target_organization_id, 'customer.view')
+      and app_private.can_access_record(
+        drive_row.organization_id,
+        drive_row.branch_id,
+        drive_row.team_id,
+        drive_row.assigned_user_id
+      )
+      and app_private.can_access_customer(
+        drive_row.organization_id,
+        drive_row.customer_id
+      )
+      and (
+        drive_row.lead_id is null
+        or app_private.can_access_lead(drive_row.lead_id)
+        or (
+          app_private.has_permission(target_organization_id, 'test_drive.view')
+          and app_private.has_organization_wide_scope(target_organization_id)
+        )
+      )
+  );
+$$;
+
 drop policy if exists test_drive_appointments_read on public.test_drive_appointments;
 create policy test_drive_appointments_read on public.test_drive_appointments
 for select to authenticated using (
-  app_private.has_permission(organization_id, 'test_drive.manage')
+  (
+    app_private.has_permission(organization_id, 'test_drive.view')
+    or app_private.has_permission(organization_id, 'test_drive.manage')
+  )
   and app_private.has_permission(organization_id, 'customer.view')
   and app_private.can_access_record(organization_id, branch_id, team_id, assigned_user_id)
   and app_private.can_access_customer(organization_id, customer_id)
-  and (lead_id is null or app_private.can_access_lead(lead_id))
+  and (
+    lead_id is null
+    or app_private.can_access_lead(lead_id)
+    or (
+      app_private.has_permission(organization_id, 'test_drive.view')
+      and app_private.has_organization_wide_scope(organization_id)
+    )
+  )
 );
 
-revoke insert, update, delete on public.test_drive_appointments from anon, authenticated;
-revoke insert, update, delete on public.test_drives from anon, authenticated;
-revoke insert, update, delete on public.test_drive_feedback from anon, authenticated;
-revoke insert, update, delete on public.test_drive_route_summaries from anon, authenticated;
-revoke insert, update, delete on public.test_drive_route_points from anon, authenticated;
-revoke insert, update, delete on public.live_tracking_sessions from anon, authenticated;
+revoke insert, update, delete, truncate on public.test_drive_appointments from anon, authenticated;
+revoke insert, update, delete, truncate on public.test_drives from anon, authenticated;
+revoke insert, update, delete, truncate on public.test_drive_feedback from anon, authenticated;
+revoke insert, update, delete, truncate on public.test_drive_route_summaries from anon, authenticated;
+revoke insert, update, delete, truncate on public.test_drive_route_points from anon, authenticated;
+revoke insert, update, delete, truncate on public.live_tracking_sessions from anon, authenticated;
 
 create or replace function public.get_test_drive_workspace_page(
   target_view text default 'TODAY',
@@ -357,10 +800,11 @@ begin
   if upper(coalesce(target_view, '')) not in ('TODAY', 'UPCOMING', 'ACTIVE', 'COMPLETED', 'CANCELLED')
     or char_length(normalized_search) > 160
     or char_length(normalized_model) > 120
-    or target_page not between 1 and 1000000
-    or target_page_size not in (25, 50, 100)
+    or target_page is null or target_page not between 1 and 1000000
+    or target_page_size is null or target_page_size not in (25, 50, 100)
+    or target_sort is null
     or target_sort not in ('scheduled:asc', 'scheduled:desc', 'updated:desc', 'customer:asc')
-    or target_timezone not in ('Asia/Kolkata', 'UTC')
+    or target_timezone is null or target_timezone not in ('Asia/Kolkata', 'UTC')
     or (target_from_date is not null and target_to_date is not null and target_from_date > target_to_date)
     or (target_from_date is not null and target_to_date is not null and target_to_date > target_from_date + 366)
   then
@@ -371,7 +815,10 @@ begin
   end if;
   current_organization_id := app_private.current_tenant_organization();
   if current_organization_id is null
-    or not app_private.has_permission(current_organization_id, 'test_drive.manage')
+    or not (
+      app_private.has_permission(current_organization_id, 'test_drive.view')
+      or app_private.has_permission(current_organization_id, 'test_drive.manage')
+    )
     or not app_private.has_permission(current_organization_id, 'customer.view')
   then
     raise exception using errcode = '42501', message = 'TEST_DRIVE_VIEW_PERMISSION_REQUIRED';
@@ -431,15 +878,38 @@ begin
         when summary_row.id is not null then 'ROUTE_FINALIZED'
         else 'NOT_STARTED'
       end as gps_status,
-      (
-        select quotation_row.status
-        from public.quotations quotation_row
-        where quotation_row.organization_id = drive_row.organization_id
-          and quotation_row.customer_id = drive_row.customer_id
-          and quotation_row.created_at >= coalesce(drive_row.completed_at, drive_row.created_at)
-        order by quotation_row.created_at desc, quotation_row.id desc
-        limit 1
-      ) as quotation_status
+      case
+        when app_private.has_permission(drive_row.organization_id, 'quotation.view')
+          or app_private.has_permission(drive_row.organization_id, 'quotation.manage')
+        then (
+          select quotation_row.status
+          from public.quotations quotation_row
+          where quotation_row.organization_id = drive_row.organization_id
+            and quotation_row.lead_id = drive_row.lead_id
+            and quotation_row.created_at >= coalesce(drive_row.completed_at, drive_row.created_at)
+            and app_private.can_access_record(
+              quotation_row.organization_id,
+              quotation_row.branch_id,
+              quotation_row.team_id,
+              quotation_row.assigned_user_id
+            )
+          order by quotation_row.created_at desc, quotation_row.id desc
+          limit 1
+        )
+        else null
+      end as quotation_status,
+      case
+        when drive_row.status = 'READY'
+          and timezone(target_timezone, appointment_row.scheduled_at)::date
+            < timezone(target_timezone, now())::date
+          then 'OVERDUE'
+        when drive_row.status = 'READY'
+          and timezone(target_timezone, appointment_row.scheduled_at)::date
+            = timezone(target_timezone, now())::date
+          then 'TODAY'
+        when drive_row.status = 'READY' then 'UPCOMING'
+        else drive_row.status
+      end as schedule_state
     from public.test_drives drive_row
     join public.test_drive_appointments appointment_row
       on appointment_row.id = drive_row.appointment_id
@@ -482,6 +952,18 @@ begin
         drive_row.team_id,
         drive_row.assigned_user_id
       )
+      and app_private.can_access_customer(
+        drive_row.organization_id,
+        drive_row.customer_id
+      )
+      and (
+        drive_row.lead_id is null
+        or app_private.can_access_lead(drive_row.lead_id)
+        or (
+          app_private.has_permission(drive_row.organization_id, 'test_drive.view')
+          and app_private.has_organization_wide_scope(drive_row.organization_id)
+        )
+      )
       and (target_from_date is null or timezone(target_timezone, appointment_row.scheduled_at)::date >= target_from_date)
       and (target_to_date is null or timezone(target_timezone, appointment_row.scheduled_at)::date <= target_to_date)
       and (
@@ -493,12 +975,12 @@ begin
       and (
         normalized_search = ''
         or drive_row.id = search_uuid
-        or position(normalized_search in lower(customer_row.full_name)) > 0
+        or customer_row.normalized_name ilike '%' || normalized_search || '%'
         or position(normalized_search in lower(coalesce(stock_row.vin, ''))) > 0
         or position(normalized_search in lower(coalesce(appointment_row.vehicle_registration, ''))) > 0
         or (
           app_private.normalize_phone_digits(normalized_search) <> ''
-          and app_private.normalize_phone_digits(customer_row.primary_phone)
+          and app_private.normalize_phone_digits(customer_row.normalized_phone)
             = app_private.normalize_phone_digits(normalized_search)
         )
       )
@@ -508,7 +990,7 @@ begin
     where case upper(target_view)
       when 'TODAY' then authorized_row.status = 'READY'
         and timezone(target_timezone, authorized_row.scheduled_at)::date
-          = timezone(target_timezone, now())::date
+          <= timezone(target_timezone, now())::date
       when 'UPCOMING' then authorized_row.status = 'READY'
         and timezone(target_timezone, authorized_row.scheduled_at)::date
           > timezone(target_timezone, now())::date
@@ -544,6 +1026,8 @@ begin
     'kpis', jsonb_build_object(
       'today', (select count(*) from authorized where status = 'READY'
         and timezone(target_timezone, scheduled_at)::date = timezone(target_timezone, now())::date),
+      'overdue', (select count(*) from authorized where status = 'READY'
+        and timezone(target_timezone, scheduled_at)::date < timezone(target_timezone, now())::date),
       'upcoming', (select count(*) from authorized where status = 'READY'
         and timezone(target_timezone, scheduled_at)::date > timezone(target_timezone, now())::date),
       'active', (select count(*) from authorized where status = 'ACTIVE'),
@@ -573,13 +1057,17 @@ declare
   normalized_search text := lower(btrim(coalesce(target_search, '')));
   result jsonb;
 begin
-  if char_length(normalized_search) > 160 or target_limit not between 1 and 25 then
+  if char_length(normalized_search) > 160
+    or target_limit is null or target_limit not between 1 and 25
+  then
     raise exception using errcode = '22023', message = 'INVALID_TEST_DRIVE_LEAD_QUERY';
   end if;
   current_organization_id := app_private.current_tenant_organization();
   if current_organization_id is null
     or not app_private.has_permission(current_organization_id, 'test_drive.manage')
     or not app_private.has_permission(current_organization_id, 'customer.view')
+    or not app_private.has_permission(current_organization_id, 'lead.view')
+    or not app_private.has_permission(current_organization_id, 'lead.update')
   then raise exception using errcode = '42501', message = 'TEST_DRIVE_MANAGE_PERMISSION_REQUIRED'; end if;
   select coalesce(jsonb_agg(to_jsonb(option_row) order by option_row.updated_at desc), '[]'::jsonb)
     into result
@@ -616,13 +1104,18 @@ begin
       and app_private.can_access_record(
         lead_row.organization_id, lead_row.branch_id, lead_row.team_id, lead_row.assigned_user_id
       )
+      and app_private.can_access_customer(
+        lead_row.organization_id,
+        lead_row.customer_id
+      )
+      and app_private.can_access_lead(lead_row.id)
       and (
         normalized_search = ''
-        or position(normalized_search in lower(customer_row.full_name)) > 0
+        or customer_row.normalized_name ilike '%' || normalized_search || '%'
         or position(normalized_search in lower(coalesce(lead_row.interested_model, ''))) > 0
         or (
           app_private.normalize_phone_digits(normalized_search) <> ''
-          and app_private.normalize_phone_digits(customer_row.primary_phone)
+          and app_private.normalize_phone_digits(customer_row.normalized_phone)
             = app_private.normalize_phone_digits(normalized_search)
         )
       )
@@ -649,7 +1142,9 @@ declare
   normalized_search text := lower(btrim(coalesce(target_search, '')));
   result jsonb;
 begin
-  if target_branch_id is null or char_length(normalized_search) > 120 or target_limit not between 1 and 25 then
+  if target_branch_id is null or char_length(normalized_search) > 120
+    or target_limit is null or target_limit not between 1 and 25
+  then
     raise exception using errcode = '22023', message = 'INVALID_TEST_DRIVE_VEHICLE_QUERY';
   end if;
   current_organization_id := app_private.current_tenant_organization();
@@ -735,6 +1230,7 @@ begin
   if auth.uid() is null then raise exception using errcode = '42501', message = 'AUTHENTICATION_REQUIRED'; end if;
   if target_request_id is null or target_lead_id is null or target_stock_unit_id is null
     or target_scheduled_at is null
+    or target_expected_duration_minutes is null
     or target_expected_duration_minutes not between 15 and 480
     or target_scheduled_at < now() - interval '15 minutes'
     or target_scheduled_at > now() + interval '1 year'
@@ -746,6 +1242,8 @@ begin
   if current_organization_id is null
     or not app_private.has_permission(current_organization_id, 'test_drive.manage')
     or not app_private.has_permission(current_organization_id, 'customer.view')
+    or not app_private.has_permission(current_organization_id, 'lead.view')
+    or not app_private.has_permission(current_organization_id, 'lead.update')
   then raise exception using errcode = '42501', message = 'TEST_DRIVE_MANAGE_PERMISSION_REQUIRED'; end if;
   select * into lead_row
   from public.leads source_row
@@ -754,11 +1252,15 @@ begin
     and source_row.customer_id is not null
     and source_row.assigned_user_id is not null
     and source_row.deleted_at is null
-    and source_row.lifecycle_status <> 'Lost';
+    and source_row.lifecycle_status <> 'Lost'
+  for update;
   if not found then raise exception using errcode = 'P0002', message = 'TEST_DRIVE_LEAD_NOT_FOUND'; end if;
   if not app_private.can_access_record(
     lead_row.organization_id, lead_row.branch_id, lead_row.team_id, lead_row.assigned_user_id
-  ) then raise exception using errcode = '42501', message = 'TEST_DRIVE_SCOPE_DENIED'; end if;
+  ) or not app_private.can_access_customer(
+    lead_row.organization_id, lead_row.customer_id
+  ) or not app_private.can_access_lead(lead_row.id)
+  then raise exception using errcode = '42501', message = 'TEST_DRIVE_SCOPE_DENIED'; end if;
   if not exists (
     select 1 from public.customers customer_row
     where customer_row.id = lead_row.customer_id
@@ -789,6 +1291,9 @@ begin
   );
   if replay_result is not null then return replay_result; end if;
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+    current_organization_id::text || ':test-drive-assignee:' || lead_row.assigned_user_id::text, 0
+  ));
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
     current_organization_id::text || ':test-drive-stock:' || target_stock_unit_id::text, 0
   ));
   select * into stock_row
@@ -808,6 +1313,14 @@ begin
       and existing_row.scheduled_at < target_scheduled_at + make_interval(mins => target_expected_duration_minutes)
       and existing_row.scheduled_at + make_interval(mins => existing_row.expected_duration_minutes) > target_scheduled_at
   ) then raise exception using errcode = '23P01', message = 'TEST_DRIVE_VEHICLE_SCHEDULE_CONFLICT'; end if;
+  if exists (
+    select 1 from public.test_drive_appointments existing_row
+    where existing_row.organization_id = current_organization_id
+      and existing_row.assigned_user_id = lead_row.assigned_user_id
+      and existing_row.status in ('SCHEDULED', 'ACTIVE')
+      and existing_row.scheduled_at < target_scheduled_at + make_interval(mins => target_expected_duration_minutes)
+      and existing_row.scheduled_at + make_interval(mins => existing_row.expected_duration_minutes) > target_scheduled_at
+  ) then raise exception using errcode = '23P01', message = 'TEST_DRIVE_CONSULTANT_SCHEDULE_CONFLICT'; end if;
 
   insert into public.test_drive_appointments (
     organization_id, branch_id, team_id, customer_id, lead_id,
@@ -908,9 +1421,9 @@ begin
     and source_row.organization_id = current_organization_id
   for update;
   if not found then raise exception using errcode = 'P0002', message = 'TEST_DRIVE_NOT_FOUND'; end if;
-  if not app_private.can_access_record(
-    drive_row.organization_id, drive_row.branch_id, drive_row.team_id, drive_row.assigned_user_id
-  ) then raise exception using errcode = '42501', message = 'TEST_DRIVE_SCOPE_DENIED'; end if;
+  if not app_private.can_access_test_drive(drive_row.organization_id, drive_row.id) then
+    raise exception using errcode = '42501', message = 'TEST_DRIVE_SCOPE_DENIED';
+  end if;
   if drive_row.version <> expected_version then
     raise exception using errcode = '40001', message = 'TEST_DRIVE_VERSION_CONFLICT';
   end if;
@@ -965,7 +1478,8 @@ declare
   replay_result jsonb;
   result jsonb;
 begin
-  if target_test_drive_id is null or anchor_kind not in ('start', 'reached', 'end')
+  if target_test_drive_id is null or anchor_kind is null
+    or anchor_kind not in ('start', 'reached', 'end')
     or recorded_at is null or recorded_at > now() + interval '5 minutes'
     or recorded_at < now() - interval '7 days'
     or latitude is null or longitude is null
@@ -996,17 +1510,22 @@ begin
     and source_row.organization_id = current_organization_id
   for update;
   if not found then raise exception using errcode = 'P0002', message = 'TEST_DRIVE_NOT_FOUND'; end if;
-  if not app_private.can_access_record(
-    drive_row.organization_id, drive_row.branch_id, drive_row.team_id, drive_row.assigned_user_id
-  ) then raise exception using errcode = '42501', message = 'TEST_DRIVE_SCOPE_DENIED'; end if;
+  if not app_private.can_access_test_drive(drive_row.organization_id, drive_row.id) then
+    raise exception using errcode = '42501', message = 'TEST_DRIVE_SCOPE_DENIED';
+  end if;
+  if drive_row.assigned_user_id <> auth.uid() then
+    raise exception using errcode = '42501', message = 'TEST_DRIVE_ASSIGNEE_REQUIRED';
+  end if;
   if drive_row.version <> expected_version then
     raise exception using errcode = '40001', message = 'TEST_DRIVE_VERSION_CONFLICT';
   end if;
   anchor := jsonb_build_object('latitude', latitude, 'longitude', longitude, 'recorded_at', recorded_at);
   if anchor_kind = 'start' then
     if drive_row.status <> 'READY' then raise exception using errcode = '23514', message = 'INVALID_START_TRANSITION'; end if;
-    if not exists (
-      select 1 from public.test_drive_appointments appointment_row
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+      drive_row.organization_id::text || ':test-drive-assignee:' || drive_row.assigned_user_id::text, 0
+    ));
+    perform 1 from public.test_drive_appointments appointment_row
       join public.stock_units stock_row
         on stock_row.id = appointment_row.stock_unit_id
        and stock_row.organization_id = appointment_row.organization_id
@@ -1016,7 +1535,20 @@ begin
       where appointment_row.id = drive_row.appointment_id
         and appointment_row.organization_id = drive_row.organization_id
         and appointment_row.status = 'SCHEDULED'
-    ) then raise exception using errcode = '23514', message = 'TEST_DRIVE_VEHICLE_UNAVAILABLE'; end if;
+    for update of appointment_row, stock_row;
+    if not found then
+      raise exception using errcode = '23514', message = 'TEST_DRIVE_VEHICLE_UNAVAILABLE';
+    end if;
+    if exists (
+      select 1
+      from public.test_drive_appointments active_row
+      where active_row.organization_id = drive_row.organization_id
+        and active_row.assigned_user_id = drive_row.assigned_user_id
+        and active_row.status = 'ACTIVE'
+        and active_row.id <> drive_row.appointment_id
+    ) then
+      raise exception using errcode = '23514', message = 'TEST_DRIVE_CONSULTANT_ALREADY_ACTIVE';
+    end if;
     update public.test_drives set status = 'ACTIVE', started_at = recorded_at,
       start_anchor = anchor, start_odometer = odometer, version = version + 1, updated_at = now()
     where id = drive_row.id returning * into drive_row;
@@ -1088,6 +1620,7 @@ begin
   if target_test_drive_id is null or expected_version is null or expected_version < 1
     or target_request_id is null or route_points is null or jsonb_typeof(route_points) <> 'array'
     or jsonb_array_length(route_points) > 2000
+    or octet_length(route_points::text) > 2000000
     or (encoded_polyline is not null and char_length(encoded_polyline) > 100000)
   then raise exception using errcode = '22023', message = 'INVALID_TEST_DRIVE_ROUTE'; end if;
   current_organization_id := app_private.current_tenant_organization();
@@ -1102,7 +1635,7 @@ begin
     current_organization_id::text || ':' || auth.uid()::text || ':' || target_request_id::text, 0
   ));
   replay_result := app_private.replay_test_drive_request(
-    current_organization_id, 'test_drive.route.finalized', target_request_id, fingerprint
+    current_organization_id, 'test_drive.route.uploaded', target_request_id, fingerprint
   );
   if replay_result is not null then return replay_result; end if;
   select * into drive_row from public.test_drives source_row
@@ -1110,9 +1643,12 @@ begin
     and source_row.organization_id = current_organization_id
   for update;
   if not found then raise exception using errcode = 'P0002', message = 'TEST_DRIVE_NOT_FOUND'; end if;
-  if not app_private.can_access_record(
-    drive_row.organization_id, drive_row.branch_id, drive_row.team_id, drive_row.assigned_user_id
-  ) then raise exception using errcode = '42501', message = 'TEST_DRIVE_SCOPE_DENIED'; end if;
+  if not app_private.can_access_test_drive(drive_row.organization_id, drive_row.id) then
+    raise exception using errcode = '42501', message = 'TEST_DRIVE_SCOPE_DENIED';
+  end if;
+  if drive_row.assigned_user_id <> auth.uid() then
+    raise exception using errcode = '42501', message = 'TEST_DRIVE_ASSIGNEE_REQUIRED';
+  end if;
   if drive_row.version <> expected_version then
     raise exception using errcode = '40001', message = 'TEST_DRIVE_VERSION_CONFLICT';
   end if;
@@ -1127,7 +1663,7 @@ begin
   insert into public.audit_logs (
     organization_id, actor_id, action, resource_type, resource_id, branch_id, request_id, metadata
   ) values (
-    drive_row.organization_id, auth.uid(), 'test_drive.route.finalized', 'test_drive',
+    drive_row.organization_id, auth.uid(), 'test_drive.route.uploaded', 'test_drive',
     drive_row.id::text, drive_row.branch_id, target_request_id,
     jsonb_build_object('fingerprint', fingerprint, 'result', result,
       'summary_id', summary_id, 'point_count', jsonb_array_length(route_points))
@@ -1168,12 +1704,14 @@ declare
 begin
   if target_test_drive_id is null or expected_version is null or expected_version < 1
     or target_request_id is null
+    or target_driving_experience_rating is null
     or target_driving_experience_rating not between 1 and 5
-    or target_comfort_rating not between 1 and 5
-    or target_features_rating not between 1 and 5
-    or target_performance_rating not between 1 and 5
+    or target_comfort_rating is null or target_comfort_rating not between 1 and 5
+    or target_features_rating is null or target_features_rating not between 1 and 5
+    or target_performance_rating is null or target_performance_rating not between 1 and 5
+    or target_price_perception_rating is null
     or target_price_perception_rating not between 1 and 5
-    or target_overall_rating not between 1 and 5
+    or target_overall_rating is null or target_overall_rating not between 1 and 5
     or char_length(coalesce(normalized_comments, '')) > 2000
     or char_length(coalesce(normalized_competitor, '')) > 160
     or normalized_intent not in ('HIGHLY_INTERESTED', 'INTERESTED', 'CONSIDERING', 'NOT_INTERESTED')
@@ -1202,9 +1740,12 @@ begin
     and source_row.organization_id = current_organization_id
   for update;
   if not found then raise exception using errcode = 'P0002', message = 'TEST_DRIVE_NOT_FOUND'; end if;
-  if not app_private.can_access_record(
-    drive_row.organization_id, drive_row.branch_id, drive_row.team_id, drive_row.assigned_user_id
-  ) then raise exception using errcode = '42501', message = 'TEST_DRIVE_SCOPE_DENIED'; end if;
+  if not app_private.can_access_test_drive(drive_row.organization_id, drive_row.id) then
+    raise exception using errcode = '42501', message = 'TEST_DRIVE_SCOPE_DENIED';
+  end if;
+  if drive_row.assigned_user_id <> auth.uid() then
+    raise exception using errcode = '42501', message = 'TEST_DRIVE_ASSIGNEE_REQUIRED';
+  end if;
   if drive_row.version <> expected_version then
     raise exception using errcode = '40001', message = 'TEST_DRIVE_VERSION_CONFLICT';
   end if;
@@ -1217,13 +1758,12 @@ begin
     price_perception_rating, overall_rating, competitor_compared, purchase_intent
   ) values (
     drive_row.organization_id, drive_row.id, target_driving_experience_rating,
-    target_overall_rating, normalized_comments, target_driving_experience_rating,
+    null, normalized_comments, target_driving_experience_rating,
     target_comfort_rating, target_features_rating, target_performance_rating,
     target_price_perception_rating, target_overall_rating, normalized_competitor, normalized_intent
   )
   on conflict (test_drive_id) do update set
     vehicle_rating = excluded.vehicle_rating,
-    consultant_rating = excluded.consultant_rating,
     comments = excluded.comments,
     driving_experience_rating = excluded.driving_experience_rating,
     comfort_rating = excluded.comfort_rating,

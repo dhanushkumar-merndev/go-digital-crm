@@ -12,6 +12,8 @@ const schema = z.object({
   test_drive_id: z.uuid(),
   points: z.array(point).max(2000),
   encoded_polyline: z.string().max(100000).optional(),
+  expected_version: z.int().positive(),
+  request_id: z.uuid(),
 });
 Deno.serve(async (request) => {
   const preflightResponse = preflight(request);
@@ -23,10 +25,12 @@ Deno.serve(async (request) => {
     const parsed = schema.safeParse(await request.json());
     if (!parsed.success)
       return failure('INVALID_PAYLOAD', 'Completed route data is invalid.', requestId, 422);
-    const { data, error } = await authenticatedClient(request).rpc('finalize_test_drive_route', {
+    const { data, error } = await authenticatedClient(request).rpc('finalize_test_drive_route_v2', {
       target_test_drive_id: parsed.data.test_drive_id,
       route_points: parsed.data.points,
       encoded_polyline: parsed.data.encoded_polyline ?? null,
+      expected_version: parsed.data.expected_version,
+      target_request_id: parsed.data.request_id,
     });
     if (error)
       return failure(
@@ -35,7 +39,7 @@ Deno.serve(async (request) => {
         requestId,
         409,
       );
-    return success({ route_summary_id: data }, requestId);
+    return success({ test_drive: data }, requestId);
   } catch {
     return failure(
       'ROUTE_FINALIZATION_FAILED',

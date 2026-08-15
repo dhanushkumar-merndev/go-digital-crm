@@ -211,9 +211,9 @@ Store submission is intentionally separate from building. Review signing identit
 
 These require account ownership or verified external state and cannot be completed by repository changes alone:
 
-- the target Supabase project has not yet been shown to contain this schema/functions or production auth fixtures
-- the full migration chain still needs a successful Docker/CI fresh reset and remote staging smoke test
-- the current production dependency audit reports 6 high, 3 moderate and 1 low transitive findings in Trigger.dev and Expo/React Native dependency paths; update the owning packages or document time-bounded accepted risk before release
+- the linked Supabase project has all migrations through `202608150031` and all 27 configured Edge Functions active; tenant/auth fixtures and authenticated cross-tenant smoke tests are still required
+- a full fresh Docker/CI reset remains a required release gate even though the linked remote migration chain applied successfully
+- the current production dependency audit reports 2 high and 2 moderate findings in Expo/Metro's transitive `image-size@1.2.1` path. The advisory names `>=2.0.3` as fixed, but that version is not currently published to the registry; track the Expo/Metro upstream release or document a time-bounded accepted risk before release
 - Vercel, Trigger.dev and EAS projects must be linked by their owners with protected environment variables
 - `mobile/app.json` does not yet contain an authorized EAS project ID
 - Meta/Google/WhatsApp production apps, permissions, reviewed redirect/webhook URLs and branch asset mappings require provider-console setup

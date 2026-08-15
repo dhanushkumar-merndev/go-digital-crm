@@ -73,7 +73,10 @@ function formatDate(value: string | null) {
 }
 
 function titleCase(value: string) {
-  return value.replaceAll('-', ' ').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return value
+    .replaceAll('-', ' ')
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function metrics(result: TaskWorkspaceResult): Metric[] {
@@ -255,10 +258,14 @@ function TaskTable({
                 onQueryChange({ status: status as TaskQuery['status'], page: 1 })
               }
             >
-              <SelectTrigger className="w-full sm:w-44"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-44">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 {taskStatusFilters.map((status) => (
-                  <SelectItem key={status} value={status}>{titleCase(status)}</SelectItem>
+                  <SelectItem key={status} value={status}>
+                    {titleCase(status)}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -268,10 +275,14 @@ function TaskTable({
                 onQueryChange({ priority: priority as TaskQuery['priority'], page: 1 })
               }
             >
-              <SelectTrigger className="w-full sm:w-36"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-36">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 {taskPriorityFilters.map((priority) => (
-                  <SelectItem key={priority} value={priority}>{titleCase(priority)}</SelectItem>
+                  <SelectItem key={priority} value={priority}>
+                    {titleCase(priority)}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -279,7 +290,9 @@ function TaskTable({
               value={query.sort}
               onValueChange={(sort) => onQueryChange({ sort: sort as TaskQuery['sort'], page: 1 })}
             >
-              <SelectTrigger className="w-full sm:w-44"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-44">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="due:asc">Due soonest</SelectItem>
                 <SelectItem value="due:desc">Due latest</SelectItem>
@@ -294,7 +307,9 @@ function TaskTable({
                 onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
               }
             >
-              <SelectTrigger className="w-full sm:w-28"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-28">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="25">25 rows</SelectItem>
                 <SelectItem value="50">50 rows</SelectItem>
@@ -350,19 +365,29 @@ function TaskTable({
             {Math.min(query.page * query.pageSize, result.total)} of {result.total}
           </p>
           <div className="flex items-center gap-2">
-            <span className="mr-2 text-xs text-muted-foreground">Page {query.page} of {pages}</span>
+            <span className="mr-2 text-xs text-muted-foreground">
+              Page {query.page} of {pages}
+            </span>
             <Button
-              variant="outline" size="icon" className="size-8"
+              variant="outline"
+              size="icon"
+              className="size-8"
               disabled={query.page <= 1}
               onClick={() => onQueryChange({ page: query.page - 1 })}
               aria-label="Previous page"
-            ><ChevronLeft className="size-4" /></Button>
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
             <Button
-              variant="outline" size="icon" className="size-8"
+              variant="outline"
+              size="icon"
+              className="size-8"
               disabled={query.page >= pages}
               onClick={() => onQueryChange({ page: query.page + 1 })}
               aria-label="Next page"
-            ><ChevronRight className="size-4" /></Button>
+            >
+              <ChevronRight className="size-4" />
+            </Button>
           </div>
         </div>
       </CardContent>
@@ -443,12 +468,15 @@ export function TaskWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
             Your access scope or the tasks migration needs attention. Reference: GDM-TASKS.
           </p>
           <Button
-            className="mt-5" variant="outline"
+            className="mt-5"
+            variant="outline"
             onClick={() => {
               void permissions.refetch();
               void workspace.refetch();
             }}
-          ><RotateCcw className="size-4" /> Try again</Button>
+          >
+            <RotateCcw className="size-4" /> Try again
+          </Button>
         </CardContent>
       </Card>
     );

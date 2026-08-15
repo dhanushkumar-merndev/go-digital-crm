@@ -9,6 +9,8 @@ const schema = z.object({
   longitude: z.number().min(-180).max(180),
   recorded_at: z.iso.datetime(),
   odometer: z.int().nonnegative().optional(),
+  expected_version: z.int().positive(),
+  request_id: z.uuid(),
 });
 Deno.serve(async (request) => {
   const preflightResponse = preflight(request);
@@ -21,13 +23,15 @@ Deno.serve(async (request) => {
     if (!parsed.success)
       return failure('INVALID_PAYLOAD', 'Test-drive anchor is invalid.', requestId, 422);
     const input = parsed.data;
-    const { data, error } = await authenticatedClient(request).rpc('record_test_drive_anchor', {
+    const { data, error } = await authenticatedClient(request).rpc('record_test_drive_anchor_v2', {
       target_test_drive_id: input.test_drive_id,
       anchor_kind: input.kind,
       latitude: input.latitude,
       longitude: input.longitude,
       recorded_at: input.recorded_at,
       odometer: input.odometer ?? null,
+      expected_version: input.expected_version,
+      target_request_id: input.request_id,
     });
     if (error)
       return failure(

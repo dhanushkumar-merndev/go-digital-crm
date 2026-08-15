@@ -24,7 +24,8 @@ describe('private object-storage workflow contract', () => {
     expect(upload).toContain("target_action: 'UPLOAD'");
     expect(upload).toContain("client.rpc(\n      'authorize_object_action'");
     expect(download).toContain("target_action: 'DOWNLOAD'");
-    expect(download).toContain("client.rpc(\n      'authorize_object_action'");
+    expect(download).toContain("client.rpc('authorize_object_action'");
+    expect(download).toContain("client.rpc('authorize_report_export_download'");
   });
 
   it('binds the upload signature and final record to verified size, MIME, and checksum', () => {

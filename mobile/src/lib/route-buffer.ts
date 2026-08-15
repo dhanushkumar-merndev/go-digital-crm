@@ -7,6 +7,9 @@ export type RoutePoint = {
   accuracy: number | null;
   recordedAt: string;
 };
+
+export const maximumBufferedRoutePoints = 2000;
+
 const database = SQLite.openDatabaseSync('test-drive-route.db');
 
 export function initializeRouteBuffer() {
@@ -29,10 +32,40 @@ export function bufferRoutePoint(testDriveId: string, point: RoutePoint) {
   );
 }
 
+export function bufferRoutePoints(
+  testDriveId: string,
+  points: Array<Omit<RoutePoint, 'sequenceNo'>>,
+) {
+  if (points.length === 0) return;
+
+  database.withTransactionSync(() => {
+    const current = database.getFirstSync<{ highestSequence: number | null }>(
+      'select max(sequence_no) as highestSequence from route_points where test_drive_id = ?',
+      [testDriveId],
+    );
+    const highestSequence = current?.highestSequence ?? 0;
+    const remainingCapacity = Math.max(0, maximumBufferedRoutePoints - highestSequence);
+
+    points.slice(0, remainingCapacity).forEach((point, offset) => {
+      bufferRoutePoint(testDriveId, {
+        ...point,
+        sequenceNo: highestSequence + offset + 1,
+      });
+    });
+  });
+}
+
 export function pendingRoutePoints(testDriveId: string) {
   return database.getAllSync<RoutePoint>(
     'select sequence_no as sequenceNo, latitude, longitude, accuracy, recorded_at as recordedAt from route_points where test_drive_id = ? and uploaded_at is null order by sequence_no',
     [testDriveId],
+  );
+}
+
+export function pendingRoutePointsThrough(testDriveId: string, recordedThrough: string) {
+  return database.getAllSync<RoutePoint>(
+    'select sequence_no as sequenceNo, latitude, longitude, accuracy, recorded_at as recordedAt from route_points where test_drive_id = ? and uploaded_at is null and recorded_at <= ? order by sequence_no',
+    [testDriveId, recordedThrough],
   );
 }
 
@@ -44,7 +77,5 @@ export function markRoutePointsUploaded(testDriveId: string, throughSequence: nu
 }
 
 export function clearCompletedRoute(testDriveId: string) {
-  database.runSync('delete from route_points where test_drive_id = ? and uploaded_at is not null', [
-    testDriveId,
-  ]);
+  database.runSync('delete from route_points where test_drive_id = ?', [testDriveId]);
 }
