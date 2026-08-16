@@ -25,6 +25,9 @@ importers:
       '@hookform/resolvers':
         specifier: latest
         version: 5.8.0(@sinclair/typebox@0.27.12)(@standard-schema/spec@1.1.0)(react-hook-form@7.85.0(react@19.2.8))(zod@4.4.3)
+      '@lottiefiles/dotlottie-react':
+        specifier: ^0.19.14
+        version: 0.19.14(react@19.2.8)
       '@radix-ui/react-alert-dialog':
         specifier: latest
         version: 1.1.23(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -91,6 +94,9 @@ importers:
       idb-keyval:
         specifier: latest
         version: 6.3.0
+      lottie-react:
+        specifier: ^2.4.1
+        version: 2.4.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lucide-react:
         specifier: latest
         version: 1.31.0(react@19.2.8)
@@ -1258,6 +1264,16 @@ packages:
 
   '@jsonhero/path@1.0.21':
     resolution: {integrity: sha512-gVUDj/92acpVoJwsVJ/RuWOaHyG4oFzn898WNGQItLCTQ+hOaVlEaImhwE1WqOTf+l3dGOUkbSiVKlb3q1hd1Q==}
+
+  '@lottiefiles/dotlottie-react@0.19.14':
+    resolution: {integrity: sha512-rnBQOXhJp5kO1fBN5lMwRcavxJxQ37TvK0RVoohokaZA4yrt9Yk1hy5RnicSTn5/UvBLtK2wEDuu3UBylCgkHw==}
+    engines: {node: '>=18.17.0', npm: '>=9.5.0'}
+    peerDependencies:
+      react: ^17 || ^18 || ^19
+
+  '@lottiefiles/dotlottie-web@0.79.1':
+    resolution: {integrity: sha512-UKk+DmY2yurQs2T02AekNGVLD+fSGlygHKnf9485LCWF+CUvMSUXizAgR2qDGFUH2APj2i58nk21QhfVi9EG6g==}
+    engines: {node: '>=18.17.0', npm: '>=9.5.0'}
 
   '@mapbox/jsonlint-lines-primitives@2.0.3':
     resolution: {integrity: sha512-0SElaV0uMxEnxzBhhX9WTuPyUeMsAN/SS0i16tjuba4/mio63MG9khjC1a0JAiPGXAwvwm4UfHJURCN7nyudQg==}
@@ -4281,6 +4297,15 @@ packages:
     resolution: {integrity: sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==}
     hasBin: true
 
+  lottie-react@2.4.1:
+    resolution: {integrity: sha512-LQrH7jlkigIIv++wIyrOYFLHSKQpEY4zehPicL9bQsrt1rnoKRYCYgpCUe5maqylNtacy58/sQDZTkwMcTRxZw==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  lottie-web@5.13.0:
+    resolution: {integrity: sha512-+gfBXl6sxXMPe8tKQm7qzLnUy5DUPJPKIyRHwtpCpyUEYjHYRJC/5gjUvdkuO2c3JllrPtHXH5UJJK8LRYl5yQ==}
+
   lru-cache@10.4.3:
     resolution: {integrity: sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ==}
 
@@ -7227,6 +7252,13 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.5.5
 
   '@jsonhero/path@1.0.21': {}
+
+  '@lottiefiles/dotlottie-react@0.19.14(react@19.2.8)':
+    dependencies:
+      '@lottiefiles/dotlottie-web': 0.79.1
+      react: 19.2.8
+
+  '@lottiefiles/dotlottie-web@0.79.1': {}
 
   '@mapbox/jsonlint-lines-primitives@2.0.3': {}
 
@@ -10699,6 +10731,14 @@ snapshots:
   loose-envify@1.4.0:
     dependencies:
       js-tokens: 4.0.0
+
+  lottie-react@2.4.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+    dependencies:
+      lottie-web: 5.13.0
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+
+  lottie-web@5.13.0: {}
 
   lru-cache@10.4.3: {}
 

@@ -978,21 +978,21 @@ export function LeadWorkspace({
         />
       )}
       <LeadAssignmentDialog
-        key={assignmentLead?.id ?? 'none'}
+        key={`assignment-${assignmentLead?.id ?? 'none'}`}
         lead={assignmentLead}
         open={Boolean(assignmentLead)}
         onOpenChange={(open) => !open && setAssignmentLead(null)}
         onAssigned={invalidate}
       />
       <LeadEditDialog
-        key={editingLead?.id ?? 'none'}
+        key={`edit-${editingLead?.id ?? 'none'}`}
         lead={editingLead}
         open={Boolean(editingLead)}
         onOpenChange={(open) => !open && setEditingLead(null)}
         onUpdated={invalidate}
       />
       <CustomerMatchDialog
-        key={matchingLead?.id ?? 'none'}
+        key={`customer-match-${matchingLead?.id ?? 'none'}`}
         lead={matchingLead as MatchableLead | null}
         open={Boolean(matchingLead)}
         canCreate={Boolean(permissions.data?.canCreateCustomer)}

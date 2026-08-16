@@ -1,6 +1,6 @@
 import { AlertCircle, ArrowLeft } from 'lucide-react';
-import Link from 'next/link';
 import { AuthPageShell } from '@/components/shared/auth-page-shell';
+import { AuthLink } from '@/features/auth/auth-link';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,10 +51,10 @@ export default async function ResetPasswordPage({
                 <AlertDescription>{getSafeAuthErrorMessage('RECOVERY_SESSION')}</AlertDescription>
               </Alert>
               <Button variant="outline" className="w-full" asChild>
-                <Link href="/forgot-password">
+                <AuthLink href="/forgot-password" direction="back">
                   <ArrowLeft className="size-4" />
                   Request a new link
-                </Link>
+                </AuthLink>
               </Button>
             </div>
           )}

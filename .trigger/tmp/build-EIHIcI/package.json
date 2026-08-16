@@ -1,0 +1,22 @@
+{
+  "dependencies": {
+    "import-in-the-middle": "3.0.1"
+  },
+  "devDependencies": {
+  },
+  "engines": {
+    "node": "24.x",
+    "pnpm": "11.21.0"
+  },
+  "name": "go-digital-marketing-crm",
+  "packageManager": "pnpm@11.21.0",
+  "peerDependencies": {
+  },
+  "private": true,
+  "scripts": {
+  },
+  "trustedDependencies": [
+    "import-in-the-middle"
+  ],
+  "version": "0.1.0"
+}

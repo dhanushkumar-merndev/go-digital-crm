@@ -34,6 +34,19 @@ const chartDatumSchema = z.object({
   secondary: z.coerce.number().nonnegative().optional(),
 });
 
+const leadPreviewSchema = z.object({
+  id: z.uuid(),
+  customer_name: z.string(),
+  phone: z.string(),
+  source: z.string(),
+  interested_model: z.string().nullable(),
+  lifecycle_status: z.string(),
+  temperature: z.enum(['COLD', 'WARM', 'HOT']).nullable(),
+  work_state: z.enum(['NEW_TODAY', 'PENDING', 'SLA_RISK']).nullable(),
+  next_followup_at: z.string().nullable(),
+  updated_at: z.string(),
+});
+
 export const tenantDashboardSchema = z.object({
   organization_id: z.uuid(),
   generated_at: z.string(),
@@ -42,6 +55,7 @@ export const tenantDashboardSchema = z.object({
   kpis: kpiSchema,
   activity: z.array(chartDatumSchema),
   pipeline: z.array(chartDatumSchema),
+  lead_preview: z.array(leadPreviewSchema),
   attention: z.array(
     z.object({
       id: z.uuid(),
@@ -58,6 +72,8 @@ export const tenantDashboardSchema = z.object({
 });
 
 export type TenantDashboardResult = z.infer<typeof tenantDashboardSchema>;
+
+export type TenantDashboardLeadPreview = z.infer<typeof leadPreviewSchema>;
 
 export async function fetchTenantDashboard(signal?: AbortSignal) {
   const request = createClient().rpc('get_tenant_performance_dashboard', {

@@ -2,11 +2,11 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ArrowLeft, CheckCircle2, Mail } from 'lucide-react';
-import Link from 'next/link';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { AuthPageShell } from '@/components/shared/auth-page-shell';
+import { AuthLink } from '@/features/auth/auth-link';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -69,10 +69,10 @@ export default function ForgotPasswordPage() {
                 </div>
               </Alert>
               <Button variant="outline" className="w-full" asChild>
-                <Link href="/login">
+                <AuthLink href="/login" direction="back">
                   <ArrowLeft className="size-4" />
                   Back to sign in
-                </Link>
+                </AuthLink>
               </Button>
             </div>
           ) : (
@@ -102,10 +102,10 @@ export default function ForgotPasswordPage() {
                 {form.formState.isSubmitting ? 'Sending recovery email…' : 'Send recovery email'}
               </Button>
               <Button variant="ghost" className="w-full" asChild>
-                <Link href="/login">
+                <AuthLink href="/login" direction="back">
                   <ArrowLeft className="size-4" />
                   Back to sign in
-                </Link>
+                </AuthLink>
               </Button>
             </form>
           )}

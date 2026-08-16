@@ -17,7 +17,7 @@ export function PageHeader({ spec }: { spec: PageSpec }) {
           {spec.readOnly && <Badge variant="outline">Read only</Badge>}
         </div>
         <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{spec.description}</p>
-        <p className="mt-2 text-xs font-medium text-blue-700">{spec.access}</p>
+        <p className="mt-2 text-xs font-medium text-blue-500">{spec.access}</p>
       </div>
       {spec.primaryAction && (
         <Button className="shrink-0">

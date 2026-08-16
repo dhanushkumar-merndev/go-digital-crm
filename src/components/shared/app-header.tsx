@@ -1,8 +1,18 @@
 'use client';
 
-import { Bell, Building2, ChevronDown, LoaderCircle, LogOut, Menu, QrCode } from 'lucide-react';
+import {
+  Bell,
+  Building2,
+  CheckCheck,
+  ChevronDown,
+  LoaderCircle,
+  LogOut,
+  Menu,
+  QrCode,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { roleNavigation } from '@/config/navigation';
 import type { RoleKey } from '@/config/navigation/types';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -20,6 +30,11 @@ import { MobileLinkDialog } from '@/features/auth/mobile-link-dialog';
 import { canLinkMobileApp } from '@/lib/auth/mobile-link-policy';
 import { getSafeAuthErrorMessage } from '@/lib/auth/safe-errors';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
+import {
+  fetchHeaderNotifications,
+  headerNotificationsKey,
+  markHeaderNotificationRead,
+} from '@/features/notifications/notification-api';
 
 type HeaderProfile = {
   displayName: string;
@@ -37,16 +52,41 @@ function getInitials(value: string) {
   return initials || 'A';
 }
 
+function notificationTime(value: string) {
+  const elapsed = Math.max(0, Date.now() - new Date(value).getTime());
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' }).format(
+    new Date(value),
+  );
+}
+
 export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: boolean }) {
   const router = useRouter();
   const openMobileNavigation = useUiStore((state) => state.setMobileNavigationOpen);
   const [mobileLinkOpen, setMobileLinkOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [menuError, setMenuError] = useState<string>();
+  const queryClient = useQueryClient();
   const [profile, setProfile] = useState<HeaderProfile>({
     displayName: previewMode ? 'Local Preview' : 'Account',
   });
   const eligibleForMobile = canLinkMobileApp(role);
+  const notifications = useQuery({
+    queryKey: headerNotificationsKey,
+    queryFn: ({ signal }) => fetchHeaderNotifications(signal),
+    enabled: !previewMode && hasSupabaseConfig(),
+    staleTime: 60_000,
+  });
+  const markRead = useMutation({
+    mutationFn: markHeaderNotificationRead,
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: headerNotificationsKey }),
+  });
+  const unreadCount =
+    notifications.data?.filter((notification) => !notification.read_at).length ?? 0;
 
   useEffect(() => {
     if (!hasSupabaseConfig()) return;
@@ -117,10 +157,87 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
-            <Bell className="size-5" />
-            <span className="absolute right-2 top-2 size-2 rounded-full border-2 border-white bg-red-500" />
-          </Button>
+          <DropdownMenu
+            onOpenChange={(open) => {
+              if (open) void notifications.refetch();
+            }}
+          >
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
+                <Bell className="size-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute right-1.5 top-1.5 grid min-w-4 place-items-center rounded-full border-2 border-white bg-red-500 px-0.5 text-[9px] font-bold leading-4 text-white">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[min(24rem,calc(100vw-2rem))] p-0">
+              <div className="flex items-center justify-between border-b px-3 py-2.5">
+                <div>
+                  <p className="text-sm font-semibold text-[#17233d]">Notifications</p>
+                  <p className="text-xs text-muted-foreground">
+                    {unreadCount ? `${unreadCount} unread` : 'You are up to date'}
+                  </p>
+                </div>
+                {notifications.isFetching && (
+                  <LoaderCircle className="size-4 animate-spin text-muted-foreground" />
+                )}
+              </div>
+              <div className="max-h-[min(28rem,calc(100vh-10rem))] overflow-y-auto p-1.5">
+                {notifications.isError ? (
+                  <p className="p-5 text-center text-sm text-muted-foreground">
+                    Notifications could not be loaded. Try again in a moment.
+                  </p>
+                ) : notifications.isPending ? (
+                  <div className="space-y-2 p-2" aria-label="Loading notifications">
+                    <div className="h-14 animate-pulse rounded-md bg-slate-100" />
+                    <div className="h-14 animate-pulse rounded-md bg-slate-100" />
+                  </div>
+                ) : notifications.data?.length ? (
+                  notifications.data.map((notification) => (
+                    <DropdownMenuItem
+                      key={notification.id}
+                      className="relative block cursor-pointer whitespace-normal rounded-md px-3 py-3 focus:bg-blue-50"
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        if (!notification.read_at) markRead.mutate(notification.id);
+                      }}
+                    >
+                      <div className="flex gap-3">
+                        <span
+                          className={`mt-1.5 size-2 shrink-0 rounded-full ${notification.read_at ? 'bg-slate-300' : 'bg-blue-500'}`}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="truncate text-sm font-semibold text-[#17233d]">
+                              {notification.title}
+                            </p>
+                            <span className="shrink-0 text-[11px] text-muted-foreground">
+                              {notificationTime(notification.created_at)}
+                            </span>
+                          </div>
+                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                            {notification.body}
+                          </p>
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ))
+                ) : (
+                  <div className="flex flex-col items-center p-7 text-center">
+                    <span className="grid size-10 place-items-center rounded-full bg-blue-50 text-blue-600">
+                      <CheckCheck className="size-5" />
+                    </span>
+                    <p className="mt-3 text-sm font-semibold text-[#17233d]">All caught up</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      New lead and work updates will appear here.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <div className="hidden h-8 w-px bg-border sm:block" />
           <DropdownMenu onOpenChange={(open) => open && setMenuError(undefined)}>
             <DropdownMenuTrigger asChild>

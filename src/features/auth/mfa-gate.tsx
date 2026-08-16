@@ -4,6 +4,7 @@ import { KeyRound, LoaderCircle, ShieldCheck } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { AuthPageShell } from '@/components/shared/auth-page-shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -80,8 +81,8 @@ export function MfaGate() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-muted/40 p-6">
-      <Card className="w-full max-w-md">
+    <AuthPageShell>
+      <Card className="w-full max-w-md shadow-sm">
         <CardHeader>
           <div className="mb-2 grid size-11 place-items-center rounded-xl bg-blue-50 text-blue-700">
             <ShieldCheck />
@@ -144,6 +145,6 @@ export function MfaGate() {
           )}
         </CardContent>
       </Card>
-    </main>
+    </AuthPageShell>
   );
 }

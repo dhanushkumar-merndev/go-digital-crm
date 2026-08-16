@@ -1,11 +1,11 @@
 'use client';
 
 import { LoaderCircle } from 'lucide-react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { AuthLink } from './auth-link';
 import { createClient } from '@/lib/supabase/client';
 
 export function InviteSessionAcceptor() {
@@ -59,7 +59,9 @@ export function InviteSessionAcceptor() {
           </AlertDescription>
         </Alert>
         <Button variant="outline" className="w-full" asChild>
-          <Link href="/login">Return to sign in</Link>
+          <AuthLink href="/login" direction="back">
+            Return to sign in
+          </AuthLink>
         </Button>
       </div>
     );

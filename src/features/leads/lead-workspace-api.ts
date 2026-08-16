@@ -1,13 +1,6 @@
 import { createClient } from '@/lib/supabase/client';
 import type { LeadQuery } from './lead-workspace-query';
-import {
-  getLeadStatusConstraint,
-  isLeadVersionConflict,
-  isUuid,
-  leadSortOptions,
-  LeadVersionConflictError,
-  toPostgrestSearchTerm,
-} from './lead-workspace-query';
+import { isLeadVersionConflict, LeadVersionConflictError } from './lead-workspace-query';
 
 export type LeadRecord = {
   id: string;
@@ -56,12 +49,8 @@ export type LeadWorkspacePermissions = {
   canLinkCustomer: boolean;
 };
 
-type RawLead = Omit<LeadRecord, 'assigned_user_name'>;
 type ProfileRow = { id: string; full_name: string };
 type KpiRow = Partial<Record<keyof LeadKpis, number | string | null>>;
-
-const leadListColumns =
-  'id,organization_id,branch_id,team_id,customer_id,source,customer_name,phone,normalized_phone,email,interested_model,lifecycle_status,temperature,lost_reason,work_state,assigned_user_id,first_contacted_at,sla_due_at,created_at,updated_at';
 
 const emptyKpis: LeadKpis = {
   new_today: 0,
@@ -87,61 +76,19 @@ function normalizeKpis(row: KpiRow | null): LeadKpis {
 
 export async function fetchLeadWorkspace(query: LeadQuery): Promise<LeadWorkspaceResult> {
   const supabase = createClient();
-  const status = getLeadStatusConstraint(query.status);
-  const sort = leadSortOptions[query.sort];
-  let listQuery = supabase
-    .from('leads_with_work_state')
-    .select(leadListColumns, { count: 'exact' })
-    .order(sort.column, { ascending: sort.ascending })
-    .order('id', { ascending: sort.ascending })
-    .range((query.page - 1) * query.pageSize, query.page * query.pageSize - 1);
-
-  if (status) listQuery = listQuery.eq(status.column, status.value);
-  if (query.search) {
-    const term = toPostgrestSearchTerm(query.search);
-    if (term) {
-      listQuery = isUuid(query.search)
-        ? listQuery.or(
-            `id.eq.${query.search},customer_name.ilike.%${term}%,normalized_phone.ilike.%${term}%`,
-          )
-        : listQuery.or(`customer_name.ilike.%${term}%,normalized_phone.ilike.%${term}%`);
-    }
-  }
-
-  const [listResponse, kpiResponse] = await Promise.all([
-    listQuery,
-    supabase.rpc('get_lead_workspace_kpis'),
-  ]);
-  if (listResponse.error) throw listResponse.error;
-  if (kpiResponse.error) throw kpiResponse.error;
-
-  const rawRecords = (listResponse.data ?? []) as RawLead[];
-  const assignedUserIds = [
-    ...new Set(
-      rawRecords.flatMap((record) => (record.assigned_user_id ? [record.assigned_user_id] : [])),
-    ),
-  ];
-  let owners = new Map<string, string>();
-  if (assignedUserIds.length) {
-    const profilesResponse = await supabase
-      .from('profiles')
-      .select('id,full_name')
-      .in('id', assignedUserIds);
-    if (profilesResponse.error) throw profilesResponse.error;
-    owners = new Map(
-      (profilesResponse.data as ProfileRow[]).map((profile) => [profile.id, profile.full_name]),
-    );
-  }
-
+  const { data, error } = await supabase.rpc('get_lead_workspace_page', {
+    target_page: query.page,
+    target_page_size: query.pageSize,
+    target_search: query.search,
+    target_status: query.status,
+    target_sort: query.sort,
+  });
+  if (error) throw error;
+  const result = data as Partial<LeadWorkspaceResult> | null;
   return {
-    records: rawRecords.map((record) => ({
-      ...record,
-      assigned_user_name: record.assigned_user_id
-        ? (owners.get(record.assigned_user_id) ?? null)
-        : null,
-    })),
-    total: listResponse.count ?? 0,
-    kpis: normalizeKpis((kpiResponse.data?.[0] ?? null) as KpiRow | null),
+    records: Array.isArray(result?.records) ? (result.records as LeadRecord[]) : [],
+    total: Number(result?.total ?? 0),
+    kpis: normalizeKpis((result?.kpis ?? null) as KpiRow | null),
   };
 }
 

@@ -2,12 +2,12 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ArrowRight, LockKeyhole, Mail } from 'lucide-react';
-import Link from 'next/link';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
 import { z } from 'zod';
 import { AuthPageShell } from '@/components/shared/auth-page-shell';
+import { AuthLink } from '@/features/auth/auth-link';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -54,7 +54,9 @@ export default function LoginPage() {
         <CardContent>
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="login-email">Email address</Label>
+              <div className="flex h-5 items-center">
+                <Label htmlFor="login-email">Email address</Label>
+              </div>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -70,14 +72,14 @@ export default function LoginPage() {
               )}
             </div>
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex h-5 items-center justify-between gap-3">
                 <Label htmlFor="login-password">Password</Label>
-                <Link
+                <AuthLink
                   href="/forgot-password"
                   className="text-xs font-medium text-primary hover:underline"
                 >
                   Forgot password?
-                </Link>
+                </AuthLink>
               </div>
               <div className="relative">
                 <LockKeyhole className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

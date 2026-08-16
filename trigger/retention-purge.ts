@@ -223,7 +223,9 @@ async function recordRetry(
 
 export const retentionPurge = schedules.task({
   id: 'retention-purge',
-  cron: { pattern: '17 * * * *', timezone: 'Asia/Kolkata' },
+  // This hourly schedule is timezone-independent; UTC avoids relying on a
+  // provider-specific alias for India Standard Time.
+  cron: { pattern: '17 * * * *', timezone: 'UTC' },
   retry: {
     maxAttempts: 3,
     factor: 2,

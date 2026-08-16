@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { CircleHelp, ShieldCheck } from 'lucide-react';
@@ -33,9 +34,14 @@ function SidebarContent({
   return (
     <>
       <div className="flex h-[72px] items-center gap-3 border-b border-white/10 px-5">
-        <div className="grid size-10 place-items-center rounded-xl bg-blue-500 text-white shadow-sm">
-          <span className="text-sm font-black">GO</span>
-        </div>
+        <Image
+          src="/logo.webp"
+          alt="Go Digital Marketing CRM"
+          width={36}
+          height={36}
+          className="rounded-lg object-contain"
+          priority
+        />
         <div>
           <p className="text-sm font-bold text-white">Go Digital</p>
           <p className="text-[11px] text-slate-400">Marketing CRM</p>

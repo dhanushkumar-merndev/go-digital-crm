@@ -66,6 +66,40 @@ describe('lead workspace aggregate boundary', () => {
     );
     expect(migration).not.toContain('target_organization_id');
   });
+
+  it('keeps the RLS directory helper executable when profile policies call it', () => {
+    const repair = readFileSync(
+      new URL(
+        '../../supabase/migrations/202608150034_fix_directory_policy_helper_execution.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    expect(repair).toContain(
+      'grant execute on function app_private.can_administer_tenant_user(uuid, uuid, text)',
+    );
+    expect(repair).toContain('to authenticated');
+  });
+
+  it('uses one scoped, bounded RPC for the list, count, KPI bundle, and assignee labels', () => {
+    const migration = readFileSync(
+      new URL(
+        '../../supabase/migrations/202608150040_optimize_lead_workspace_page.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    const api = readFileSync(
+      new URL('../../src/features/leads/lead-workspace-api.ts', import.meta.url),
+      'utf8',
+    );
+    expect(migration).toContain('create or replace function public.get_lead_workspace_page(');
+    expect(migration).toContain('with scoped_leads as materialized');
+    expect(migration).toContain("'assigned_user_name', assigned_user_name");
+    expect(migration).toContain('limit target_page_size');
+    expect(api).toContain("supabase.rpc('get_lead_workspace_page'");
+    expect(api).not.toContain(".from('leads_with_work_state')");
+  });
 });
 
 describe('lead update concurrency boundary', () => {

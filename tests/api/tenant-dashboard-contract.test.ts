@@ -7,6 +7,10 @@ function source(relativePath: string) {
 }
 
 const migration = source('supabase/migrations/202608150028_tenant_performance_dashboard.sql');
+const enumRepair = source(
+  'supabase/migrations/202608150033_fix_tenant_dashboard_lifecycle_enum.sql',
+);
+const optimization = source('supabase/migrations/202608150035_optimize_tenant_dashboard.sql');
 const workspace = source('src/features/dashboards/tenant-dashboard.tsx');
 const api = source('src/features/dashboards/tenant-dashboard-api.ts');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
@@ -67,6 +71,27 @@ describe('tenant performance dashboard backend contract', () => {
       'revoke all on function app_private.dashboard_lifecycle_label(text)',
     );
   });
+
+  it('accepts the lead lifecycle enum passed by the pipeline aggregation', () => {
+    expect(enumRepair).toContain(
+      'app_private.dashboard_lifecycle_label(target_status public.lead_lifecycle)',
+    );
+    expect(enumRepair).toContain('app_private.dashboard_lifecycle_label(target_status::text)');
+    expect(enumRepair).toContain(
+      'revoke all on function app_private.dashboard_lifecycle_label(public.lead_lifecycle)',
+    );
+  });
+
+  it('materializes caller-scoped dashboard datasets once and returns the bounded lead preview', () => {
+    expect(optimization).toContain('with scoped_leads as materialized');
+    expect(optimization).toContain('scoped_calls as materialized');
+    expect(optimization).toContain('scoped_bookings as materialized');
+    expect(optimization).toContain("'lead_preview', lead_preview_result");
+    expect(optimization).toContain('limit 5');
+    expect(optimization).toContain(
+      'One scan per visible resource replaces the old 14 correlated scans',
+    );
+  });
 });
 
 describe('tenant dashboard web contract', () => {
@@ -75,7 +100,6 @@ describe('tenant dashboard web contract', () => {
     expect(workspace).toContain("from '@/components/ui/card'");
     expect(workspace).toContain("from '@/components/charts/e-chart'");
     expect(workspace).toContain('kind="line"');
-    expect(workspace).toContain('kind="funnel"');
     expect(workspace).not.toMatch(/recharts|chart\.js|apexcharts/i);
   });
 
@@ -97,5 +121,12 @@ describe('tenant dashboard web contract', () => {
     expect(api).toContain('organization_id: z.uuid()');
     expect(api).toContain('days: z.union([z.literal(7), z.literal(14), z.literal(30)])');
     expect(api).toContain('return tenantDashboardSchema.parse(data)');
+    expect(api).toContain('lead_preview: z.array(leadPreviewSchema)');
+    expect(api).not.toContain('fetchTenantDashboardLeadPreview');
+  });
+
+  it('uses the one dashboard response for the lead preview table', () => {
+    expect(workspace).toContain('records={data.lead_preview}');
+    expect(workspace).not.toContain('tenantDashboardLeadPreviewKey');
   });
 });
