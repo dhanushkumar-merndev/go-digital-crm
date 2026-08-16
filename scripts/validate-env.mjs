@@ -57,7 +57,14 @@ const runtimeTargets = {
 };
 
 const exampleOnlyNames = ['NEXT_PUBLIC_ENABLE_LOCAL_PREVIEW'];
-const optionalRuntimeNames = ['PROVIDER_EVENT_BATCH_SIZE', 'PROVIDER_EVENT_CONCURRENCY'];
+const optionalRuntimeNames = [
+  'PROVIDER_EVENT_BATCH_SIZE',
+  'PROVIDER_EVENT_CONCURRENCY',
+  'UPSTASH_REDIS_REST_URL',
+  'UPSTASH_REDIS_REST_TOKEN',
+  'UPSTASH_REDIS_CACHE_PREFIX',
+  'UPSTASH_REDIS_ENABLED',
+];
 const documentedRuntimeNames = new Set([
   ...['web', 'mobile', 'edge', 'trigger'].flatMap((name) => runtimeTargets[name]),
   ...exampleOnlyNames,
@@ -71,6 +78,8 @@ const safeExampleDefaults = new Set([
   'MAX_RECORDING_BYTES',
   'PROVIDER_EVENT_BATCH_SIZE',
   'PROVIDER_EVENT_CONCURRENCY',
+  'UPSTASH_REDIS_CACHE_PREFIX',
+  'UPSTASH_REDIS_ENABLED',
 ]);
 const publicCredentialNames = new Set([
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
@@ -341,6 +350,23 @@ function validateRuntime(target, mode, values) {
 
   if (requiredSet.has('INTEGRATION_ENCRYPTION_KEY')) {
     validateEncryptionKey(values.INTEGRATION_ENCRYPTION_KEY, errors);
+  }
+  if (target === 'edge' || target === 'all') {
+    if (!['true', 'false'].includes(values.UPSTASH_REDIS_ENABLED ?? '')) {
+      errors.push('UPSTASH_REDIS_ENABLED: expected true or false');
+    }
+    if (values.UPSTASH_REDIS_ENABLED === 'true') {
+      for (const name of ['UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']) {
+        if (!values[name]?.trim()) errors.push(`${name}: required when UPSTASH_REDIS_ENABLED=true`);
+      }
+      validateUrl('UPSTASH_REDIS_REST_URL', values, mode, errors);
+    }
+    if (
+      values.UPSTASH_REDIS_CACHE_PREFIX &&
+      !/^[a-z0-9][a-z0-9:_-]{0,63}$/i.test(values.UPSTASH_REDIS_CACHE_PREFIX)
+    ) {
+      errors.push('UPSTASH_REDIS_CACHE_PREFIX: expected a short Redis-safe namespace');
+    }
   }
   if (requiredSet.has('IVR_RECORDING_ALLOWED_HOSTS')) {
     validateAllowedHosts(values.IVR_RECORDING_ALLOWED_HOSTS, errors);

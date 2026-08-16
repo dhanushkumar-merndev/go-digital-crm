@@ -1,4 +1,5 @@
 .next
+.trigger
 node_modules
 AGENTS.md
 coverage

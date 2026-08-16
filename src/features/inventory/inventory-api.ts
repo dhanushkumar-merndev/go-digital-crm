@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
+import { fetchCachedDashboard } from '@/lib/query/cached-dashboard-api';
 import {
   InventoryVersionConflictError,
   inventoryAgeValue,
@@ -111,9 +112,11 @@ const inventoryDashboardSchema = z.object({
 export type InventoryDashboard = z.infer<typeof inventoryDashboardSchema>;
 
 export async function fetchInventoryDashboard(): Promise<InventoryDashboard> {
-  const { data, error } = await createClient().rpc('get_inventory_dashboard');
-  if (error) throw error;
-  return inventoryDashboardSchema.parse(data);
+  const cached = await fetchCachedDashboard({
+    resource: 'inventory-dashboard',
+    schema: inventoryDashboardSchema,
+  });
+  return cached.result;
 }
 
 export const stockUnitSchema = z.object({

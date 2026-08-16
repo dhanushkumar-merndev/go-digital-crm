@@ -44,6 +44,7 @@ Use independent staging and production projects. Never point a preview deploymen
 | Vercel web            | Vercel environment settings               | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, preview flag fixed to `false`                                             |
 | Expo mobile           | EAS `preview` / `production` environments | `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`                                                                            |
 | Supabase Edge         | Supabase project secrets                  | service credentials, encryption key, provider secrets, Tigris and Brevo values                                                         |
+| Upstash Redis         | Supabase Edge project secrets             | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, cache prefix and enabled flag; never Vercel/browser/mobile variables             |
 | Trigger.dev           | Trigger.dev environment settings          | Supabase service values, encryption key, Brevo, Meta version and Tigris/recording values                                               |
 | Deployment automation | protected CI environment secrets          | Supabase access token/project ID/database password, Trigger access token, Expo token or Vercel token only where CLI deployment is used |
 
@@ -59,6 +60,22 @@ pnpm env:check:trigger
 ```
 
 The validator reports variable names and validation reasons only. `pnpm env:check:example` checks that the committed template contains no secret-like values.
+
+### Upstash dashboard cache
+
+Create separate Upstash Redis databases for development and production. Add the following only to
+the matching Supabase Edge project secrets, then set `UPSTASH_REDIS_ENABLED=true`:
+
+```text
+UPSTASH_REDIS_REST_URL
+UPSTASH_REDIS_REST_TOKEN
+UPSTASH_REDIS_CACHE_PREFIX=go-digital
+UPSTASH_REDIS_ENABLED=true
+```
+
+The Edge function uses one-hour role/scope-versioned caches for aggregate dashboards. It does not
+store customer/lead previews, phone numbers, sessions, credentials, or paginated CRM records in
+Redis. Leave the flag `false` until both values exist; the function safely falls back to Supabase.
 
 An operator or protected deployment job can separately run `pnpm env:check:deployment` after supplying the Supabase and Trigger CLI credentials. Those credentials are intentionally absent from `.env.example` because they are not application runtime configuration.
 
@@ -216,6 +233,9 @@ These require account ownership or verified external state and cannot be complet
 - the current production dependency audit reports 2 high and 2 moderate findings in Expo/Metro's transitive `image-size@1.2.1` path. The advisory names `>=2.0.3` as fixed, but that version is not currently published to the registry; track the Expo/Metro upstream release or document a time-bounded accepted risk before release
 - Vercel, Trigger.dev and EAS projects must be linked by their owners with protected environment variables
 - `mobile/app.json` does not yet contain an authorized EAS project ID
+- Upstash development/production databases and the two server-only REST credentials must be created
+  by an account owner before distributed dashboard caching can be enabled; the deployed Edge function
+  safely falls back to Supabase until then
 - Meta/Google/WhatsApp production apps, permissions, reviewed redirect/webhook URLs and branch asset mappings require provider-console setup
 - production `INTEGRATION_ENCRYPTION_KEY` and any missing provider credentials must be generated/stored server-side
 - Brevo SMTP/domain/template approval and Tigris private-bucket policy require provider-console verification
@@ -228,6 +248,7 @@ These require account ownership or verified external state and cannot be complet
 - [Vercel Node.js versions](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions)
 - [Supabase deployment and branching](https://supabase.com/docs/guides/deployment)
 - [Supabase Edge Function deployment](https://supabase.com/docs/guides/functions/deploy)
+- [Upstash Redis REST API](https://upstash.com/docs/redis/features/restapi)
 - [Trigger.dev deployment](https://trigger.dev/docs/deployment/overview)
 - [Expo EAS build configuration](https://docs.expo.dev/build/eas-json/)
 - [Expo EAS environment variables](https://docs.expo.dev/eas/environment-variables/)

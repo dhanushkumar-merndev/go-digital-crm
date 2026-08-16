@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const migration = readFileSync('supabase/migrations/202608150017_platform_dashboard.sql', 'utf8');
 const api = readFileSync('src/features/platform/platform-dashboard-api.ts', 'utf8');
+const cacheEdge = readFileSync('supabase/functions/dashboard-cache/index.ts', 'utf8');
 const workspace = readFileSync('src/features/platform/platform-dashboard.tsx', 'utf8');
 const chart = readFileSync('src/components/charts/e-chart.tsx', 'utf8');
 const route = readFileSync('src/app/[role]/[[...slug]]/page.tsx', 'utf8');
@@ -14,7 +15,8 @@ describe('platform dashboard contract', () => {
     expect(migration).toContain('app_private.mfa_policy_satisfied(null)');
     expect(migration).toContain('security definer');
     expect(migration).toContain("message = 'PLATFORM_MFA_REQUIRED'");
-    expect(api).toContain("rpc('get_platform_dashboard')");
+    expect(api).toContain("resource: 'platform-dashboard'");
+    expect(cacheEdge).toContain("rpc('get_platform_dashboard')");
   });
 
   it('returns bounded sanitized attention links and a 14-day series', () => {

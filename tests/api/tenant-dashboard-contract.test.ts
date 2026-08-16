@@ -11,8 +11,10 @@ const enumRepair = source(
   'supabase/migrations/202608150033_fix_tenant_dashboard_lifecycle_enum.sql',
 );
 const optimization = source('supabase/migrations/202608150035_optimize_tenant_dashboard.sql');
+const cacheMigration = source('supabase/migrations/202608150041_workspace_redis_cache.sql');
 const workspace = source('src/features/dashboards/tenant-dashboard.tsx');
 const api = source('src/features/dashboards/tenant-dashboard-api.ts');
+const edge = source('supabase/functions/dashboard-cache/index.ts');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
 
 describe('tenant performance dashboard backend contract', () => {
@@ -82,7 +84,7 @@ describe('tenant performance dashboard backend contract', () => {
     );
   });
 
-  it('materializes caller-scoped dashboard datasets once and returns the bounded lead preview', () => {
+  it('materializes caller-scoped dashboard datasets once and keeps the bounded lead preview scoped', () => {
     expect(optimization).toContain('with scoped_leads as materialized');
     expect(optimization).toContain('scoped_calls as materialized');
     expect(optimization).toContain('scoped_bookings as materialized');
@@ -91,6 +93,16 @@ describe('tenant performance dashboard backend contract', () => {
     expect(optimization).toContain(
       'One scan per visible resource replaces the old 14 correlated scans',
     );
+  });
+
+  it('separates cacheable analytics from live PII and versions cache entries on dashboard inputs', () => {
+    expect(cacheMigration).toContain('create table if not exists public.workspace_cache_versions');
+    expect(cacheMigration).toContain("'tenant-dashboard'");
+    expect(cacheMigration).toContain('get_tenant_dashboard_summary');
+    expect(cacheMigration).toContain("- 'lead_preview'");
+    expect(cacheMigration).toContain("- 'attention'");
+    expect(cacheMigration).toContain('get_tenant_dashboard_live_items');
+    expect(cacheMigration).toContain('workspace_cache_tenant_dashboard');
   });
 });
 
@@ -116,16 +128,18 @@ describe('tenant dashboard web contract', () => {
     );
   });
 
-  it('rejects malformed RPC payloads at the browser boundary', () => {
-    expect(api).toContain('export const tenantDashboardSchema = z.object({');
+  it('rejects malformed cached and live payloads at the browser boundary', () => {
+    expect(api).toContain('const tenantDashboardSummarySchema = z.object({');
     expect(api).toContain('organization_id: z.uuid()');
     expect(api).toContain('days: z.union([z.literal(7), z.literal(14), z.literal(30)])');
-    expect(api).toContain('return tenantDashboardSchema.parse(data)');
+    expect(api).toContain("resource: 'tenant-dashboard'");
+    expect(api).toContain("rpc('get_tenant_dashboard_live_items'");
     expect(api).toContain('lead_preview: z.array(leadPreviewSchema)');
-    expect(api).not.toContain('fetchTenantDashboardLeadPreview');
+    expect(edge).toContain("rpc('get_tenant_dashboard_summary'");
+    expect(edge).toContain("'get_workspace_cache_context'");
   });
 
-  it('uses the one dashboard response for the lead preview table', () => {
+  it('uses the merged summary and scoped live response for the lead preview table', () => {
     expect(workspace).toContain('records={data.lead_preview}');
     expect(workspace).not.toContain('tenantDashboardLeadPreviewKey');
   });

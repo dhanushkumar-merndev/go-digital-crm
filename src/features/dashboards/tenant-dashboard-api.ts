@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
+import { fetchCachedDashboard } from '@/lib/query/cached-dashboard-api';
 
 const capabilitySchema = z.object({
   leads: z.boolean(),
@@ -47,7 +48,7 @@ const leadPreviewSchema = z.object({
   updated_at: z.string(),
 });
 
-export const tenantDashboardSchema = z.object({
+const tenantDashboardSummarySchema = z.object({
   organization_id: z.uuid(),
   generated_at: z.string(),
   days: z.union([z.literal(7), z.literal(14), z.literal(30)]),
@@ -55,6 +56,11 @@ export const tenantDashboardSchema = z.object({
   kpis: kpiSchema,
   activity: z.array(chartDatumSchema),
   pipeline: z.array(chartDatumSchema),
+  activity_primary: z.string(),
+  activity_secondary: z.string(),
+});
+
+const tenantDashboardLiveItemsSchema = z.object({
   lead_preview: z.array(leadPreviewSchema),
   attention: z.array(
     z.object({
@@ -67,20 +73,46 @@ export const tenantDashboardSchema = z.object({
       lead_id: z.uuid().nullable(),
     }),
   ),
-  activity_primary: z.string(),
-  activity_secondary: z.string(),
+});
+
+const refreshBudgetSchema = z.object({
+  enforced: z.boolean(),
+  remaining: z.coerce.number().int().nonnegative().nullable(),
+  retry_after_ms: z.coerce.number().int().nonnegative().nullable(),
+});
+
+export const tenantDashboardSchema = tenantDashboardSummarySchema.extend({
+  lead_preview: z.array(leadPreviewSchema),
+  attention: tenantDashboardLiveItemsSchema.shape.attention,
+  refresh_budget: refreshBudgetSchema.nullable().optional(),
 });
 
 export type TenantDashboardResult = z.infer<typeof tenantDashboardSchema>;
 
 export type TenantDashboardLeadPreview = z.infer<typeof leadPreviewSchema>;
 
-export async function fetchTenantDashboard(signal?: AbortSignal) {
-  const request = createClient().rpc('get_tenant_performance_dashboard', {
-    target_days: 14,
-    target_timezone: 'Asia/Kolkata',
+export async function fetchTenantDashboard(
+  signal?: AbortSignal,
+  options: { manualRefresh?: boolean } = {},
+) {
+  const [summary, liveItems] = await Promise.all([
+    fetchCachedDashboard({
+      resource: 'tenant-dashboard',
+      schema: tenantDashboardSummarySchema,
+      manualRefresh: options.manualRefresh,
+    }),
+    (async () => {
+      const request = createClient().rpc('get_tenant_dashboard_live_items', {
+        target_timezone: 'Asia/Kolkata',
+      });
+      const { data, error } = await (signal ? request.abortSignal(signal) : request);
+      if (error) throw error;
+      return tenantDashboardLiveItemsSchema.parse(data);
+    })(),
+  ]);
+  return tenantDashboardSchema.parse({
+    ...summary.result,
+    ...liveItems,
+    refresh_budget: summary.manualRefresh,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
-  return tenantDashboardSchema.parse(data);
 }

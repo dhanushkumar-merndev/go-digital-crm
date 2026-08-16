@@ -23,6 +23,9 @@ verify_jwt = false
 [functions.credit-consume]
 verify_jwt = true
 
+[functions.dashboard-cache]
+verify_jwt = true
+
 [functions.integration-connect-whatsapp]
 verify_jwt = true
 

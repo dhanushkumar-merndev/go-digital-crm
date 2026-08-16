@@ -14,7 +14,17 @@ const secretNames = [
   'TIGRIS_SECRET_ACCESS_KEY',
   'PUBLIC_EDGE_FUNCTION_BASE_URL',
   'INTEGRATION_OAUTH_CALLBACK_URL',
+  'UPSTASH_REDIS_REST_URL',
+  'UPSTASH_REDIS_REST_TOKEN',
+  'UPSTASH_REDIS_CACHE_PREFIX',
+  'UPSTASH_REDIS_ENABLED',
 ];
+const upstashSecretNames = new Set([
+  'UPSTASH_REDIS_REST_URL',
+  'UPSTASH_REDIS_REST_TOKEN',
+  'UPSTASH_REDIS_CACHE_PREFIX',
+  'UPSTASH_REDIS_ENABLED',
+]);
 
 const envPath = path.resolve(process.cwd(), '.env');
 const values = new Map();
@@ -26,7 +36,11 @@ for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
   if (match) values.set(match[1], match[2]);
 }
 
-const missing = secretNames.filter((name) => !values.get(name));
+const configuredSecretNames =
+  values.get('UPSTASH_REDIS_ENABLED') === 'true'
+    ? secretNames
+    : secretNames.filter((name) => !upstashSecretNames.has(name));
+const missing = configuredSecretNames.filter((name) => !values.get(name));
 if (missing.length > 0) {
   console.error(`Cannot prepare Supabase secrets; missing: ${missing.join(', ')}`);
   process.exit(1);
@@ -34,4 +48,6 @@ if (missing.length > 0) {
 
 // Intentionally prints to the local terminal only. Never commit or paste this
 // output into chat, source control, screenshots, or browser-exposed variables.
-process.stdout.write(`${secretNames.map((name) => `${name}=${values.get(name)}`).join('\n')}\n`);
+process.stdout.write(
+  `${configuredSecretNames.map((name) => `${name}=${values.get(name)}`).join('\n')}\n`,
+);

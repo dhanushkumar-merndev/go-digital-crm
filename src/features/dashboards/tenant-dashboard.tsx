@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
@@ -31,11 +31,7 @@ import {
 import { roleNavigation } from '@/config/navigation';
 import type { RoleKey } from '@/config/navigation/types';
 import type { PageSpec } from '@/lib/domain';
-import {
-  claimManualRefresh,
-  getManualRefreshBudget,
-  type ManualRefreshBudget,
-} from '@/lib/query/cache-policy';
+import { ManualDashboardRefreshLimitError } from '@/lib/query/cached-dashboard-api';
 import {
   useTenantRealtimeInvalidation,
   type TenantRealtimeResource,
@@ -47,7 +43,6 @@ import {
 } from './tenant-dashboard-api';
 
 const tenantDashboardKey = ['tenant-performance-dashboard'] as const;
-const tenantDashboardRefreshResource = 'tenant-performance-dashboard';
 
 type KpiCard = {
   label: string;
@@ -199,7 +194,7 @@ function DashboardHeader({
   generatedAt,
   onRefresh,
   refreshing,
-  manualRefreshBudget,
+  manualRefreshRemaining,
   manualRefreshMessage,
 }: {
   spec: PageSpec;
@@ -207,7 +202,7 @@ function DashboardHeader({
   generatedAt?: string;
   onRefresh: () => void;
   refreshing: boolean;
-  manualRefreshBudget: ManualRefreshBudget;
+  manualRefreshRemaining: number;
   manualRefreshMessage?: string;
 }) {
   const navigation = roleNavigation[role];
@@ -233,9 +228,7 @@ function DashboardHeader({
           <RefreshCw className={refreshing ? 'size-3.5 animate-spin' : 'size-3.5'} />
           Refresh
         </Button>
-        <span>
-          {manualRefreshMessage ?? `${manualRefreshBudget.remaining}/${3} manual refreshes left`}
-        </span>
+        <span>{manualRefreshMessage ?? `${manualRefreshRemaining}/3 manual refreshes left`}</span>
       </div>
     </div>
   );
@@ -366,30 +359,37 @@ function LeadPreviewTable({
 }
 
 export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey }) {
+  const manualRefreshRequest = useRef(false);
   const dashboard = useQuery({
     queryKey: tenantDashboardKey,
-    queryFn: ({ signal }) => fetchTenantDashboard(signal),
+    queryFn: ({ signal }) =>
+      fetchTenantDashboard(signal, { manualRefresh: manualRefreshRequest.current }),
   });
   const realtimeSubscriptions = useMemo(() => subscriptions(dashboard.data), [dashboard.data]);
   useTenantRealtimeInvalidation(dashboard.data?.organization_id, realtimeSubscriptions);
-  const [manualRefreshBudget, setManualRefreshBudget] = useState(() =>
-    getManualRefreshBudget(tenantDashboardRefreshResource),
-  );
+  const [manualRefreshRemaining, setManualRefreshRemaining] = useState(3);
   const [manualRefreshMessage, setManualRefreshMessage] = useState<string>();
 
-  const refresh = () => {
-    const result = claimManualRefresh(tenantDashboardRefreshResource);
-    setManualRefreshBudget(result);
-    if (!result.allowed) {
-      const minutes = Math.max(
-        1,
-        Math.ceil(((result.retryAt ?? Date.now()) - Date.now()) / 60_000),
+  const refresh = async () => {
+    setManualRefreshMessage(undefined);
+    manualRefreshRequest.current = true;
+    const result = await dashboard.refetch();
+    manualRefreshRequest.current = false;
+    if (result.error instanceof ManualDashboardRefreshLimitError) {
+      setManualRefreshRemaining(0);
+      setManualRefreshMessage(
+        'Refresh limit reached. Try again after the current ten-minute window.',
       );
-      setManualRefreshMessage(`Refresh limit reached. Try again in about ${minutes} min.`);
       return;
     }
-    setManualRefreshMessage(undefined);
-    void dashboard.refetch();
+    if (!result.error) {
+      const budget = result.data?.refresh_budget;
+      if (budget?.enforced && budget.remaining !== null) {
+        setManualRefreshRemaining(budget.remaining);
+      } else {
+        setManualRefreshRemaining((remaining) => Math.max(0, remaining - 1));
+      }
+    }
   };
 
   if (dashboard.isPending) return <PageSkeleton />;
@@ -401,7 +401,7 @@ export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey 
           role={role}
           onRefresh={refresh}
           refreshing={dashboard.isFetching}
-          manualRefreshBudget={manualRefreshBudget}
+          manualRefreshRemaining={manualRefreshRemaining}
           manualRefreshMessage={manualRefreshMessage}
         />
         <Card className="shadow-none">
@@ -472,7 +472,7 @@ export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey 
         generatedAt={data.generated_at}
         onRefresh={refresh}
         refreshing={dashboard.isFetching}
-        manualRefreshBudget={manualRefreshBudget}
+        manualRefreshRemaining={manualRefreshRemaining}
         manualRefreshMessage={manualRefreshMessage}
       />
 

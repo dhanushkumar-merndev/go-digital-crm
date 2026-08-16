@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { createClient } from '@/lib/supabase/client';
+import { fetchCachedDashboard } from '@/lib/query/cached-dashboard-api';
 import { assertPlatformReviewAccess } from './onboarding-review-api';
 
 const platformDashboardSchema = z.object({
@@ -38,7 +38,9 @@ export type PlatformDashboardData = z.infer<typeof platformDashboardSchema>;
 
 export async function fetchPlatformDashboard(): Promise<PlatformDashboardData> {
   await assertPlatformReviewAccess();
-  const { data, error } = await createClient().rpc('get_platform_dashboard');
-  if (error) throw error;
-  return platformDashboardSchema.parse(data);
+  const cached = await fetchCachedDashboard({
+    resource: 'platform-dashboard',
+    schema: platformDashboardSchema,
+  });
+  return cached.result;
 }
