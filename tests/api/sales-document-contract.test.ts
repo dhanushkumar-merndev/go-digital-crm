@@ -9,6 +9,7 @@ function source(path: string) {
 const migration = source('supabase/migrations/202608150024_quotation_booking_workspace.sql');
 const workspace = source('src/features/sales/sales-document-workspace.tsx');
 const dialogs = source('src/features/sales/sales-document-dialogs.tsx');
+const quotationCreate = source('src/features/sales/quotation-create-view.tsx');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
 const customerMigration = source('supabase/migrations/202608150011_customer_workspace.sql');
 
@@ -136,6 +137,27 @@ describe('sales document web contract', () => {
     expect(workspace).toContain("from '@/components/ui/table'");
     expect(dialogs).toContain("from '@/components/ui/dialog'");
     expect(`${workspace}\n${dialogs}`).not.toMatch(/recharts|chart\.js|apexcharts|@mui/i);
+  });
+
+  it('uses the fixed reference pricing form while preserving server-calculated line items', () => {
+    for (const field of [
+      'Ex-showroom Price',
+      'Insurance',
+      'Registration Charges',
+      'Accessories',
+      'Extended Warranty',
+      'Service Package',
+      'Exchange Value',
+      'Corporate Offer',
+      'Dealer Discount',
+      'Additional Discount',
+      'Quotation Validity',
+      'Final On-Road Price',
+    ])
+      expect(quotationCreate).toContain(field);
+    expect(quotationCreate).not.toContain('Add item');
+    expect(quotationCreate).toContain('fetchQuotationVehicleOptions');
+    expect(quotationCreate).toContain('items,');
   });
 
   it('wires configured quotation and booking route families before fail-closed fallback', () => {

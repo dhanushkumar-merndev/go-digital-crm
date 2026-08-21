@@ -7,6 +7,7 @@ const MANUAL_REFRESH_WINDOW_MS = 10 * 60_000;
 
 export type WorkspaceCacheResource =
   'tenant-dashboard' | 'inventory-dashboard' | 'platform-dashboard';
+export type ManualRefreshResource = WorkspaceCacheResource | 'sales-consultant-dashboard';
 
 export type CacheDiagnostic = {
   status: 'HIT' | 'MISS' | 'COALESCED' | 'BYPASS' | 'FALLBACK';
@@ -135,7 +136,7 @@ function entryAgeSeconds(entry: CacheEntry<unknown>) {
     : null;
 }
 
-export async function enforceManualRefresh(userId: string, resource: WorkspaceCacheResource) {
+export async function enforceManualRefresh(userId: string, resource: ManualRefreshResource) {
   const config = configuration();
   if (!config.enabled || !config.url || !config.token)
     return { enabled: false, allowed: true, remaining: null, retry_after_ms: null };

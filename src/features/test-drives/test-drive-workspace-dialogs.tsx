@@ -59,6 +59,12 @@ function mutationMessage(error: unknown, fallback: string) {
       return 'That vehicle is already scheduled during this time window.';
     if (message.includes('VEHICLE_UNAVAILABLE'))
       return 'The selected vehicle is no longer available.';
+    if (message.includes('INVALID_END_TRANSITION'))
+      return 'This drive can no longer be completed with these details. Refresh the page and verify the end time and odometer.';
+    if (message.includes('INVALID_START_TRANSITION'))
+      return 'This drive is no longer ready to start. Refresh the page to see its current status.';
+    if (message.includes('TEST_DRIVE_ASSIGNEE_REQUIRED'))
+      return 'Only the consultant assigned to this test drive can progress it.';
   }
   return fallback;
 }
@@ -464,7 +470,9 @@ export function TestDriveAnchorDialog({
 }) {
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
-  const [odometer, setOdometer] = useState('');
+  const [odometer, setOdometer] = useState(() =>
+    kind === 'end' && record.start_odometer !== null ? String(record.start_odometer) : '',
+  );
   const [locationError, setLocationError] = useState('');
   const [locating, setLocating] = useState(false);
   const requestId = useRef<string | null>(null);
@@ -531,6 +539,12 @@ export function TestDriveAnchorDialog({
       odometerValue >= 0 &&
       odometerValue <= 2_000_000 &&
       (kind !== 'end' || record.start_odometer === null || odometerValue >= record.start_odometer));
+  const odometerError =
+    requiresOdometer && odometer.trim() !== '' && !validOdometer
+      ? kind === 'end' && record.start_odometer !== null && odometerValue < record.start_odometer
+        ? `End odometer must be at least ${record.start_odometer.toLocaleString()} km.`
+        : 'Enter a whole odometer value between 0 and 2,000,000 km.'
+      : '';
   const titles: Record<TestDriveAnchorKind, string> = {
     start: 'Start test drive',
     reached: 'Record destination reached',
@@ -611,12 +625,19 @@ export function TestDriveAnchorDialog({
                 max={2_000_000}
                 value={odometer}
                 required
+                aria-invalid={Boolean(odometerError)}
                 onChange={(event) => {
                   requestId.current = null;
                   recordedAt.current = null;
                   setOdometer(event.target.value);
                 }}
               />
+              {kind === 'end' && record.start_odometer !== null && !odometerError && (
+                <p className="text-xs text-muted-foreground">
+                  Start odometer: {record.start_odometer.toLocaleString()} km
+                </p>
+              )}
+              {odometerError && <p className="text-xs text-destructive">{odometerError}</p>}
             </div>
           )}
           {(locationError || mutation.isError) && (

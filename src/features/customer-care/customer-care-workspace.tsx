@@ -35,12 +35,14 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import {
   createCustomerCareCase,
+  fetchCustomerCareDashboard,
   fetchCustomerCarePermissions,
   fetchCustomerCareWorkspace,
   updateCustomerCareCase,
   type CustomerCareRecord,
   type CustomerCareWorkspaceResult,
 } from './customer-care-api';
+import { CustomerRelationshipDashboard } from './customer-relationship-dashboard';
 import {
   customerCareInitialView,
   customerCareLabel,
@@ -55,6 +57,7 @@ import {
 import { CreateCustomerCareDialog, CustomerCareCaseSheet } from './customer-care-dialogs';
 
 const workspaceKey = ['customer-care-workspace'] as const;
+const dashboardKey = ['customer-care-dashboard'] as const;
 
 function actionError(error: unknown) {
   if (error instanceof Error && error.message === 'CUSTOMER_CARE_VERSION_CONFLICT')
@@ -338,6 +341,7 @@ export function CustomerCareWorkspace({
   );
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<CustomerCareRecord | null>(null);
+  const isDashboard = slug === 'dashboard';
   const debouncedSearch = useDebouncedValue(routeQuery.search, 300);
   const query = useMemo(
     () => ({ ...routeQuery, search: debouncedSearch }),
@@ -353,9 +357,17 @@ export function CustomerCareWorkspace({
     enabled: Boolean(permissions.data),
     placeholderData: keepPreviousData,
   });
+  const dashboard = useQuery({
+    queryKey: [...dashboardKey, permissions.data?.organizationId],
+    queryFn: ({ signal }) => fetchCustomerCareDashboard(signal),
+    enabled: isDashboard && Boolean(permissions.data),
+  });
   useTenantRealtimeInvalidation(permissions.data?.organizationId, [
-    { resource: 'customer-care', queryKeys: [workspaceKey] },
-    { resource: 'work', queryKeys: [workspaceKey] },
+    {
+      resource: 'customer-care',
+      queryKeys: [workspaceKey, dashboardKey],
+    },
+    { resource: 'work', queryKeys: [workspaceKey, dashboardKey] },
   ]);
 
   const replaceQuery = useCallback(
@@ -371,7 +383,10 @@ export function CustomerCareWorkspace({
     mutationFn: createCustomerCareCase,
     onSuccess: async () => {
       setCreateOpen(false);
-      await queryClient.invalidateQueries({ queryKey: workspaceKey });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: workspaceKey }),
+        queryClient.invalidateQueries({ queryKey: dashboardKey }),
+      ]);
     },
   });
   const updateMutation = useMutation({
@@ -382,12 +397,23 @@ export function CustomerCareWorkspace({
           ? { ...record, status: result.status, version: result.version }
           : record,
       );
-      await queryClient.invalidateQueries({ queryKey: workspaceKey });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: workspaceKey }),
+        queryClient.invalidateQueries({ queryKey: dashboardKey }),
+      ]);
     },
   });
 
-  if (permissions.isPending || workspace.isPending) return <PageSkeleton />;
-  if (permissions.isError || workspace.isError || !permissions.data || !workspace.data)
+  if (permissions.isPending || workspace.isPending || (isDashboard && dashboard.isPending))
+    return <PageSkeleton />;
+  if (
+    permissions.isError ||
+    workspace.isError ||
+    (isDashboard && dashboard.isError) ||
+    !permissions.data ||
+    !workspace.data ||
+    (isDashboard && !dashboard.data)
+  )
     return (
       <div className="space-y-6">
         <PageHeader spec={{ ...spec, primaryAction: undefined }} />
@@ -407,58 +433,81 @@ export function CustomerCareWorkspace({
   return (
     <div className="mx-auto max-w-[1600px] space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <PageHeader
+          spec={{
+            ...spec,
+            title: isDashboard ? 'Customer Relationship Dashboard' : spec.title,
+            description: isDashboard
+              ? 'Monitor customer experience across enquiry, feedback, reviews and complaint resolution.'
+              : spec.description,
+            primaryAction: undefined,
+          }}
+        />
         {permissions.data.canManage && (
           <Button className="shrink-0" onClick={() => setCreateOpen(true)}>
             <Plus className="size-4" /> Create case
           </Button>
         )}
       </div>
-      <KpiGrid metrics={metrics(result)} />
+      {isDashboard && dashboard.data ? (
+        <CustomerRelationshipDashboard
+          summary={dashboard.data}
+          records={result.records}
+          onOpen={setSelected}
+        />
+      ) : (
+        <>
+          <KpiGrid metrics={metrics(result)} />
 
-      <div className="grid gap-6 xl:grid-cols-12">
-        <Card className="shadow-none xl:col-span-5">
-          <CardHeader>
-            <CardTitle className="text-base">Case status</CardTitle>
-            <CardDescription>Current scoped case distribution</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <EChart kind="donut" data={result.status_chart} />
-          </CardContent>
-        </Card>
-        <Card className="shadow-none xl:col-span-7">
-          <CardHeader>
-            <CardTitle className="text-base">Opened and resolved</CardTitle>
-            <CardDescription>Daily activity over the last 14 days</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <EChart kind="line" data={result.activity_chart} seriesNames={['Opened', 'Resolved']} />
-          </CardContent>
-        </Card>
-      </div>
+          <div className="grid gap-6 xl:grid-cols-12">
+            <Card className="shadow-none xl:col-span-5">
+              <CardHeader>
+                <CardTitle className="text-base">Case status</CardTitle>
+                <CardDescription>Current scoped case distribution</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <EChart kind="donut" data={result.status_chart} />
+              </CardContent>
+            </Card>
+            <Card className="shadow-none xl:col-span-7">
+              <CardHeader>
+                <CardTitle className="text-base">Opened and resolved</CardTitle>
+                <CardDescription>Daily activity over the last 14 days</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <EChart
+                  kind="line"
+                  data={result.activity_chart}
+                  seriesNames={['Opened', 'Resolved']}
+                />
+              </CardContent>
+            </Card>
+          </div>
 
-      <Tabs
-        value={query.view}
-        onValueChange={(value) =>
-          replaceQuery({ view: value as CustomerCareQuery['view'], page: 1 })
-        }
-      >
-        <TabsList className="h-auto max-w-full flex-wrap justify-start">
-          {customerCareViews.map((view) => (
-            <TabsTrigger key={view} value={view}>
-              {customerCareLabel(view)}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+          <Tabs
+            value={query.view}
+            onValueChange={(value) =>
+              replaceQuery({ view: value as CustomerCareQuery['view'], page: 1 })
+            }
+          >
+            <TabsList className="h-auto max-w-full flex-wrap justify-start">
+              {customerCareViews.map((view) => (
+                <TabsTrigger key={view} value={view}>
+                  {customerCareLabel(view)}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
 
-      <CustomerCareTable
-        result={result}
-        query={routeQuery}
-        isFetching={workspace.isFetching}
-        onQueryChange={replaceQuery}
-        onOpen={setSelected}
-      />
+          <CustomerCareTable
+            result={result}
+            query={routeQuery}
+            isFetching={workspace.isFetching}
+            onQueryChange={replaceQuery}
+            onOpen={setSelected}
+          />
+        </>
+      )}
 
       <CreateCustomerCareDialog
         key={defaultCreateType(query.view)}

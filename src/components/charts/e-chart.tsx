@@ -6,11 +6,13 @@ import type { ChartKind } from '@/lib/domain';
 
 type Datum = { name: string; value: number; secondary?: number };
 type SeriesNames = [string, string];
+type FunnelMode = 'proportional' | 'staged';
 
 function optionFor(
   kind: ChartKind,
   data: Datum[],
   seriesNames?: SeriesNames,
+  funnelMode: FunnelMode = 'proportional',
 ): echarts.EChartsCoreOption {
   const text = '#667085';
   const grid = { left: 42, right: 20, top: 20, bottom: 32 };
@@ -29,27 +31,43 @@ function optionFor(
         },
       ],
     };
-  if (kind === 'funnel')
+  if (kind === 'funnel') {
+    const funnelData =
+      funnelMode === 'staged'
+        ? data.slice(0, 5).map((item, index, items) => ({
+            name: `${item.name}   ${item.value}`,
+            value: items.length - index,
+          }))
+        : data.slice(0, 5);
     return {
-      tooltip: { trigger: 'item' },
-      color: ['#1d4ed8', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'],
+      tooltip: { trigger: 'item', formatter: funnelMode === 'staged' ? '{b}' : undefined },
+      color:
+        funnelMode === 'staged'
+          ? ['#1769e8', '#58a4e8', '#18b8bd', '#8b5de7', '#55c58a']
+          : ['#1d4ed8', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'],
       series: [
         {
           type: 'funnel',
-          top: 8,
-          bottom: 8,
-          left: '6%',
-          width: '88%',
-          minSize: '25%',
+          top: 4,
+          bottom: 4,
+          left: '2%',
+          width: '96%',
+          min: funnelMode === 'staged' ? 1 : undefined,
+          max: funnelMode === 'staged' ? Math.max(funnelData.length, 1) : undefined,
+          minSize: funnelMode === 'staged' ? '34%' : '25%',
           maxSize: '100%',
-          sort: 'descending',
-          gap: 3,
-          label: { color: '#fff', fontSize: 11 },
-          itemStyle: { borderColor: '#fff', borderWidth: 2 },
-          data: data.slice(0, 5),
+          sort: funnelMode === 'staged' ? 'none' : 'descending',
+          funnelAlign: 'center',
+          gap: 2,
+          label: { color: '#fff', fontSize: 11, fontWeight: 500 },
+          labelLine: { show: false },
+          itemStyle: { borderColor: '#fff', borderWidth: 1 },
+          emphasis: { label: { fontSize: 11 } },
+          data: funnelData,
         },
       ],
     };
+  }
   const common = {
     tooltip: { trigger: 'axis' },
     grid,
@@ -79,13 +97,17 @@ function optionFor(
           itemStyle: { borderRadius: [4, 4, 0, 0] },
           data: data.map((item) => item.value),
         },
-        {
-          name: seriesNames?.[1] ?? 'Target',
-          type: 'bar',
-          barMaxWidth: 22,
-          itemStyle: { borderRadius: [4, 4, 0, 0] },
-          data: data.map((item) => item.secondary),
-        },
+        ...(data.some((item) => item.secondary !== undefined)
+          ? [
+              {
+                name: seriesNames?.[1] ?? 'Target',
+                type: 'bar' as const,
+                barMaxWidth: 22,
+                itemStyle: { borderRadius: [4, 4, 0, 0] },
+                data: data.map((item) => item.secondary),
+              },
+            ]
+          : []),
       ],
     };
   return {
@@ -116,23 +138,25 @@ export function EChart({
   data,
   className = 'h-72',
   seriesNames,
+  funnelMode = 'proportional',
 }: {
   kind: ChartKind;
   data: Datum[];
   className?: string;
   seriesNames?: SeriesNames;
+  funnelMode?: FunnelMode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!ref.current) return;
     const chart = echarts.init(ref.current, undefined, { renderer: 'svg' });
-    chart.setOption(optionFor(kind, data, seriesNames));
+    chart.setOption(optionFor(kind, data, seriesNames, funnelMode));
     const observer = new ResizeObserver(() => chart.resize());
     observer.observe(ref.current);
     return () => {
       observer.disconnect();
       chart.dispose();
     };
-  }, [kind, data, seriesNames]);
+  }, [funnelMode, kind, data, seriesNames]);
   return <div ref={ref} className={className} role="img" aria-label={`${kind} chart`} />;
 }

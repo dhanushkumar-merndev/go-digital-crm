@@ -91,6 +91,10 @@ export type TenantDashboardResult = z.infer<typeof tenantDashboardSchema>;
 
 export type TenantDashboardLeadPreview = z.infer<typeof leadPreviewSchema>;
 
+/** Shared React Query key so auth flows can warm this cache ahead of the
+ * dashboard mounting (see the sign-in and MFA success handlers). */
+export const tenantDashboardKey = ['tenant-performance-dashboard'] as const;
+
 export async function fetchTenantDashboard(
   signal?: AbortSignal,
   options: { manualRefresh?: boolean } = {},

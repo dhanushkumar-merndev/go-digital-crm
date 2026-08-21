@@ -54,6 +54,8 @@ const callWorkspaceSchema = z.object({
     average_duration_seconds: z.coerce.number().int().nonnegative(),
     callbacks_required: z.coerce.number().int().nonnegative(),
     recordings_ready: z.coerce.number().int().nonnegative(),
+    not_connected_today: z.coerce.number().int().nonnegative(),
+    talk_time_seconds: z.coerce.number().int().nonnegative(),
   }),
   trend: z.array(
     z.object({
@@ -112,7 +114,8 @@ export async function fetchCallWorkspace(
   query: CallQuery,
   signal?: AbortSignal,
 ): Promise<CallWorkspaceResult> {
-  const request = createClient().rpc('get_call_workspace_page', {
+  const supabase = createClient();
+  const request = supabase.rpc('get_call_workspace_page', {
     target_search: query.search,
     target_page: query.page,
     target_page_size: query.pageSize,
@@ -121,9 +124,34 @@ export async function fetchCallWorkspace(
     target_source: callSourceValues[query.source],
     target_sort: query.sort,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  const [workspace, summary] = await Promise.all([
+    signal ? request.abortSignal(signal) : request,
+    supabase.rpc('get_call_today_summary'),
+  ]);
+  const { data, error } = workspace;
   if (error) throw error;
-  return callWorkspaceSchema.parse(data);
+  if (summary.error) throw summary.error;
+  const parsedSummary = z
+    .object({
+      total_calls: z.coerce.number().int().nonnegative(),
+      connected_calls: z.coerce.number().int().nonnegative(),
+      not_connected_calls: z.coerce.number().int().nonnegative(),
+      talk_time_seconds: z.coerce.number().int().nonnegative(),
+      average_duration_seconds: z.coerce.number().int().nonnegative(),
+    })
+    .parse(summary.data);
+  const raw = data as { kpis?: Record<string, unknown> };
+  return callWorkspaceSchema.parse({
+    ...raw,
+    kpis: {
+      ...raw.kpis,
+      total_today: parsedSummary.total_calls,
+      connected_today: parsedSummary.connected_calls,
+      not_connected_today: parsedSummary.not_connected_calls,
+      talk_time_seconds: parsedSummary.talk_time_seconds,
+      average_duration_seconds: parsedSummary.average_duration_seconds,
+    },
+  });
 }
 
 const callPartySchema = z.object({
@@ -169,6 +197,49 @@ export async function fetchCallScopeOptions(): Promise<CallScopeOptions> {
     branches: branches.data as CallScopeOptions['branches'],
     teams: teams.data as CallScopeOptions['teams'],
   };
+}
+
+const callProviderOptionSchema = z.object({
+  id: z.uuid(),
+  provider_key: z.literal('twilio_voice'),
+  display_name: z.string(),
+  caller_id_label: nullableString,
+});
+export type CallProviderOption = z.infer<typeof callProviderOptionSchema>;
+
+export async function fetchCallProviderOptions(branchId: string): Promise<CallProviderOption[]> {
+  const { data, error } = await createClient().rpc('get_call_provider_options', {
+    target_branch_id: branchId,
+  });
+  if (error) throw error;
+  return z.array(callProviderOptionSchema).parse(data);
+}
+
+export async function startProviderCall(input: {
+  organizationId: string;
+  connectionId: string;
+  leadId: string;
+  requestId: string;
+}) {
+  const { data, error } = await createClient().functions.invoke<
+    EdgeEnvelope<{
+      call_id: string;
+      provider_call_id: string;
+      status: string;
+    }>
+  >('call-provider-start', {
+    body: {
+      organization_id: input.organizationId,
+      connection_id: input.connectionId,
+      lead_id: input.leadId,
+      request_id: input.requestId,
+    },
+  });
+  if (error || !data?.ok || !data.data)
+    throw error ?? new Error(data?.error?.code ?? 'PROVIDER_CALL_START_FAILED');
+  return z
+    .object({ call_id: z.uuid(), provider_call_id: z.string(), status: z.string() })
+    .parse(data.data);
 }
 
 const createdCallSchema = z.object({
@@ -262,6 +333,81 @@ export async function logCompletedManualCall(
     notes: input.notes,
     requestId: input.finalizeRequestId,
   });
+}
+
+type EdgeEnvelope<T> = {
+  ok: boolean;
+  data: T | null;
+  error: { code: string; message: string } | null;
+};
+
+async function sha256Base64(buffer: ArrayBuffer) {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer));
+  let binary = '';
+  for (const byte of digest) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+export async function uploadManualCallRecording(input: {
+  organizationId: string;
+  branchId: string;
+  callId: string;
+  file: File;
+  requestId: string;
+}) {
+  const checksum = await sha256Base64(await input.file.arrayBuffer());
+  const supabase = createClient();
+  const { data: presign, error: presignError } = await supabase.functions.invoke<
+    EdgeEnvelope<{
+      upload_intent_id: string;
+      upload_url: string;
+      required_headers: Record<string, string>;
+    }>
+  >('presign-upload', {
+    body: {
+      organization_id: input.organizationId,
+      branch_id: input.branchId,
+      resource_type: 'call',
+      resource_id: input.callId,
+      file_name: input.file.name,
+      mime_type: input.file.type,
+      size_bytes: input.file.size,
+      checksum_sha256: checksum,
+    },
+  });
+  if (presignError || !presign?.ok || !presign.data)
+    throw presignError ?? new Error(presign?.error?.code ?? 'CALL_RECORDING_PRESIGN_FAILED');
+  const uploaded = await fetch(presign.data.upload_url, {
+    method: 'PUT',
+    headers: presign.data.required_headers,
+    body: input.file,
+  });
+  if (!uploaded.ok) throw new Error('CALL_RECORDING_TRANSFER_FAILED');
+  const { data: finalized, error: finalizeError } = await supabase.functions.invoke<
+    EdgeEnvelope<{ object_file_id: string }>
+  >('object-upload-finalize', {
+    body: { upload_intent_id: presign.data.upload_intent_id },
+  });
+  if (finalizeError || !finalized?.ok || !finalized.data)
+    throw finalizeError ?? new Error(finalized?.error?.code ?? 'CALL_RECORDING_FINALIZE_FAILED');
+  const { data: attached, error: attachError } = await supabase.rpc(
+    'attach_manual_call_recording',
+    {
+      target_call_id: input.callId,
+      target_object_file_id: finalized.data.object_file_id,
+      target_request_id: input.requestId,
+    },
+  );
+  if (attachError) throw attachError;
+  return z
+    .object({
+      recording_id: z.uuid(),
+      call_id: z.uuid(),
+      object_file_id: z.uuid(),
+      status: z.string(),
+      replayed: z.boolean(),
+    })
+    .parse(attached);
 }
 
 const callDetailSchema = z.object({

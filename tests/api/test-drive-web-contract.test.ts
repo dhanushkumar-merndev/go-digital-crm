@@ -52,11 +52,13 @@ describe('test-drive web runtime contract', () => {
     expect(workspace).toContain('manualPagination: true');
     expect(workspace).toContain('useDebouncedValue(query.search, 300)');
     expect(workspace).toContain('useDebouncedValue(query.model, 300)');
-    expect(workspace).toContain("label: 'Overdue'");
+    expect(workspace).toContain("label: 'Conversion after Test Drive'");
+    expect(workspace).toContain("setScreen('create')");
+    expect(workspace).toContain('<TestDriveActiveView');
     expect(workspace).toContain("resource: 'work'");
     expect(workspace).toContain("resource: 'sales'");
     expect(workspace).toContain("from '@/components/ui/table'");
-    expect(workspace).toContain("from '@/components/ui/tabs'");
+    expect(workspace).toContain("boxShadow: 'inset 0 -2px 0 #2563eb'");
     expect(dialogs).toContain("from '@/components/ui/dialog'");
     expect(dialogs).toContain("from '@/components/ui/map'");
     expect(dialogs).toContain('<TestDriveRoutePreview record={record} />');

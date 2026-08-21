@@ -16,11 +16,18 @@ export type HeaderNotification = z.infer<typeof notificationSchema>;
 
 export const headerNotificationsKey = ['header-notifications'] as const;
 
-/** Bounded to the latest eight notifications; RLS restricts this to auth.uid(). */
+/**
+ * Unread only, bounded to the latest eight; RLS restricts this to auth.uid().
+ * Reading a notification is what dismisses it from the bell, so the filter is
+ * applied server-side -- fetching read rows just to hide them client-side would
+ * let a backlog of read notifications push unread ones out of the eight-row
+ * window and silently hide the items the user still has to act on.
+ */
 export async function fetchHeaderNotifications(signal?: AbortSignal) {
   const request = createClient()
     .from('notifications')
     .select('id,event_type,title,body,resource_type,resource_id,read_at,created_at')
+    .is('read_at', null)
     .order('created_at', { ascending: false })
     .limit(8);
   const { data, error } = await (signal ? request.abortSignal(signal) : request);

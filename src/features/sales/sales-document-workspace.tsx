@@ -3,13 +3,21 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
+  CalendarClock,
+  CarFront,
+  CircleCheck,
   ChevronLeft,
   ChevronRight,
+  Clock3,
+  Eye,
+  FileText,
+  IndianRupee,
   MoreHorizontal,
   Pencil,
   Plus,
   RotateCcw,
   Search,
+  Send,
   TriangleAlert,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -50,6 +58,8 @@ import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-inval
 import {
   fetchSalesDocumentPermissions,
   fetchSalesDocumentWorkspace,
+  fetchBookingFilterOptions,
+  type BookingFilterOptions,
   type BookingRecord,
   type BookingWorkspaceResult,
   type QuotationRecord,
@@ -57,11 +67,11 @@ import {
 } from './sales-document-api';
 import {
   BookingCreateDialog,
-  QuotationDialog,
   SalesDocumentActionDialog,
   type BookingAction,
   type QuotationAction,
 } from './sales-document-dialogs';
+import { QuotationCreateView } from './quotation-create-view';
 import {
   bookingStatusFilters,
   parseSalesDocumentQuery,
@@ -102,34 +112,64 @@ function label(value: string) {
 
 function quotationMetrics(result: QuotationWorkspaceResult): Metric[] {
   return [
-    { label: 'Open', value: result.kpis.open.toLocaleString() },
-    { label: 'Sent', value: result.kpis.sent.toLocaleString() },
+    {
+      label: 'Open Quotations',
+      value: result.kpis.open.toLocaleString(),
+      icon: FileText,
+      tone: 'bg-blue-50 text-blue-600',
+    },
+    {
+      label: 'Sent',
+      value: result.kpis.sent.toLocaleString(),
+      icon: Send,
+      tone: 'bg-emerald-50 text-emerald-600',
+    },
     {
       label: 'Approval required',
       value: result.kpis.approval_required.toLocaleString(),
       helper: 'Distinct manager decision required',
+      icon: Clock3,
+      tone: 'bg-amber-50 text-amber-600',
     },
     {
       label: 'Pipeline value',
       value: currency(result.kpis.pipeline_value),
       helper: `${result.kpis.converted.toLocaleString()} converted`,
+      icon: IndianRupee,
+      tone: 'bg-violet-50 text-violet-600',
     },
   ];
 }
 
 function bookingMetrics(result: BookingWorkspaceResult): Metric[] {
   return [
-    { label: 'Bookings', value: result.kpis.bookings.toLocaleString() },
-    { label: 'Booking value', value: currency(result.kpis.booking_value) },
     {
-      label: 'Awaiting allocation',
-      value: result.kpis.awaiting_allocation.toLocaleString(),
-      helper: 'Stock action required',
+      label: 'Pending bookings',
+      value: (result.kpis.pending ?? result.kpis.awaiting_allocation).toLocaleString(),
+      helper: 'Awaiting stock allocation',
+      icon: CalendarClock,
+      tone: 'bg-blue-50 text-blue-600',
     },
     {
-      label: 'Delivery this week',
-      value: result.kpis.delivery_this_week.toLocaleString(),
-      helper: `${result.kpis.delivered.toLocaleString()} delivered`,
+      label: 'Confirmed',
+      value: (result.kpis.confirmed ?? result.kpis.bookings).toLocaleString(),
+      helper: 'Confirmed customer bookings',
+      icon: CircleCheck,
+      tone: 'bg-emerald-50 text-emerald-600',
+    },
+    {
+      label: 'Delivery ready',
+      value: (result.kpis.ready_for_delivery ?? result.kpis.delivery_this_week).toLocaleString(),
+      helper: 'Vehicle ready for handover',
+      icon: CarFront,
+      tone: 'bg-orange-50 text-orange-600',
+    },
+    {
+      label: 'Delivered this month',
+      value: (result.kpis.delivered_this_month ?? result.kpis.delivered).toLocaleString(),
+      helper: 'Completed in the current month',
+      icon: CarFront,
+      tone: 'bg-violet-50 text-violet-600',
     },
   ];
 }
@@ -142,6 +182,7 @@ function TableFrame<T>({
   kind,
   isFetching,
   onQueryChange,
+  bookingOptions,
 }: {
   columns: ColumnDef<T>[];
   records: T[];
@@ -150,6 +191,7 @@ function TableFrame<T>({
   kind: SalesDocumentKind;
   isFetching: boolean;
   onQueryChange: (next: Partial<SalesDocumentQuery>) => void;
+  bookingOptions?: BookingFilterOptions;
 }) {
   // TanStack Table intentionally owns an imperative row model.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -165,7 +207,13 @@ function TableFrame<T>({
   return (
     <Card className="shadow-none">
       <CardHeader className="border-b p-4">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div
+          className={
+            kind === 'bookings'
+              ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-6'
+              : 'flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between'
+          }
+        >
           <div className="relative w-full xl:max-w-md">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -179,46 +227,152 @@ function TableFrame<T>({
               onChange={(event) => onQueryChange({ search: event.target.value, page: 1 })}
             />
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Select
-              value={query.status}
-              onValueChange={(status) =>
-                onQueryChange({ status: status as SalesDocumentQuery['status'], page: 1 })
-              }
-            >
-              <SelectTrigger className="w-full sm:w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {statuses.map((status) => (
-                  <SelectItem key={status} value={status}>
-                    {label(status)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {kind === 'bookings' ? (
+            <>
+              <Select
+                value={query.model || 'all'}
+                onValueChange={(model) =>
+                  onQueryChange({ model: model === 'all' ? '' : model, page: 1 })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="All models" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All models</SelectItem>
+                  {bookingOptions?.models.map((model) => (
+                    <SelectItem key={model} value={model}>
+                      {model}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={query.status}
+                onValueChange={(status) =>
+                  onQueryChange({ status: status as SalesDocumentQuery['status'], page: 1 })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {statuses.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {status === 'awaiting-allocation' ? 'Stock Awaited' : label(status)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {bookingOptions?.branches.length === 1 ? (
+                <div className="flex h-9 items-center truncate rounded-md border bg-muted/30 px-3 text-sm">
+                  {bookingOptions.branches[0]?.name}
+                </div>
+              ) : (
+                <Select
+                  value={query.branchId || 'all'}
+                  onValueChange={(branchId) =>
+                    onQueryChange({ branchId: branchId === 'all' ? '' : branchId, page: 1 })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="All authorized branches" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All authorized branches</SelectItem>
+                    {bookingOptions?.branches.map((branch) => (
+                      <SelectItem key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Input
+                type="date"
+                value={query.fromDate}
+                onChange={(event) => onQueryChange({ fromDate: event.target.value, page: 1 })}
+                aria-label="Booking date from"
+              />
+              <Input
+                type="date"
+                value={query.toDate}
+                onChange={(event) => onQueryChange({ toDate: event.target.value, page: 1 })}
+                aria-label="Booking date to"
+              />
+            </>
+          ) : (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Select
+                value={query.status}
+                onValueChange={(status) =>
+                  onQueryChange({ status: status as SalesDocumentQuery['status'], page: 1 })
+                }
+              >
+                <SelectTrigger className="w-full sm:w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {statuses.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {label(status)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={query.sort}
+                onValueChange={(sort) =>
+                  onQueryChange({ sort: sort as SalesDocumentQuery['sort'], page: 1 })
+                }
+              >
+                <SelectTrigger className="w-full sm:w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="updated:desc">Recently updated</SelectItem>
+                  <SelectItem value="updated:asc">Oldest updated</SelectItem>
+                  <SelectItem value="amount:desc">Highest value</SelectItem>
+                  <SelectItem value="amount:asc">Lowest value</SelectItem>
+                  <SelectItem value="customer:asc">Customer A–Z</SelectItem>
+                  <SelectItem value="customer:desc">Customer Z–A</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={String(query.pageSize)}
+                onValueChange={(value) =>
+                  onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
+                }
+              >
+                <SelectTrigger className="w-full sm:w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="25">25 rows</SelectItem>
+                  <SelectItem value="50">50 rows</SelectItem>
+                  <SelectItem value="100">100 rows</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+        {kind === 'bookings' && (
+          <div className="mt-3 flex flex-wrap justify-end gap-2">
             <Select
               value={query.sort}
               onValueChange={(sort) =>
                 onQueryChange({ sort: sort as SalesDocumentQuery['sort'], page: 1 })
               }
             >
-              <SelectTrigger className="w-full sm:w-44">
+              <SelectTrigger className="w-48">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="updated:desc">Recently updated</SelectItem>
-                <SelectItem value="updated:asc">Oldest updated</SelectItem>
+                <SelectItem value="delivery:asc">Earliest delivery</SelectItem>
+                <SelectItem value="delivery:desc">Latest delivery</SelectItem>
+                <SelectItem value="updated:desc">Recently booked</SelectItem>
                 <SelectItem value="amount:desc">Highest value</SelectItem>
-                <SelectItem value="amount:asc">Lowest value</SelectItem>
                 <SelectItem value="customer:asc">Customer A–Z</SelectItem>
-                <SelectItem value="customer:desc">Customer Z–A</SelectItem>
-                {kind === 'bookings' && (
-                  <>
-                    <SelectItem value="delivery:asc">Earliest delivery</SelectItem>
-                    <SelectItem value="delivery:desc">Latest delivery</SelectItem>
-                  </>
-                )}
               </SelectContent>
             </Select>
             <Select
@@ -227,7 +381,7 @@ function TableFrame<T>({
                 onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
               }
             >
-              <SelectTrigger className="w-full sm:w-28">
+              <SelectTrigger className="w-28">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -236,8 +390,32 @@ function TableFrame<T>({
                 <SelectItem value="100">100 rows</SelectItem>
               </SelectContent>
             </Select>
+            <Button
+              variant="outline"
+              disabled={
+                !query.search &&
+                query.status === 'all' &&
+                !query.model &&
+                !query.branchId &&
+                !query.fromDate &&
+                !query.toDate
+              }
+              onClick={() =>
+                onQueryChange({
+                  page: 1,
+                  search: '',
+                  status: 'all',
+                  model: '',
+                  branchId: '',
+                  fromDate: '',
+                  toDate: '',
+                })
+              }
+            >
+              Clear filters
+            </Button>
           </div>
-        </div>
+        )}
       </CardHeader>
       <CardContent className="p-0">
         <div className={isFetching ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
@@ -329,7 +507,10 @@ export function SalesDocumentWorkspace({
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [query, setQuery] = useState(() => parseSalesDocumentQuery(searchParams, kind));
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(() => searchParams.get('action') === 'create');
+  const [quotationScreen, setQuotationScreen] = useState<'list' | 'create'>(() =>
+    kind === 'quotations' && searchParams.get('action') === 'create' ? 'create' : 'list',
+  );
   const [editingQuotation, setEditingQuotation] = useState<QuotationRecord | null>(null);
   const [actionState, setActionState] = useState<{
     record: QuotationRecord | BookingRecord;
@@ -362,6 +543,16 @@ export function SalesDocumentWorkspace({
     queryFn: ({ signal }) => fetchSalesDocumentWorkspace(kind, requestQuery, signal),
     enabled: Boolean(permissions.data),
     placeholderData: keepPreviousData,
+  });
+  const bookingFilterOptions = useQuery({
+    queryKey: [
+      'sales-booking-filter-options',
+      permissions.data?.organizationId,
+      permissions.data?.scopeKey,
+    ],
+    queryFn: ({ signal }) => fetchBookingFilterOptions(signal),
+    enabled: kind === 'bookings' && Boolean(permissions.data),
+    staleTime: 60_000,
   });
   const onQueryChange = useCallback(
     (next: Partial<SalesDocumentQuery>) => {
@@ -472,7 +663,12 @@ export function SalesDocumentWorkspace({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {canEdit && (
-                  <DropdownMenuItem onClick={() => setEditingQuotation(record)}>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setEditingQuotation(record);
+                      setQuotationScreen('create');
+                    }}
+                  >
                     <Pencil className="size-4" /> Edit and version
                   </DropdownMenuItem>
                 )}
@@ -529,10 +725,19 @@ export function SalesDocumentWorkspace({
   const bookingColumns = useMemo<ColumnDef<BookingRecord>[]>(
     () => [
       {
+        id: 'reference',
+        header: 'Booking ID',
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap font-semibold text-blue-700">
+            {row.original.booking_number}
+          </span>
+        ),
+      },
+      {
         id: 'customer',
         header: 'Customer',
         cell: ({ row }) => (
-          <div className="min-w-40">
+          <div className="min-w-36">
             <Link
               href={`/${role}/customers/${row.original.customer_id}`}
               className="font-semibold hover:text-primary hover:underline"
@@ -544,38 +749,40 @@ export function SalesDocumentWorkspace({
         ),
       },
       {
-        id: 'reference',
-        header: 'Booking',
-        cell: ({ row }) => (
-          <div>
-            <p className="font-medium">{row.original.booking_number}</p>
-            <p className="text-xs text-muted-foreground">
-              {row.original.quotation_number ?? 'No quotation'}
-            </p>
-          </div>
-        ),
-      },
-      {
         accessorKey: 'interested_model',
-        header: 'Vehicle',
+        header: 'Model',
         cell: ({ getValue }) => getValue<string | null>() ?? 'Not specified',
       },
       {
-        id: 'value',
-        header: 'Value',
-        cell: ({ row }) => (
-          <div>
-            <p className="font-semibold">{currency(row.original.total_value)}</p>
-            <p className="text-xs text-muted-foreground">
-              Paid {currency(row.original.booking_amount)}
-            </p>
-          </div>
+        accessorKey: 'vehicle_variant',
+        header: 'Variant',
+        cell: ({ getValue }) => getValue<string | null>() ?? '—',
+      },
+      {
+        accessorKey: 'colour',
+        header: 'Colour',
+        cell: ({ getValue }) => getValue<string | null>() ?? '—',
+      },
+      {
+        accessorKey: 'booking_amount',
+        header: 'Booking amount',
+        cell: ({ getValue }) => (
+          <span className="whitespace-nowrap font-semibold">{currency(getValue<number>())}</span>
         ),
       },
       {
-        accessorKey: 'status',
-        header: 'Status',
-        cell: ({ getValue }) => <StatusBadge value={getValue<string>()} />,
+        id: 'owner',
+        header: 'Consultant',
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap font-medium">{row.original.assigned_user_name}</span>
+        ),
+      },
+      {
+        accessorKey: 'created_at',
+        header: 'Booking date',
+        cell: ({ getValue }) => (
+          <span className="whitespace-nowrap">{dateTime(getValue<string>())}</span>
+        ),
       },
       {
         accessorKey: 'expected_delivery_date',
@@ -585,54 +792,60 @@ export function SalesDocumentWorkspace({
         ),
       },
       {
-        id: 'owner',
-        header: 'Owner / scope',
-        cell: ({ row }) => (
-          <div>
-            <p className="font-medium">{row.original.assigned_user_name}</p>
-            <p className="text-xs text-muted-foreground">
-              {row.original.team_name ?? row.original.branch_name}
-            </p>
-          </div>
-        ),
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ getValue }) => <StatusBadge value={getValue<string>()} />,
       },
       {
         id: 'actions',
-        header: '',
+        header: 'Actions',
         cell: ({ row }) => {
-          if (
-            !permissions.data?.canManage ||
-            ['DELIVERED', 'CANCELLED'].includes(row.original.status)
-          )
-            return null;
+          const record = row.original;
           const actions: BookingAction[] =
-            row.original.status === 'CONFIRMED'
+            record.status === 'CONFIRMED'
               ? ['AWAITING_ALLOCATION', 'CANCELLED']
-              : row.original.status === 'AWAITING_ALLOCATION'
+              : record.status === 'AWAITING_ALLOCATION'
                 ? ['ALLOCATED', 'CANCELLED']
-                : row.original.status === 'ALLOCATED'
+                : record.status === 'ALLOCATED'
                   ? ['READY_FOR_DELIVERY']
-                  : row.original.status === 'READY_FOR_DELIVERY'
+                  : record.status === 'READY_FOR_DELIVERY'
                     ? ['DELIVERED']
                     : [];
           return (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="Booking actions">
-                  <MoreHorizontal className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {actions.map((action) => (
-                  <DropdownMenuItem
-                    key={action}
-                    onClick={() => setActionState({ record: row.original, action })}
-                  >
-                    {label(action)}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="flex items-center gap-1">
+              <Button asChild variant="ghost" size="icon" className="size-8 text-blue-600">
+                <Link
+                  href={`/${role}/customers/${record.customer_id}`}
+                  aria-label="View customer 360"
+                >
+                  <Eye className="size-4" />
+                </Link>
+              </Button>
+              {permissions.data?.canManage && actions.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      aria-label="Booking actions"
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {actions.map((action) => (
+                      <DropdownMenuItem
+                        key={action}
+                        onClick={() => setActionState({ record, action })}
+                      >
+                        {label(action)}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
           );
         },
       },
@@ -640,8 +853,19 @@ export function SalesDocumentWorkspace({
     [permissions.data?.canManage, role],
   );
 
-  if (permissions.isPending || (workspace.isPending && permissions.data)) return <PageSkeleton />;
-  if (permissions.isError || workspace.isError || !permissions.data || !workspace.data)
+  if (
+    permissions.isPending ||
+    (workspace.isPending && permissions.data) ||
+    (kind === 'bookings' && bookingFilterOptions.isPending && permissions.data)
+  )
+    return <PageSkeleton />;
+  if (
+    permissions.isError ||
+    workspace.isError ||
+    (kind === 'bookings' && bookingFilterOptions.isError) ||
+    !permissions.data ||
+    !workspace.data
+  )
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -659,6 +883,7 @@ export function SalesDocumentWorkspace({
             onClick={() => {
               void permissions.refetch();
               void workspace.refetch();
+              if (kind === 'bookings') void bookingFilterOptions.refetch();
             }}
           >
             <RotateCcw className="size-4" /> Try again
@@ -667,19 +892,78 @@ export function SalesDocumentWorkspace({
       </Card>
     );
 
+  if (kind === 'quotations' && quotationScreen === 'create')
+    return (
+      <QuotationCreateView
+        record={editingQuotation}
+        onBack={() => {
+          setEditingQuotation(null);
+          setQuotationScreen('list');
+        }}
+        onSaved={() => {
+          setEditingQuotation(null);
+          invalidate();
+          setQuotationScreen('list');
+        }}
+      />
+    );
+
   const result = workspace.data;
   return (
-    <div className="mx-auto max-w-[1600px]">
+    <div className="mx-auto max-w-[1800px]">
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <PageHeader className="mb-0" spec={{ ...spec, primaryAction: undefined }} />
         {permissions.data.canManage && (
-          <Button className="shrink-0 sm:mt-7" onClick={() => setCreateOpen(true)}>
+          <Button
+            className="shrink-0 sm:mt-7"
+            onClick={() =>
+              kind === 'quotations' ? setQuotationScreen('create') : setCreateOpen(true)
+            }
+          >
             <Plus className="size-4" />
             {kind === 'quotations' ? 'Create quotation' : 'Create booking'}
           </Button>
         )}
       </div>
       <div className="space-y-6">
+        {kind === 'quotations' && (
+          <div className="flex h-10 gap-2 overflow-x-auto border-b">
+            {(['draft', 'sent', 'pending-approval', 'accepted', 'expired'] as const).map(
+              (status) => {
+                const active = query.status === status;
+                return (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => onQueryChange({ status, page: 1 })}
+                    className={`relative h-full shrink-0 px-3 text-xs font-semibold ${active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'}`}
+                    style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
+                  >
+                    {status === 'pending-approval' ? 'Approval Pending' : label(status)}
+                  </button>
+                );
+              },
+            )}
+          </div>
+        )}
+        {kind === 'bookings' && (
+          <div className="flex h-10 gap-2 overflow-x-auto border-b">
+            {bookingStatusFilters.map((status) => {
+              const active = query.status === status;
+              return (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => onQueryChange({ status, page: 1 })}
+                  className={`relative h-full shrink-0 px-3 text-xs font-semibold ${active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'}`}
+                  style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
+                >
+                  {status === 'awaiting-allocation' ? 'Stock Awaited' : label(status)}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <KpiGrid
           metrics={
             kind === 'quotations'
@@ -706,26 +990,12 @@ export function SalesDocumentWorkspace({
             query={query}
             isFetching={workspace.isFetching}
             onQueryChange={onQueryChange}
+            bookingOptions={bookingFilterOptions.data}
           />
         )}
       </div>
-      {kind === 'quotations' && permissions.data.canManage && (
-        <QuotationDialog open={createOpen} onOpenChange={setCreateOpen} onSaved={invalidate} />
-      )}
       {kind === 'bookings' && permissions.data.canManage && (
         <BookingCreateDialog open={createOpen} onOpenChange={setCreateOpen} onSaved={invalidate} />
-      )}
-      {editingQuotation && (
-        <QuotationDialog
-          key={`${editingQuotation.id}:${editingQuotation.version}`}
-          record={editingQuotation}
-          open
-          onOpenChange={(open) => !open && setEditingQuotation(null)}
-          onSaved={() => {
-            setEditingQuotation(null);
-            invalidate();
-          }}
-        />
       )}
       {actionState && (
         <SalesDocumentActionDialog

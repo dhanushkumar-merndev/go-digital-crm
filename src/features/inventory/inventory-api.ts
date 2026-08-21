@@ -207,14 +207,43 @@ const stockCheckPageSchema = z.object({
 
 export type StockCheckPage = z.infer<typeof stockCheckPageSchema>;
 
+const stockCheckFilterOptionsSchema = z.object({
+  brands: z.array(z.string()),
+  models: z.array(z.string()),
+  variants: z.array(z.string()),
+  fuels: z.array(z.string()),
+  transmissions: z.array(z.string()),
+  colors: z.array(z.string()),
+});
+
+export type StockCheckFilterOptions = z.infer<typeof stockCheckFilterOptionsSchema>;
+
+export async function fetchStockCheckFilterOptions(
+  branchId: string,
+  signal?: AbortSignal,
+): Promise<StockCheckFilterOptions> {
+  const request = createClient().rpc('get_stock_check_filter_options', {
+    target_branch_id: branchId || null,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return stockCheckFilterOptionsSchema.parse(data);
+}
+
 export async function fetchStockCheckPage(query: InventoryQuery, signal?: AbortSignal) {
-  const request = createClient().rpc('get_stock_check_page', {
+  const request = createClient().rpc('get_stock_check_page_v2', {
     target_search: query.search,
     target_page: query.page,
     target_page_size: query.pageSize,
     target_availability: inventoryFilterValue(query.filter),
     target_branch_id: query.branchId || null,
     target_sort: query.sort,
+    target_brand: query.brand || null,
+    target_model: query.model || null,
+    target_variant: query.variant || null,
+    target_fuel: query.fuel || null,
+    target_transmission: query.transmission || null,
+    target_color: query.color || null,
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;

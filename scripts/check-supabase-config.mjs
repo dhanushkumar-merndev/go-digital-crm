@@ -9,6 +9,7 @@ const publicBoundaryFunctions = new Set([
   'mobile-link-exchange',
   'provider-webhook-generic',
   'provider-webhook-meta',
+  'provider-webhook-twilio',
   'provider-webhook-whatsapp',
 ]);
 

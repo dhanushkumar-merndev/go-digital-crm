@@ -62,6 +62,12 @@ export type InventoryQuery = {
   branchId: string;
   age: InventoryAgeFilter;
   sort: InventorySort;
+  brand: string;
+  model: string;
+  variant: string;
+  fuel: string;
+  transmission: string;
+  color: string;
 };
 
 export function inventoryViewForRoute(role: string, slug: string): InventoryView | null {
@@ -181,6 +187,13 @@ export function parseInventoryQuery(params: URLSearchParams, view: InventoryView
     sort: sortsByView[view].includes(sort as InventorySort)
       ? (sort as InventorySort)
       : defaultInventorySort(view),
+    brand: view === 'stock-check' ? (params.get('brand') ?? '').trim().slice(0, 100) : '',
+    model: view === 'stock-check' ? (params.get('model') ?? '').trim().slice(0, 100) : '',
+    variant: view === 'stock-check' ? (params.get('variant') ?? '').trim().slice(0, 100) : '',
+    fuel: view === 'stock-check' ? (params.get('fuel') ?? '').trim().slice(0, 100) : '',
+    transmission:
+      view === 'stock-check' ? (params.get('transmission') ?? '').trim().slice(0, 100) : '',
+    color: view === 'stock-check' ? (params.get('color') ?? '').trim().slice(0, 100) : '',
   };
 }
 
@@ -193,6 +206,14 @@ export function toInventoryQueryString(query: InventoryQuery, view: InventoryVie
   if (query.branchId) params.set('branch', query.branchId);
   if (query.age !== 'all') params.set('age', query.age);
   if (query.sort !== defaultInventorySort(view)) params.set('sort', query.sort);
+  if (view === 'stock-check') {
+    if (query.brand) params.set('brand', query.brand);
+    if (query.model) params.set('model', query.model);
+    if (query.variant) params.set('variant', query.variant);
+    if (query.fuel) params.set('fuel', query.fuel);
+    if (query.transmission) params.set('transmission', query.transmission);
+    if (query.color) params.set('color', query.color);
+  }
   return params.toString();
 }
 

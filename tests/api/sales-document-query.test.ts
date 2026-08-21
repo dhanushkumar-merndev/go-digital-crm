@@ -20,8 +20,12 @@ describe('quotation and booking URL boundary', () => {
       page: 1,
       pageSize: 25,
       search: 'Aarav',
-      status: 'all',
+      status: 'draft',
       sort: 'updated:desc',
+      model: '',
+      branchId: '',
+      fromDate: '',
+      toDate: '',
     });
     expect(
       parseSalesDocumentQuery(
@@ -40,10 +44,16 @@ describe('quotation and booking URL boundary', () => {
           search: 'BK-2026',
           status: 'awaiting-allocation',
           sort: 'amount:desc',
+          model: 'Nexon EV',
+          branchId: '11111111-1111-4111-8111-111111111111',
+          fromDate: '2026-08-01',
+          toDate: '2026-08-31',
         },
         'bookings',
       ),
-    ).toBe('page=2&pageSize=50&q=BK-2026&status=awaiting-allocation&sort=amount%3Adesc');
+    ).toBe(
+      'page=2&pageSize=50&q=BK-2026&status=awaiting-allocation&sort=amount%3Adesc&model=Nexon+EV&branch=11111111-1111-4111-8111-111111111111&from=2026-08-01&to=2026-08-31',
+    );
     expect(salesStatusValue('pending-approval')).toBe('PENDING_APPROVAL');
     expect(salesStatusValue('all')).toBe('ALL');
   });

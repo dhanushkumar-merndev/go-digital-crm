@@ -308,7 +308,7 @@ async function sha256Base64(buffer: ArrayBuffer) {
 
 export async function uploadOperationalCaseDocument(input: {
   organizationId: string;
-  record: OperationalCaseRecord;
+  record: Pick<OperationalCaseRecord, 'id' | 'branch_id' | 'resource_type'>;
   file: File;
 }) {
   const checksum = await sha256Base64(await input.file.arrayBuffer());

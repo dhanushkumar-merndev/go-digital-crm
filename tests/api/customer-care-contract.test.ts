@@ -10,6 +10,9 @@ const migration = source('supabase/migrations/202608150029_customer_care_workspa
 const workspace = source('src/features/customer-care/customer-care-workspace.tsx');
 const dialogs = source('src/features/customer-care/customer-care-dialogs.tsx');
 const api = source('src/features/customer-care/customer-care-api.ts');
+const dashboardMigration = source(
+  'supabase/migrations/202608210001_customer_relationship_dashboard.sql',
+);
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
 const topics = source('src/lib/realtime/topics.ts');
 
@@ -143,11 +146,25 @@ describe('customer-care production UI and realtime contract', () => {
     expect(workspace).toContain("from '@/components/charts/e-chart'");
     expect(workspace).toContain('useDebouncedValue(routeQuery.search, 300)');
     expect(workspace).toContain('<EChart kind="donut"');
-    expect(workspace).toContain('<EChart kind="line"');
+    expect(workspace).toMatch(/<EChart\s+kind="line"/);
     expect(workspace).not.toMatch(/recharts|chart\.js|apexcharts/i);
     expect(dialogs).toContain("from '@/components/ui/dialog'");
     expect(dialogs).toContain("from '@/components/ui/sheet'");
     expect(api).toContain("rpc('get_customer_care_workspace_page'");
+  });
+
+  it('keeps customer relationship dashboard aggregates server-side and scope-filtered', () => {
+    expect(dashboardMigration).toContain(
+      'create or replace function public.get_customer_care_dashboard_summary(',
+    );
+    expect(dashboardMigration).toContain('app_private.can_access_record');
+    expect(dashboardMigration).toContain('app_private.can_access_customer');
+    expect(dashboardMigration).toContain("'rating_breakdown'");
+    expect(dashboardMigration).toContain("'consultant_performance'");
+    expect(dashboardMigration).toContain(
+      'grant execute on function public.get_customer_care_dashboard_summary(text) to authenticated',
+    );
+    expect(api).toContain("rpc('get_customer_care_dashboard_summary'");
   });
 
   it('uses the private customer-care topic and routes every approved page before fallback', () => {

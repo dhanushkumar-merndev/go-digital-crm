@@ -16,8 +16,11 @@ const allowedMimeSizes = new Map<string, number>([
   ['image/webp', 25 * 1024 * 1024],
   ['image/heic', 25 * 1024 * 1024],
   ['audio/mpeg', 100 * 1024 * 1024],
+  ['audio/mp4', 100 * 1024 * 1024],
   ['audio/wav', 100 * 1024 * 1024],
+  ['audio/x-wav', 100 * 1024 * 1024],
   ['audio/ogg', 100 * 1024 * 1024],
+  ['audio/webm', 100 * 1024 * 1024],
   ['video/mp4', 250 * 1024 * 1024],
   ['text/plain', 5 * 1024 * 1024],
 ]);

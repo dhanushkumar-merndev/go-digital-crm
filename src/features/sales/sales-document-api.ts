@@ -72,6 +72,8 @@ export const bookingRecordSchema = z.object({
   team_name: nullableString,
   assigned_user_name: z.string(),
   interested_model: nullableString,
+  vehicle_variant: nullableString.optional(),
+  colour: nullableString.optional(),
 });
 export type BookingRecord = z.infer<typeof bookingRecordSchema>;
 export type SalesDocumentRecord = QuotationRecord | BookingRecord;
@@ -97,6 +99,10 @@ const bookingWorkspaceSchema = z.object({
     awaiting_allocation: z.coerce.number().int().nonnegative(),
     delivery_this_week: z.coerce.number().int().nonnegative(),
     delivered: z.coerce.number().int().nonnegative(),
+    pending: z.coerce.number().int().nonnegative().optional(),
+    confirmed: z.coerce.number().int().nonnegative().optional(),
+    ready_for_delivery: z.coerce.number().int().nonnegative().optional(),
+    delivered_this_month: z.coerce.number().int().nonnegative().optional(),
   }),
 });
 
@@ -163,13 +169,21 @@ export async function fetchSalesDocumentWorkspace(
   signal?: AbortSignal,
 ): Promise<SalesDocumentWorkspaceResult> {
   const request = createClient().rpc(
-    kind === 'quotations' ? 'get_quotation_workspace_page' : 'get_booking_workspace_page',
+    kind === 'quotations' ? 'get_quotation_workspace_page' : 'get_sales_booking_workspace_page',
     {
       target_search: query.search,
       target_status: salesStatusValue(query.status),
       target_page: query.page,
       target_page_size: query.pageSize,
       target_sort: query.sort,
+      ...(kind === 'bookings'
+        ? {
+            target_model: query.model || null,
+            target_branch_id: query.branchId || null,
+            target_from_date: query.fromDate || null,
+            target_to_date: query.toDate || null,
+          }
+        : {}),
     },
   );
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
@@ -177,6 +191,19 @@ export async function fetchSalesDocumentWorkspace(
   return kind === 'quotations'
     ? quotationWorkspaceSchema.parse(data)
     : bookingWorkspaceSchema.parse(data);
+}
+
+const bookingFilterOptionsSchema = z.object({
+  branches: z.array(z.object({ id: z.uuid(), name: z.string() })),
+  models: z.array(z.string()),
+});
+export type BookingFilterOptions = z.infer<typeof bookingFilterOptionsSchema>;
+
+export async function fetchBookingFilterOptions(signal?: AbortSignal) {
+  const request = createClient().rpc('get_sales_booking_filter_options');
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return bookingFilterOptionsSchema.parse(data);
 }
 
 const quotationLeadOptionSchema = z.object({
@@ -202,6 +229,23 @@ export async function fetchQuotationLeadOptions(search = '', signal?: AbortSigna
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return z.array(quotationLeadOptionSchema).parse(data);
+}
+
+const quotationVehicleOptionsSchema = z.object({
+  models: z.array(z.string()),
+  variants: z.array(z.string()),
+  colors: z.array(z.string()),
+});
+export type QuotationVehicleOptions = z.infer<typeof quotationVehicleOptionsSchema>;
+
+export async function fetchQuotationVehicleOptions(branchId: string, signal?: AbortSignal) {
+  if (!branchId) return { models: [], variants: [], colors: [] };
+  const request = createClient().rpc('get_stock_check_filter_options', {
+    target_branch_id: branchId,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return quotationVehicleOptionsSchema.parse(data);
 }
 
 const bookingQuotationOptionSchema = z.object({

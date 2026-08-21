@@ -5,6 +5,7 @@ import { ArrowRight, LockKeyhole, Mail } from 'lucide-react';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { AuthPageShell } from '@/components/shared/auth-page-shell';
 import { AuthLink } from '@/features/auth/auth-link';
@@ -12,7 +13,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
+import {
+  fetchTenantDashboard,
+  tenantDashboardKey,
+} from '@/features/dashboards/tenant-dashboard-api';
 import { getSafeAuthErrorMessage } from '@/lib/auth/safe-errors';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
 
@@ -24,6 +30,7 @@ type FormValues = z.infer<typeof schema>;
 
 export default function LoginPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string>();
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -38,6 +45,13 @@ export default function LoginPage() {
     try {
       const { error: authError } = await createClient().auth.signInWithPassword(values);
       if (authError) throw authError;
+      // Most sign-ins land on the tenant dashboard next. Start warming its
+      // (cold, Redis-cached) query now, in parallel with the redirect, so
+      // the dashboard's first paint doesn't wait out the full round trip.
+      void queryClient.prefetchQuery({
+        queryKey: tenantDashboardKey,
+        queryFn: ({ signal }) => fetchTenantDashboard(signal),
+      });
       router.replace('/');
       router.refresh();
     } catch {
@@ -82,11 +96,10 @@ export default function LoginPage() {
                 </AuthLink>
               </div>
               <div className="relative">
-                <LockKeyhole className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
+                <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
+                <PasswordInput
                   id="login-password"
                   className="pl-9"
-                  type="password"
                   autoComplete="current-password"
                   {...form.register('password')}
                 />

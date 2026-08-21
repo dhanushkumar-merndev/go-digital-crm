@@ -13,7 +13,9 @@ import {
   Play,
   Plus,
   RotateCcw,
+  Route,
   Search,
+  TrendingUp,
   TriangleAlert,
   X,
 } from 'lucide-react';
@@ -21,7 +23,6 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
 import { PageSkeleton } from '@/components/shared/page-skeleton';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
@@ -49,7 +50,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { Metric, PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
@@ -66,8 +66,9 @@ import {
   TestDriveCancelDialog,
   TestDriveFeedbackDialog,
   TestDriveFinalizeDialog,
-  TestDriveScheduleDialog,
 } from './test-drive-workspace-dialogs';
+import { TestDriveActiveView } from './test-drive-active-view';
+import { TestDriveCreateView } from './test-drive-create-view';
 import {
   parseTestDriveQuery,
   testDriveViews,
@@ -99,29 +100,37 @@ function expectedEnd(record: TestDriveRecord) {
   );
 }
 
-function routeDistance(value: number | null) {
-  return value === null ? 'Not available' : `${(value / 1000).toFixed(1)} km`;
-}
-
 function testDriveMetrics(result: TestDriveWorkspaceResult): Metric[] {
+  const conversion = result.kpis.completed_this_month
+    ? Math.round((result.kpis.converted / result.kpis.completed_this_month) * 100)
+    : 0;
   return [
-    { label: 'Today', value: result.kpis.today.toLocaleString() },
     {
-      label: 'Overdue',
-      value: result.kpis.overdue.toLocaleString(),
-      helper: 'Scheduled before today and not started',
+      label: 'Today',
+      value: result.kpis.today.toLocaleString(),
+      helper: 'Scheduled for today',
+      icon: Route,
+      tone: 'bg-blue-50 text-blue-600',
     },
-    { label: 'Upcoming', value: result.kpis.upcoming.toLocaleString() },
-    { label: 'Active now', value: result.kpis.active.toLocaleString() },
+    {
+      label: 'Active',
+      value: result.kpis.active.toLocaleString(),
+      helper: 'On the road right now',
+      icon: Play,
+      tone: 'bg-violet-50 text-violet-600',
+    },
     {
       label: 'Completed this month',
       value: result.kpis.completed_this_month.toLocaleString(),
+      icon: CheckCircle2,
+      tone: 'bg-emerald-50 text-emerald-600',
     },
-    { label: 'Cancelled', value: result.kpis.cancelled.toLocaleString() },
     {
-      label: 'Converted after drive',
-      value: result.kpis.converted.toLocaleString(),
-      helper: 'Quotation created after completion',
+      label: 'Conversion after Test Drive',
+      value: `${conversion}%`,
+      helper: 'Completed drives with a quotation',
+      icon: TrendingUp,
+      tone: 'bg-cyan-50 text-cyan-600',
     },
   ];
 }
@@ -140,6 +149,7 @@ function TestDriveTable({
   isFetching,
   onQueryChange,
   onAction,
+  onOpen,
 }: {
   result: TestDriveWorkspaceResult;
   query: TestDriveQuery;
@@ -148,6 +158,7 @@ function TestDriveTable({
   isFetching: boolean;
   onQueryChange: (next: Partial<TestDriveQuery>) => void;
   onAction: (action: TestDriveActionState) => void;
+  onOpen: (record: TestDriveRecord) => void;
 }) {
   const columns = useMemo<ColumnDef<TestDriveRecord>[]>(
     () => [
@@ -155,14 +166,24 @@ function TestDriveTable({
         id: 'customer',
         header: 'Customer',
         cell: ({ row }) => (
-          <div className="min-w-40">
-            <Link
-              href={`/${role}/customers/${row.original.customer_id}`}
-              className="font-semibold hover:text-primary hover:underline"
-            >
-              {row.original.customer_name}
-            </Link>
-            <p className="text-xs text-muted-foreground">{row.original.phone ?? 'No phone'}</p>
+          <div className="flex min-w-40 items-center gap-2.5">
+            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-600">
+              {row.original.customer_name
+                .split(' ')
+                .filter(Boolean)
+                .slice(0, 2)
+                .map((part) => part[0]?.toUpperCase())
+                .join('') || '—'}
+            </span>
+            <div>
+              <Link
+                href={`/${role}/customers/${row.original.customer_id}`}
+                className="font-semibold hover:text-primary hover:underline"
+              >
+                {row.original.customer_name}
+              </Link>
+              <p className="text-xs text-muted-foreground">{row.original.phone ?? 'No phone'}</p>
+            </div>
           </div>
         ),
       },
@@ -235,15 +256,17 @@ function TestDriveTable({
       },
       {
         id: 'gps',
-        header: 'GPS / route',
+        header: 'GPS',
         cell: ({ row }) => (
-          <div className="space-y-1">
-            <StatusBadge value={row.original.gps_status} />
-            <p className="text-xs text-muted-foreground">
-              {routeDistance(row.original.distance_meters)}
-              {row.original.point_count !== null ? ` · ${row.original.point_count} points` : ''}
-            </p>
-          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={row.original.start_anchor ? 'text-emerald-600' : 'text-muted-foreground'}
+            onClick={() => onOpen(row.original)}
+            aria-label="Open test-drive tracking"
+          >
+            <MapPin className="size-4" />
+          </Button>
         ),
       },
       {
@@ -343,7 +366,7 @@ function TestDriveTable({
         },
       },
     ],
-    [onAction, permissions, role],
+    [onAction, onOpen, permissions, role],
   );
   // TanStack Table intentionally owns an imperative row model.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -358,78 +381,74 @@ function TestDriveTable({
   return (
     <Card className="overflow-hidden shadow-none">
       <CardHeader className="border-b p-4">
-        <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-end 2xl:justify-between">
-          <div className="grid flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="relative md:col-span-2">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="pl-9"
-                value={query.search}
-                maxLength={160}
-                placeholder="Search customer, phone, VIN, registration or drive ID"
-                onChange={(event) => onQueryChange({ search: event.target.value, page: 1 })}
-              />
-            </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(240px,1.2fr)_minmax(180px,1fr)_minmax(190px,1fr)_170px_170px_120px]">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              value={query.model}
-              maxLength={120}
-              placeholder="Filter brand, model or variant"
-              onChange={(event) => onQueryChange({ model: event.target.value, page: 1 })}
+              className="pl-9"
+              value={query.search}
+              maxLength={160}
+              placeholder="Search customer, mobile, registration…"
+              onChange={(event) => onQueryChange({ search: event.target.value, page: 1 })}
             />
-            <Select
-              value={query.sort}
-              onValueChange={(sort) =>
-                onQueryChange({ sort: sort as TestDriveQuery['sort'], page: 1 })
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="scheduled:asc">Schedule earliest</SelectItem>
-                <SelectItem value="scheduled:desc">Schedule latest</SelectItem>
-                <SelectItem value="updated:desc">Recently updated</SelectItem>
-                <SelectItem value="customer:asc">Customer A–Z</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              type="date"
-              aria-label="From date"
-              value={query.fromDate}
-              max={query.toDate || undefined}
-              onChange={(event) => onQueryChange({ fromDate: event.target.value, page: 1 })}
-            />
-            <Input
-              type="date"
-              aria-label="To date"
-              value={query.toDate}
-              min={query.fromDate || undefined}
-              onChange={(event) => onQueryChange({ toDate: event.target.value, page: 1 })}
-            />
-            <Select
-              value={String(query.pageSize)}
-              onValueChange={(value) =>
-                onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
-              }
-            >
-              <SelectTrigger className="w-full sm:w-28">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="25">25 rows</SelectItem>
-                <SelectItem value="50">50 rows</SelectItem>
-                <SelectItem value="100">100 rows</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <Input
+            value={query.model}
+            maxLength={120}
+            placeholder="All models"
+            onChange={(event) => onQueryChange({ model: event.target.value, page: 1 })}
+          />
+          <Select
+            value={query.sort}
+            onValueChange={(sort) =>
+              onQueryChange({ sort: sort as TestDriveQuery['sort'], page: 1 })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="scheduled:asc">Schedule earliest</SelectItem>
+              <SelectItem value="scheduled:desc">Schedule latest</SelectItem>
+              <SelectItem value="updated:desc">Recently updated</SelectItem>
+              <SelectItem value="customer:asc">Customer A–Z</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            type="date"
+            aria-label="From date"
+            value={query.fromDate}
+            max={query.toDate || undefined}
+            onChange={(event) => onQueryChange({ fromDate: event.target.value, page: 1 })}
+          />
+          <Input
+            type="date"
+            aria-label="To date"
+            value={query.toDate}
+            min={query.fromDate || undefined}
+            onChange={(event) => onQueryChange({ toDate: event.target.value, page: 1 })}
+          />
+          <Select
+            value={String(query.pageSize)}
+            onValueChange={(value) =>
+              onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
+            }
+          >
+            <SelectTrigger className="w-full min-w-[120px] whitespace-nowrap">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="25">25 rows</SelectItem>
+              <SelectItem value="50">50 rows</SelectItem>
+              <SelectItem value="100">100 rows</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </CardHeader>
       <CardContent className="p-0">
         <div className={isFetching ? 'overflow-x-auto opacity-60' : 'overflow-x-auto'}>
           <Table>
-            <TableHeader>
+            <TableHeader className="bg-slate-50/80">
               {table.getHeaderGroups().map((group) => (
                 <TableRow key={group.id}>
                   {group.headers.map((header) => (
@@ -445,7 +464,7 @@ function TestDriveTable({
             <TableBody>
               {table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
+                  <TableRow key={row.id} className="hover:bg-slate-50/80">
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id} className="align-top">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -503,12 +522,16 @@ function TestDriveTable({
 }
 
 export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: string }) {
+  void spec;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [query, setQuery] = useState(() => parseTestDriveQuery(searchParams));
-  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [screen, setScreen] = useState<'list' | 'create' | 'detail'>(() =>
+    searchParams.get('action') === 'create' ? 'create' : 'list',
+  );
+  const [selectedRecord, setSelectedRecord] = useState<TestDriveRecord | null>(null);
   const [actionState, setActionState] = useState<TestDriveActionState | null>(null);
   const debouncedSearch = useDebouncedValue(query.search, 300);
   const debouncedModel = useDebouncedValue(query.model, 300);
@@ -587,32 +610,84 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
       </Card>
     );
 
+  if (screen === 'create')
+    return (
+      <TestDriveCreateView
+        onCancel={() => setScreen('list')}
+        onSaved={() => {
+          invalidate();
+          setScreen('list');
+        }}
+      />
+    );
+  if (screen === 'detail' && selectedRecord) {
+    const current =
+      workspace.data.records.find((item) => item.id === selectedRecord.id) ?? selectedRecord;
+    return (
+      <>
+        <TestDriveActiveView
+          record={current}
+          onBack={() => setScreen('list')}
+          onAnchor={(anchorKind) => setActionState({ kind: 'anchor', anchorKind, record: current })}
+        />
+        {actionState?.kind === 'anchor' && (
+          <TestDriveAnchorDialog
+            key={`${actionState.record.id}:${actionState.record.version}:${actionState.anchorKind}`}
+            kind={actionState.anchorKind}
+            record={actionState.record}
+            open
+            onOpenChange={(open) => !open && setActionState(null)}
+            onSaved={() => {
+              setActionState(null);
+              invalidate();
+              setScreen('list');
+            }}
+          />
+        )}
+      </>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-[1800px]">
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-xs">
+            <span className="text-primary">Dashboard</span>
+            <span className="text-muted-foreground">›</span>
+            <span className="text-muted-foreground">Test Drives</span>
+          </div>
+          <h1 className="text-2xl font-bold">Test Drive List</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Manage and track every test drive scheduled with your customers.
+          </p>
+        </div>
         {permissions.data.canManage && (
-          <Button className="shrink-0 sm:mt-7" onClick={() => setScheduleOpen(true)}>
-            <Plus className="size-4" /> Schedule test drive
+          <Button className="shrink-0 sm:mt-7" onClick={() => setScreen('create')}>
+            <Plus className="size-4" /> Book Test Drive
           </Button>
         )}
       </div>
       <div className="space-y-6">
+        <div className="flex h-10 gap-2 overflow-x-auto border-b">
+          {testDriveViews.map((view) => {
+            const active = query.view === view;
+            return (
+              <button
+                key={view}
+                type="button"
+                onClick={() => onQueryChange({ view, page: 1 })}
+                className={`relative h-full shrink-0 px-3 text-xs font-semibold ${
+                  active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
+                }`}
+                style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
+              >
+                {label(view)}
+              </button>
+            );
+          })}
+        </div>
         <KpiGrid metrics={testDriveMetrics(workspace.data)} />
-        <Tabs
-          value={query.view}
-          onValueChange={(view) => onQueryChange({ view: view as TestDriveQuery['view'], page: 1 })}
-        >
-          <div className="overflow-x-auto pb-1">
-            <TabsList>
-              {testDriveViews.map((view) => (
-                <TabsTrigger key={view} value={view}>
-                  {label(view)}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </div>
-        </Tabs>
         <TestDriveTable
           result={workspace.data}
           query={query}
@@ -621,15 +696,12 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
           isFetching={workspace.isFetching}
           onQueryChange={onQueryChange}
           onAction={setActionState}
+          onOpen={(record) => {
+            setSelectedRecord(record);
+            setScreen('detail');
+          }}
         />
       </div>
-      {permissions.data.canManage && (
-        <TestDriveScheduleDialog
-          open={scheduleOpen}
-          onOpenChange={setScheduleOpen}
-          onSaved={invalidate}
-        />
-      )}
       {actionState?.kind === 'cancel' && (
         <TestDriveCancelDialog
           key={`${actionState.record.id}:${actionState.record.version}:cancel`}

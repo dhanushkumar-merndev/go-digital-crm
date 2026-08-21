@@ -60,6 +60,7 @@ import {
   CreateOperationalCaseDialog,
   OperationalCaseDetailSheet,
 } from './operational-case-dialogs';
+import { ConnectedOperationalOverview } from './connected-operational-overview';
 
 const commonViews = ['ALL', 'OPEN', 'DOCUMENTS', 'ACTION_DUE', 'COMPLETED'] as const;
 
@@ -486,6 +487,14 @@ export function OperationalCaseWorkspace({
       </div>
       <div className="space-y-6">
         <KpiGrid metrics={metrics(workspace.data)} />
+        <ConnectedOperationalOverview
+          department={route.department}
+          result={workspace.data}
+          onOpen={(record) => {
+            setActionError(undefined);
+            setSelected(record);
+          }}
+        />
         <Tabs value={query.status} onValueChange={(status) => onQueryChange({ status, page: 1 })}>
           <div className="overflow-x-auto pb-1">
             <TabsList>

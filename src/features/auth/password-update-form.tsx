@@ -8,7 +8,7 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { getSafeAuthErrorMessage } from '@/lib/auth/safe-errors';
 import { createClient } from '@/lib/supabase/client';
@@ -74,11 +74,10 @@ export function PasswordUpdateForm({ continueHref = '/' }: { continueHref?: stri
       <div className="space-y-2">
         <Label htmlFor="new-password">New password</Label>
         <div className="relative">
-          <LockKeyhole className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
+          <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
+          <PasswordInput
             id="new-password"
             className="pl-9"
-            type="password"
             autoComplete="new-password"
             {...form.register('password')}
           />
@@ -89,9 +88,8 @@ export function PasswordUpdateForm({ continueHref = '/' }: { continueHref?: stri
       </div>
       <div className="space-y-2">
         <Label htmlFor="confirm-password">Confirm new password</Label>
-        <Input
+        <PasswordInput
           id="confirm-password"
-          type="password"
           autoComplete="new-password"
           {...form.register('confirmation')}
         />

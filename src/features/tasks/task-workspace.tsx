@@ -3,9 +3,13 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
+  CalendarCheck2,
+  CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
+  CircleCheckBig,
+  ClockAlert,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -18,7 +22,6 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
 import { PageSkeleton } from '@/components/shared/page-skeleton';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
@@ -60,7 +63,6 @@ import { TaskActionDialog, TaskFormDialog } from './task-workspace-dialogs';
 import {
   parseTaskQuery,
   taskPriorityFilters,
-  taskStatusFilters,
   toTaskQueryString,
   type TaskQuery,
 } from './task-workspace-query';
@@ -82,15 +84,40 @@ function titleCase(value: string) {
 function metrics(result: TaskWorkspaceResult): Metric[] {
   return [
     {
+      label: 'Due today',
+      value: result.kpis.today.toLocaleString(),
+      icon: CalendarCheck2,
+      tone: 'bg-blue-50 text-blue-600',
+    },
+    {
       label: 'Overdue',
       value: result.kpis.overdue.toLocaleString(),
-      helper: 'Needs attention now',
+      helper: 'Open and past due',
       trend: result.kpis.overdue ? 'down' : 'neutral',
+      icon: ClockAlert,
+      tone: 'bg-red-50 text-red-600',
     },
-    { label: 'Due today', value: result.kpis.today.toLocaleString() },
-    { label: 'Upcoming', value: result.kpis.upcoming.toLocaleString() },
-    { label: 'Completed today', value: result.kpis.completed_today.toLocaleString() },
+    {
+      label: 'Completed today',
+      value: result.kpis.completed_today.toLocaleString(),
+      icon: CircleCheckBig,
+      tone: 'bg-emerald-50 text-emerald-600',
+    },
+    {
+      label: 'Upcoming',
+      value: result.kpis.upcoming.toLocaleString(),
+      icon: CalendarDays,
+      tone: 'bg-orange-50 text-orange-600',
+    },
   ];
+}
+
+function isOverdueTask(record: TaskRecord) {
+  return Boolean(
+    record.due_at &&
+    ['OPEN', 'IN_PROGRESS'].includes(record.status) &&
+    new Date(record.due_at).getTime() < Date.now(),
+  );
 }
 
 function TaskTable({
@@ -151,10 +178,7 @@ function TaskTable({
         accessorKey: 'due_at',
         header: 'Due',
         cell: ({ row }) => {
-          const overdue =
-            row.original.due_at &&
-            ['OPEN', 'IN_PROGRESS'].includes(row.original.status) &&
-            new Date(row.original.due_at).getTime() < Date.now();
+          const overdue = isOverdueTask(row.original);
           return (
             <div>
               <p className={overdue ? 'font-medium text-red-700' : 'font-medium'}>
@@ -239,10 +263,10 @@ function TaskTable({
   });
   const pages = Math.max(1, Math.ceil(result.total / query.pageSize));
   return (
-    <Card className="shadow-none">
+    <Card className="overflow-hidden shadow-none">
       <CardHeader className="border-b p-4">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="relative w-full xl:max-w-md">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+          <div className="relative min-w-0 flex-1 xl:w-[360px] xl:flex-none">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="pl-9"
@@ -251,31 +275,14 @@ function TaskTable({
               onChange={(event) => onQueryChange({ search: event.target.value, page: 1 })}
             />
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Select
-              value={query.status}
-              onValueChange={(status) =>
-                onQueryChange({ status: status as TaskQuery['status'], page: 1 })
-              }
-            >
-              <SelectTrigger className="w-full sm:w-44">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {taskStatusFilters.map((status) => (
-                  <SelectItem key={status} value={status}>
-                    {titleCase(status)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2 xl:flex">
             <Select
               value={query.priority}
               onValueChange={(priority) =>
                 onQueryChange({ priority: priority as TaskQuery['priority'], page: 1 })
               }
             >
-              <SelectTrigger className="w-full sm:w-36">
+              <SelectTrigger className="w-full xl:flex-1">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -290,7 +297,7 @@ function TaskTable({
               value={query.sort}
               onValueChange={(sort) => onQueryChange({ sort: sort as TaskQuery['sort'], page: 1 })}
             >
-              <SelectTrigger className="w-full sm:w-44">
+              <SelectTrigger className="w-full xl:flex-1">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -307,7 +314,7 @@ function TaskTable({
                 onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
               }
             >
-              <SelectTrigger className="w-full sm:w-28">
+              <SelectTrigger className="w-full xl:w-[105px] xl:shrink-0">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -321,12 +328,15 @@ function TaskTable({
       </CardHeader>
       <CardContent className="p-0">
         <div className={isFetching ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
-          <Table>
+          <Table className="min-w-[1120px]">
             <TableHeader>
               {table.getHeaderGroups().map((group) => (
                 <TableRow key={group.id}>
                   {group.headers.map((header) => (
-                    <TableHead key={header.id} className="whitespace-nowrap">
+                    <TableHead
+                      key={header.id}
+                      className="h-10 whitespace-nowrap bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-[#263550]"
+                    >
                       {header.isPlaceholder
                         ? null
                         : flexRender(header.column.columnDef.header, header.getContext())}
@@ -338,9 +348,16 @@ function TaskTable({
             <TableBody>
               {table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
+                  <TableRow
+                    key={row.id}
+                    className={
+                      isOverdueTask(row.original)
+                        ? 'bg-red-50/65 hover:bg-red-50'
+                        : 'hover:bg-slate-50/70'
+                    }
+                  >
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className="align-top">
+                      <TableCell key={cell.id} className="px-4 py-3 align-middle text-xs">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     ))}
@@ -395,12 +412,17 @@ function TaskTable({
   );
 }
 
-export function TaskWorkspace({ spec, role }: { spec: PageSpec; role: string }) {
+export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const [query, setQuery] = useState(() => parseTaskQuery(searchParams));
+  const [query, setQuery] = useState<TaskQuery>(() => {
+    const parsed = parseTaskQuery(searchParams);
+    if (!searchParams.has('status') && !searchParams.has('q'))
+      return { ...parsed, status: 'today' };
+    return parsed;
+  });
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<TaskRecord | null>(null);
   const [actionState, setActionState] = useState<{
@@ -482,16 +504,54 @@ export function TaskWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
     );
 
   return (
-    <div className="mx-auto max-w-[1600px]">
+    <div className="mx-auto max-w-[1800px]">
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <Link href={`/${role}/dashboard`} className="text-blue-600 hover:underline">
+              Dashboard
+            </Link>
+            <ChevronRight className="size-3" />
+            <span>Tasks</span>
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">Tasks</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Plan lead-linked work, prioritize due items and record completion outcomes.
+          </p>
+        </div>
         {permissions.data.canCreate && (
-          <Button className="shrink-0 sm:mt-7" onClick={() => setCreateOpen(true)}>
+          <Button className="shrink-0" onClick={() => setCreateOpen(true)}>
             <Plus className="size-4" /> Create task
           </Button>
         )}
       </div>
       <div className="space-y-6">
+        <div className="flex h-10 gap-2 overflow-x-auto border-b">
+          {(
+            [
+              ['today', 'Today'],
+              ['upcoming', 'Upcoming'],
+              ['overdue', 'Overdue'],
+              ['completed', 'Completed'],
+              ['cancelled', 'Cancelled'],
+            ] as const
+          ).map(([value, label]) => {
+            const active = query.status === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onQueryChange({ status: value, page: 1 })}
+                className={`relative h-full shrink-0 px-3 text-xs font-semibold ${
+                  active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
+                }`}
+                style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
         <KpiGrid metrics={metrics(workspace.data)} />
         <TaskTable
           result={workspace.data}

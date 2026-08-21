@@ -118,10 +118,14 @@ describe('manual call mutation boundary', () => {
 });
 
 describe('calls web contract', () => {
-  it('uses TanStack Query/Table, the shared EChart, realtime invalidation, and completed route slugs', () => {
+  it('uses TanStack Query/Table, the approved call tabs, realtime invalidation, and completed route slugs', () => {
     expect(workspace).toContain("from '@tanstack/react-query'");
     expect(workspace).toContain("from '@tanstack/react-table'");
-    expect(workspace).toContain('<EChart');
+    expect(workspace).toContain('Call history');
+    expect(workspace).toContain('Missed calls');
+    expect(workspace).toContain('AI summary');
+    expect(workspace).toContain('CallRowPreview');
+    expect(workspace).toContain('Sales Consultant Call');
     expect(workspace).toContain("resource: 'communications'");
     expect(workspace).toContain('useDebouncedValue(partySearch, 300)');
     expect(route).toContain("spec.category === 'calls'");

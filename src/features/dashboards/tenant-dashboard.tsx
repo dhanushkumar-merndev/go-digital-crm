@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -38,11 +39,10 @@ import {
 } from '@/lib/realtime/use-realtime-invalidation';
 import {
   fetchTenantDashboard,
+  tenantDashboardKey,
   type TenantDashboardLeadPreview,
   type TenantDashboardResult,
 } from './tenant-dashboard-api';
-
-const tenantDashboardKey = ['tenant-performance-dashboard'] as const;
 
 type KpiCard = {
   label: string;
@@ -283,6 +283,11 @@ function LeadPreviewTable({
   records: TenantDashboardLeadPreview[];
   leadHref: string | null;
 }) {
+  const router = useRouter();
+  const openLead = (lead: TenantDashboardLeadPreview) => {
+    if (!leadHref) return;
+    router.push(`${leadHref}?q=${encodeURIComponent(lead.phone)}`);
+  };
   return (
     <Card className="overflow-hidden shadow-none">
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-5 py-4">
@@ -316,7 +321,19 @@ function LeadPreviewTable({
             </TableHeader>
             <TableBody>
               {records.map((lead) => (
-                <TableRow key={lead.id}>
+                <TableRow
+                  key={lead.id}
+                  onClick={() => openLead(lead)}
+                  tabIndex={leadHref ? 0 : undefined}
+                  role={leadHref ? 'link' : undefined}
+                  onKeyDown={(event) => {
+                    if (leadHref && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      openLead(lead);
+                    }
+                  }}
+                  className={leadHref ? 'cursor-pointer hover:bg-slate-50' : undefined}
+                >
                   <TableCell className="font-medium text-[#17233d]">{lead.customer_name}</TableCell>
                   <TableCell className="hidden lg:table-cell">{lead.phone}</TableCell>
                   <TableCell className="hidden xl:table-cell">{lead.source}</TableCell>
@@ -480,24 +497,27 @@ export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey 
         {dashboardKpis(data).map((metric) => {
           const Icon = metric.icon;
           return (
-            <Card key={metric.label} className="min-w-0 shadow-none">
+            <Card
+              key={metric.label}
+              className="min-w-0 overflow-hidden shadow-none transition-shadow hover:shadow-md"
+            >
               <CardContent className="p-4">
-                <div className="flex items-start gap-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {metric.label}
+                  </p>
                   <span
-                    className={`grid size-9 shrink-0 place-items-center rounded-lg ${metric.tone}`}
+                    className={`grid size-8 shrink-0 place-items-center rounded-full ${metric.tone}`}
                   >
-                    <Icon className="size-[18px]" />
+                    <Icon className="size-4" />
                   </span>
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium leading-5 text-muted-foreground">
-                      {metric.label}
-                    </p>
-                    <p className="mt-1 text-2xl font-bold tracking-tight text-[#17233d]">
-                      {metric.value}
-                    </p>
-                    <p className="mt-1 text-[11px] text-muted-foreground">{metric.helper}</p>
-                  </div>
                 </div>
+                <p className="mt-2 text-[28px] font-bold leading-none tracking-tight text-[#17233d]">
+                  {metric.value}
+                </p>
+                <p className="mt-2.5 inline-flex max-w-full items-center truncate rounded-full bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  {metric.helper}
+                </p>
               </CardContent>
             </Card>
           );

@@ -33,7 +33,7 @@ function SidebarContent({
   const navigationItems = filterNavigationItems(navigation.items, navigationAccess);
   return (
     <>
-      <div className="flex h-[72px] items-center gap-3 border-b border-white/10 px-5">
+      <div className="flex h-16 items-center gap-3 border-b border-white/10 px-5">
         <Image
           src="/logo.webp"
           alt="Go Digital Marketing CRM"

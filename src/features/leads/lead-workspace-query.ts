@@ -5,6 +5,13 @@ export type LeadPageSize = (typeof leadPageSizes)[number];
 
 export const leadStatusFilters = [
   'all',
+  'hot',
+  'warm',
+  'cold',
+  'follow-up',
+  'test-drive',
+  'quotation',
+  'booking',
   'new',
   'contacted',
   'qualified',
@@ -16,6 +23,23 @@ export const leadStatusFilters = [
   'sla-risk',
 ] as const;
 export type LeadStatusFilter = (typeof leadStatusFilters)[number];
+
+export const leadStageFilters = [
+  'all',
+  'New',
+  'Contacted',
+  'Qualified',
+  'Appointment Scheduled',
+  'Transferred to Sales',
+  'Lost',
+  'Test Drive',
+  'Quotation',
+  'Booking',
+] as const;
+export type LeadStageFilter = (typeof leadStageFilters)[number];
+
+export const leadTemperatureFilters = ['all', 'HOT', 'WARM', 'COLD'] as const;
+export type LeadTemperatureFilter = (typeof leadTemperatureFilters)[number];
 
 export const leadSortOptions = {
   'updated:desc': { column: 'updated_at', ascending: false },
@@ -32,6 +56,12 @@ export type LeadQuery = {
   pageSize: LeadPageSize;
   search: string;
   status: LeadStatusFilter;
+  model: string;
+  source: string;
+  stage: LeadStageFilter;
+  temperature: LeadTemperatureFilter;
+  followupFrom: string;
+  followupTo: string;
   sort: LeadSort;
 };
 
@@ -40,6 +70,12 @@ export const defaultLeadQuery: LeadQuery = {
   pageSize: 25,
   search: '',
   status: 'all',
+  model: '',
+  source: '',
+  stage: 'all',
+  temperature: 'all',
+  followupFrom: '',
+  followupTo: '',
   sort: 'updated:desc',
 };
 
@@ -93,6 +129,16 @@ export function parseLeadQuery(
     status: leadStatusFilters.includes(status as LeadStatusFilter)
       ? (status as LeadStatusFilter)
       : fallbackStatus,
+    model: (params.get('model') ?? '').trim().slice(0, 160),
+    source: (params.get('source') ?? '').trim().slice(0, 100),
+    stage: leadStageFilters.includes(params.get('stage') as LeadStageFilter)
+      ? (params.get('stage') as LeadStageFilter)
+      : 'all',
+    temperature: leadTemperatureFilters.includes(params.get('temperature') as LeadTemperatureFilter)
+      ? (params.get('temperature') as LeadTemperatureFilter)
+      : 'all',
+    followupFrom: (params.get('followupFrom') ?? '').slice(0, 10),
+    followupTo: (params.get('followupTo') ?? '').slice(0, 10),
     sort: Object.hasOwn(leadSortOptions, sort ?? '') ? (sort as LeadSort) : 'updated:desc',
   };
 }
@@ -109,6 +155,12 @@ export function toLeadQueryString(query: LeadQuery) {
   if (query.pageSize !== 25) params.set('pageSize', String(query.pageSize));
   if (query.search) params.set('q', query.search);
   if (query.status !== 'all') params.set('status', query.status);
+  if (query.model) params.set('model', query.model);
+  if (query.source) params.set('source', query.source);
+  if (query.stage !== 'all') params.set('stage', query.stage);
+  if (query.temperature !== 'all') params.set('temperature', query.temperature);
+  if (query.followupFrom) params.set('followupFrom', query.followupFrom);
+  if (query.followupTo) params.set('followupTo', query.followupTo);
   if (query.sort !== 'updated:desc') params.set('sort', query.sort);
   return params.toString();
 }

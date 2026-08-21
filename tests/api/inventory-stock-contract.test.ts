@@ -15,6 +15,9 @@ function source(relativePath: string) {
 
 const migration = source('supabase/migrations/202608150023_inventory_stock_workspace.sql');
 const nextMigration = source('supabase/migrations/202608150024_quotation_booking_workspace.sql');
+const salesStockMigration = source(
+  'supabase/migrations/202608200010_sales_stock_check_filters.sql',
+);
 const workspace = source('src/features/inventory/inventory-workspace.tsx');
 const dialogs = source('src/features/inventory/inventory-dialogs.tsx');
 const api = source('src/features/inventory/inventory-api.ts');
@@ -113,6 +116,30 @@ describe('inventory read boundary', () => {
     expect(migration).toContain('stock_allocations_org_status_page_idx');
     expect(migration).toContain('stock_allocations_active_stock_unique_idx');
     expect(migration).toContain('stock_allocations_active_booking_unique_idx');
+  });
+});
+
+describe('sales stock-check filtering boundary', () => {
+  it('keeps filter options and results authenticated, permission-gated and branch-scoped', () => {
+    expect(salesStockMigration).toContain('function public.get_stock_check_filter_options(');
+    expect(salesStockMigration).toContain('function public.get_stock_check_page_v2(');
+    expect(salesStockMigration.match(/auth\.uid\(\) is null/g)?.length).toBe(2);
+    expect(salesStockMigration.match(/'inventory\.stock_check'/g)?.length).toBe(2);
+    expect(salesStockMigration).toContain('app_private.can_access_branch');
+    expect(salesStockMigration).toContain('target_branch_id');
+  });
+
+  it('server-filters and paginates aggregate results without restricted unit identity', () => {
+    expect(salesStockMigration).toContain('normalized_brand');
+    expect(salesStockMigration).toContain('normalized_model');
+    expect(salesStockMigration).toContain('normalized_variant');
+    expect(salesStockMigration).toContain('normalized_transmission');
+    expect(salesStockMigration).toContain('limit target_page_size');
+    expect(salesStockMigration).toContain('offset (target_page - 1) * target_page_size');
+    expect(salesStockMigration).toContain("'available', page_row.available");
+    expect(salesStockMigration).not.toContain("'vin'");
+    expect(salesStockMigration).not.toContain('chassis_number');
+    expect(salesStockMigration).not.toContain('booking_number');
   });
 });
 
@@ -258,6 +285,12 @@ describe('inventory URL and concurrency helpers', () => {
       branchId: '',
       age: 'all',
       sort: 'model:asc',
+      brand: '',
+      model: '',
+      variant: '',
+      fuel: '',
+      transmission: '',
+      color: '',
     });
   });
 
@@ -273,6 +306,12 @@ describe('inventory URL and concurrency helpers', () => {
           branchId,
           age: '61-90',
           sort: 'age:desc',
+          brand: '',
+          model: '',
+          variant: '',
+          fuel: '',
+          transmission: '',
+          color: '',
         },
         'units',
       ),

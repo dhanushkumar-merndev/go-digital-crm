@@ -38,7 +38,8 @@ export const workSorts = [
 
 export type WorkSort = (typeof workSorts)[number];
 export type WorkPriorityFilter = 'all' | 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
-export type AppointmentTypeFilter = 'all' | 'Showroom Visit' | 'Test Drive';
+export type AppointmentTypeFilter =
+  'all' | 'Showroom Visit' | 'Video Call' | 'Test Drive' | 'Consultant Call';
 
 export type WorkQuery = {
   page: number;
@@ -87,10 +88,11 @@ export function parseWorkQuery(params: URLSearchParams, kind: WorkKind): WorkQue
     priority: ['LOW', 'NORMAL', 'HIGH', 'URGENT'].includes(priority ?? '')
       ? (priority as WorkPriorityFilter)
       : 'all',
-    appointmentType:
-      appointmentType === 'Showroom Visit' || appointmentType === 'Test Drive'
-        ? appointmentType
-        : 'all',
+    appointmentType: ['Showroom Visit', 'Video Call', 'Test Drive', 'Consultant Call'].includes(
+      appointmentType ?? '',
+    )
+      ? (appointmentType as AppointmentTypeFilter)
+      : 'all',
     branchId: isUuid(params.get('branch') ?? '') ? (params.get('branch') as string) : 'all',
     teamId: isUuid(params.get('team') ?? '') ? (params.get('team') as string) : 'all',
     ownerId: isUuid(params.get('owner') ?? '') ? (params.get('owner') as string) : 'all',

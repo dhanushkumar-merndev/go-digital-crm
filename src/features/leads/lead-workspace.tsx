@@ -3,26 +3,28 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   Link2,
+  MoreVertical,
   Pencil,
-  Plus,
+  Phone,
+  RefreshCw,
   RotateCcw,
   Search,
+  SlidersHorizontal,
   TriangleAlert,
   UserRoundCheck,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
-import { EChart } from '@/components/charts/e-chart';
-import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
 import { PageSkeleton } from '@/components/shared/page-skeleton';
-import { StatusBadge } from '@/components/shared/status-badge';
+import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -30,6 +32,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -47,7 +56,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
-import type { Metric, PageSpec } from '@/lib/domain';
+import type { PageSpec } from '@/lib/domain';
+import { toWhatsAppClickToChatUrl } from '@/lib/phone';
 import {
   CustomerMatchDialog,
   type MatchableLead,
@@ -68,7 +78,9 @@ import {
   parseLeadQuery,
   toLeadQueryString,
   type LeadQuery,
+  type LeadStageFilter,
   type LeadStatusFilter,
+  type LeadTemperatureFilter,
 } from './lead-workspace-query';
 
 const leadSources = [
@@ -85,19 +97,6 @@ const leadSources = [
   'Other',
 ] as const;
 
-const statusOptions: Array<{ value: LeadStatusFilter; label: string }> = [
-  { value: 'all', label: 'All leads' },
-  { value: 'new', label: 'New' },
-  { value: 'contacted', label: 'Contacted' },
-  { value: 'qualified', label: 'Qualified' },
-  { value: 'appointment-scheduled', label: 'Appointment scheduled' },
-  { value: 'transferred-to-sales', label: 'Transferred to sales' },
-  { value: 'lost', label: 'Lost' },
-  { value: 'new-today', label: 'New today' },
-  { value: 'pending', label: 'Pending' },
-  { value: 'sla-risk', label: 'SLA risk' },
-];
-
 const lifecycleOptions = [
   'New',
   'Contacted',
@@ -109,32 +108,112 @@ const lifecycleOptions = [
 
 const temperatureOptions = ['COLD', 'WARM', 'HOT'] as const;
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(
-    new Date(value),
-  );
-}
-
 function shortId(value: string) {
   return value.slice(0, 8).toUpperCase();
 }
 
-function toMetrics(kpis: Awaited<ReturnType<typeof fetchLeadWorkspace>>['kpis']): Metric[] {
-  return [
-    { label: 'New today', value: kpis.new_today.toLocaleString(), helper: 'Uncontacted under 24h' },
-    { label: 'Pending', value: kpis.pending.toLocaleString(), helper: 'Uncontacted ≥24h' },
-    {
-      label: 'SLA risk',
-      value: kpis.sla_risk.toLocaleString(),
-      helper: 'Needs immediate action',
-      trend: kpis.sla_risk ? 'down' : 'neutral',
-    },
-    {
-      label: 'Qualified',
-      value: kpis.qualified.toLocaleString(),
-      helper: 'Current in-scope leads',
-    },
+function formatCompactDate(value: string | null) {
+  if (!value) return '—';
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+function maskPhone(phone: string) {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 6) return phone;
+  return `${digits.slice(0, 4)}****${digits.slice(-2)}`;
+}
+
+function formatLeadAge(createdAt: string) {
+  const hours = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 3_600_000));
+  const days = Math.floor(hours / 24);
+  return days ? `${days}d ${hours % 24}h` : `${hours}h`;
+}
+
+function StageBadge({ value }: { value: string }) {
+  const variant =
+    value === 'New'
+      ? 'info'
+      : value === 'Contacted' || value === 'Booking'
+        ? 'success'
+        : value === 'Follow-up' || value === 'Quotation'
+          ? 'warning'
+          : value === 'Test Drive'
+            ? 'default'
+            : 'secondary';
+  return (
+    <Badge variant={variant} className="rounded px-2 py-0 text-[10px]">
+      {value}
+    </Badge>
+  );
+}
+
+function TemperatureBadge({ value }: { value: LeadRecord['temperature'] }) {
+  const variant = value === 'HOT' ? 'destructive' : value === 'WARM' ? 'warning' : 'info';
+  return (
+    <Badge variant={variant} className="rounded px-2 py-0 text-[10px]">
+      {value ?? 'COLD'}
+    </Badge>
+  );
+}
+
+function LeadStatusTabs({
+  data,
+  query,
+  onQueryChange,
+}: {
+  data: Awaited<ReturnType<typeof fetchLeadWorkspace>>;
+  query: LeadQuery;
+  onQueryChange: (next: Partial<LeadQuery>) => void;
+}) {
+  const tabs: Array<{ label: string; value: LeadStatusFilter; count: number }> = [
+    { label: 'All', value: 'all', count: data.kpis.total },
+    { label: 'New', value: 'new', count: data.kpis.new_count },
+    { label: 'Contacted', value: 'contacted', count: data.kpis.contacted_count },
+    { label: 'Follow-up', value: 'follow-up', count: data.kpis.follow_up },
+    { label: 'Hot', value: 'hot', count: data.kpis.hot },
+    { label: 'Warm', value: 'warm', count: data.kpis.warm },
+    { label: 'Cold', value: 'cold', count: data.kpis.cold },
+    { label: 'Lost', value: 'lost', count: data.kpis.lost_count },
   ];
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Lead quick views"
+      className="flex h-10 gap-2 overflow-x-auto border-b"
+    >
+      {tabs.map((tab) => {
+        const active = query.status === tab.value;
+        return (
+          <button
+            key={tab.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onQueryChange({ status: tab.value, page: 1 })}
+            style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
+            className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
+              active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
+            }`}
+          >
+            <span>{tab.label}</span>
+            <span
+              className={`grid min-w-5 place-items-center rounded px-1 py-0.5 text-[10px] leading-none ${
+                active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+              }`}
+            >
+              {tab.count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function LeadCreateDialog({
@@ -585,13 +664,19 @@ function LeadTable({
   onEdit: (lead: LeadRecord) => void;
   onMatchCustomer: (lead: LeadRecord) => void;
 }) {
+  const [dateRangeOpen, setDateRangeOpen] = useState(false);
+  const [draftFollowupFrom, setDraftFollowupFrom] = useState('');
+  const [draftFollowupTo, setDraftFollowupTo] = useState('');
+  const followupDateLabel =
+    query.followupFrom && query.followupTo
+      ? `${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupFrom}T00:00:00`))} – ${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupTo}T00:00:00`))}`
+      : query.followupFrom
+        ? `From ${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupFrom}T00:00:00`))}`
+        : query.followupTo
+          ? `Until ${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupTo}T00:00:00`))}`
+          : 'Select Date Range';
   const columns = useMemo<ColumnDef<LeadRecord>[]>(
     () => [
-      {
-        accessorKey: 'id',
-        header: 'Lead ID',
-        cell: ({ row }) => <span className="font-semibold">{shortId(row.original.id)}</span>,
-      },
       {
         accessorKey: 'customer_name',
         header: 'Customer',
@@ -609,79 +694,114 @@ function LeadTable({
       },
       {
         accessorKey: 'phone',
-        header: 'Phone',
+        header: 'Mobile',
         cell: ({ getValue }) => (
-          <span className="font-medium text-blue-700">{String(getValue())}</span>
+          <span className="font-medium text-[#263550]">{maskPhone(String(getValue()))}</span>
         ),
+      },
+      {
+        accessorKey: 'interested_model',
+        header: 'Model',
+        cell: ({ getValue }) => String(getValue() ?? '—'),
       },
       { accessorKey: 'source', header: 'Source' },
       {
-        accessorKey: 'interested_model',
-        header: 'Interested model',
-        cell: ({ getValue }) => String(getValue() ?? '—'),
+        accessorKey: 'lead_stage',
+        header: 'Lead stage',
+        cell: ({ getValue }) => <StageBadge value={String(getValue())} />,
       },
       {
-        accessorKey: 'assigned_user_name',
-        header: 'Assigned to',
-        cell: ({ row }) =>
-          row.original.assigned_user_name ??
-          (row.original.assigned_user_id ? 'Assigned user' : 'Unassigned'),
-      },
-      {
-        accessorKey: 'work_state',
-        header: 'Work state',
-        cell: ({ getValue }) =>
-          getValue() ? (
-            <StatusBadge value={String(getValue())} />
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          ),
-      },
-      {
-        accessorKey: 'lifecycle_status',
-        header: 'Lifecycle',
-        cell: ({ getValue }) => <StatusBadge value={String(getValue())} />,
+        accessorKey: 'temperature',
+        header: 'Temperature',
+        cell: ({ row }) => <TemperatureBadge value={row.original.temperature} />,
       },
       {
         accessorKey: 'updated_at',
         header: 'Last activity',
-        cell: ({ getValue }) => (
-          <span className="text-xs text-muted-foreground">{formatDate(String(getValue()))}</span>
-        ),
+        cell: ({ getValue }) => <span>{formatCompactDate(String(getValue()))}</span>,
+      },
+      {
+        accessorKey: 'next_followup_at',
+        header: 'Next follow-up',
+        cell: ({ row }) => <span>{formatCompactDate(row.original.next_followup_at)}</span>,
+      },
+      {
+        accessorKey: 'created_at',
+        header: 'Lead age',
+        cell: ({ getValue }) => <span>{formatLeadAge(String(getValue()))}</span>,
       },
       {
         id: 'actions',
         header: 'Actions',
-        cell: ({ row }) =>
-          canAssign || canUpdate || canLinkCustomer || row.original.customer_id ? (
-            <div className="flex gap-2">
-              {row.original.customer_id ? (
-                <Button size="sm" variant="outline" asChild>
-                  <Link href={`/${role}/customers/${row.original.customer_id}`}>
-                    <Link2 className="size-3.5" /> Customer 360
-                  </Link>
+        cell: ({ row }) => (
+          <div className="flex items-center justify-end gap-0.5">
+            <Button asChild variant="ghost" size="icon" className="size-7 text-emerald-600">
+              <a
+                href={`tel:${row.original.phone}`}
+                aria-label={`Call ${row.original.customer_name}`}
+              >
+                <Phone className="size-3.5" />
+              </a>
+            </Button>
+            <Button asChild variant="ghost" size="icon" className="size-7 text-emerald-600">
+              <a
+                href={toWhatsAppClickToChatUrl(row.original.phone)}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`WhatsApp ${row.original.customer_name}`}
+                title={`WhatsApp ${row.original.customer_name}`}
+              >
+                <WhatsAppIcon className="size-4" />
+              </a>
+            </Button>
+            <Button asChild variant="ghost" size="icon" className="size-7 text-blue-600">
+              <Link
+                href={`/${role}/follow-ups?q=${encodeURIComponent(row.original.phone)}`}
+                aria-label={`Open follow-ups for ${row.original.customer_name}`}
+                title={`Open follow-ups for ${row.original.customer_name}`}
+              >
+                <CalendarDays className="size-3.5" />
+              </Link>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  aria-label="More lead actions"
+                >
+                  <MoreVertical className="size-3.5" />
                 </Button>
-              ) : canLinkCustomer ? (
-                <Button size="sm" variant="outline" onClick={() => onMatchCustomer(row.original)}>
-                  <Link2 className="size-3.5" /> Review customer
-                </Button>
-              ) : null}
-              {canUpdate && (
-                <Button size="sm" variant="outline" onClick={() => onEdit(row.original)}>
-                  <Pencil className="size-3.5" />
-                  Update
-                </Button>
-              )}
-              {canAssign && (
-                <Button size="sm" variant="outline" onClick={() => onAssign(row.original)}>
-                  <UserRoundCheck className="size-3.5" />
-                  {row.original.assigned_user_id ? 'Reassign' : 'Assign'}
-                </Button>
-              )}
-            </div>
-          ) : (
-            <span className="text-xs text-muted-foreground">No lead action access</span>
-          ),
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {row.original.customer_id ? (
+                  <DropdownMenuItem asChild>
+                    <Link href={`/${role}/customers/${row.original.customer_id}`}>
+                      <Link2 className="size-4" /> Customer 360
+                    </Link>
+                  </DropdownMenuItem>
+                ) : canLinkCustomer ? (
+                  <DropdownMenuItem onSelect={() => onMatchCustomer(row.original)}>
+                    <Link2 className="size-4" /> Review customer
+                  </DropdownMenuItem>
+                ) : null}
+                {(canUpdate || canAssign) && <DropdownMenuSeparator />}
+                {canUpdate && (
+                  <DropdownMenuItem onSelect={() => onEdit(row.original)}>
+                    <Pencil className="size-4" /> Update lead
+                  </DropdownMenuItem>
+                )}
+                {canAssign && (
+                  <DropdownMenuItem onSelect={() => onAssign(row.original)}>
+                    <UserRoundCheck className="size-4" />
+                    {row.original.assigned_user_id ? 'Reassign lead' : 'Assign lead'}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ),
       },
     ],
     [canAssign, canLinkCustomer, canUpdate, onAssign, onEdit, onMatchCustomer, role],
@@ -697,69 +817,160 @@ function LeadTable({
     rowCount: data.total,
   });
   const pages = Math.max(1, Math.ceil(data.total / query.pageSize));
+  const pageNumbers = Array.from({ length: Math.min(5, pages) }, (_, index) =>
+    Math.min(Math.max(query.page - 2, 1) + index, pages),
+  ).filter((value, index, values) => index === 0 || value > values[index - 1]!);
+  const hasFilters = Boolean(
+    query.search ||
+    query.model ||
+    query.source ||
+    query.stage !== 'all' ||
+    query.temperature !== 'all' ||
+    query.followupFrom ||
+    query.followupTo,
+  );
 
   return (
-    <Card className="overflow-hidden shadow-none">
-      <CardHeader className="border-b p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="relative min-w-0 flex-1 lg:max-w-sm">
-            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query.search}
-              onChange={(event) => onQueryChange({ search: event.target.value, page: 1 })}
-              className="pl-9"
-              placeholder="Search lead ID, customer or phone…"
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={query.status}
-              onValueChange={(status) =>
-                onQueryChange({ status: status as LeadStatusFilter, page: 1 })
-              }
-            >
-              <SelectTrigger className="w-[178px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {statusOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={query.sort}
-              onValueChange={(sort) => onQueryChange({ sort: sort as LeadQuery['sort'], page: 1 })}
-            >
-              <SelectTrigger className="w-[170px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="updated:desc">Last activity: newest</SelectItem>
-                <SelectItem value="updated:asc">Last activity: oldest</SelectItem>
-                <SelectItem value="created:desc">Created: newest</SelectItem>
-                <SelectItem value="created:asc">Created: oldest</SelectItem>
-                <SelectItem value="customer:asc">Customer: A–Z</SelectItem>
-                <SelectItem value="customer:desc">Customer: Z–A</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={String(query.pageSize)}
-              onValueChange={(value) =>
-                onQueryChange({ pageSize: Number(value) as LeadQuery['pageSize'], page: 1 })
-              }
-            >
-              <SelectTrigger className="w-[105px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="25">25 rows</SelectItem>
-                <SelectItem value="50">50 rows</SelectItem>
-                <SelectItem value="100">100 rows</SelectItem>
-              </SelectContent>
-            </Select>
+    <Card className="overflow-hidden border-slate-200 shadow-none">
+      <CardHeader className="space-y-0 p-0">
+        <div className="overflow-x-auto bg-white px-3 py-3 sm:px-4">
+          <div className="grid min-w-[1100px] grid-cols-[1.45fr_.85fr_.8fr_.95fr_.9fr_1.25fr_108px] items-end gap-2.5">
+            <div className="relative min-w-0">
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query.search}
+                onChange={(event) => onQueryChange({ search: event.target.value, page: 1 })}
+                className="h-8 bg-white pl-9 text-[10px]"
+                placeholder="Search by name or mobile…"
+              />
+            </div>
+            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              Model
+              <Select
+                value={query.model || 'all'}
+                onValueChange={(model) =>
+                  onQueryChange({ model: model === 'all' ? '' : model, page: 1 })
+                }
+              >
+                <SelectTrigger className="h-8 bg-white text-[10px]">
+                  <SelectValue placeholder="All models" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All models</SelectItem>
+                  {data.filters.models.map((model) => (
+                    <SelectItem key={model} value={model}>
+                      {model}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              Source
+              <Select
+                value={query.source || 'all'}
+                onValueChange={(source) =>
+                  onQueryChange({ source: source === 'all' ? '' : source, page: 1 })
+                }
+              >
+                <SelectTrigger className="h-8 bg-white text-[10px]">
+                  <SelectValue placeholder="All sources" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All sources</SelectItem>
+                  {data.filters.sources.map((source) => (
+                    <SelectItem key={source} value={source}>
+                      {source}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              Lead stage
+              <Select
+                value={query.stage}
+                onValueChange={(stage) =>
+                  onQueryChange({ stage: stage as LeadStageFilter, page: 1 })
+                }
+              >
+                <SelectTrigger className="h-8 bg-white text-[10px]">
+                  <SelectValue placeholder="All lead stages" />
+                </SelectTrigger>
+                <SelectContent>
+                  {['all', ...lifecycleOptions, 'Test Drive', 'Quotation', 'Booking'].map(
+                    (stage) => (
+                      <SelectItem key={stage} value={stage}>
+                        {stage === 'all' ? 'All lead stages' : stage}
+                      </SelectItem>
+                    ),
+                  )}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              Temperature
+              <Select
+                value={query.temperature}
+                onValueChange={(temperature) =>
+                  onQueryChange({ temperature: temperature as LeadTemperatureFilter, page: 1 })
+                }
+              >
+                <SelectTrigger className="h-8 bg-white text-[10px]">
+                  <SelectValue placeholder="All temperatures" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All temperatures</SelectItem>
+                  <SelectItem value="HOT">Hot</SelectItem>
+                  <SelectItem value="WARM">Warm</SelectItem>
+                  <SelectItem value="COLD">Cold</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            <div className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              Follow-up date
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 justify-start px-2 text-[10px] font-normal text-muted-foreground"
+                onClick={() => {
+                  setDraftFollowupFrom(query.followupFrom);
+                  setDraftFollowupTo(query.followupTo);
+                  setDateRangeOpen(true);
+                }}
+              >
+                <CalendarDays className="size-3.5 shrink-0 text-blue-600" />
+                <span className="truncate">{followupDateLabel}</span>
+              </Button>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="h-8 w-full whitespace-nowrap px-2 text-[10px]">
+                  <SlidersHorizontal className="size-3.5" /> Saved Filters
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem disabled>No saved filters yet</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={!hasFilters}
+                  onSelect={() =>
+                    onQueryChange({
+                      search: '',
+                      model: '',
+                      source: '',
+                      stage: 'all',
+                      temperature: 'all',
+                      followupFrom: '',
+                      followupTo: '',
+                      page: 1,
+                    })
+                  }
+                >
+                  Clear current filters
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </CardHeader>
@@ -771,12 +982,15 @@ function LeadTable({
               : 'overflow-x-auto transition-opacity'
           }
         >
-          <Table>
+          <Table className="min-w-[1220px]">
             <TableHeader>
               {table.getHeaderGroups().map((group) => (
-                <TableRow key={group.id}>
+                <TableRow key={group.id} className="hover:bg-transparent">
                   {group.headers.map((header) => (
-                    <TableHead key={header.id} className="whitespace-nowrap">
+                    <TableHead
+                      key={header.id}
+                      className="h-11 whitespace-nowrap bg-slate-50 px-4 text-[10px] font-semibold uppercase tracking-wide text-[#263550]"
+                    >
                       {header.isPlaceholder
                         ? null
                         : flexRender(header.column.columnDef.header, header.getContext())}
@@ -788,9 +1002,12 @@ function LeadTable({
             <TableBody>
               {table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
+                  <TableRow key={row.id} className="hover:bg-slate-50/70">
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className="whitespace-nowrap">
+                      <TableCell
+                        key={cell.id}
+                        className="whitespace-nowrap px-4 py-3 text-xs text-[#263550]"
+                      >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     ))}
@@ -809,15 +1026,12 @@ function LeadTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {data.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, data.total)} of {data.total}
+        <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm lg:flex-row lg:items-center lg:justify-between">
+          <p className="text-xs text-[#526079]">
+            Showing {data.total ? (query.page - 1) * query.pageSize + 1 : 0} to{' '}
+            {Math.min(query.page * query.pageSize, data.total)} of {data.total} leads
           </p>
-          <div className="flex items-center gap-2">
-            <span className="mr-2 text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
+          <div className="flex items-center gap-1.5">
             <Button
               variant="outline"
               size="icon"
@@ -828,6 +1042,20 @@ function LeadTable({
             >
               <ChevronLeft className="size-4" />
             </Button>
+            {pageNumbers.map((page) => (
+              <Button
+                key={page}
+                variant={page === query.page ? 'default' : 'outline'}
+                size="icon"
+                className="size-8"
+                onClick={() => onQueryChange({ page })}
+              >
+                {page}
+              </Button>
+            ))}
+            {pages > pageNumbers[pageNumbers.length - 1]! && (
+              <span className="px-1 text-muted-foreground">…</span>
+            )}
             <Button
               variant="outline"
               size="icon"
@@ -838,9 +1066,83 @@ function LeadTable({
             >
               <ChevronRight className="size-4" />
             </Button>
+            <Select
+              value={String(query.pageSize)}
+              onValueChange={(value) =>
+                onQueryChange({ pageSize: Number(value) as LeadQuery['pageSize'], page: 1 })
+              }
+            >
+              <SelectTrigger className="ml-3 h-8 w-[112px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="25">25 / page</SelectItem>
+                <SelectItem value="50">50 / page</SelectItem>
+                <SelectItem value="100">100 / page</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </CardContent>
+      <Dialog open={dateRangeOpen} onOpenChange={setDateRangeOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Follow-up date range</DialogTitle>
+            <DialogDescription>
+              Show leads with a follow-up scheduled in this period.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <label className="grid gap-1.5 text-sm font-medium">
+              From
+              <Input
+                type="date"
+                value={draftFollowupFrom}
+                onChange={(event) => setDraftFollowupFrom(event.target.value)}
+              />
+            </label>
+            <label className="grid gap-1.5 text-sm font-medium">
+              To
+              <Input
+                type="date"
+                value={draftFollowupTo}
+                min={draftFollowupFrom || undefined}
+                onChange={(event) => setDraftFollowupTo(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="flex justify-between gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setDraftFollowupFrom('');
+                setDraftFollowupTo('');
+              }}
+            >
+              Clear dates
+            </Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setDateRangeOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  onQueryChange({
+                    followupFrom: draftFollowupFrom,
+                    followupTo: draftFollowupTo,
+                    page: 1,
+                  });
+                  setDateRangeOpen(false);
+                }}
+              >
+                Apply range
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -859,7 +1161,7 @@ export function LeadWorkspace({
   const searchParams = useSearchParams();
   const fallbackStatus = getDefaultLeadStatus(slug);
   const [query, setQuery] = useState<LeadQuery>(() => parseLeadQuery(searchParams, fallbackStatus));
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(() => searchParams.get('action') === 'create');
   const [assignmentLead, setAssignmentLead] = useState<LeadRecord | null>(null);
   const [editingLead, setEditingLead] = useState<LeadRecord | null>(null);
   const [matchingLead, setMatchingLead] = useState<LeadRecord | null>(null);
@@ -923,52 +1225,48 @@ export function LeadWorkspace({
     );
   if (!workspace.data) return null;
 
-  const chartData = [
-    { name: 'New', value: workspace.data.kpis.new_count },
-    { name: 'Contacted', value: workspace.data.kpis.contacted_count },
-    { name: 'Qualified', value: workspace.data.kpis.qualified },
-    { name: 'Appointment', value: workspace.data.kpis.appointment_scheduled_count },
-    { name: 'Transferred', value: workspace.data.kpis.transferred_to_sales_count },
-  ];
-
   return (
-    <div className="mx-auto max-w-[1600px]">
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        <div className="shrink-0 sm:pt-7">
-          {!spec.readOnly && permissions.data?.canCreate && (
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="size-4" />
-              Add lead
-            </Button>
-          )}
+    <div className="mx-auto max-w-[1800px] space-y-6">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <Link href={`/${role}/dashboard`} className="text-blue-600 hover:underline">
+              Dashboard
+            </Link>
+            <ChevronRight className="size-3" />
+            <span>My Leads</span>
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
+            My Leads
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            View and manage your leads, track progress and take timely actions.
+          </p>
         </div>
+        <Button
+          variant="outline"
+          className="shrink-0"
+          onClick={() => void workspace.refetch()}
+          disabled={workspace.isFetching}
+        >
+          <RefreshCw className={`size-4 ${workspace.isFetching ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </div>
-      <div className="space-y-6">
-        <KpiGrid metrics={toMetrics(workspace.data.kpis)} />
-        <Card className="shadow-none">
-          <CardHeader className="pb-1">
-            <CardTitle className="text-base">Lead lifecycle</CardTitle>
-            <CardDescription>Current in-scope opportunity distribution</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <EChart kind="funnel" data={chartData} className="h-[280px]" />
-          </CardContent>
-        </Card>
-        <LeadTable
-          role={role}
-          data={workspace.data}
-          query={query}
-          onQueryChange={onQueryChange}
-          canAssign={!spec.readOnly && Boolean(permissions.data?.canAssign)}
-          canUpdate={!spec.readOnly && Boolean(permissions.data?.canUpdate)}
-          canLinkCustomer={!spec.readOnly && Boolean(permissions.data?.canLinkCustomer)}
-          isFetching={workspace.isFetching}
-          onAssign={setAssignmentLead}
-          onEdit={setEditingLead}
-          onMatchCustomer={setMatchingLead}
-        />
-      </div>
+      <LeadStatusTabs data={workspace.data} query={query} onQueryChange={onQueryChange} />
+      <LeadTable
+        role={role}
+        data={workspace.data}
+        query={query}
+        onQueryChange={onQueryChange}
+        canAssign={!spec.readOnly && Boolean(permissions.data?.canAssign)}
+        canUpdate={!spec.readOnly && Boolean(permissions.data?.canUpdate)}
+        canLinkCustomer={!spec.readOnly && Boolean(permissions.data?.canLinkCustomer)}
+        isFetching={workspace.isFetching}
+        onAssign={setAssignmentLead}
+        onEdit={setEditingLead}
+        onMatchCustomer={setMatchingLead}
+      />
       {permissions.data?.canCreate && (
         <LeadCreateDialog
           organizationId={permissions.data.organizationId}

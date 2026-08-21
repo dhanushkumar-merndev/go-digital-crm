@@ -1,3 +1,5 @@
+import type { ComponentType } from 'react';
+
 export type DataScope =
   | 'OWN_RECORDS'
   | 'OWN_TEAM'
@@ -25,6 +27,10 @@ export type Metric = {
   change?: string;
   trend?: 'up' | 'down' | 'neutral';
   helper?: string;
+  /** Optional icon badge, e.g. a lucide-react icon component. */
+  icon?: ComponentType<{ className?: string }>;
+  /** Tailwind background/text classes for the icon badge, e.g. "bg-blue-50 text-blue-600". */
+  tone?: string;
 };
 
 export type PageColumn = {

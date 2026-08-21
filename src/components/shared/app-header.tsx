@@ -3,13 +3,21 @@
 import {
   Bell,
   Building2,
+  CalendarDays,
+  CarFront,
   CheckCheck,
   ChevronDown,
+  ClipboardList,
+  FileText,
   LoaderCircle,
   LogOut,
   Menu,
+  Plus,
   QrCode,
+  Search,
+  UserRoundPlus,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -17,6 +25,7 @@ import { roleNavigation } from '@/config/navigation';
 import type { RoleKey } from '@/config/navigation/types';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +36,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useUiStore } from '@/stores/ui-store';
 import { MobileLinkDialog } from '@/features/auth/mobile-link-dialog';
+import { fetchAssignedDealershipName } from '@/features/auth/header-workspace-api';
 import { canLinkMobileApp } from '@/lib/auth/mobile-link-policy';
 import { getSafeAuthErrorMessage } from '@/lib/auth/safe-errors';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
@@ -70,11 +80,19 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
   const [mobileLinkOpen, setMobileLinkOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [menuError, setMenuError] = useState<string>();
+  const [workspaceSearch, setWorkspaceSearch] = useState('');
   const queryClient = useQueryClient();
   const [profile, setProfile] = useState<HeaderProfile>({
     displayName: previewMode ? 'Local Preview' : 'Account',
   });
   const eligibleForMobile = canLinkMobileApp(role);
+  const salesWorkspace = role === 'sales-consultant';
+  const assignedDealership = useQuery({
+    queryKey: ['header-assigned-dealership'],
+    queryFn: fetchAssignedDealershipName,
+    enabled: salesWorkspace && !previewMode && hasSupabaseConfig(),
+    staleTime: 5 * 60_000,
+  });
   const notifications = useQuery({
     queryKey: headerNotificationsKey,
     queryFn: ({ signal }) => fetchHeaderNotifications(signal),
@@ -87,6 +105,16 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
   });
   const unreadCount =
     notifications.data?.filter((notification) => !notification.read_at).length ?? 0;
+  const dealershipName = previewMode
+    ? 'Apex Motors Pvt. Ltd.'
+    : (assignedDealership.data ??
+      (assignedDealership.isPending ? 'Loading dealership…' : 'Assigned dealership'));
+  const currentDate = new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'Asia/Kolkata',
+  }).format(new Date());
 
   useEffect(() => {
     if (!hasSupabaseConfig()) return;
@@ -133,7 +161,7 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
 
   return (
     <>
-      <header className="sticky top-0 z-20 flex h-[72px] items-center gap-4 border-b bg-white/95 px-4 backdrop-blur md:px-6 lg:ml-[252px]">
+      <header className="sticky top-0 z-20 flex h-16 items-center gap-4 border-b bg-white/95 px-4 backdrop-blur md:px-6 lg:ml-[252px]">
         <Button
           variant="ghost"
           size="icon"
@@ -143,20 +171,90 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
         >
           <Menu className="size-5" />
         </Button>
-        <div className="hidden items-center gap-2 text-sm md:flex">
-          <div className="grid size-8 place-items-center rounded-lg bg-blue-50 text-blue-700">
-            <Building2 className="size-4" />
+        {salesWorkspace ? (
+          <form
+            className="relative hidden w-full max-w-[360px] md:block"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const query = workspaceSearch.trim();
+              router.push(
+                query
+                  ? `/sales-consultant/my-leads?q=${encodeURIComponent(query)}`
+                  : '/sales-consultant/my-leads',
+              );
+            }}
+          >
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={workspaceSearch}
+              onChange={(event) => setWorkspaceSearch(event.target.value)}
+              className="h-9 bg-slate-50 pl-9 pr-14 text-xs"
+              placeholder="Search by Lead ID, Customer Name, Mobile..."
+              aria-label="Search Sales Consultant leads"
+            />
+            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border bg-white px-1.5 py-0.5 text-[9px] text-muted-foreground">
+              Enter
+            </span>
+          </form>
+        ) : (
+          <div className="hidden items-center gap-2 text-sm md:flex">
+            <div className="grid size-8 place-items-center rounded-lg bg-blue-50 text-blue-700">
+              <Building2 className="size-4" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold">
+                {previewMode ? 'Apex Motors Pvt. Ltd.' : 'Dealership workspace'}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                {previewMode ? roleNavigation[role].scope : 'Assigned data scope'}
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-xs font-semibold">
-              {previewMode ? 'Apex Motors Pvt. Ltd.' : 'Dealership workspace'}
-            </p>
-            <p className="text-[11px] text-muted-foreground">
-              {previewMode ? roleNavigation[role].scope : 'Assigned data scope'}
-            </p>
-          </div>
-        </div>
+        )}
         <div className="ml-auto flex items-center gap-2">
+          {salesWorkspace && (
+            <>
+              <span
+                className="hidden h-9 max-w-[220px] items-center gap-2 rounded-lg border bg-white px-3 text-[11px] font-medium text-[#263550] xl:flex"
+                title={dealershipName}
+              >
+                <Building2 className="size-3.5 shrink-0 text-blue-600" />
+                <span className="truncate">{dealershipName}</span>
+              </span>
+              <span className="hidden h-9 items-center gap-2 rounded-lg border bg-white px-3 text-[11px] font-medium text-[#263550] xl:flex">
+                <CalendarDays className="size-3.5 text-blue-600" /> {currentDate}
+              </span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" className="hidden sm:inline-flex">
+                    <Plus className="size-3.5" /> Quick add
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem
+                    onSelect={() => router.push('/sales-consultant/my-leads?action=create')}
+                  >
+                    <UserRoundPlus className="size-4" /> Add lead
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => router.push('/sales-consultant/test-drives?action=create')}
+                  >
+                    <CarFront className="size-4" /> Book test drive
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => router.push('/sales-consultant/quotations?action=create')}
+                  >
+                    <FileText className="size-4" /> Create quotation
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button asChild variant="ghost" size="sm" className="hidden xl:inline-flex">
+                <Link href="/sales-consultant/tasks">
+                  <ClipboardList className="size-4" /> Tasks
+                </Link>
+              </Button>
+            </>
+          )}
           <DropdownMenu
             onOpenChange={(open) => {
               if (open) void notifications.refetch();

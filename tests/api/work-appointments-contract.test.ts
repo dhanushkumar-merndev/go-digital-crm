@@ -12,6 +12,14 @@ const workspace = readFileSync(
   new URL('../../src/features/work/workspace.tsx', import.meta.url),
   'utf8',
 );
+const followupCalendarMigration = readFileSync(
+  new URL('../../supabase/migrations/202608200005_followup_calendar.sql', import.meta.url),
+  'utf8',
+);
+const followupCalendar = readFileSync(
+  new URL('../../src/features/work/followup-calendar.tsx', import.meta.url),
+  'utf8',
+);
 const roleRoute = readFileSync(
   new URL('../../src/app/[role]/[[...slug]]/page.tsx', import.meta.url),
   'utf8',
@@ -180,5 +188,30 @@ describe('work web runtime contract', () => {
     expect(roleRoute).toContain("if (spec.category === 'appointments' && !isLocalPreviewMode())");
     expect(roleRoute).toContain('<WorkWorkspace kind="appointments"');
     expect(roleRoute).toContain('if (!isLocalPreviewMode()) return <ProductionDataUnavailable />');
+  });
+});
+
+describe('follow-up calendar contract', () => {
+  it('is month bounded, scope protected, and returns no more than three preview records per day', () => {
+    expect(followupCalendarMigration).toContain(
+      'create or replace function public.get_followup_calendar(',
+    );
+    expect(followupCalendarMigration).toContain('FOLLOWUP_MONTH_OUT_OF_RANGE');
+    expect(followupCalendarMigration).toContain('app_private.can_access_record(');
+    expect(followupCalendarMigration).toContain('app_private.can_access_lead(');
+    expect(followupCalendarMigration).toContain('app_private.can_access_customer(');
+    expect(followupCalendarMigration).toContain('record_row.day_rank <= 3');
+    expect(followupCalendarMigration).toContain('target_day is not null');
+    expect(followupCalendarMigration).toContain("'status_counts', jsonb_build_object(");
+  });
+
+  it('renders current/next month navigation, three-item overflow, and a right detail sheet', () => {
+    expect(followupCalendar).toContain('const [monthOffset, setMonthOffset] = useState<0 | 1>(0)');
+    expect(followupCalendar).toContain('const hiddenCount = Math.max(0, (day?.total ?? 0) - 3)');
+    expect(followupCalendar).toContain('+{hiddenCount} more');
+    expect(followupCalendar).toContain('side="right"');
+    expect(followupCalendar).toContain("onAction('complete', record)");
+    expect(followupCalendar).toContain("onAction('cancel', record)");
+    expect(followupCalendar).toContain('onEdit(record)');
   });
 });

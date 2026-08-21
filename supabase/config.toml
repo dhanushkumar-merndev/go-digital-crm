@@ -15,12 +15,18 @@ verify_jwt = false
 [functions.provider-webhook-generic]
 verify_jwt = false
 
+[functions.provider-webhook-twilio]
+verify_jwt = false
+
 [functions.mobile-link-exchange]
 verify_jwt = false
 
 # User-initiated functions stay behind gateway JWT verification in addition to
 # their internal user, permission, scope and payload checks.
 [functions.credit-consume]
+verify_jwt = true
+
+[functions.call-provider-start]
 verify_jwt = true
 
 [functions.dashboard-cache]
@@ -54,6 +60,9 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.presign-download]
+verify_jwt = true
+
+[functions.sales-consultant-dashboard]
 verify_jwt = true
 
 [functions.presign-upload]

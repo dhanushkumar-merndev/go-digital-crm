@@ -49,6 +49,9 @@ const followupReasons = [
   'General Follow-up',
 ] as const;
 
+const appointmentTypes = ['Showroom Visit', 'Video Call', 'Test Drive', 'Consultant Call'] as const;
+type AppointmentType = (typeof appointmentTypes)[number];
+
 function safeMutationMessage(error: unknown) {
   if (isWorkVersionConflict(error))
     return 'This record changed after you opened it. Refresh the worklist and try again.';
@@ -117,9 +120,7 @@ export function WorkCreateDialog({
   const [scheduledAt, setScheduledAt] = useState(defaultLocalDateTime);
   const [reason, setReason] = useState<(typeof followupReasons)[number]>('Customer Callback');
   const [priority, setPriority] = useState<'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'>('NORMAL');
-  const [appointmentType, setAppointmentType] = useState<'Showroom Visit' | 'Test Drive'>(
-    'Showroom Visit',
-  );
+  const [appointmentType, setAppointmentType] = useState<AppointmentType>('Showroom Visit');
   const [notes, setNotes] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
   const options = useQuery({
@@ -313,16 +314,17 @@ export function WorkCreateDialog({
                 <Label>Appointment type</Label>
                 <Select
                   value={appointmentType}
-                  onValueChange={(value) =>
-                    setAppointmentType(value as 'Showroom Visit' | 'Test Drive')
-                  }
+                  onValueChange={(value) => setAppointmentType(value as AppointmentType)}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Showroom Visit">Showroom Visit</SelectItem>
-                    <SelectItem value="Test Drive">Test Drive</SelectItem>
+                    {appointmentTypes.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -434,7 +436,7 @@ export function WorkEditDialog({
       if (!appointment) throw new Error('APPOINTMENT_REQUIRED');
       const patch: Parameters<typeof updateAppointment>[0]['patch'] = {};
       if (appointmentType !== appointment.appointment_type)
-        patch.appointment_type = appointmentType as 'Showroom Visit' | 'Test Drive';
+        patch.appointment_type = appointmentType as AppointmentType;
       if (new Date(nextIso).getTime() !== new Date(appointment.scheduled_at).getTime())
         patch.scheduled_at = nextIso;
       if (notes.trim() !== (appointment.notes ?? '')) patch.notes = notes;
@@ -534,16 +536,17 @@ export function WorkEditDialog({
                 <Label>Appointment type</Label>
                 <Select
                   value={appointmentType}
-                  onValueChange={(value) =>
-                    setAppointmentType(value as 'Showroom Visit' | 'Test Drive')
-                  }
+                  onValueChange={(value) => setAppointmentType(value as AppointmentType)}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Showroom Visit">Showroom Visit</SelectItem>
-                    <SelectItem value="Test Drive">Test Drive</SelectItem>
+                    {appointmentTypes.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

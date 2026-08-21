@@ -18,7 +18,7 @@ export function CrmShell({
     <div className="min-h-screen">
       <AppSidebar role={role} previewMode={previewMode} navigationAccess={navigationAccess} />
       <AppHeader role={role} previewMode={previewMode} />
-      <main className="px-4 py-6 md:px-6 lg:ml-[252px] lg:px-8">{children}</main>
+      <main className="px-4 py-5 md:px-6 lg:ml-[252px] lg:px-8">{children}</main>
     </div>
   );
 }

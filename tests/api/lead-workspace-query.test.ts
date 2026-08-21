@@ -22,6 +22,12 @@ describe('lead workspace query boundary', () => {
       status: 'new',
       sort: 'updated:desc',
       search: 'Aarav',
+      model: '',
+      source: '',
+      stage: 'all',
+      temperature: 'all',
+      followupFrom: '',
+      followupTo: '',
     });
   });
 
@@ -32,9 +38,17 @@ describe('lead workspace query boundary', () => {
         pageSize: 50,
         search: '98765',
         status: 'pending',
+        model: 'Nexon EV',
+        source: 'Website',
+        stage: 'Test Drive',
+        temperature: 'HOT',
+        followupFrom: '2026-08-01',
+        followupTo: '2026-08-31',
         sort: 'customer:asc',
       }),
-    ).toBe('page=2&pageSize=50&q=98765&status=pending&sort=customer%3Aasc');
+    ).toBe(
+      'page=2&pageSize=50&q=98765&status=pending&model=Nexon+EV&source=Website&stage=Test+Drive&temperature=HOT&followupFrom=2026-08-01&followupTo=2026-08-31&sort=customer%3Aasc',
+    );
   });
 
   it('maps lifecycle and derived work-state filters without persisting Pending', () => {
@@ -97,7 +111,7 @@ describe('lead workspace aggregate boundary', () => {
     expect(migration).toContain('with scoped_leads as materialized');
     expect(migration).toContain("'assigned_user_name', assigned_user_name");
     expect(migration).toContain('limit target_page_size');
-    expect(api).toContain("supabase.rpc('get_lead_workspace_page'");
+    expect(api).toContain("supabase.rpc('get_lead_workspace_page_v2'");
     expect(api).not.toContain(".from('leads_with_work_state')");
   });
 });

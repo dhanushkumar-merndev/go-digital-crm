@@ -51,7 +51,7 @@ export const appointmentRecordSchema = z.object({
   customer_name: z.string(),
   phone: nullableString,
   interested_model: nullableString,
-  appointment_type: z.enum(['Showroom Visit', 'Test Drive']),
+  appointment_type: z.enum(['Showroom Visit', 'Video Call', 'Test Drive', 'Consultant Call']),
   scheduled_at: z.string(),
   status: z.enum(['SCHEDULED', 'CONFIRMED', 'RESCHEDULED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),
   attendance_status: z.enum(['NOT_ARRIVED', 'ARRIVED', 'COMPLETED', 'NO_SHOW']),
@@ -106,6 +106,44 @@ const appointmentWorkspaceSchema = z.object({
 export type FollowupWorkspaceResult = z.infer<typeof followupWorkspaceSchema>;
 export type AppointmentWorkspaceResult = z.infer<typeof appointmentWorkspaceSchema>;
 export type WorkWorkspaceResult = FollowupWorkspaceResult | AppointmentWorkspaceResult;
+
+const followupCalendarSchema = z.object({
+  month: z.string(),
+  month_total: z.coerce.number().int().nonnegative(),
+  status_counts: z.object({
+    all: z.coerce.number().int().nonnegative(),
+    overdue: z.coerce.number().int().nonnegative(),
+    today: z.coerce.number().int().nonnegative(),
+    upcoming: z.coerce.number().int().nonnegative(),
+    completed: z.coerce.number().int().nonnegative(),
+    cancelled: z.coerce.number().int().nonnegative(),
+  }),
+  days: z.array(
+    z.object({
+      date: z.string(),
+      total: z.coerce.number().int().nonnegative(),
+      items: z.array(followupRecordSchema),
+    }),
+  ),
+  timezone: z.string(),
+});
+
+export type FollowupCalendarResult = z.infer<typeof followupCalendarSchema>;
+
+const appointmentCalendarSchema = z.object({
+  month: z.string(),
+  month_total: z.coerce.number().int().nonnegative(),
+  days: z.array(
+    z.object({
+      date: z.string(),
+      total: z.coerce.number().int().nonnegative(),
+      items: z.array(appointmentRecordSchema),
+    }),
+  ),
+  timezone: z.string(),
+});
+
+export type AppointmentCalendarResult = z.infer<typeof appointmentCalendarSchema>;
 
 export type WorkWorkspacePermissions = {
   organizationId: string;
@@ -203,6 +241,63 @@ export async function fetchWorkWorkspace(
     : appointmentWorkspaceSchema.parse(data);
 }
 
+export async function fetchFollowupCalendar(input: {
+  month: string;
+  day?: string | null;
+  query: WorkQuery;
+  timezone: string;
+}) {
+  const { data, error } = await createClient().rpc('get_followup_calendar', {
+    target_month: input.month,
+    target_day: input.day ?? null,
+    target_search: input.query.search,
+    target_status: input.query.status,
+    target_priority: input.query.priority,
+    target_branch_id: nullableFilter(input.query.branchId),
+    target_team_id: nullableFilter(input.query.teamId),
+    target_owner_id: nullableFilter(input.query.ownerId),
+    target_timezone: input.timezone,
+  });
+  if (error) throw error;
+  return followupCalendarSchema.parse(data);
+}
+
+export async function fetchAppointmentCalendar(input: {
+  month: string;
+  day?: string | null;
+  query: WorkQuery;
+  timezone: string;
+}) {
+  const { data, error } = await createClient().rpc('get_appointment_calendar', {
+    target_month: input.month,
+    target_day: input.day ?? null,
+    target_search: input.query.search,
+    target_status: input.query.status,
+    target_appointment_type: input.query.appointmentType,
+    target_branch_id: nullableFilter(input.query.branchId),
+    target_team_id: nullableFilter(input.query.teamId),
+    target_owner_id: nullableFilter(input.query.ownerId),
+    target_timezone: input.timezone,
+  });
+  if (error) throw error;
+  return appointmentCalendarSchema.parse(data);
+}
+
+export async function fetchAppointmentTypeSummary(timezone: string) {
+  const { data, error } = await createClient().rpc('get_appointment_type_summary', {
+    target_timezone: timezone,
+  });
+  if (error) throw error;
+  return z
+    .object({
+      showroom_visit: z.coerce.number().int().nonnegative(),
+      video_call: z.coerce.number().int().nonnegative(),
+      test_drive: z.coerce.number().int().nonnegative(),
+      consultant_call: z.coerce.number().int().nonnegative(),
+    })
+    .parse(data);
+}
+
 const entityOptionSchema = z.object({
   lead_id: z.uuid().nullable(),
   customer_id: z.uuid().nullable(),
@@ -288,7 +383,7 @@ export async function createFollowup(input: {
 export async function createAppointment(input: {
   entity: WorkEntityOption;
   assignedUserId: string;
-  appointmentType: 'Showroom Visit' | 'Test Drive';
+  appointmentType: 'Showroom Visit' | 'Video Call' | 'Test Drive' | 'Consultant Call';
   scheduledAt: string;
   notes: string;
   requestId: string;
@@ -333,7 +428,7 @@ export async function updateAppointment(input: {
   id: string;
   expectedVersion: number;
   patch: {
-    appointment_type?: 'Showroom Visit' | 'Test Drive';
+    appointment_type?: 'Showroom Visit' | 'Video Call' | 'Test Drive' | 'Consultant Call';
     scheduled_at?: string;
     notes?: string;
     assigned_user_id?: string;

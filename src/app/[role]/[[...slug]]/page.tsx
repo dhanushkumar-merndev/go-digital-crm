@@ -7,12 +7,16 @@ import { CustomerCareWorkspace } from '@/features/customer-care/customer-care-wo
 import { MarketingWorkspace } from '@/features/marketing/marketing-workspace';
 import { ReportExportWorkspace } from '@/features/reports/report-export-workspace';
 import { TenantDashboard } from '@/features/dashboards/tenant-dashboard';
+import { SalesConsultantDashboard } from '@/features/dashboards/sales-consultant-dashboard';
+import { SalesConsultantPerformance } from '@/features/dashboards/sales-consultant-performance';
+import { SalesConsultantActivityTimeline } from '@/features/dashboards/sales-consultant-activity-timeline';
 import { RoleWorkspace } from '@/features/administration/role-workspace';
 import { UserWorkspace } from '@/features/administration/users/user-workspace';
 import { IntegrationWorkspace } from '@/features/integrations/integration-workspace';
 import { InventoryWorkspace } from '@/features/inventory/inventory-workspace';
 import { LeadWorkspace } from '@/features/leads/lead-workspace';
 import { OperationalCaseWorkspace } from '@/features/operations/operational-case-workspace';
+import { SalesExchangeWorkspace } from '@/features/operations/sales-exchange-workspace';
 import { operationalCaseRoute } from '@/features/operations/operational-case-query';
 import { ProductionDataUnavailable } from '@/components/shared/production-data-unavailable';
 import { isRoleKey } from '@/config/navigation';
@@ -110,6 +114,12 @@ export default async function RolePage({ params }: Props) {
   )
     return <MarketingWorkspace spec={spec} slug={slug[0]} />;
   if (slug[0] === 'reports' && !isLocalPreviewMode()) return <ReportExportWorkspace spec={spec} />;
+  if (role === 'sales-consultant' && slug[0] === 'dashboard')
+    return <SalesConsultantDashboard spec={spec} />;
+  if (role === 'sales-consultant' && slug[0] === 'performance')
+    return <SalesConsultantPerformance />;
+  if (operationalCaseRoute(role, slug[0]) && !isLocalPreviewMode())
+    return <OperationalCaseWorkspace spec={spec} role={role} slug={slug[0]} />;
   if (slug[0] === 'dashboard' && !isLocalPreviewMode())
     return <TenantDashboard spec={spec} role={role} />;
   if (spec.category === 'leads' && !isLocalPreviewMode())
@@ -124,16 +134,18 @@ export default async function RolePage({ params }: Props) {
     slug[0] === 'tasks' &&
     (role === 'telecaller' || role === 'sales-consultant') &&
     !isLocalPreviewMode()
-  )
+  ) {
+    if (role === 'sales-consultant') return <SalesConsultantActivityTimeline />;
     return <TaskWorkspace spec={spec} role={role} />;
+  }
   if (
     spec.category === 'test-drives' &&
     (role === 'sales-consultant' || role === 'team-manager' || role === 'showroom-manager') &&
     !isLocalPreviewMode()
   )
     return <TestDriveWorkspace spec={spec} role={role} />;
-  if (operationalCaseRoute(role, slug[0]) && !isLocalPreviewMode())
-    return <OperationalCaseWorkspace spec={spec} role={role} slug={slug[0]} />;
+  if (role === 'sales-consultant' && slug[0] === 'exchange' && !isLocalPreviewMode())
+    return <SalesExchangeWorkspace />;
   if (spec.category === 'quotations' && !isLocalPreviewMode())
     return <SalesDocumentWorkspace kind="quotations" spec={spec} role={role} />;
   if (spec.category === 'bookings' && !isLocalPreviewMode())

@@ -17,6 +17,10 @@ describe('operational case route and query boundary', () => {
       department: 'DELIVERY',
       initialStatus: 'CHECKLIST_PENDING',
     });
+    expect(operationalCaseRoute('finance', 'dashboard')).toMatchObject({
+      department: 'FINANCE',
+      initialStatus: 'OPEN',
+    });
     expect(operationalCaseRoute('sales-consultant', 'exchange')).toMatchObject({
       department: 'EXCHANGE',
       canOriginateRequest: true,

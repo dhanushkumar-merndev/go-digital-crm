@@ -18,8 +18,10 @@ function SheetContent({
       <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/45 data-[state=closed]:animate-out data-[state=open]:animate-in" />
       <DialogPrimitive.Content
         className={cn(
-          'fixed inset-y-0 z-50 w-[285px] bg-background shadow-xl outline-none',
-          side === 'left' ? 'left-0' : 'right-0',
+          'fixed inset-y-0 z-50 w-[285px] bg-background shadow-xl outline-none will-change-transform',
+          side === 'left'
+            ? 'left-0 data-[state=closed]:animate-[sheet-out-left_180ms_ease-in_both] data-[state=open]:animate-[sheet-in-left_240ms_cubic-bezier(0.22,1,0.36,1)_both]'
+            : 'right-0 data-[state=closed]:animate-[sheet-out-right_180ms_ease-in_both] data-[state=open]:animate-[sheet-in-right_240ms_cubic-bezier(0.22,1,0.36,1)_both]',
           className,
         )}
         {...props}

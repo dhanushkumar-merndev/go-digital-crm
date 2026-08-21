@@ -592,7 +592,7 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
 
   if (permissions.isPending || (customer.isPending && permissions.data?.canView))
     return (
-      <div className="mx-auto max-w-[1500px] space-y-6">
+      <div className="mx-auto max-w-[1800px] space-y-6">
         <Skeleton className="h-24 w-full" />
         <Skeleton className="h-10 w-full" />
         <div className="grid gap-6 xl:grid-cols-[1.4fr_.8fr]">
@@ -636,7 +636,7 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
   const data = customer.data;
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-6">
+    <div className="mx-auto max-w-[1800px] space-y-6">
       <div>
         <Button variant="ghost" size="sm" asChild className="-ml-3 mb-3">
           <Link href={`/${role}/customers`}>

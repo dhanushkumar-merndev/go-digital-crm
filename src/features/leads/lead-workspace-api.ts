@@ -23,6 +23,8 @@ export type LeadRecord = {
   sla_due_at: string | null;
   created_at: string;
   updated_at: string;
+  next_followup_at: string | null;
+  lead_stage: string;
   assigned_user_name: string | null;
 };
 
@@ -36,9 +38,22 @@ export type LeadKpis = {
   appointment_scheduled_count: number;
   transferred_to_sales_count: number;
   lost_count: number;
+  total: number;
+  hot: number;
+  warm: number;
+  cold: number;
+  follow_up: number;
+  test_drive: number;
+  quotation: number;
+  booking: number;
 };
 
-export type LeadWorkspaceResult = { records: LeadRecord[]; total: number; kpis: LeadKpis };
+export type LeadWorkspaceResult = {
+  records: LeadRecord[];
+  total: number;
+  kpis: LeadKpis;
+  filters: { models: string[]; sources: string[] };
+};
 
 export type LeadWorkspacePermissions = {
   organizationId: string;
@@ -62,6 +77,14 @@ const emptyKpis: LeadKpis = {
   appointment_scheduled_count: 0,
   transferred_to_sales_count: 0,
   lost_count: 0,
+  total: 0,
+  hot: 0,
+  warm: 0,
+  cold: 0,
+  follow_up: 0,
+  test_drive: 0,
+  quotation: 0,
+  booking: 0,
 };
 
 function normalizeKpis(row: KpiRow | null): LeadKpis {
@@ -76,12 +99,18 @@ function normalizeKpis(row: KpiRow | null): LeadKpis {
 
 export async function fetchLeadWorkspace(query: LeadQuery): Promise<LeadWorkspaceResult> {
   const supabase = createClient();
-  const { data, error } = await supabase.rpc('get_lead_workspace_page', {
+  const { data, error } = await supabase.rpc('get_lead_workspace_page_v2', {
     target_page: query.page,
     target_page_size: query.pageSize,
     target_search: query.search,
     target_status: query.status,
     target_sort: query.sort,
+    target_model: query.model || null,
+    target_source: query.source || null,
+    target_stage: query.stage,
+    target_temperature: query.temperature,
+    target_followup_from: query.followupFrom || null,
+    target_followup_to: query.followupTo || null,
   });
   if (error) throw error;
   const result = data as Partial<LeadWorkspaceResult> | null;
@@ -89,6 +118,18 @@ export async function fetchLeadWorkspace(query: LeadQuery): Promise<LeadWorkspac
     records: Array.isArray(result?.records) ? (result.records as LeadRecord[]) : [],
     total: Number(result?.total ?? 0),
     kpis: normalizeKpis((result?.kpis ?? null) as KpiRow | null),
+    filters: {
+      models: Array.isArray(result?.filters?.models)
+        ? (result.filters.models.filter(
+            (value): value is string => typeof value === 'string',
+          ) as string[])
+        : [],
+      sources: Array.isArray(result?.filters?.sources)
+        ? (result.filters.sources.filter(
+            (value): value is string => typeof value === 'string',
+          ) as string[])
+        : [],
+    },
   };
 }
 

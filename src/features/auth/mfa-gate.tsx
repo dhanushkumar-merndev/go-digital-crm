@@ -4,16 +4,22 @@ import { KeyRound, LoaderCircle, ShieldCheck } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { AuthPageShell } from '@/components/shared/auth-page-shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import {
+  fetchTenantDashboard,
+  tenantDashboardKey,
+} from '@/features/dashboards/tenant-dashboard-api';
 import { createClient } from '@/lib/supabase/client';
 
 type Factor = { id: string };
 
 export function MfaGate() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [factor, setFactor] = useState<Factor>();
   const [qr, setQr] = useState<string>();
   const [code, setCode] = useState('');
@@ -43,7 +49,10 @@ export function MfaGate() {
         });
         if (enrollError) throw enrollError;
         setFactor(data);
-        setQr(data.totp.qr_code);
+        // Supabase can return the SVG data URI with trailing whitespace,
+        // which next/image rejects outright ("src cannot end with a space
+        // or control character").
+        setQr(data.totp.qr_code?.trim());
       } catch {
         setError('MFA setup could not be loaded. Check your session and try again.');
       } finally {
@@ -71,6 +80,10 @@ export function MfaGate() {
         code,
       });
       if (verifyError) throw verifyError;
+      void queryClient.prefetchQuery({
+        queryKey: tenantDashboardKey,
+        queryFn: ({ signal }) => fetchTenantDashboard(signal),
+      });
       router.replace('/');
       router.refresh();
     } catch {

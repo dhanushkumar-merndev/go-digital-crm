@@ -64,6 +64,48 @@ const workspaceSchema = z.object({
 });
 export type CustomerCareWorkspaceResult = z.infer<typeof workspaceSchema>;
 
+const dashboardDatumSchema = z.object({
+  name: z.string(),
+  value: z.coerce.number().nonnegative(),
+  secondary: z.coerce.number().nonnegative().optional(),
+});
+const dashboardAttentionSchema = z.object({
+  id: z.uuid(),
+  case_number: z.string(),
+  customer_name: z.string(),
+  case_type: z.string(),
+  priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']),
+  sla_due_at: z.string(),
+  assigned_user_name: nullableString,
+});
+const customerCareDashboardSchema = z.object({
+  organization_id: z.uuid(),
+  kpis: z.object({
+    feedback_calls_today: z.coerce.number().int().nonnegative(),
+    feedback_pending: z.coerce.number().int().nonnegative(),
+    enquiry_feedback_due: z.coerce.number().int().nonnegative(),
+    test_drive_feedback_due: z.coerce.number().int().nonnegative(),
+    delivery_feedback_due: z.coerce.number().int().nonnegative(),
+    complaints_open: z.coerce.number().int().nonnegative(),
+    escalations_open: z.coerce.number().int().nonnegative(),
+    review_requests_pending: z.coerce.number().int().nonnegative(),
+  }),
+  scores: z.object({
+    satisfaction: z.coerce.number().min(0).max(5),
+    positive_feedback_percent: z.coerce.number().min(0).max(100),
+    complaint_resolution_percent: z.coerce.number().min(0).max(100),
+    review_request_conversion_percent: z.coerce.number().min(0).max(100),
+    average_response_hours: z.coerce.number().nonnegative(),
+    ratings_received: z.coerce.number().int().nonnegative(),
+  }),
+  status_chart: z.array(dashboardDatumSchema),
+  rating_breakdown: z.array(dashboardDatumSchema),
+  issue_breakdown: z.array(dashboardDatumSchema),
+  attention: z.array(dashboardAttentionSchema),
+  consultant_performance: z.array(dashboardDatumSchema),
+});
+export type CustomerCareDashboard = z.infer<typeof customerCareDashboardSchema>;
+
 export async function fetchCustomerCareWorkspace(query: CustomerCareQuery, signal?: AbortSignal) {
   const request = createClient().rpc('get_customer_care_workspace_page', {
     target_view: query.view,
@@ -76,6 +118,15 @@ export async function fetchCustomerCareWorkspace(query: CustomerCareQuery, signa
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return workspaceSchema.parse(data);
+}
+
+export async function fetchCustomerCareDashboard(signal?: AbortSignal) {
+  const request = createClient().rpc('get_customer_care_dashboard_summary', {
+    target_timezone: 'Asia/Kolkata',
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return customerCareDashboardSchema.parse(data);
 }
 
 export async function fetchCustomerCarePermissions() {

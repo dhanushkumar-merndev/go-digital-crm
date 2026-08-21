@@ -4,9 +4,12 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   ArrowLeftRight,
+  CalendarDays,
+  CarFront,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
+  ListFilter,
   Package,
   Plus,
   RotateCcw,
@@ -49,6 +52,7 @@ import {
   fetchInventoryDashboard,
   fetchInventoryPermissions,
   fetchMovementPage,
+  fetchStockCheckFilterOptions,
   fetchStockCheckPage,
   fetchStockUnitPage,
   type AllocationPage,
@@ -59,6 +63,7 @@ import {
   type MovementPage,
   type MovementRow,
   type StockCheckPage,
+  type StockCheckFilterOptions,
   type StockUnit,
   type StockUnitPage,
 } from './inventory-api';
@@ -194,12 +199,33 @@ function pageMetrics(page: InventoryPage): Metric[] {
     ];
   if ('available_units' in page.kpis)
     return [
-      { label: 'Available units', value: page.kpis.available_units.toLocaleString('en-IN') },
-      { label: 'Limited choices', value: page.kpis.limited_groups.toLocaleString('en-IN') },
-      { label: 'Incoming units', value: page.kpis.incoming_units.toLocaleString('en-IN') },
       {
-        label: 'Unavailable choices',
+        label: 'Available vehicles',
+        value: page.kpis.available_units.toLocaleString('en-IN'),
+        helper: 'Ready in your authorized scope',
+        icon: CarFront,
+        tone: 'bg-emerald-50 text-emerald-600',
+      },
+      {
+        label: 'Limited stock',
+        value: page.kpis.limited_groups.toLocaleString('en-IN'),
+        helper: 'Choices with only 1–2 available',
+        icon: CarFront,
+        tone: 'bg-orange-50 text-orange-600',
+      },
+      {
+        label: 'Incoming vehicles',
+        value: page.kpis.incoming_units.toLocaleString('en-IN'),
+        helper: 'Incoming or in transit',
+        icon: CalendarDays,
+        tone: 'bg-violet-50 text-violet-600',
+      },
+      {
+        label: 'Unavailable requests',
         value: page.kpis.unavailable_groups.toLocaleString('en-IN'),
+        helper: 'Choices without available stock',
+        icon: CarFront,
+        tone: 'bg-red-50 text-red-600',
       },
     ];
   if ('movements_today' in page.kpis)
@@ -317,13 +343,182 @@ function Filters({
   view,
   query,
   branches,
+  stockOptions,
   onQueryChange,
 }: {
   view: Exclude<InventoryView, 'dashboard'>;
   query: InventoryQuery;
   branches: InventoryBranch[];
+  stockOptions?: StockCheckFilterOptions;
   onQueryChange: (next: Partial<InventoryQuery>) => void;
 }) {
+  if (view === 'stock-check') {
+    const selectFilter = (
+      label: string,
+      value: string,
+      options: string[],
+      key: 'brand' | 'model' | 'variant' | 'fuel' | 'transmission' | 'color',
+    ) => (
+      <label className="min-w-0 space-y-1.5">
+        <span className="block text-xs font-medium text-muted-foreground">{label}</span>
+        <Select
+          value={value || 'all'}
+          onValueChange={(next) => onQueryChange({ [key]: next === 'all' ? '' : next, page: 1 })}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder={`All ${label.toLowerCase()}s`} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All {label.toLowerCase()}s</SelectItem>
+            {options.map((option) => (
+              <SelectItem key={option} value={option}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </label>
+    );
+    const hasFilters = Boolean(
+      query.search ||
+      query.filter !== 'all' ||
+      query.branchId ||
+      query.brand ||
+      query.model ||
+      query.variant ||
+      query.fuel ||
+      query.transmission ||
+      query.color,
+    );
+    return (
+      <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+          {selectFilter('Brand', query.brand, stockOptions?.brands ?? [], 'brand')}
+          {selectFilter('Model', query.model, stockOptions?.models ?? [], 'model')}
+          {selectFilter('Variant', query.variant, stockOptions?.variants ?? [], 'variant')}
+          {selectFilter('Fuel', query.fuel, stockOptions?.fuels ?? [], 'fuel')}
+          {selectFilter(
+            'Transmission',
+            query.transmission,
+            stockOptions?.transmissions ?? [],
+            'transmission',
+          )}
+          {selectFilter('Colour', query.color, stockOptions?.colors ?? [], 'color')}
+          <label className="min-w-0 space-y-1.5">
+            <span className="block text-xs font-medium text-muted-foreground">Branch</span>
+            {branches.length === 1 ? (
+              <div className="flex h-9 items-center truncate rounded-md border bg-muted/30 px-3 text-sm">
+                {branches[0]?.name}
+              </div>
+            ) : (
+              <Select
+                value={query.branchId || 'all'}
+                onValueChange={(branchId) =>
+                  onQueryChange({ branchId: branchId === 'all' ? '' : branchId, page: 1 })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="All authorized branches" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All authorized branches</SelectItem>
+                  {branches.map((branch) => (
+                    <SelectItem key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </label>
+          <label className="min-w-0 space-y-1.5">
+            <span className="block text-xs font-medium text-muted-foreground">Stock status</span>
+            <Select
+              value={query.filter}
+              onValueChange={(filter) =>
+                onQueryChange({ filter: filter as InventoryFilter, page: 1 })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {filterOptions[view].map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+        </div>
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative w-full lg:max-w-sm">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query.search}
+              onChange={(event) => onQueryChange({ search: event.target.value, page: 1 })}
+              className="pl-9"
+              maxLength={100}
+              placeholder="Search stock availability…"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={query.sort}
+              onValueChange={(sort) => onQueryChange({ sort: sort as InventorySort, page: 1 })}
+            >
+              <SelectTrigger className="w-[185px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {sortOptions[view].map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={String(query.pageSize)}
+              onValueChange={(value) =>
+                onQueryChange({ pageSize: Number(value) as InventoryQuery['pageSize'], page: 1 })
+              }
+            >
+              <SelectTrigger className="w-[105px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="25">25 rows</SelectItem>
+                <SelectItem value="50">50 rows</SelectItem>
+                <SelectItem value="100">100 rows</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              disabled={!hasFilters}
+              onClick={() =>
+                onQueryChange({
+                  page: 1,
+                  search: '',
+                  filter: 'all',
+                  branchId: '',
+                  brand: '',
+                  model: '',
+                  variant: '',
+                  fuel: '',
+                  transmission: '',
+                  color: '',
+                })
+              }
+            >
+              <ListFilter className="size-4" /> Clear filters
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-3">
       <div className="relative min-w-0 lg:max-w-lg">
@@ -334,13 +529,11 @@ function Filters({
           className="pl-9"
           maxLength={100}
           placeholder={
-            view === 'stock-check'
-              ? 'Search model, variant, colour, fuel or transmission…'
-              : view === 'movements'
-                ? 'Search VIN, model, movement reason or actor…'
-                : view === 'allocations'
-                  ? 'Search VIN, booking, model or variant…'
-                  : 'Search VIN, chassis, engine, model, variant or colour…'
+            view === 'movements'
+              ? 'Search VIN, model, movement reason or actor…'
+              : view === 'allocations'
+                ? 'Search VIN, booking, model or variant…'
+                : 'Search VIN, chassis, engine, model, variant or colour…'
           }
         />
       </div>
@@ -656,44 +849,76 @@ function StockCheckTable({
   isFetching: boolean;
   onQueryChange: (next: Partial<InventoryQuery>) => void;
 }) {
+  const colourSwatch = (colour: string | null) => {
+    const normalized = colour?.toLowerCase() ?? '';
+    if (normalized.includes('white')) return '#e5e7eb';
+    if (normalized.includes('black')) return '#111827';
+    if (normalized.includes('red')) return '#dc2626';
+    if (normalized.includes('blue')) return '#2563eb';
+    if (normalized.includes('green')) return '#16a34a';
+    if (normalized.includes('orange')) return '#f97316';
+    if (normalized.includes('silver') || normalized.includes('grey')) return '#9ca3af';
+    return '#cbd5e1';
+  };
   const columns = useMemo<ColumnDef<StockCheckRow>[]>(
     () => [
       {
-        id: 'vehicle',
-        header: 'Model & variant',
+        id: 'model',
+        header: 'Model',
         cell: ({ row }) => (
-          <div>
-            <p className="font-medium">
-              {row.original.brand_name} {row.original.model_name}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{row.original.variant_name}</p>
+          <div className="flex items-center gap-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600">
+              <CarFront className="size-[18px]" />
+            </span>
+            <div>
+              <p className="font-medium">{row.original.model_name}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{row.original.brand_name}</p>
+            </div>
           </div>
         ),
       },
       {
-        id: 'specification',
-        header: 'Specification',
+        id: 'variant',
+        header: 'Variant',
         cell: ({ row }) => (
           <div>
-            <p>{row.original.color ?? 'Any colour'}</p>
+            <p>{row.original.variant_name}</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {[row.original.fuel, row.original.transmission].filter(Boolean).join(' · ') || '—'}
             </p>
           </div>
         ),
       },
-      { accessorKey: 'branch_name', header: 'Branch' },
+      {
+        accessorKey: 'color',
+        header: 'Colour',
+        cell: ({ getValue }) => {
+          const colour = getValue<string | null>();
+          return (
+            <span className="inline-flex items-center gap-2">
+              <span
+                className="size-2.5 rounded-full border"
+                style={{ backgroundColor: colourSwatch(colour) }}
+              />
+              {colour ?? 'Unspecified'}
+            </span>
+          );
+        },
+      },
       {
         accessorKey: 'available',
-        header: 'Available',
-        cell: ({ getValue }) => <span className="font-semibold">{getValue<number>()}</span>,
+        header: 'Available qty',
+        cell: ({ getValue }) => (
+          <span className="font-semibold text-emerald-600">{getValue<number>()}</span>
+        ),
       },
-      { accessorKey: 'incoming', header: 'Incoming' },
       { accessorKey: 'reserved', header: 'Reserved' },
+      { accessorKey: 'incoming', header: 'Incoming' },
       { accessorKey: 'allocated', header: 'Allocated' },
+      { accessorKey: 'branch_name', header: 'Branch' },
       {
         accessorKey: 'availability',
-        header: 'Availability',
+        header: 'Stock status',
         cell: ({ getValue }) => <StatusBadge value={getValue<string>()} />,
       },
     ],
@@ -902,6 +1127,17 @@ function ListWorkspace({
     () => ({ ...query, search: debouncedSearch }),
     [debouncedSearch, query],
   );
+  const stockOptions = useQuery({
+    queryKey: [
+      'stock-check-filter-options',
+      permissions.organizationId,
+      permissions.scopeKey,
+      query.branchId,
+    ],
+    queryFn: ({ signal }) => fetchStockCheckFilterOptions(query.branchId, signal),
+    enabled: view === 'stock-check',
+    staleTime: 60_000,
+  });
   const page = useQuery({
     queryKey: [
       'inventory-page',
@@ -938,8 +1174,14 @@ function ListWorkspace({
     <div className="space-y-6">
       <KpiGrid metrics={pageMetrics(page.data)} />
       <Card className="shadow-none">
-        <CardHeader className="border-b p-4">
-          <Filters view={view} query={query} branches={branches} onQueryChange={onQueryChange} />
+        <CardHeader className="p-4">
+          <Filters
+            view={view}
+            query={query}
+            branches={branches}
+            stockOptions={stockOptions.data}
+            onQueryChange={onQueryChange}
+          />
         </CardHeader>
       </Card>
       {view === 'stock-check' ? (
@@ -1088,9 +1330,9 @@ export function InventoryWorkspace({
 
   const canOpenUnits = permissions.data.canView && selectedView !== 'stock-check';
   return (
-    <div className="mx-auto max-w-[1600px]">
+    <div className="mx-auto max-w-[1800px]">
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <PageHeader className="mb-0" spec={{ ...spec, primaryAction: undefined }} />
         {!spec.readOnly && permissions.data.canCreate && selectedView !== 'stock-check' && (
           <Button
             className="shrink-0 sm:mt-7"
@@ -1105,17 +1347,6 @@ export function InventoryWorkspace({
           </Button>
         )}
       </div>
-      {selectedView === 'stock-check' && (
-        <Alert className="mb-6">
-          <Package className="size-4" />
-          <div>
-            <AlertTitle>Availability-only view</AlertTitle>
-            <AlertDescription>
-              Counts are branch-scoped and intentionally omit VIN, chassis and allocation identity.
-            </AlertDescription>
-          </div>
-        </Alert>
-      )}
       {selectedView === 'movements' && permissions.data.canMove && (
         <Alert className="mb-6">
           <ArrowLeftRight className="size-4" />

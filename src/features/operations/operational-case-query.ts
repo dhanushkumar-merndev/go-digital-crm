@@ -22,6 +22,7 @@ export const operationalCaseStatuses: Record<OperationalCaseDepartment, readonly
   INSURANCE: ['QUOTE_PENDING', 'QUOTE_SHARED', 'CUSTOMER_ACCEPTED', 'POLICY_ISSUED', 'CANCELLED'],
   RTO: ['NEW', 'DOCUMENTS_PENDING', 'SUBMITTED', 'IN_PROCESS', 'REGISTERED', 'CANCELLED'],
   EXCHANGE: [
+    'DRAFT',
     'REQUESTED',
     'INSPECTION_SCHEDULED',
     'EVALUATED',
@@ -52,6 +53,7 @@ const nextStatusMap: Record<OperationalCaseDepartment, Record<string, readonly s
     IN_PROCESS: ['REGISTERED', 'CANCELLED'],
   },
   EXCHANGE: {
+    DRAFT: ['REQUESTED', 'CANCELLED'],
     REQUESTED: ['INSPECTION_SCHEDULED', 'REJECTED', 'CANCELLED'],
     INSPECTION_SCHEDULED: ['EVALUATED', 'REJECTED', 'CANCELLED'],
     EVALUATED: ['OFFERED', 'REJECTED'],
@@ -105,6 +107,7 @@ export type OperationalCaseRoute = {
 
 const routeMap: Partial<Record<RoleKey, Record<string, OperationalCaseRoute>>> = {
   finance: {
+    dashboard: { department: 'FINANCE', initialStatus: 'OPEN', canOriginateRequest: false },
     'finance-cases': { department: 'FINANCE', initialStatus: 'OPEN', canOriginateRequest: false },
     'pending-documents': {
       department: 'FINANCE',
@@ -123,6 +126,7 @@ const routeMap: Partial<Record<RoleKey, Record<string, OperationalCaseRoute>>> =
     },
   },
   insurance: {
+    dashboard: { department: 'INSURANCE', initialStatus: 'OPEN', canOriginateRequest: false },
     'insurance-cases': {
       department: 'INSURANCE',
       initialStatus: 'OPEN',
@@ -130,9 +134,11 @@ const routeMap: Partial<Record<RoleKey, Record<string, OperationalCaseRoute>>> =
     },
   },
   rto: {
+    dashboard: { department: 'RTO', initialStatus: 'OPEN', canOriginateRequest: false },
     'rto-cases': { department: 'RTO', initialStatus: 'OPEN', canOriginateRequest: false },
   },
   exchange: {
+    dashboard: { department: 'EXCHANGE', initialStatus: 'OPEN', canOriginateRequest: true },
     'exchange-requests': {
       department: 'EXCHANGE',
       initialStatus: 'OPEN',
@@ -150,6 +156,7 @@ const routeMap: Partial<Record<RoleKey, Record<string, OperationalCaseRoute>>> =
     },
   },
   delivery: {
+    dashboard: { department: 'DELIVERY', initialStatus: 'OPEN', canOriginateRequest: false },
     'upcoming-deliveries': {
       department: 'DELIVERY',
       initialStatus: 'OPEN',
