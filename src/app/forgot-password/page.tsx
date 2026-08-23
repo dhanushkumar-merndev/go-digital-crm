@@ -1,25 +1,24 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ArrowLeft, CheckCircle2, Mail } from 'lucide-react';
+import { ArrowLeft, Mail } from 'lucide-react';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { AuthPageShell } from '@/components/shared/auth-page-shell';
 import { AuthLink } from '@/features/auth/auth-link';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getSafeAuthErrorMessage } from '@/lib/auth/safe-errors';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
+import { toast } from '@/components/ui/toast';
 
 const schema = z.object({ email: z.email('Enter a valid email address') });
 type FormValues = z.infer<typeof schema>;
 
 export default function ForgotPasswordPage() {
-  const [error, setError] = useState<string>();
   const [submitted, setSubmitted] = useState(false);
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -27,9 +26,13 @@ export default function ForgotPasswordPage() {
   });
 
   const onSubmit = form.handleSubmit(async ({ email }) => {
-    setError(undefined);
     if (!hasSupabaseConfig()) {
-      setError(getSafeAuthErrorMessage('PASSWORD_RESET_REQUEST'));
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'Password reset unavailable',
+        description: getSafeAuthErrorMessage('PASSWORD_RESET_REQUEST'),
+      });
       return;
     }
 
@@ -41,8 +44,18 @@ export default function ForgotPasswordPage() {
       });
       if (resetError) throw resetError;
       setSubmitted(true);
+      toast.add({
+        type: 'success',
+        title: 'Recovery email requested',
+        description: 'Check your inbox for a short-lived password recovery link.',
+      });
     } catch {
-      setError(getSafeAuthErrorMessage('PASSWORD_RESET_REQUEST'));
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'Could not request a password reset',
+        description: getSafeAuthErrorMessage('PASSWORD_RESET_REQUEST'),
+      });
     }
   });
 
@@ -58,16 +71,9 @@ export default function ForgotPasswordPage() {
         <CardContent>
           {submitted ? (
             <div className="space-y-5">
-              <Alert variant="success" role="status">
-                <CheckCircle2 className="size-4" />
-                <div>
-                  <AlertTitle>Check your email</AlertTitle>
-                  <AlertDescription>
-                    If an account matches that address, a password recovery email will arrive
-                    shortly.
-                  </AlertDescription>
-                </div>
-              </Alert>
+              <p className="text-sm leading-6 text-muted-foreground">
+                If an account matches that address, a password recovery email will arrive shortly.
+              </p>
               <Button variant="outline" className="w-full" asChild>
                 <AuthLink href="/login" direction="back">
                   <ArrowLeft className="size-4" />
@@ -93,11 +99,6 @@ export default function ForgotPasswordPage() {
                   <p className="text-xs text-destructive">{form.formState.errors.email.message}</p>
                 )}
               </div>
-              {error && (
-                <Alert variant="destructive" role="alert">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
               <Button className="w-full" type="submit" disabled={form.formState.isSubmitting}>
                 {form.formState.isSubmitting ? 'Sending recovery email…' : 'Send recovery email'}
               </Button>

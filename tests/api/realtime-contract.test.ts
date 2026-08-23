@@ -30,6 +30,8 @@ describe('Realtime invalidation contract', () => {
     expect(hook).toContain('config: { private: true }');
     expect(hook).toContain('supabase.realtime.setAuth()');
     expect(hook).toContain('supabase.removeChannel(channel)');
+    expect(hook).toContain('REALTIME_INVALIDATION_DEBOUNCE_MS = 300');
+    expect(hook).toContain("refetchType: 'active'");
   });
 
   it('uses strict, non-secret topic names', () => {

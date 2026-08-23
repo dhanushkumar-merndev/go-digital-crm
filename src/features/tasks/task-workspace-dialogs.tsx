@@ -2,6 +2,10 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -50,6 +54,8 @@ export function TaskFormDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const [leadId, setLeadId] = useState(record?.lead_id ?? '');
   const [leadSearch, setLeadSearch] = useState('');
   const [title, setTitle] = useState(record?.title ?? '');
@@ -60,7 +66,7 @@ export function TaskFormDialog({
   const requestId = useRef<string | null>(null);
   const debouncedSearch = useDebouncedValue(leadSearch, 300);
   const options = useQuery({
-    queryKey: ['task-lead-options', debouncedSearch],
+    queryKey: ['task-lead-options', ...queryScope, debouncedSearch],
     queryFn: ({ signal }) => fetchTaskLeadOptions(debouncedSearch, signal),
     enabled: open && !record,
     staleTime: 60_000,

@@ -3,6 +3,10 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -66,6 +70,8 @@ export function QuotationDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const [leadId, setLeadId] = useState(record?.lead_id ?? '');
   const [leadSearch, setLeadSearch] = useState('');
   const [items, setItems] = useState<QuotationItem[]>(
@@ -74,7 +80,7 @@ export function QuotationDialog({
   const requestId = useRef<string | null>(null);
   const debouncedLeadSearch = useDebouncedValue(leadSearch, 300);
   const options = useQuery({
-    queryKey: ['quotation-lead-options', debouncedLeadSearch],
+    queryKey: ['quotation-lead-options', ...queryScope, debouncedLeadSearch],
     queryFn: ({ signal }) => fetchQuotationLeadOptions(debouncedLeadSearch, signal),
     enabled: open && !record,
     staleTime: 60_000,
@@ -320,6 +326,8 @@ export function BookingCreateDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const [quotationId, setQuotationId] = useState('');
   const [quotationSearch, setQuotationSearch] = useState('');
   const [amount, setAmount] = useState('');
@@ -329,7 +337,7 @@ export function BookingCreateDialog({
   const requestId = useRef<string | null>(null);
   const debouncedQuotationSearch = useDebouncedValue(quotationSearch, 300);
   const options = useQuery({
-    queryKey: ['booking-quotation-options', debouncedQuotationSearch],
+    queryKey: ['booking-quotation-options', ...queryScope, debouncedQuotationSearch],
     queryFn: ({ signal }) => fetchBookingQuotationOptions(debouncedQuotationSearch, signal),
     enabled: open,
     staleTime: 60_000,

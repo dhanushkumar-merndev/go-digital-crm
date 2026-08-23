@@ -1,13 +1,14 @@
 import { notFound, redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { CrmShell } from '@/components/shared/crm-shell';
 import { isRoleKey } from '@/config/navigation';
 import { isLocalPreviewMode } from '@/lib/runtime/runtime-mode';
 import { createClient } from '@/lib/supabase/server';
-
-type AccessContext = {
-  destination?: string;
-  role_key?: string;
-};
+import { toWorkspaceSession, workspaceBootstrapSchema } from '@/lib/auth/workspace-bootstrap';
+import {
+  decodeWorkspaceBootstrapHeader,
+  WORKSPACE_BOOTSTRAP_HEADER,
+} from '@/lib/auth/workspace-bootstrap-header';
 
 export default async function RoleLayout({
   children,
@@ -19,18 +20,28 @@ export default async function RoleLayout({
   const { role } = await params;
   if (!isRoleKey(role)) notFound();
 
+  let workspaceSession = null;
+
   // Route names are presentation presets, never an authorization source. This
   // prevents a Sales Consultant account opened through an old /telecaller URL
   // from being labelled as a Telecaller in the shell.
   if (!isLocalPreviewMode()) {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) redirect('/login');
-    const { data, error } = await supabase.rpc('get_access_context');
-    const context = data as AccessContext | null;
-    if (error || !context) redirect('/access/locked');
+    const requestHeaders = await headers();
+    const forwarded = decodeWorkspaceBootstrapHeader(
+      requestHeaders.get(WORKSPACE_BOOTSTRAP_HEADER),
+    );
+    let data: unknown = forwarded;
+    let bootstrapFailed = false;
+    if (!data) {
+      const supabase = await createClient();
+      const result = await supabase.rpc('get_workspace_bootstrap');
+      data = result.data;
+      bootstrapFailed = Boolean(result.error);
+    }
+    const parsed = workspaceBootstrapSchema.safeParse(data);
+    const context = parsed.success ? parsed.data : null;
+    if (bootstrapFailed || !context) redirect('/access/locked');
+    if (context.destination === 'LOGIN') redirect('/login');
     if (
       context.destination === 'CRM' &&
       isRoleKey(context.role_key ?? '') &&
@@ -42,6 +53,12 @@ export default async function RoleLayout({
     if (context.destination === 'MAINTENANCE') redirect('/access/maintenance');
     if (context.destination === 'NO_ROLE') redirect('/access/no-role');
     if (context.destination !== 'CRM') redirect('/access/locked');
+    workspaceSession = toWorkspaceSession(context);
+    if (!workspaceSession) redirect('/access/locked');
   }
-  return <CrmShell role={role}>{children}</CrmShell>;
+  return (
+    <CrmShell role={role} session={workspaceSession}>
+      {children}
+    </CrmShell>
+  );
 }

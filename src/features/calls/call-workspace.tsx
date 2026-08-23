@@ -32,6 +32,11 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
 import { PageSkeleton } from '@/components/shared/page-skeleton';
 import { StatusBadge } from '@/components/shared/status-badge';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -78,6 +83,7 @@ import {
   type CallPartyOption,
   type CallRecord,
   type CallWorkspaceResult,
+  type CallWorkspacePermissions,
   type FinalizeManualCallInput,
 } from './call-workspace-api';
 import {
@@ -88,6 +94,7 @@ import {
   type CallQuery,
   type CallSourceFilter,
   type CallStatusFilter,
+  type CallWorkspaceView,
 } from './call-workspace-query';
 
 const outcomeOptions: Array<{
@@ -207,6 +214,8 @@ function ManualCallDialog({
   onOpenChange: (open: boolean) => void;
   onCreated: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const [partySearch, setPartySearch] = useState('');
   const [partyKey, setPartyKey] = useState('');
   const [branchId, setBranchId] = useState('');
@@ -218,12 +227,12 @@ function ManualCallDialog({
   const debouncedPartySearch = useDebouncedValue(partySearch, 300);
   const requestIds = useRef<{ create: string; finalize: string } | null>(null);
   const scopeOptions = useQuery({
-    queryKey: ['call-scope-options', organizationId],
-    queryFn: fetchCallScopeOptions,
+    queryKey: ['call-scope-options', organizationId, ...queryScope],
+    queryFn: ({ signal }) => fetchCallScopeOptions(signal),
     enabled: open,
   });
   const parties = useQuery({
-    queryKey: ['call-party-options', organizationId, debouncedPartySearch],
+    queryKey: ['call-party-options', organizationId, ...queryScope, debouncedPartySearch],
     queryFn: ({ signal }) => fetchCallPartyOptions(debouncedPartySearch, signal),
     enabled: open,
     placeholderData: keepPreviousData,
@@ -234,8 +243,8 @@ function ManualCallDialog({
   const availableTeams =
     scopeOptions.data?.teams.filter((team) => team.branch_id === selectedBranchId) ?? [];
   const providerOptions = useQuery({
-    queryKey: ['call-provider-options', organizationId, selectedBranchId],
-    queryFn: () => fetchCallProviderOptions(selectedBranchId),
+    queryKey: ['call-provider-options', organizationId, ...queryScope, selectedBranchId],
+    queryFn: ({ signal }) => fetchCallProviderOptions(selectedBranchId, signal),
     enabled: open && Boolean(selectedParty?.lead_id && selectedBranchId),
   });
   const selectedProviderId = providerId || providerOptions.data?.[0]?.id || '';
@@ -642,9 +651,11 @@ function CallDetailSheet({
   onOpenChange: (open: boolean) => void;
   onUpdated: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const detail = useQuery({
-    queryKey: ['call-detail', callId],
-    queryFn: () => fetchCallDetail(callId as string),
+    queryKey: ['call-detail', callId, ...queryScope],
+    queryFn: ({ signal }) => fetchCallDetail(callId as string, signal),
     enabled: Boolean(callId),
   });
   const [outcome, setOutcome] = useState<FinalizeManualCallInput['outcome']>('CONNECTED');
@@ -852,127 +863,150 @@ function CallDetailSheet({
               )}
             </div>
           )}
-          <Card className="shadow-none">
-            <CardHeader>
-              <CardTitle className="text-base">Recordings</CardTitle>
-              <CardDescription>
-                Playback/download URLs are created on demand and expire after five minutes.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {data.recordings.length ? (
-                data.recordings.map((recording) => (
-                  <div
-                    key={recording.id}
-                    className="flex flex-col justify-between gap-3 rounded-lg border p-3 sm:flex-row sm:items-center"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="grid size-9 place-items-center rounded-md bg-muted">
-                        <FileAudio className="size-4" />
+          <div className="grid gap-4 xl:grid-cols-12">
+            <Card className="shadow-none xl:col-span-3">
+              <CardHeader>
+                <CardTitle className="text-base">Recording</CardTitle>
+                <CardDescription>Private download links expire after five minutes.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {data.recordings.length ? (
+                  data.recordings.map((recording) => (
+                    <div
+                      key={recording.id}
+                      className="flex flex-col justify-between gap-3 rounded-lg border p-3 sm:flex-row sm:items-center"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="grid size-9 place-items-center rounded-md bg-muted">
+                          <FileAudio className="size-4" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">
+                            {recording.source.replaceAll('_', ' ')}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {recording.mime_type ?? 'Private audio'} · {recording.status}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium">
-                          {recording.source.replaceAll('_', ' ')}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {recording.mime_type ?? 'Private audio'} · {recording.status}
-                        </p>
-                      </div>
+                      {canDownload && recording.object_file_id ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={downloadingId === recording.id}
+                          onClick={() => {
+                            setDownloadingId(recording.id);
+                            download.mutate(recording.object_file_id as string);
+                          }}
+                        >
+                          <Download className="size-3.5" />
+                          {downloadingId === recording.id ? 'Authorizing…' : 'Download'}
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {recording.object_file_id ? 'Download permission required' : 'Not ready'}
+                        </span>
+                      )}
                     </div>
-                    {canDownload && recording.object_file_id ? (
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">No private recording is attached.</p>
+                )}
+                {download.isError && (
+                  <p className="text-xs text-destructive">
+                    A secure recording URL could not be created.
+                  </p>
+                )}
+                {canUpdate && data.call_source === 'PERSONAL_MANUAL' && (
+                  <div className="grid gap-3 border-t pt-4">
+                    <div>
+                      <p className="text-sm font-medium">Upload call audio</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Attach another recording to this call. Files stay private in Tigris.
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <Input
+                        type="file"
+                        accept="audio/mpeg,audio/mp4,audio/wav,audio/x-wav,audio/ogg,audio/webm"
+                        className="text-xs"
+                        onChange={(event) => setRecordingFile(event.target.files?.[0] ?? null)}
+                      />
                       <Button
-                        size="sm"
+                        type="button"
                         variant="outline"
-                        disabled={downloadingId === recording.id}
-                        onClick={() => {
-                          setDownloadingId(recording.id);
-                          download.mutate(recording.object_file_id as string);
-                        }}
+                        className="shrink-0"
+                        disabled={!recordingFile || uploadRecording.isPending}
+                        onClick={() => recordingFile && uploadRecording.mutate(recordingFile)}
                       >
-                        <Download className="size-3.5" />
-                        {downloadingId === recording.id ? 'Authorizing…' : 'Download'}
+                        <FileUp className="size-3.5" />
+                        {uploadRecording.isPending ? 'Uploading…' : 'Upload audio'}
                       </Button>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        {recording.object_file_id ? 'Download permission required' : 'Not ready'}
-                      </span>
+                    </div>
+                    {uploadRecording.isError && (
+                      <p className="text-xs text-destructive">
+                        The recording could not be uploaded. Check the audio format and size.
+                      </p>
                     )}
                   </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">No private recording is attached.</p>
-              )}
-              {download.isError && (
-                <p className="text-xs text-destructive">
-                  A secure recording URL could not be created.
-                </p>
-              )}
-              {canUpdate && data.call_source === 'PERSONAL_MANUAL' && (
-                <div className="grid gap-3 border-t pt-4">
-                  <div>
-                    <p className="text-sm font-medium">Upload call audio</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Attach another recording to this call. Files stay private in Tigris.
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <Input
-                      type="file"
-                      accept="audio/mpeg,audio/mp4,audio/wav,audio/x-wav,audio/ogg,audio/webm"
-                      className="text-xs"
-                      onChange={(event) => setRecordingFile(event.target.files?.[0] ?? null)}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="shrink-0"
-                      disabled={!recordingFile || uploadRecording.isPending}
-                      onClick={() => recordingFile && uploadRecording.mutate(recordingFile)}
-                    >
-                      <FileUp className="size-3.5" />
-                      {uploadRecording.isPending ? 'Uploading…' : 'Upload audio'}
-                    </Button>
-                  </div>
-                  {uploadRecording.isError && (
-                    <p className="text-xs text-destructive">
-                      The recording could not be uploaded. Check the audio format and size.
-                    </p>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-          {data.transcript && (
-            <Card className="shadow-none">
+                )}
+              </CardContent>
+            </Card>
+            <Card className="shadow-none xl:col-span-5">
               <CardHeader>
                 <CardTitle className="text-base">Transcript</CardTitle>
                 <CardDescription>
-                  {data.transcript.language ?? 'Language unavailable'} · {data.transcript.status}
+                  {data.transcript
+                    ? `${data.transcript.language ?? 'Language unavailable'} · ${data.transcript.status}`
+                    : 'Transcript has not been processed for this call.'}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="max-h-72 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
-                {data.transcript.text ?? 'Transcript processing has not produced text yet.'}
-                {data.transcript.truncated && (
+              <CardContent className="min-h-72 max-h-72 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+                {data.transcript?.text ?? 'Transcript processing has not produced text yet.'}
+                {data.transcript?.truncated && (
                   <p className="mt-3 text-xs font-medium text-amber-700">
                     This view is truncated to protect response size.
                   </p>
                 )}
               </CardContent>
             </Card>
-          )}
-          {data.ai_summary && (
-            <Card className="shadow-none">
+            <Card className="shadow-none xl:col-span-4">
               <CardHeader>
-                <CardTitle className="text-base">AI summary</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Sparkles className="size-4 text-violet-600" /> AI call insights
+                </CardTitle>
                 <CardDescription>
-                  Existing reviewed output; viewing it does not consume credits.
+                  Reviewed output only; viewing it does not consume credits.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
-                {data.ai_summary.summary}
+              <CardContent className="min-h-72 space-y-3">
+                {data.ai_summary ? (
+                  <div className="rounded-lg border bg-violet-50/50 p-3 text-sm leading-6 text-slate-700">
+                    {data.ai_summary.summary}
+                  </div>
+                ) : (
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    AI summary is not available for this call.
+                  </p>
+                )}
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Call notes
+                  </p>
+                  <p className="mt-1.5 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                    {data.notes || 'No notes have been added for this call.'}
+                  </p>
+                </div>
+                {data.lead_id && (
+                  <Button asChild variant="outline" size="sm" className="w-full">
+                    <Link href={`/${role}/calls/${data.id}/ai-review`}>
+                      <Sparkles className="size-3.5" /> Review AI fields
+                    </Link>
+                  </Button>
+                )}
               </CardContent>
             </Card>
-          )}
+          </div>
           {data.call_source === 'PROVIDER' && (
             <Alert>
               <Info className="size-4" />
@@ -1072,9 +1106,11 @@ function CallDetailSheet({
 }
 
 function CallRowPreview({ callId, onOpen }: { callId: string; onOpen: () => void }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const detail = useQuery({
-    queryKey: ['call-detail', callId],
-    queryFn: () => fetchCallDetail(callId),
+    queryKey: ['call-detail', callId, ...queryScope],
+    queryFn: ({ signal }) => fetchCallDetail(callId, signal),
   });
   if (detail.isPending)
     return <div className="p-5 text-sm text-muted-foreground">Loading call preview…</div>;
@@ -1501,6 +1537,24 @@ function CallTable({
 }
 
 export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) {
+  const workspaceSession = useWorkspaceSession();
+  const useSalesBootstrap =
+    role === 'sales-consultant' &&
+    workspaceSession?.roleKey === 'sales-consultant' &&
+    Boolean(workspaceSession.organizationId);
+  const queryScope = useMemo(
+    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
+    [role, useSalesBootstrap, workspaceSession],
+  );
+  const bootstrapPermissions: CallWorkspacePermissions | undefined = useSalesBootstrap
+    ? {
+        organizationId: workspaceSession!.organizationId as string,
+        scopeKey: workspaceSession!.scopeKey,
+        canCreate: hasWorkspacePermission(workspaceSession, 'call.create'),
+        canUpdate: hasWorkspacePermission(workspaceSession, 'call.update'),
+        canDownload: hasWorkspacePermission(workspaceSession, 'document.download'),
+      }
+    : undefined;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -1509,56 +1563,54 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
   const [manualTimes, setManualTimes] = useState({ startedAt: '', endedAt: '' });
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
   const [detailEndedAt, setDetailEndedAt] = useState('');
-  const [activeTab, setActiveTab] = useState<'today' | 'history' | 'missed' | 'recordings' | 'ai'>(
-    'today',
-  );
+  const [activeTab, setActiveTab] = useState<CallWorkspaceView>('today');
   const debouncedSearch = useDebouncedValue(query.search, 300);
   const requestQuery = useMemo(
     () => ({ ...query, search: debouncedSearch }),
     [debouncedSearch, query],
   );
   const queryClient = useQueryClient();
-  const permissions = useQuery({
-    queryKey: ['call-workspace-permissions'],
+  const legacyPermissions = useQuery({
+    queryKey: ['call-workspace-permissions', role],
     queryFn: fetchCallWorkspacePermissions,
+    enabled: !useSalesBootstrap,
     staleTime: 60_000,
   });
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
   const workspace = useQuery({
-    queryKey: [
-      'call-workspace',
-      permissions.data?.organizationId,
-      permissions.data?.scopeKey,
-      requestQuery,
-    ],
-    queryFn: ({ signal }) => fetchCallWorkspace(requestQuery, signal),
-    enabled: permissions.isSuccess,
+    queryKey: ['call-workspace', ...queryScope, activeTab, requestQuery],
+    queryFn: ({ signal }) => fetchCallWorkspace(requestQuery, signal, activeTab),
+    enabled: Boolean(permissions),
     placeholderData: keepPreviousData,
   });
-  useTenantRealtimeInvalidation(permissions.data?.organizationId, [
-    { resource: 'communications', queryKeys: [['call-workspace'], ['call-detail']] },
+  useTenantRealtimeInvalidation(permissions?.organizationId, [
+    {
+      resource: 'communications',
+      queryKeys: [['call-workspace', ...queryScope], ['call-detail']],
+    },
   ]);
 
-  const onQueryChange = useCallback(
-    (next: Partial<CallQuery>) => {
-      const updated = { ...query, ...next };
-      setQuery(updated);
-      const queryString = toCallQueryString(updated);
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
-    },
-    [pathname, query, router],
-  );
+  const onQueryChange = (next: Partial<CallQuery>) => {
+    const updated = { ...query, ...next };
+    setQuery(updated);
+    const queryString = toCallQueryString(updated);
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+  };
   const invalidate = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ['call-workspace'] });
+    void queryClient.invalidateQueries({ queryKey: ['call-workspace', ...queryScope] });
     if (selectedCallId)
-      void queryClient.invalidateQueries({ queryKey: ['call-detail', selectedCallId] });
-  }, [queryClient, selectedCallId]);
-  const openCall = useCallback((call: CallRecord) => {
+      void queryClient.invalidateQueries({
+        queryKey: ['call-detail', selectedCallId, ...queryScope],
+      });
+  }, [queryClient, queryScope, selectedCallId]);
+  const openCall = (call: CallRecord) => {
     setDetailEndedAt(dateTimeLocal(new Date()));
     setSelectedCallId(call.id);
-  }, []);
+  };
 
-  if (permissions.isPending || workspace.isPending) return <PageSkeleton />;
-  if (permissions.isError || workspace.isError)
+  if ((!useSalesBootstrap && legacyPermissions.isPending) || workspace.isPending)
+    return <PageSkeleton />;
+  if (legacyPermissions.isError || workspace.isError)
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -1574,7 +1626,7 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
             className="mt-5"
             variant="outline"
             onClick={() => {
-              void permissions.refetch();
+              if (!useSalesBootstrap) void legacyPermissions.refetch();
               void workspace.refetch();
             }}
           >
@@ -1583,7 +1635,7 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
         </CardContent>
       </Card>
     );
-  if (!workspace.data || !permissions.data) return null;
+  if (!workspace.data || !permissions) return null;
 
   if (selectedCallId)
     return (
@@ -1592,8 +1644,8 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
         callId={selectedCallId}
         initialEndedAt={detailEndedAt}
         role={role}
-        canUpdate={!spec.readOnly && permissions.data.canUpdate}
-        canDownload={permissions.data.canDownload}
+        canUpdate={!spec.readOnly && permissions.canUpdate}
+        canDownload={permissions.canDownload}
         onOpenChange={(open) => !open && setSelectedCallId(null)}
         onUpdated={invalidate}
       />
@@ -1608,8 +1660,12 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
     if (activeTab === 'recordings') return record.recording_available;
     return record.ai_summary_available;
   });
-  const displayedWorkspace =
-    activeTab === 'history'
+  // The optimized Sales RPC filters and counts each tab before pagination.
+  // Legacy role wrappers retain their existing response contract until those
+  // roles are migrated, so keep the prior current-page presentation for them.
+  const displayedWorkspace = useSalesBootstrap
+    ? workspace.data
+    : activeTab === 'history'
       ? workspace.data
       : { ...workspace.data, records: tabRecords, total: tabRecords.length };
   const tabs = [
@@ -1635,7 +1691,7 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
             Manage and monitor your outgoing and incoming customer calls in one place.
           </p>
         </div>
-        {!spec.readOnly && permissions.data.canCreate && (
+        {!spec.readOnly && permissions.canCreate && (
           <Button
             className="shrink-0"
             onClick={() => {
@@ -1680,10 +1736,10 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
           onOpen={openCall}
         />
       </div>
-      {permissions.data.canCreate && (
+      {permissions.canCreate && (
         <ManualCallDialog
           key={manualTimes.endedAt || 'manual-call'}
-          organizationId={permissions.data.organizationId}
+          organizationId={permissions.organizationId}
           open={createOpen}
           initialStartedAt={manualTimes.startedAt}
           initialEndedAt={manualTimes.endedAt}

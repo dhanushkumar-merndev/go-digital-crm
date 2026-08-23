@@ -29,10 +29,25 @@ verify_jwt = true
 [functions.call-provider-start]
 verify_jwt = true
 
+[functions.ai-image-download]
+verify_jwt = true
+
+[functions.ai-image-generate]
+verify_jwt = true
+
+[functions.ai-provider-connect]
+verify_jwt = true
+
+[functions.ai-provider-test]
+verify_jwt = true
+
 [functions.dashboard-cache]
 verify_jwt = true
 
 [functions.integration-connect-whatsapp]
+verify_jwt = true
+
+[functions.integration-connect-twilio]
 verify_jwt = true
 
 [functions.integration-assets-list]

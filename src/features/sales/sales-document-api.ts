@@ -163,6 +163,21 @@ export async function fetchSalesDocumentPermissions(
   };
 }
 
+export function fetchSalesDocumentWorkspace(
+  kind: 'quotations',
+  query: SalesDocumentQuery,
+  signal?: AbortSignal,
+): Promise<QuotationWorkspaceResult>;
+export function fetchSalesDocumentWorkspace(
+  kind: 'bookings',
+  query: SalesDocumentQuery,
+  signal?: AbortSignal,
+): Promise<BookingWorkspaceResult>;
+export function fetchSalesDocumentWorkspace(
+  kind: SalesDocumentKind,
+  query: SalesDocumentQuery,
+  signal?: AbortSignal,
+): Promise<SalesDocumentWorkspaceResult>;
 export async function fetchSalesDocumentWorkspace(
   kind: SalesDocumentKind,
   query: SalesDocumentQuery,

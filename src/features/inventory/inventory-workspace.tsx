@@ -19,6 +19,11 @@ import {
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
@@ -1110,14 +1115,14 @@ function MovementTable({
 function ListWorkspace({
   view,
   query,
-  permissions,
+  queryScope,
   branches,
   onQueryChange,
   onOpen,
 }: {
   view: Exclude<InventoryView, 'dashboard'>;
   query: InventoryQuery;
-  permissions: InventoryPermissions;
+  queryScope: readonly string[];
   branches: InventoryBranch[];
   onQueryChange: (next: Partial<InventoryQuery>) => void;
   onOpen: (stockUnitId: string) => void;
@@ -1128,24 +1133,13 @@ function ListWorkspace({
     [debouncedSearch, query],
   );
   const stockOptions = useQuery({
-    queryKey: [
-      'stock-check-filter-options',
-      permissions.organizationId,
-      permissions.scopeKey,
-      query.branchId,
-    ],
+    queryKey: ['stock-check-filter-options', ...queryScope, query.branchId],
     queryFn: ({ signal }) => fetchStockCheckFilterOptions(query.branchId, signal),
     enabled: view === 'stock-check',
     staleTime: 60_000,
   });
   const page = useQuery({
-    queryKey: [
-      'inventory-page',
-      view,
-      permissions.organizationId,
-      permissions.scopeKey,
-      requestQuery,
-    ],
+    queryKey: ['inventory-page', view, ...queryScope, requestQuery],
     queryFn: ({ signal }): Promise<InventoryPage> => {
       if (view === 'stock-check') return fetchStockCheckPage(requestQuery, signal);
       if (view === 'allocations') return fetchAllocationPage(requestQuery, signal);
@@ -1230,6 +1224,27 @@ export function InventoryWorkspace({
   slug: string;
 }) {
   const view = inventoryViewForRoute(role, slug);
+  const workspaceSession = useWorkspaceSession();
+  const useSalesBootstrap =
+    role === 'sales-consultant' &&
+    workspaceSession?.roleKey === 'sales-consultant' &&
+    Boolean(workspaceSession.organizationId);
+  const queryScope = useMemo(
+    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
+    [role, useSalesBootstrap, workspaceSession],
+  );
+  const bootstrapPermissions: InventoryPermissions | undefined = useSalesBootstrap
+    ? {
+        organizationId: workspaceSession!.organizationId as string,
+        scopeKey: workspaceSession!.scopeKey,
+        canStockCheck: hasWorkspacePermission(workspaceSession, 'inventory.stock_check'),
+        canView: hasWorkspacePermission(workspaceSession, 'inventory.view'),
+        canCreate: hasWorkspacePermission(workspaceSession, 'inventory.create'),
+        canUpdate: hasWorkspacePermission(workspaceSession, 'inventory.update'),
+        canMove: hasWorkspacePermission(workspaceSession, 'inventory.move'),
+        canAllocate: hasWorkspacePermission(workspaceSession, 'inventory.allocate'),
+      }
+    : undefined;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -1241,47 +1256,53 @@ export function InventoryWorkspace({
   const [intakeReceivedAt, setIntakeReceivedAt] = useState('');
   const [selectedStockUnitId, setSelectedStockUnitId] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const permissions = useQuery({
-    queryKey: ['inventory-permissions'],
+  const legacyPermissions = useQuery({
+    queryKey: ['inventory-permissions', role],
     queryFn: fetchInventoryPermissions,
+    enabled: !useSalesBootstrap,
     staleTime: 60_000,
   });
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
   const branches = useQuery({
-    queryKey: ['inventory-branches', permissions.data?.organizationId, permissions.data?.scopeKey],
-    queryFn: fetchInventoryBranches,
-    enabled: permissions.isSuccess,
+    queryKey: ['inventory-branches', ...queryScope],
+    queryFn: ({ signal }) => fetchInventoryBranches(signal),
+    enabled: Boolean(permissions),
     staleTime: 60_000,
   });
   const dashboard = useQuery({
-    queryKey: ['inventory-dashboard', permissions.data?.organizationId, permissions.data?.scopeKey],
+    queryKey: ['inventory-dashboard', ...queryScope],
     queryFn: fetchInventoryDashboard,
-    enabled: permissions.isSuccess && selectedView === 'dashboard' && permissions.data.canView,
+    enabled: Boolean(permissions) && selectedView === 'dashboard' && Boolean(permissions?.canView),
   });
-  useTenantRealtimeInvalidation(permissions.data?.organizationId, [
+  useTenantRealtimeInvalidation(permissions?.organizationId, [
     {
       resource: 'inventory',
-      queryKeys: [['inventory-page'], ['inventory-dashboard'], ['inventory-unit-detail']],
+      queryKeys: [
+        ['inventory-page', selectedView, ...queryScope],
+        ['stock-check-filter-options', ...queryScope],
+        ['inventory-dashboard', ...queryScope],
+        ['inventory-unit-detail'],
+      ],
     },
   ]);
 
-  const onQueryChange = useCallback(
-    (next: Partial<InventoryQuery>) => {
-      const updated = { ...query, ...next };
-      setQuery(updated);
-      const queryString = toInventoryQueryString(updated, selectedView);
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
-    },
-    [pathname, query, router, selectedView],
-  );
-  const openUnit = useCallback((stockUnitId: string) => setSelectedStockUnitId(stockUnitId), []);
+  const onQueryChange = (next: Partial<InventoryQuery>) => {
+    const updated = { ...query, ...next };
+    setQuery(updated);
+    const queryString = toInventoryQueryString(updated, selectedView);
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+  };
+  const openUnit = (stockUnitId: string) => setSelectedStockUnitId(stockUnitId);
   const invalidate = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ['inventory-page'] });
-    void queryClient.invalidateQueries({ queryKey: ['inventory-dashboard'] });
+    void queryClient.invalidateQueries({
+      queryKey: ['inventory-page', selectedView, ...queryScope],
+    });
+    void queryClient.invalidateQueries({ queryKey: ['inventory-dashboard', ...queryScope] });
     if (selectedStockUnitId)
       void queryClient.invalidateQueries({
-        queryKey: ['inventory-unit-detail', selectedStockUnitId],
+        queryKey: ['inventory-unit-detail', selectedStockUnitId, ...queryScope],
       });
-  }, [queryClient, selectedStockUnitId]);
+  }, [queryClient, queryScope, selectedStockUnitId, selectedView]);
 
   if (!view)
     return (
@@ -1295,13 +1316,22 @@ export function InventoryWorkspace({
         </div>
       </Alert>
     );
-  if (permissions.isPending || branches.isPending) return <PageSkeleton />;
+  if (
+    (!useSalesBootstrap && legacyPermissions.isPending) ||
+    (!useSalesBootstrap && branches.isPending)
+  )
+    return <PageSkeleton />;
   const permissionDenied =
-    permissions.isSuccess &&
+    permissions &&
     (selectedView === 'stock-check'
-      ? !permissions.data.canStockCheck && !permissions.data.canView
-      : !permissions.data.canView);
-  if (permissions.isError || branches.isError || permissionDenied)
+      ? !permissions.canStockCheck && !permissions.canView
+      : !permissions.canView);
+  if (
+    legacyPermissions.isError ||
+    (!useSalesBootstrap && branches.isError) ||
+    !permissions ||
+    permissionDenied
+  )
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -1317,7 +1347,7 @@ export function InventoryWorkspace({
             className="mt-5"
             variant="outline"
             onClick={() => {
-              void permissions.refetch();
+              if (!useSalesBootstrap) void legacyPermissions.refetch();
               void branches.refetch();
             }}
           >
@@ -1326,14 +1356,13 @@ export function InventoryWorkspace({
         </CardContent>
       </Card>
     );
-  if (!permissions.data || !branches.data) return null;
-
-  const canOpenUnits = permissions.data.canView && selectedView !== 'stock-check';
+  const branchOptions = branches.data ?? [];
+  const canOpenUnits = permissions.canView && selectedView !== 'stock-check';
   return (
     <div className="mx-auto max-w-[1800px]">
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <PageHeader className="mb-0" spec={{ ...spec, primaryAction: undefined }} />
-        {!spec.readOnly && permissions.data.canCreate && selectedView !== 'stock-check' && (
+        {!spec.readOnly && permissions.canCreate && selectedView !== 'stock-check' && (
           <Button
             className="shrink-0 sm:mt-7"
             onClick={() => {
@@ -1347,7 +1376,7 @@ export function InventoryWorkspace({
           </Button>
         )}
       </div>
-      {selectedView === 'movements' && permissions.data.canMove && (
+      {selectedView === 'movements' && permissions.canMove && (
         <Alert className="mb-6">
           <ArrowLeftRight className="size-4" />
           <div>
@@ -1379,17 +1408,17 @@ export function InventoryWorkspace({
         <ListWorkspace
           view={selectedView}
           query={query}
-          permissions={permissions.data}
-          branches={branches.data}
+          queryScope={queryScope}
+          branches={branchOptions}
           onQueryChange={onQueryChange}
           onOpen={canOpenUnits ? openUnit : () => undefined}
         />
       )}
-      {permissions.data.canCreate && (
+      {permissions.canCreate && (
         <StockIntakeDialog
           key={intakeReceivedAt || 'stock-intake'}
-          organizationId={permissions.data.organizationId}
-          branches={branches.data}
+          organizationId={permissions.organizationId}
+          branches={branchOptions}
           open={createOpen}
           initialReceivedAt={intakeReceivedAt}
           onOpenChange={setCreateOpen}
@@ -1400,8 +1429,8 @@ export function InventoryWorkspace({
         <StockUnitDetailSheet
           key={selectedStockUnitId ?? 'no-stock-unit'}
           stockUnitId={selectedStockUnitId}
-          branches={branches.data}
-          permissions={permissions.data}
+          branches={branchOptions}
+          permissions={permissions}
           onOpenChange={(open) => !open && setSelectedStockUnitId(null)}
           onChanged={invalidate}
         />

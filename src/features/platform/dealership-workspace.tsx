@@ -214,7 +214,12 @@ function DealershipTable({
         header: 'Dealership',
         cell: ({ row }) => (
           <div>
-            <p className="font-medium">{row.original.name}</p>
+            <Link
+              className="font-medium text-blue-700 hover:underline"
+              href={`/super-admin/dealerships/${row.original.id}`}
+            >
+              {row.original.name}
+            </Link>
             <p className="text-xs text-muted-foreground">{row.original.slug}</p>
           </div>
         ),

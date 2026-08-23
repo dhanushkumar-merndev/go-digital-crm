@@ -6,6 +6,7 @@ import {
   Cable,
   ChevronLeft,
   ChevronRight,
+  Eye,
   Link2,
   RefreshCw,
   Search,
@@ -36,6 +37,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import {
   Table,
   TableBody,
   TableCell,
@@ -47,6 +56,8 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { Metric, PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import {
+  connectAiProvider,
+  connectTwilio,
   connectWhatsApp,
   fetchIntegrationOptions,
   fetchIntegrationWorkspace,
@@ -54,6 +65,7 @@ import {
   fetchProviderAssets,
   saveProviderAssetMappings,
   startOAuthConnection,
+  testAiProviderConnection,
   testIntegrationConnection,
   type IntegrationOptions,
   type IntegrationProviderKey,
@@ -74,6 +86,10 @@ const providerOptions: Array<{ value: IntegrationProviderKey; label: string }> =
   { value: 'google_ads', label: 'Google Ads' },
   { value: 'google_business_profile', label: 'Google Business Profile' },
   { value: 'whatsapp_cloud', label: 'WhatsApp Business Platform' },
+  { value: 'openai', label: 'OpenAI AI models' },
+  { value: 'gemini', label: 'Google Gemini AI models' },
+  { value: 'groq', label: 'Groq transcription & AI analysis' },
+  { value: 'twilio_voice', label: 'Twilio IVR calling & recordings' },
 ];
 
 const statusLabels: Record<IntegrationStatusFilter, string> = {
@@ -205,7 +221,7 @@ function BranchScopeFields({
 type ConnectRequest =
   | {
       kind: 'oauth';
-      providerKey: Exclude<IntegrationProviderKey, 'whatsapp_cloud'>;
+      providerKey: Exclude<IntegrationProviderKey, 'whatsapp_cloud' | 'twilio_voice'>;
       displayName: string;
     }
   | {
@@ -214,6 +230,25 @@ type ConnectRequest =
       phoneNumberId: string;
       whatsappBusinessAccountId: string;
       accessToken: string;
+    }
+  | {
+      kind: 'ai';
+      providerKey: Extract<IntegrationProviderKey, 'openai' | 'gemini' | 'groq'>;
+      displayName: string;
+      textModel?: string;
+      imageModel?: string;
+      transcriptionModel?: string;
+      analysisModel?: string;
+      apiKey: string;
+    }
+  | {
+      kind: 'twilio';
+      displayName: string;
+      accountSid: string;
+      apiKeySid: string;
+      apiKeySecret: string;
+      authToken: string;
+      phoneNumber: string;
     };
 
 function ProviderConnectionDialog({
@@ -234,7 +269,11 @@ function ProviderConnectionDialog({
     queryFn: fetchIntegrationOptions,
   });
   const [providerKey, setProviderKey] = useState<IntegrationProviderKey>(
-    existing?.provider_key === 'whatsapp_cloud' ? 'whatsapp_cloud' : 'meta',
+    ['whatsapp_cloud', 'openai', 'gemini', 'groq', 'twilio_voice'].includes(
+      existing?.provider_key ?? '',
+    )
+      ? (existing?.provider_key as IntegrationProviderKey)
+      : 'meta',
   );
   const [scopeMode, setScopeMode] = useState<IntegrationScopeMode>(
     existing?.scope_mode ?? 'ONE_BRANCH',
@@ -244,6 +283,7 @@ function ProviderConnectionDialog({
     existing?.default_inbound_branch_id ?? '',
   );
   const [defaultTeamId, setDefaultTeamId] = useState(existing?.default_team_id ?? 'none');
+  const existingModels = existing?.connection_config?.models;
   const inboundBranches =
     options.data?.branches.filter(
       (branch) => scopeMode === 'ALL_BRANCHES' || selectedBranchIds.includes(branch.id),
@@ -266,6 +306,37 @@ function ProviderConnectionDialog({
         if (!isTrustedProviderAuthorizationUrl(result.authorization_url))
           throw new Error('UNTRUSTED_PROVIDER_AUTHORIZATION_URL');
         return { authorizationUrl: result.authorization_url };
+      }
+      if (request.kind === 'ai') {
+        await connectAiProvider({
+          organizationId,
+          connectionId: existing?.id,
+          providerKey: request.providerKey,
+          displayName: request.displayName,
+          scopeMode,
+          branchIds: selectedBranchIds,
+          textModel: request.textModel,
+          imageModel: request.imageModel,
+          transcriptionModel: request.transcriptionModel,
+          analysisModel: request.analysisModel,
+          apiKey: request.apiKey,
+        });
+        return { authorizationUrl: null };
+      }
+      if (request.kind === 'twilio') {
+        await connectTwilio({
+          organizationId,
+          connectionId: existing?.id,
+          displayName: request.displayName,
+          scopeMode,
+          branchIds: selectedBranchIds,
+          accountSid: request.accountSid,
+          apiKeySid: request.apiKeySid,
+          apiKeySecret: request.apiKeySecret,
+          authToken: request.authToken,
+          phoneNumber: request.phoneNumber,
+        });
+        return { authorizationUrl: null };
       }
       await connectWhatsApp({
         organizationId,
@@ -301,7 +372,11 @@ function ProviderConnectionDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{existing ? 'Replace WhatsApp credential' : 'Connect provider'}</DialogTitle>
+          <DialogTitle>
+            {existing
+              ? `Replace ${providerLabel(existing.provider_key)} credential`
+              : 'Connect provider'}
+          </DialogTitle>
           <DialogDescription>
             Credentials are sent directly to the authenticated Edge boundary and are never stored in
             browser state or returned to the CRM.
@@ -328,6 +403,32 @@ function ProviderConnectionDialog({
                     form.get('whatsappBusinessAccountId') ?? '',
                   ).trim(),
                   accessToken: String(form.get('accessToken') ?? '').trim(),
+                });
+                return;
+              }
+              if (providerKey === 'twilio_voice') {
+                mutation.mutate({
+                  kind: 'twilio',
+                  displayName,
+                  accountSid: String(form.get('accountSid') ?? '').trim(),
+                  apiKeySid: String(form.get('apiKeySid') ?? '').trim(),
+                  apiKeySecret: String(form.get('apiKeySecret') ?? '').trim(),
+                  authToken: String(form.get('authToken') ?? '').trim(),
+                  phoneNumber: String(form.get('phoneNumber') ?? '').trim(),
+                });
+                return;
+              }
+              if (providerKey === 'openai' || providerKey === 'gemini' || providerKey === 'groq') {
+                mutation.mutate({
+                  kind: 'ai',
+                  providerKey,
+                  displayName,
+                  textModel: String(form.get('textModel') ?? '').trim() || undefined,
+                  imageModel: String(form.get('imageModel') ?? '').trim() || undefined,
+                  transcriptionModel:
+                    String(form.get('transcriptionModel') ?? '').trim() || undefined,
+                  analysisModel: String(form.get('analysisModel') ?? '').trim() || undefined,
+                  apiKey: String(form.get('apiKey') ?? '').trim(),
                 });
                 return;
               }
@@ -446,6 +547,138 @@ function ProviderConnectionDialog({
                 </label>
               </div>
             )}
+            {providerKey === 'twilio_voice' && (
+              <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
+                <p className="text-xs text-muted-foreground sm:col-span-2">
+                  One Twilio connection may be mapped to one, selected, or all branches. Recordings
+                  are fetched server-side and stored privately in Tigris.
+                </p>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  Account SID
+                  <Input
+                    name="accountSid"
+                    required
+                    pattern="AC[a-fA-F0-9]{32}"
+                    autoComplete="off"
+                    defaultValue={existing?.external_account_id ?? ''}
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  Caller number (E.164)
+                  <Input
+                    name="phoneNumber"
+                    required
+                    placeholder="+919876543210"
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  API Key SID
+                  <Input name="apiKeySid" required pattern="SK[a-fA-F0-9]{32}" autoComplete="off" />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  API Key Secret
+                  <Input
+                    name="apiKeySecret"
+                    type="password"
+                    required
+                    minLength={20}
+                    autoComplete="new-password"
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                  Auth token{' '}
+                  <span className="font-normal text-muted-foreground">(for signed webhooks)</span>
+                  <Input
+                    name="authToken"
+                    type="password"
+                    required
+                    minLength={20}
+                    autoComplete="new-password"
+                  />
+                </label>
+              </div>
+            )}
+            {(providerKey === 'openai' || providerKey === 'gemini' || providerKey === 'groq') && (
+              <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <p className="text-sm font-medium">AI capabilities</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Text, image, transcription, and call analysis use separate models. This prevents
+                    incompatible AI work from being sent to the wrong model.
+                  </p>
+                </div>
+                {providerKey !== 'groq' ? (
+                  <label className="grid gap-1.5 text-sm font-medium">
+                    Text model <span className="font-normal text-muted-foreground">(optional)</span>
+                    <Input
+                      name="textModel"
+                      minLength={2}
+                      maxLength={120}
+                      defaultValue={
+                        existingModels?.text_model ??
+                        (providerKey === 'openai' ? 'gpt-5.4-mini' : 'gemini-3.7-flash')
+                      }
+                      autoComplete="off"
+                    />
+                  </label>
+                ) : null}
+                {providerKey !== 'groq' ? (
+                  <label className="grid gap-1.5 text-sm font-medium">
+                    Image model{' '}
+                    <span className="font-normal text-muted-foreground">(optional)</span>
+                    <Input
+                      name="imageModel"
+                      minLength={2}
+                      maxLength={120}
+                      defaultValue={
+                        existingModels?.image_model ??
+                        (providerKey === 'openai' ? 'gpt-image-2' : '')
+                      }
+                      placeholder="Provider image model ID"
+                      autoComplete="off"
+                    />
+                  </label>
+                ) : null}
+                {providerKey === 'groq' ? (
+                  <label className="grid gap-1.5 text-sm font-medium">
+                    Transcription model
+                    <Input
+                      name="transcriptionModel"
+                      required
+                      minLength={2}
+                      maxLength={120}
+                      defaultValue={existingModels?.transcription_model ?? 'whisper-large-v3-turbo'}
+                      autoComplete="off"
+                    />
+                  </label>
+                ) : null}
+                {providerKey === 'groq' ? (
+                  <label className="grid gap-1.5 text-sm font-medium">
+                    Call analysis model
+                    <Input
+                      name="analysisModel"
+                      required
+                      minLength={2}
+                      maxLength={120}
+                      defaultValue={existingModels?.analysis_model ?? 'qwen/qwen3.6-27b'}
+                      autoComplete="off"
+                    />
+                  </label>
+                ) : null}
+                <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                  API key
+                  <Input
+                    name="apiKey"
+                    type="password"
+                    required
+                    minLength={10}
+                    maxLength={512}
+                    autoComplete="new-password"
+                  />
+                </label>
+              </div>
+            )}
             {mutation.isError && (
               <Alert>
                 <AlertTitle>Connection was not saved</AlertTitle>
@@ -473,7 +706,12 @@ function ProviderConnectionDialog({
                   ? 'Connecting…'
                   : providerKey === 'whatsapp_cloud'
                     ? 'Test and save'
-                    : 'Continue with provider'}
+                    : providerKey === 'openai' ||
+                        providerKey === 'gemini' ||
+                        providerKey === 'groq' ||
+                        providerKey === 'twilio_voice'
+                      ? 'Verify and save'
+                      : 'Continue with provider'}
               </Button>
             </div>
           </form>
@@ -702,6 +940,153 @@ function ProviderAssetMappingDialog({
   );
 }
 
+function ConnectionDetailSheet({
+  connection,
+  canManage,
+  testing,
+  onClose,
+  onTest,
+  onMap,
+  onReplace,
+}: {
+  connection: IntegrationRecord;
+  canManage: boolean;
+  testing: boolean;
+  onClose: () => void;
+  onTest: () => void;
+  onMap: () => void;
+  onReplace: () => void;
+}) {
+  const isOAuth = ['meta', 'google_ads', 'google_business_profile'].includes(
+    connection.provider_key,
+  );
+  const isAi = ['openai', 'gemini', 'groq'].includes(connection.provider_key);
+  const models = connection.connection_config.models;
+  const capabilities = connection.connection_config.capabilities ?? [];
+  const branchScope =
+    connection.scope_mode === 'ALL_BRANCHES'
+      ? 'All branches'
+      : `${connection.mapped_branch_ids.length} mapped branch${connection.mapped_branch_ids.length === 1 ? '' : 'es'}`;
+
+  return (
+    <Sheet open onOpenChange={(open) => !open && onClose()}>
+      <SheetContent side="right" className="flex w-full flex-col sm:w-[520px]">
+        <SheetHeader>
+          <SheetTitle>{connection.display_name}</SheetTitle>
+          <SheetDescription>
+            {providerLabel(connection.provider_key)} · {scopeLabels[connection.scope_mode]}
+          </SheetDescription>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto border-y p-4">
+          <section className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Connection status
+              </p>
+              <div className="mt-2">
+                <StatusBadge value={connection.status} />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Health
+              </p>
+              <div className="mt-2">
+                <StatusBadge value={connection.last_error_code ? 'Needs attention' : 'Healthy'} />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Provider account
+              </p>
+              <p className="mt-1 text-sm font-medium">
+                {maskIdentifier(connection.external_account_id)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Branch scope
+              </p>
+              <p className="mt-1 text-sm font-medium">{branchScope}</p>
+            </div>
+          </section>
+          <section className="rounded-lg border p-4">
+            <h3 className="font-medium">Connection activity</h3>
+            <dl className="mt-3 divide-y text-sm">
+              {[
+                ['Last successful sync', formatDate(connection.last_sync_at)],
+                ['Last connection test', formatDate(connection.last_tested_at)],
+                ['Updated', formatDate(connection.updated_at)],
+              ].map(([label, value]) => (
+                <div key={label} className="flex items-center justify-between gap-4 py-2">
+                  <dt className="text-muted-foreground">{label}</dt>
+                  <dd className="text-right font-medium">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+          {(capabilities.length > 0 || models) && (
+            <section className="rounded-lg border p-4">
+              <h3 className="font-medium">Enabled configuration</h3>
+              {capabilities.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {capabilities.map((capability) => (
+                    <StatusBadge key={capability} value={capability.replaceAll('_', ' ')} />
+                  ))}
+                </div>
+              )}
+              {models && (
+                <dl className="mt-3 divide-y text-sm">
+                  {Object.entries(models)
+                    .filter(([, value]) => Boolean(value))
+                    .map(([key, value]) => (
+                      <div key={key} className="flex items-center justify-between gap-4 py-2">
+                        <dt className="capitalize text-muted-foreground">
+                          {key.replaceAll('_', ' ')}
+                        </dt>
+                        <dd className="max-w-[60%] truncate text-right font-medium">{value}</dd>
+                      </div>
+                    ))}
+                </dl>
+              )}
+            </section>
+          )}
+          {connection.last_error_code && (
+            <Alert variant="destructive">
+              <AlertTitle>Connection needs attention</AlertTitle>
+              <AlertDescription>
+                The provider error is recorded securely. Test or replace the credential to refresh
+                its health.
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+        <SheetFooter>
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+          {canManage && (isOAuth || isAi) && (
+            <Button variant="outline" onClick={onTest} disabled={testing}>
+              <RefreshCw className="size-4" />
+              {testing ? 'Testing…' : 'Test connection'}
+            </Button>
+          )}
+          {canManage && isOAuth && connection.status === 'CONNECTED' && (
+            <Button variant="outline" onClick={onMap}>
+              <Settings2 className="size-4" />
+              Map assets
+            </Button>
+          )}
+          {canManage &&
+            ['whatsapp_cloud', 'twilio_voice', 'openai', 'gemini', 'groq'].includes(
+              connection.provider_key,
+            ) && <Button onClick={onReplace}>Replace credential</Button>}
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 function IntegrationTable({
   records,
   total,
@@ -711,6 +1096,7 @@ function IntegrationTable({
   testingId,
   onQueryChange,
   onTest,
+  onView,
   onMap,
   onReplace,
 }: {
@@ -722,6 +1108,7 @@ function IntegrationTable({
   testingId: string | null;
   onQueryChange: (value: Partial<IntegrationQuery>) => void;
   onTest: (record: IntegrationRecord) => void;
+  onView: (record: IntegrationRecord) => void;
   onMap: (record: IntegrationRecord) => void;
   onReplace: (record: IntegrationRecord) => void;
 }) {
@@ -775,13 +1162,24 @@ function IntegrationTable({
         id: 'actions',
         header: 'Actions',
         cell: ({ row }) => {
-          if (!canManage) return <span className="text-xs text-muted-foreground">View only</span>;
           const record = row.original;
+          if (!canManage)
+            return (
+              <Button size="sm" variant="outline" onClick={() => onView(record)}>
+                <Eye className="size-3.5" />
+                View
+              </Button>
+            );
           const oauth = ['meta', 'google_ads', 'google_business_profile'].includes(
             record.provider_key,
           );
+          const aiProvider = ['openai', 'gemini', 'groq'].includes(record.provider_key);
           return (
             <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => onView(record)}>
+                <Eye className="size-3.5" />
+                View
+              </Button>
               {oauth && record.status === 'CONNECTED' && (
                 <>
                   <Button
@@ -804,12 +1202,33 @@ function IntegrationTable({
                   Replace credential
                 </Button>
               )}
+              {record.provider_key === 'twilio_voice' && (
+                <Button size="sm" variant="outline" onClick={() => onReplace(record)}>
+                  Replace credential
+                </Button>
+              )}
+              {aiProvider && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={testingId === record.id}
+                    onClick={() => onTest(record)}
+                  >
+                    <RefreshCw className="size-3.5" />
+                    Test
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => onReplace(record)}>
+                    Replace key
+                  </Button>
+                </>
+              )}
             </div>
           );
         },
       },
     ],
-    [canManage, onMap, onReplace, onTest, testingId],
+    [canManage, onMap, onReplace, onTest, onView, testingId],
   );
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({ data: records, columns, getCoreRowModel: getCoreRowModel() });
@@ -964,6 +1383,7 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
   const [connectOpen, setConnectOpen] = useState(false);
   const [replaceConnection, setReplaceConnection] = useState<IntegrationRecord | null>(null);
   const [mappingConnection, setMappingConnection] = useState<IntegrationRecord | null>(null);
+  const [detailConnection, setDetailConnection] = useState<IntegrationRecord | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const permissions = useQuery({
     queryKey: ['integration-workspace-permissions'],
@@ -985,7 +1405,9 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
   });
   const testConnection = useMutation({
     mutationFn: (record: IntegrationRecord) =>
-      testIntegrationConnection(record.organization_id, record.id),
+      ['openai', 'gemini', 'groq'].includes(record.provider_key)
+        ? testAiProviderConnection(record.organization_id, record.id)
+        : testIntegrationConnection(record.organization_id, record.id),
     onSuccess: () => {
       setActionMessage('Connection test succeeded.');
       void queryClient.invalidateQueries({ queryKey: ['integration-workspace'] });
@@ -1077,6 +1499,7 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
           setActionMessage(null);
           testConnection.mutate(record);
         }}
+        onView={setDetailConnection}
         onMap={setMappingConnection}
         onReplace={setReplaceConnection}
       />
@@ -1104,6 +1527,26 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
           connection={mappingConnection}
           onClose={() => setMappingConnection(null)}
           onSaved={refresh}
+        />
+      )}
+      {detailConnection && (
+        <ConnectionDetailSheet
+          connection={detailConnection}
+          canManage={permissions.data.canManage}
+          testing={testConnection.isPending && testConnection.variables?.id === detailConnection.id}
+          onClose={() => setDetailConnection(null)}
+          onTest={() => {
+            setActionMessage(null);
+            testConnection.mutate(detailConnection);
+          }}
+          onMap={() => {
+            setDetailConnection(null);
+            setMappingConnection(detailConnection);
+          }}
+          onReplace={() => {
+            setDetailConnection(null);
+            setReplaceConnection(detailConnection);
+          }}
         />
       )}
     </div>

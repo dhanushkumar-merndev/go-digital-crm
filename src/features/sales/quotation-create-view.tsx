@@ -13,6 +13,10 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -139,6 +143,8 @@ export function QuotationCreateView({
   onBack: () => void;
   onSaved: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const vehicle = initialVehicle(record);
   const [search, setSearch] = useState('');
   const [leadId, setLeadId] = useState(record?.lead_id ?? '');
@@ -150,7 +156,7 @@ export function QuotationCreateView({
   const requestId = useRef<string | null>(null);
   const debounced = useDebouncedValue(search, 300);
   const leads = useQuery({
-    queryKey: ['quotation-lead-options', debounced],
+    queryKey: ['quotation-lead-options', ...queryScope, debounced],
     queryFn: ({ signal }) => fetchQuotationLeadOptions(debounced, signal),
     enabled: !record,
     staleTime: 60_000,
@@ -158,7 +164,7 @@ export function QuotationCreateView({
   const selected = leads.data?.find((item) => item.lead_id === leadId);
   const branchId = selected?.branch_id ?? record?.branch_id ?? '';
   const vehicleOptions = useQuery({
-    queryKey: ['quotation-vehicle-options', branchId],
+    queryKey: ['quotation-vehicle-options', ...queryScope, branchId],
     queryFn: ({ signal }) => fetchQuotationVehicleOptions(branchId, signal),
     enabled: Boolean(branchId),
     staleTime: 60_000,

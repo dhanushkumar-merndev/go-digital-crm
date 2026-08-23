@@ -88,6 +88,17 @@ describe('tenant integration workspace contract', () => {
     expect(api).not.toContain(".from('integration_credentials')");
   });
 
+  it('keeps connection detail contextual, actionable and secret-free', () => {
+    expect(workspace).toContain('function ConnectionDetailSheet');
+    expect(workspace).toContain('Last successful sync');
+    expect(workspace).toContain('Last connection test');
+    expect(workspace).toContain('Map assets');
+    expect(workspace).toContain('Replace credential');
+    expect(workspace).toContain('onView={setDetailConnection}');
+    expect(workspace).not.toContain('accessToken: connection');
+    expect(workspace).not.toContain('authToken: connection');
+  });
+
   it('wires only completed tenant admin integration routes', () => {
     expect(rolePage).toContain("role === 'client-admin' || role === 'system-administrator'");
     expect(rolePage).toContain("slug[0] === 'integrations'");

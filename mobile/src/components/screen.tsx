@@ -10,15 +10,20 @@ export function Screen({
 }: PropsWithChildren<{ title: string; subtitle?: string; action?: ReactNode }>) {
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <View style={styles.heading}>
-            <Text style={styles.eyebrow}>GO DIGITAL CRM</Text>
-            <Text style={styles.title}>{title}</Text>
-            {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
-          </View>
-          {action}
+      <View style={styles.header}>
+        <View style={styles.heading}>
+          <Text numberOfLines={1} style={styles.title}>
+            {title}
+          </Text>
+          {subtitle ? (
+            <Text numberOfLines={1} style={styles.subtitle}>
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
+        {action ? <View style={styles.action}>{action}</View> : null}
+      </View>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {children}
       </ScrollView>
     </SafeAreaView>
@@ -27,15 +32,21 @@ export function Screen({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
-  content: { padding: 18, paddingBottom: 36, gap: 16 },
+  content: { padding: 14, paddingBottom: 32, gap: 12 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 4,
+    gap: 12,
+    minHeight: 58,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   heading: { flex: 1 },
-  eyebrow: { color: colors.primary, fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
-  title: { color: colors.text, fontSize: 25, fontWeight: '800', marginTop: 5 },
-  subtitle: { color: colors.muted, fontSize: 13, marginTop: 4 },
+  title: { color: colors.text, fontSize: 17, fontWeight: '800', lineHeight: 22 },
+  subtitle: { color: colors.muted, fontSize: 11, marginTop: 2, lineHeight: 15 },
+  action: { alignSelf: 'center' },
 });

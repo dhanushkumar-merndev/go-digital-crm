@@ -108,6 +108,7 @@ export type OperationalCaseRoute = {
 const routeMap: Partial<Record<RoleKey, Record<string, OperationalCaseRoute>>> = {
   finance: {
     dashboard: { department: 'FINANCE', initialStatus: 'OPEN', canOriginateRequest: false },
+    'my-performance': { department: 'FINANCE', initialStatus: 'ALL', canOriginateRequest: false },
     'finance-cases': { department: 'FINANCE', initialStatus: 'OPEN', canOriginateRequest: false },
     'pending-documents': {
       department: 'FINANCE',
@@ -127,6 +128,7 @@ const routeMap: Partial<Record<RoleKey, Record<string, OperationalCaseRoute>>> =
   },
   insurance: {
     dashboard: { department: 'INSURANCE', initialStatus: 'OPEN', canOriginateRequest: false },
+    'my-performance': { department: 'INSURANCE', initialStatus: 'ALL', canOriginateRequest: false },
     'insurance-cases': {
       department: 'INSURANCE',
       initialStatus: 'OPEN',
@@ -135,10 +137,12 @@ const routeMap: Partial<Record<RoleKey, Record<string, OperationalCaseRoute>>> =
   },
   rto: {
     dashboard: { department: 'RTO', initialStatus: 'OPEN', canOriginateRequest: false },
+    'my-performance': { department: 'RTO', initialStatus: 'ALL', canOriginateRequest: false },
     'rto-cases': { department: 'RTO', initialStatus: 'OPEN', canOriginateRequest: false },
   },
   exchange: {
     dashboard: { department: 'EXCHANGE', initialStatus: 'OPEN', canOriginateRequest: true },
+    'my-performance': { department: 'EXCHANGE', initialStatus: 'ALL', canOriginateRequest: true },
     'exchange-requests': {
       department: 'EXCHANGE',
       initialStatus: 'OPEN',
@@ -157,6 +161,7 @@ const routeMap: Partial<Record<RoleKey, Record<string, OperationalCaseRoute>>> =
   },
   delivery: {
     dashboard: { department: 'DELIVERY', initialStatus: 'OPEN', canOriginateRequest: false },
+    'my-performance': { department: 'DELIVERY', initialStatus: 'ALL', canOriginateRequest: false },
     'upcoming-deliveries': {
       department: 'DELIVERY',
       initialStatus: 'OPEN',

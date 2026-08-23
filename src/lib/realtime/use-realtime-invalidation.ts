@@ -23,6 +23,8 @@ type PlatformSubscription = {
   queryKeys: QueryKey[];
 };
 
+const REALTIME_INVALIDATION_DEBOUNCE_MS = 300;
+
 function stableSubscriptions<T extends TenantSubscription | PlatformSubscription>(items: T[]) {
   return JSON.stringify(
     items.map((item) => ({ resource: item.resource, queryKeys: item.queryKeys })),
@@ -40,10 +42,20 @@ export function useTenantRealtimeInvalidation(
   useEffect(() => {
     if (!organizationId) return;
     const supabase = createClient();
-    const channels = stableItems.map((subscription) => {
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+    const channels = stableItems.map((subscription, index) => {
       const invalidate = () => {
-        for (const queryKey of subscription.queryKeys)
-          void queryClient.invalidateQueries({ queryKey });
+        const timerKey = `${subscription.resource}:${index}`;
+        const pending = timers.get(timerKey);
+        if (pending) clearTimeout(pending);
+        timers.set(
+          timerKey,
+          setTimeout(() => {
+            timers.delete(timerKey);
+            for (const queryKey of subscription.queryKeys)
+              void queryClient.invalidateQueries({ queryKey, refetchType: 'active' });
+          }, REALTIME_INVALIDATION_DEBOUNCE_MS),
+        );
       };
       return supabase
         .channel(tenantRealtimeTopic(organizationId, subscription.resource), {
@@ -58,6 +70,8 @@ export function useTenantRealtimeInvalidation(
     });
     return () => {
       cancelled = true;
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
       channels.forEach((channel) => void supabase.removeChannel(channel));
     };
   }, [organizationId, queryClient, stableItems]);
@@ -70,10 +84,20 @@ export function usePlatformRealtimeInvalidation(subscriptions: PlatformSubscript
 
   useEffect(() => {
     const supabase = createClient();
-    const channels = stableItems.map((subscription) => {
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+    const channels = stableItems.map((subscription, index) => {
       const invalidate = () => {
-        for (const queryKey of subscription.queryKeys)
-          void queryClient.invalidateQueries({ queryKey });
+        const timerKey = `${subscription.resource}:${index}`;
+        const pending = timers.get(timerKey);
+        if (pending) clearTimeout(pending);
+        timers.set(
+          timerKey,
+          setTimeout(() => {
+            timers.delete(timerKey);
+            for (const queryKey of subscription.queryKeys)
+              void queryClient.invalidateQueries({ queryKey, refetchType: 'active' });
+          }, REALTIME_INVALIDATION_DEBOUNCE_MS),
+        );
       };
       return supabase
         .channel(platformRealtimeTopic(subscription.resource), { config: { private: true } })
@@ -86,6 +110,8 @@ export function usePlatformRealtimeInvalidation(subscriptions: PlatformSubscript
     });
     return () => {
       cancelled = true;
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
       channels.forEach((channel) => void supabase.removeChannel(channel));
     };
   }, [queryClient, stableItems]);

@@ -230,6 +230,7 @@ export function FollowupCalendar({
     queryKey: [
       'followup-calendar',
       organizationId,
+      permissions.userId,
       scopeKey,
       timezone,
       displayedMonthKey,
@@ -240,13 +241,15 @@ export function FollowupCalendar({
       query.teamId,
       query.ownerId,
     ],
-    queryFn: () => fetchFollowupCalendar({ month: displayedMonthKey, query, timezone, day: null }),
+    queryFn: ({ signal }) =>
+      fetchFollowupCalendar({ month: displayedMonthKey, query, timezone, day: null }, signal),
     enabled: isActive,
   });
   const dayRecords = useQuery({
     queryKey: [
       'followup-calendar-day',
       organizationId,
+      permissions.userId,
       scopeKey,
       timezone,
       displayedMonthKey,
@@ -258,13 +261,16 @@ export function FollowupCalendar({
       query.teamId,
       query.ownerId,
     ],
-    queryFn: () =>
-      fetchFollowupCalendar({
-        month: displayedMonthKey,
-        day: selectedDay,
-        query,
-        timezone,
-      }),
+    queryFn: ({ signal }) =>
+      fetchFollowupCalendar(
+        {
+          month: displayedMonthKey,
+          day: selectedDay,
+          query,
+          timezone,
+        },
+        signal,
+      ),
     enabled: isActive && Boolean(selectedDay),
   });
   const recordsByDay = useMemo(

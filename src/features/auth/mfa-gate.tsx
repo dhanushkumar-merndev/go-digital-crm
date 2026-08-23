@@ -4,28 +4,22 @@ import { KeyRound, LoaderCircle, ShieldCheck } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { AuthPageShell } from '@/components/shared/auth-page-shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import {
-  fetchTenantDashboard,
-  tenantDashboardKey,
-} from '@/features/dashboards/tenant-dashboard-api';
+import { toast } from '@/components/ui/toast';
 import { createClient } from '@/lib/supabase/client';
 
 type Factor = { id: string };
 
 export function MfaGate() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [factor, setFactor] = useState<Factor>();
   const [qr, setQr] = useState<string>();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string>();
 
   useEffect(() => {
     void (async () => {
@@ -54,7 +48,12 @@ export function MfaGate() {
         // or control character").
         setQr(data.totp.qr_code?.trim());
       } catch {
-        setError('MFA setup could not be loaded. Check your session and try again.');
+        toast.add({
+          type: 'error',
+          priority: 'high',
+          title: 'MFA setup failed',
+          description: 'MFA setup could not be loaded. Check your session and try again.',
+        });
       } finally {
         setLoading(false);
       }
@@ -63,11 +62,15 @@ export function MfaGate() {
 
   async function verify() {
     if (!factor || !/^\d{6}$/.test(code)) {
-      setError('Enter the 6-digit code from your authenticator app.');
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'Enter a valid verification code',
+        description: 'Enter the 6-digit code from your authenticator app.',
+      });
       return;
     }
     setSubmitting(true);
-    setError(undefined);
     try {
       const supabase = createClient();
       const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({
@@ -80,14 +83,20 @@ export function MfaGate() {
         code,
       });
       if (verifyError) throw verifyError;
-      void queryClient.prefetchQuery({
-        queryKey: tenantDashboardKey,
-        queryFn: ({ signal }) => fetchTenantDashboard(signal),
+      toast.add({
+        type: 'success',
+        title: 'MFA verified',
+        description: 'Opening your workspace…',
       });
       router.replace('/');
       router.refresh();
     } catch {
-      setError('The verification code was not accepted. Wait for a new code and try again.');
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'Verification failed',
+        description: 'The verification code was not accepted. Wait for a new code and try again.',
+      });
     } finally {
       setSubmitting(false);
     }
@@ -138,11 +147,6 @@ export function MfaGate() {
                   />
                 </div>
               </label>
-              {error && (
-                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-                  {error}
-                </div>
-              )}
               <Button
                 className="w-full"
                 disabled={submitting || code.length !== 6}

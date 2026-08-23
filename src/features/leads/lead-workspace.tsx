@@ -22,6 +22,11 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { PageSkeleton } from '@/components/shared/page-skeleton';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -71,6 +76,7 @@ import {
   fetchLeadWorkspacePermissions,
   updateLead,
   type LeadRecord,
+  type LeadWorkspacePermissions,
 } from './lead-workspace-api';
 import {
   getDefaultLeadStatus,
@@ -227,9 +233,11 @@ function LeadCreateDialog({
   onOpenChange: (open: boolean) => void;
   onCreated: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const options = useQuery({
-    queryKey: ['lead-create-options', organizationId],
-    queryFn: fetchLeadCreateOptions,
+    queryKey: ['lead-create-options', ...queryScope, organizationId],
+    queryFn: ({ signal }) => fetchLeadCreateOptions(signal),
     enabled: open,
   });
   const [branchId, setBranchId] = useState('');
@@ -399,10 +407,15 @@ function LeadAssignmentDialog({
   onOpenChange: (open: boolean) => void;
   onAssigned: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
+  const [userSearch, setUserSearch] = useState('');
+  const debouncedUserSearch = useDebouncedValue(userSearch, 300);
   const users = useQuery({
-    queryKey: ['lead-assignable-users'],
-    queryFn: fetchAssignableUsers,
+    queryKey: ['lead-assignable-users', ...queryScope, debouncedUserSearch],
+    queryFn: ({ signal }) => fetchAssignableUsers(debouncedUserSearch, signal),
     enabled: open,
+    placeholderData: keepPreviousData,
   });
   const [userId, setUserId] = useState(() => lead?.assigned_user_id ?? '');
   const [reason, setReason] = useState('');
@@ -439,6 +452,16 @@ function LeadAssignmentDialog({
         >
           <div className="grid gap-1.5 text-sm font-medium">
             Assignee
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={userSearch}
+                onChange={(event) => setUserSearch(event.target.value)}
+                className="pl-9"
+                placeholder="Search team member"
+                maxLength={160}
+              />
+            </div>
             <Select value={userId} onValueChange={setUserId} disabled={users.isPending}>
               <SelectTrigger>
                 <SelectValue
@@ -664,6 +687,7 @@ function LeadTable({
   onEdit: (lead: LeadRecord) => void;
   onMatchCustomer: (lead: LeadRecord) => void;
 }) {
+  const isManagerView = ['team-manager', 'showroom-manager', 'gm-sales'].includes(role);
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
   const [draftFollowupFrom, setDraftFollowupFrom] = useState('');
   const [draftFollowupTo, setDraftFollowupTo] = useState('');
@@ -678,20 +702,42 @@ function LeadTable({
   const columns = useMemo<ColumnDef<LeadRecord>[]>(
     () => [
       {
+        id: 'lead_id',
+        header: 'Lead ID',
+        cell: ({ row }) => (
+          <Link
+            href={`/${role}/leads/${row.original.id}`}
+            className="font-medium text-muted-foreground hover:text-primary hover:underline"
+          >
+            L-{shortId(row.original.id)}
+          </Link>
+        ),
+      },
+      {
         accessorKey: 'customer_name',
         header: 'Customer',
-        cell: ({ row }) =>
-          row.original.customer_id ? (
-            <Link
-              href={`/${role}/customers/${row.original.customer_id}`}
-              className="font-semibold text-foreground hover:text-primary hover:underline"
-            >
-              {row.original.customer_name}
-            </Link>
-          ) : (
-            <span>{row.original.customer_name}</span>
-          ),
+        cell: ({ row }) => (
+          <Link
+            href={`/${role}/leads/${row.original.id}`}
+            className="font-semibold text-foreground hover:text-primary hover:underline"
+          >
+            {row.original.customer_name}
+          </Link>
+        ),
       },
+      ...(isManagerView
+        ? [
+            {
+              id: 'assigned_consultant',
+              header: 'Consultant',
+              cell: ({ row }: { row: { original: LeadRecord } }) => (
+                <span className="whitespace-nowrap font-medium">
+                  {row.original.assigned_user_name ?? 'Unassigned'}
+                </span>
+              ),
+            } satisfies ColumnDef<LeadRecord>,
+          ]
+        : []),
       {
         accessorKey: 'phone',
         header: 'Mobile',
@@ -804,7 +850,7 @@ function LeadTable({
         ),
       },
     ],
-    [canAssign, canLinkCustomer, canUpdate, onAssign, onEdit, onMatchCustomer, role],
+    [canAssign, canLinkCustomer, canUpdate, isManagerView, onAssign, onEdit, onMatchCustomer, role],
   );
   // TanStack Table returns an imperative model; React Compiler intentionally skips this hook.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -1156,10 +1202,37 @@ export function LeadWorkspace({
   slug: string;
   role: string;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const useSalesBootstrap =
+    role === 'sales-consultant' &&
+    workspaceSession?.roleKey === 'sales-consultant' &&
+    Boolean(workspaceSession.organizationId);
+  const queryScope = useMemo(
+    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
+    [role, useSalesBootstrap, workspaceSession],
+  );
+  const bootstrapPermissions: LeadWorkspacePermissions | undefined = useSalesBootstrap
+    ? {
+        organizationId: workspaceSession!.organizationId as string,
+        canCreate: hasWorkspacePermission(workspaceSession, 'lead.create'),
+        canAssign: hasWorkspacePermission(workspaceSession, 'lead.assign'),
+        canUpdate: hasWorkspacePermission(workspaceSession, 'lead.update'),
+        canCreateCustomer: hasWorkspacePermission(workspaceSession, 'customer.create'),
+        canLinkCustomer: hasWorkspacePermission(workspaceSession, 'customer.link'),
+      }
+    : undefined;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const fallbackStatus = getDefaultLeadStatus(slug);
+  const workspaceLabel =
+    role === 'team-manager'
+      ? 'Team Leads'
+      : role === 'showroom-manager'
+        ? 'Showroom Leads'
+        : role === 'gm-sales'
+          ? 'Sales Leads'
+          : 'My Leads';
   const [query, setQuery] = useState<LeadQuery>(() => parseLeadQuery(searchParams, fallbackStatus));
   const [createOpen, setCreateOpen] = useState(() => searchParams.get('action') === 'create');
   const [assignmentLead, setAssignmentLead] = useState<LeadRecord | null>(null);
@@ -1172,32 +1245,31 @@ export function LeadWorkspace({
   );
   const queryClient = useQueryClient();
   const workspace = useQuery({
-    queryKey: ['lead-workspace', requestQuery],
-    queryFn: () => fetchLeadWorkspace(requestQuery),
+    queryKey: ['lead-workspace', ...queryScope, requestQuery],
+    queryFn: ({ signal }) => fetchLeadWorkspace(requestQuery, signal),
     placeholderData: keepPreviousData,
   });
-  const permissions = useQuery({
-    queryKey: ['lead-workspace-permissions'],
+  const legacyPermissions = useQuery({
+    queryKey: ['lead-workspace-permissions', role],
     queryFn: fetchLeadWorkspacePermissions,
+    enabled: !useSalesBootstrap,
     staleTime: 60_000,
   });
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
 
-  const onQueryChange = useCallback(
-    (next: Partial<LeadQuery>) => {
-      const updated = { ...query, ...next };
-      setQuery(updated);
-      const queryString = toLeadQueryString(updated);
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
-    },
-    [pathname, query, router],
-  );
+  const onQueryChange = (next: Partial<LeadQuery>) => {
+    const updated = { ...query, ...next };
+    setQuery(updated);
+    const queryString = toLeadQueryString(updated);
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+  };
   const invalidate = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: ['lead-workspace'] }),
-    [queryClient],
+    () => queryClient.invalidateQueries({ queryKey: ['lead-workspace', ...queryScope] }),
+    [queryClient, queryScope],
   );
 
   if (workspace.isPending) return <PageSkeleton />;
-  if (workspace.isError || permissions.isError)
+  if (workspace.isError || legacyPermissions.isError)
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -1214,7 +1286,7 @@ export function LeadWorkspace({
             variant="outline"
             onClick={() => {
               void workspace.refetch();
-              void permissions.refetch();
+              if (!useSalesBootstrap) void legacyPermissions.refetch();
             }}
           >
             <RotateCcw className="size-4" />
@@ -1234,13 +1306,15 @@ export function LeadWorkspace({
               Dashboard
             </Link>
             <ChevronRight className="size-3" />
-            <span>My Leads</span>
+            <span>{workspaceLabel}</span>
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
-            My Leads
+            {workspaceLabel}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            View and manage your leads, track progress and take timely actions.
+            {role === 'team-manager'
+              ? 'View and manage leads assigned to your team, including ownership and follow-up progress.'
+              : 'View and manage your leads, track progress and take timely actions.'}
           </p>
         </div>
         <Button
@@ -1259,17 +1333,17 @@ export function LeadWorkspace({
         data={workspace.data}
         query={query}
         onQueryChange={onQueryChange}
-        canAssign={!spec.readOnly && Boolean(permissions.data?.canAssign)}
-        canUpdate={!spec.readOnly && Boolean(permissions.data?.canUpdate)}
-        canLinkCustomer={!spec.readOnly && Boolean(permissions.data?.canLinkCustomer)}
+        canAssign={!spec.readOnly && Boolean(permissions?.canAssign)}
+        canUpdate={!spec.readOnly && Boolean(permissions?.canUpdate)}
+        canLinkCustomer={!spec.readOnly && Boolean(permissions?.canLinkCustomer)}
         isFetching={workspace.isFetching}
         onAssign={setAssignmentLead}
         onEdit={setEditingLead}
         onMatchCustomer={setMatchingLead}
       />
-      {permissions.data?.canCreate && (
+      {permissions?.canCreate && (
         <LeadCreateDialog
-          organizationId={permissions.data.organizationId}
+          organizationId={permissions.organizationId}
           open={createOpen}
           onOpenChange={setCreateOpen}
           onCreated={invalidate}
@@ -1293,11 +1367,13 @@ export function LeadWorkspace({
         key={`customer-match-${matchingLead?.id ?? 'none'}`}
         lead={matchingLead as MatchableLead | null}
         open={Boolean(matchingLead)}
-        canCreate={Boolean(permissions.data?.canCreateCustomer)}
+        canCreate={Boolean(permissions?.canCreateCustomer)}
         onOpenChange={(open) => !open && setMatchingLead(null)}
         onResolved={(customerId) => {
           void invalidate();
-          void queryClient.invalidateQueries({ queryKey: ['customer-workspace'] });
+          void queryClient.invalidateQueries({
+            queryKey: ['customer-workspace', ...queryScope],
+          });
           router.push(`/${role}/customers/${customerId}`);
         }}
       />

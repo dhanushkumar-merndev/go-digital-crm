@@ -97,9 +97,12 @@ function normalizeKpis(row: KpiRow | null): LeadKpis {
   ) as LeadKpis;
 }
 
-export async function fetchLeadWorkspace(query: LeadQuery): Promise<LeadWorkspaceResult> {
+export async function fetchLeadWorkspace(
+  query: LeadQuery,
+  signal?: AbortSignal,
+): Promise<LeadWorkspaceResult> {
   const supabase = createClient();
-  const { data, error } = await supabase.rpc('get_lead_workspace_page_v2', {
+  const request = supabase.rpc('get_lead_workspace_page_v2', {
     target_page: query.page,
     target_page_size: query.pageSize,
     target_search: query.search,
@@ -112,6 +115,7 @@ export async function fetchLeadWorkspace(query: LeadQuery): Promise<LeadWorkspac
     target_followup_from: query.followupFrom || null,
     target_followup_to: query.followupTo || null,
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   const result = data as Partial<LeadWorkspaceResult> | null;
   return {
@@ -235,11 +239,21 @@ export type LeadCreateOptions = {
   teams: Array<{ id: string; branch_id: string; name: string }>;
 };
 
-export async function fetchLeadCreateOptions(): Promise<LeadCreateOptions> {
+export async function fetchLeadCreateOptions(signal?: AbortSignal): Promise<LeadCreateOptions> {
   const supabase = createClient();
+  const branchRequest = supabase
+    .from('branches')
+    .select('id,name')
+    .eq('active', true)
+    .order('name');
+  const teamRequest = supabase
+    .from('teams')
+    .select('id,branch_id,name')
+    .eq('active', true)
+    .order('name');
   const [branches, teams] = await Promise.all([
-    supabase.from('branches').select('id,name').eq('active', true).order('name'),
-    supabase.from('teams').select('id,branch_id,name').eq('active', true).order('name'),
+    signal ? branchRequest.abortSignal(signal) : branchRequest,
+    signal ? teamRequest.abortSignal(signal) : teamRequest,
   ]);
   if (branches.error) throw branches.error;
   if (teams.error) throw teams.error;
@@ -249,12 +263,20 @@ export async function fetchLeadCreateOptions(): Promise<LeadCreateOptions> {
   };
 }
 
-export async function fetchAssignableUsers() {
-  const { data, error } = await createClient()
+export async function fetchAssignableUsers(search = '', signal?: AbortSignal) {
+  const normalizedSearch = search.normalize('NFKC').trim().slice(0, 160);
+  const escapedSearch = normalizedSearch
+    .replaceAll('\\', '\\\\')
+    .replaceAll('%', '\\%')
+    .replaceAll('_', '\\_');
+  let request = createClient()
     .from('profiles')
     .select('id,full_name')
     .eq('active', true)
-    .order('full_name');
+    .order('full_name')
+    .limit(25);
+  if (escapedSearch) request = request.ilike('full_name', `%${escapedSearch}%`);
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return data as ProfileRow[];
 }

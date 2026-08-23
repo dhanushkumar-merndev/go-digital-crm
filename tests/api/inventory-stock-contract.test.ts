@@ -249,13 +249,14 @@ describe('inventory web contract', () => {
     expect(workspace.slice(filtersStart)).not.toContain('<EChart');
   });
 
-  it('wires only completed Inventory Manager and sales stock-check routes', () => {
+  it('wires real Inventory Manager performance and sales stock-check routes', () => {
     expect(route).toContain("role === 'inventory'");
     expect(route).toContain("'vehicle-inventory'");
     expect(route).toContain("'stock-allocation'");
     expect(route).toContain("'stock-ageing'");
     expect(route).toContain("'stock-transfer'");
     expect(route).toContain("role === 'sales-consultant' && slug[0] === 'stock-check'");
+    expect(route).toContain("role === 'inventory' && slug[0] === 'my-performance'");
     expect(route).toContain('<InventoryWorkspace');
     expect(api).toContain("'inventory.stock_check'");
   });
@@ -264,6 +265,7 @@ describe('inventory web contract', () => {
 describe('inventory URL and concurrency helpers', () => {
   it('maps only configured role routes to a production preset', () => {
     expect(inventoryViewForRoute('inventory', 'dashboard')).toBe('dashboard');
+    expect(inventoryViewForRoute('inventory', 'my-performance')).toBe('dashboard');
     expect(inventoryViewForRoute('inventory', 'vehicle-inventory')).toBe('units');
     expect(inventoryViewForRoute('sales-consultant', 'stock-check')).toBe('stock-check');
     expect(inventoryViewForRoute('telecaller', 'dashboard')).toBeNull();

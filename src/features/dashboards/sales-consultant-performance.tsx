@@ -13,6 +13,10 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageSkeleton } from '@/components/shared/page-skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,15 +28,23 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { Metric } from '@/lib/domain';
-import { fetchSalesPerformance } from './sales-consultant-performance-api';
+import {
+  fetchPersonalSalesPerformance,
+  fetchSalesPerformance,
+} from './sales-consultant-performance-api';
 
 const duration = (seconds: number) =>
   `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
-export function SalesConsultantPerformance() {
+export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role?: string }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const [days, setDays] = useState<7 | 14 | 30>(7);
   const query = useQuery({
-    queryKey: ['sales-consultant-performance', days],
-    queryFn: ({ signal }) => fetchSalesPerformance(days, signal),
+    queryKey: ['personal-sales-performance', role, ...queryScope, days],
+    queryFn: ({ signal }) =>
+      role === 'telecaller'
+        ? fetchPersonalSalesPerformance(days, signal)
+        : fetchSalesPerformance(days, signal),
     staleTime: 60_000,
   });
   if (query.isPending) return <PageSkeleton />;
@@ -43,7 +55,7 @@ export function SalesConsultantPerformance() {
           <TriangleAlert className="mx-auto text-destructive" />
           <p className="mt-3 font-semibold">Performance data could not be loaded</p>
           <p className="text-sm text-muted-foreground">
-            Apply the personal-performance migration and confirm your scoped role assignment.
+            Confirm your scoped role assignment and personal-performance data access.
           </p>
         </CardContent>
       </Card>

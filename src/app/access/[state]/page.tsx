@@ -1,11 +1,13 @@
 'use client';
 
 import { CircleAlert, Clock3, LockKeyhole, Settings2, ShieldCheck, UserRoundX } from 'lucide-react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MfaGate } from '@/features/auth/mfa-gate';
 import { BusinessOwnerOnboarding } from '@/features/auth/business-owner-onboarding';
+import { createClient } from '@/lib/supabase/client';
 
 const states = {
   configuration: {
@@ -37,10 +39,23 @@ const states = {
 
 export default function AccessStatePage() {
   const { state } = useParams<{ state: string }>();
+  const router = useRouter();
+  const [signingOut, setSigningOut] = useState(false);
   if (state === 'mfa') return <MfaGate />;
   if (state === 'onboarding') return <BusinessOwnerOnboarding />;
   const content = states[state as keyof typeof states] ?? states.locked;
   const Icon = content.icon;
+
+  async function signOutAndSwitchAccount() {
+    setSigningOut(true);
+    try {
+      await createClient().auth.signOut({ scope: 'local' });
+    } finally {
+      router.replace('/login');
+      router.refresh();
+    }
+  }
+
   return (
     <main className="grid min-h-screen place-items-center bg-muted/40 p-6">
       <Card className="w-full max-w-lg">
@@ -54,6 +69,15 @@ export default function AccessStatePage() {
             <Button variant="outline" onClick={() => window.location.reload()}>
               Check again
             </Button>
+            {state === 'locked' ? (
+              <Button
+                variant="ghost"
+                disabled={signingOut}
+                onClick={() => void signOutAndSwitchAccount()}
+              >
+                {signingOut ? 'Signing out…' : 'Sign out'}
+              </Button>
+            ) : null}
             <Button variant="ghost" onClick={() => history.back()}>
               <CircleAlert className="size-4" />
               Go back

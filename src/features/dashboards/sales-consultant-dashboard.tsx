@@ -26,6 +26,10 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { PageSkeleton } from '@/components/shared/page-skeleton';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import { Badge } from '@/components/ui/badge';
@@ -329,14 +333,14 @@ function MetricCard({
 
 function TodaySchedule({ data }: { data: SalesConsultantDashboardResult }) {
   return (
-    <Card className="h-full overflow-hidden shadow-none">
+    <Card className="flex h-full flex-col overflow-hidden shadow-none">
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3.5">
         <CardTitle className="text-sm">Today&apos;s schedule</CardTitle>
         <Button asChild variant="link" size="sm" className="h-auto px-0 text-[11px] text-blue-600">
           <Link href="/sales-consultant/appointments?status=today">View calendar</Link>
         </Button>
       </CardHeader>
-      <CardContent className="p-3">
+      <CardContent className="flex flex-1 flex-col p-3">
         {data.schedule.length ? (
           <div className="relative space-y-2 before:absolute before:bottom-5 before:left-[52px] before:top-5 before:w-px before:bg-slate-200">
             {data.schedule.map((item) => {
@@ -392,7 +396,7 @@ function TodaySchedule({ data }: { data: SalesConsultantDashboardResult }) {
             })}
           </div>
         ) : (
-          <div className="flex min-h-56 flex-col items-center justify-center text-center">
+          <div className="flex flex-1 flex-col items-center justify-center text-center">
             <span className="grid size-10 place-items-center rounded-full bg-blue-50 text-blue-600">
               <CalendarDays className="size-5" />
             </span>
@@ -400,18 +404,30 @@ function TodaySchedule({ data }: { data: SalesConsultantDashboardResult }) {
             <p className="mt-1 text-xs text-muted-foreground">
               New appointments will appear here automatically.
             </p>
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="mt-3 w-full max-w-[272px] border-blue-200 text-blue-700"
+            >
+              <Link href="/sales-consultant/appointments?status=today">
+                View full schedule <ArrowRight className="size-3.5" />
+              </Link>
+            </Button>
           </div>
         )}
-        <Button
-          asChild
-          variant="outline"
-          size="sm"
-          className="mt-3 w-full border-blue-200 text-blue-700"
-        >
-          <Link href="/sales-consultant/appointments?status=today">
-            View full schedule <ArrowRight className="size-3.5" />
-          </Link>
-        </Button>
+        {data.schedule.length ? (
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="mt-3 w-full border-blue-200 text-blue-700"
+          >
+            <Link href="/sales-consultant/appointments?status=today">
+              View full schedule <ArrowRight className="size-3.5" />
+            </Link>
+          </Button>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -629,9 +645,14 @@ function RecentLeads({
 }
 
 export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
+  const workspaceSession = useWorkspaceSession();
+  const dashboardQueryKey = useMemo(
+    () => [...salesConsultantDashboardKey, ...workspaceQueryScope(workspaceSession)] as const,
+    [workspaceSession],
+  );
   const manualRefreshRequest = useRef(false);
   const dashboard = useQuery({
-    queryKey: salesConsultantDashboardKey,
+    queryKey: dashboardQueryKey,
     queryFn: ({ signal }) =>
       fetchSalesConsultantDashboard(signal, { manualRefresh: manualRefreshRequest.current }),
   });
@@ -643,10 +664,10 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
       data
         ? (['leads', 'work', 'communications', 'sales', 'inventory'] as const).map((resource) => ({
             resource,
-            queryKeys: [salesConsultantDashboardKey],
+            queryKeys: [dashboardQueryKey],
           }))
         : [],
-    [data],
+    [dashboardQueryKey, data],
   );
   useTenantRealtimeInvalidation(data?.organization_id, realtimeSubscriptions);
   const conversionRate = useMemo(() => {
@@ -663,7 +684,7 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
     manualRefreshRequest.current = false;
     if (result.error instanceof ManualDashboardRefreshLimitError) {
       setManualRefreshRemaining(0);
-      setRefreshMessage('Refresh limit reached. Try again after the ten-minute window.');
+      setRefreshMessage('Refresh limit reached. Try again after the one-minute window.');
       return;
     }
     if (!result.error) {

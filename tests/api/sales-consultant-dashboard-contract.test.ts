@@ -13,6 +13,10 @@ const topFiveModelsMigration = readFileSync(
   'supabase/migrations/202608200003_sales_consultant_top_five_models.sql',
   'utf8',
 );
+const hotPathMigration = readFileSync(
+  'supabase/migrations/202608220002_sales_consultant_hot_path_rpcs.sql',
+  'utf8',
+);
 const api = readFileSync('src/features/dashboards/sales-consultant-dashboard-api.ts', 'utf8');
 const workspace = readFileSync('src/features/dashboards/sales-consultant-dashboard.tsx', 'utf8');
 const dashboardHandler = readFileSync(
@@ -58,15 +62,48 @@ describe('sales consultant dashboard contract', () => {
     expect(topModelsMigration).toContain('public.vehicle_models');
     expect(topModelsMigration).toContain('limit 3');
     expect(topFiveModelsMigration).toContain("E'\\n      limit 5\\n'");
-    expect(dashboardHandler).toContain("client.rpc('get_sales_consultant_top_models'");
+    expect(dashboardHandler).not.toContain("client.rpc('get_sales_consultant_top_models'");
+    expect(dashboardHandler).toContain("client.rpc('get_sales_consultant_dashboard_summary'");
+    expect(dashboardHandler).toContain("client.rpc('get_sales_consultant_dashboard_live'");
     expect(workspace).toContain('models.slice(0, 5)');
   });
 
-  it('enforces the existing server-side manual refresh budget without caching customer PII', () => {
+  it('caches only the scoped aggregate summary for 60 seconds', () => {
+    const summaryFunction = hotPathMigration.slice(
+      hotPathMigration.indexOf(
+        'create or replace function public.get_sales_consultant_dashboard_summary',
+      ),
+      hotPathMigration.indexOf(
+        'revoke all on function public.get_sales_consultant_dashboard_summary',
+      ),
+    );
+    const summaryShape = dashboardHandler.slice(
+      dashboardHandler.indexOf('const dashboardSummaryShape'),
+      dashboardHandler.indexOf('const dashboardLiveShape'),
+    );
     expect(cache).toContain("'sales-consultant-dashboard'");
     expect(dashboardHandler).toContain('enforceManualRefresh');
     expect(dashboardHandler).toContain("'MANUAL_REFRESH_LIMITED'");
-    expect(dashboardHandler).not.toContain('readWorkspaceCache');
+    expect(dashboardHandler).toContain('readWorkspaceCache');
+    expect(dashboardHandler).toContain('cache: cachedSummary.diagnostic');
+    expect(api).toContain('cacheDiagnosticSchema');
+    expect(api).toContain('cache: envelope.data.cache');
+    expect(dashboardHandler).toContain('ttlSeconds: SALES_DASHBOARD_CACHE_TTL_SECONDS');
+    expect(dashboardHandler).toContain('client.auth.getClaims(accessToken)');
+    expect(dashboardHandler).toContain("client.rpc('get_workspace_bootstrap')");
+    expect(dashboardHandler).toContain('user_id: userId');
+    expect(dashboardHandler).toContain('organization_id: context.organization_id');
+    expect(dashboardHandler).toContain('scope_key: context.scope_key');
+    expect(dashboardHandler).not.toContain("target_resource_key: 'tenant-dashboard'");
+    expect(summaryShape).not.toContain('schedule');
+    expect(summaryShape).not.toContain('recent_leads');
+    expect(summaryFunction).not.toContain("'schedule'");
+    expect(summaryFunction).not.toContain("'recent_leads'");
+    expect(summaryFunction).not.toContain('customer_name');
+    expect(summaryFunction).not.toContain('lead_row.phone');
+    expect(dashboardHandler.indexOf('const cachedSummary')).toBeLessThan(
+      dashboardHandler.indexOf('const result = await attachInventoryImages'),
+    );
   });
 
   it('keeps dashboard actions connected to the existing CRM workspaces', () => {

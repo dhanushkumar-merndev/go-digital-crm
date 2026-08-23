@@ -27,13 +27,15 @@ describe('sales consultant activity timeline contract', () => {
     expect(migration).toContain("'upcoming_followups'");
     expect(migration).toContain("'recent_notes'");
     expect(migration).toContain("'summary', jsonb_build_object");
-    expect(api).toContain("rpc('get_sales_consultant_activity_timeline'");
+    expect(api).toContain("'get_sales_consultant_activity_timeline'");
+    expect(api).toContain("role === 'telecaller'");
     expect(workspace).toContain('useDebouncedValue(query.search, 300)');
     expect(workspace).toContain('useTenantRealtimeInvalidation');
   });
 
-  it('routes only Sales Consultant Tasks to the activity timeline instead of the generic task table', () => {
-    expect(route).toContain("role === 'sales-consultant'");
-    expect(route).toContain('<SalesConsultantActivityTimeline />');
+  it('keeps the activity report separate from Tasks and exposes it only to individual sales roles', () => {
+    expect(route).toContain("(role === 'sales-consultant' || role === 'telecaller')");
+    expect(route).toContain('<SalesConsultantActivityTimeline role={role} />');
+    expect(route).toContain('<TaskWorkspace spec={spec} role={role} />');
   });
 });

@@ -527,6 +527,47 @@ async function seedDemoRecords({ organizationId, branchId, teamId, users }) {
         received_at: new Date().toISOString(),
       })
     )[0];
+  const existingAllocationStock = await select('stock_units', {
+    select: 'id',
+    organization_id: `eq.${organizationId}`,
+    vin: 'eq.TSTAA123456789013',
+    limit: '1',
+  });
+  await (existingAllocationStock[0]
+    ? Promise.resolve(existingAllocationStock[0])
+    : insert('stock_units', {
+        organization_id: organizationId,
+        branch_id: branchId,
+        variant_id: variant.id,
+        vin: 'TSTAA123456789013',
+        chassis_number: 'TSTCHASSIS000002',
+        color: 'Graphite Grey',
+        status: 'AVAILABLE',
+        received_at: new Date().toISOString(),
+      }));
+  for (const [vin, chassisNumber, color] of [
+    ['TSTAA123456789014', 'TSTCHASSIS000003', 'Pearl White'],
+    ['TSTAA123456789015', 'TSTCHASSIS000004', 'Midnight Black'],
+  ]) {
+    const existingPoolStock = await select('stock_units', {
+      select: 'id',
+      organization_id: `eq.${organizationId}`,
+      vin: `eq.${vin}`,
+      limit: '1',
+    });
+    if (!existingPoolStock[0]) {
+      await insert('stock_units', {
+        organization_id: organizationId,
+        branch_id: branchId,
+        variant_id: variant.id,
+        vin,
+        chassis_number: chassisNumber,
+        color,
+        status: 'AVAILABLE',
+        received_at: new Date().toISOString(),
+      });
+    }
+  }
 
   const appointment = (
     await insert('appointments', {

@@ -10,6 +10,7 @@ import {
 describe('customer-care route and query boundary', () => {
   it('maps the approved Customer Care routes to scoped views', () => {
     expect(customerCareInitialView('dashboard')).toBe('OPEN');
+    expect(customerCareInitialView('my-performance')).toBe('OPEN');
     expect(customerCareInitialView('feedback')).toBe('FEEDBACK');
     expect(customerCareInitialView('reviews')).toBe('REVIEW_REQUEST');
     expect(customerCareInitialView('complaints-escalations')).toBe('COMPLAINT');

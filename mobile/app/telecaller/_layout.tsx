@@ -15,6 +15,7 @@ export default function TelecallerTabs() {
       <Tabs.Screen name="my-leads" options={{ title: 'My Leads' }} />
       <Tabs.Screen name="follow-ups" options={{ title: 'Follow-ups' }} />
       <Tabs.Screen name="tasks" options={{ title: 'Tasks' }} />
+      <Tabs.Screen name="calls" options={{ href: null }} />
     </Tabs>
   );
 }

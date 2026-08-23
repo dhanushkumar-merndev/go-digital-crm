@@ -95,10 +95,18 @@ const refreshBudgetSchema = z.object({
   retry_after_ms: z.coerce.number().int().nonnegative().nullable(),
 });
 
+const cacheDiagnosticSchema = z.object({
+  status: z.enum(['HIT', 'MISS', 'COALESCED', 'BYPASS', 'FALLBACK']),
+  resource: z.literal('sales-consultant-dashboard'),
+  version: z.coerce.number().int().positive(),
+  age_seconds: z.coerce.number().int().nonnegative().nullable(),
+});
+
 const envelopeSchema = z.object({
   ok: z.literal(true),
   data: z.object({
     result: dashboardSchema,
+    cache: cacheDiagnosticSchema,
     manual_refresh: refreshBudgetSchema.nullable(),
   }),
   error: z.null(),
@@ -106,6 +114,7 @@ const envelopeSchema = z.object({
 });
 
 export type SalesConsultantDashboardResult = z.infer<typeof dashboardSchema> & {
+  cache: z.infer<typeof cacheDiagnosticSchema>;
   refresh_budget?: z.infer<typeof refreshBudgetSchema> | null;
 };
 
@@ -138,6 +147,7 @@ export async function fetchSalesConsultantDashboard(
   const envelope = envelopeSchema.parse(data);
   return {
     ...envelope.data.result,
+    cache: envelope.data.cache,
     refresh_budget: envelope.data.manual_refresh,
   } satisfies SalesConsultantDashboardResult;
 }

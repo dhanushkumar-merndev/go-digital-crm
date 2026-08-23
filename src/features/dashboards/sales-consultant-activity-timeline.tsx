@@ -21,6 +21,10 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,6 +43,7 @@ import { cn } from '@/lib/utils';
 import {
   fetchSalesConsultantActivityTimeline,
   salesActivityTimelineKey,
+  type ActivityTimelineRole,
   type SalesActivityKind,
   type SalesActivityQuery,
   type SalesConsultantActivityTimeline,
@@ -209,7 +214,14 @@ function Timeline({ data }: { data: SalesConsultantActivityTimeline }) {
   );
 }
 
-function SideRail({ data }: { data: SalesConsultantActivityTimeline }) {
+function SideRail({
+  data,
+  role,
+}: {
+  data: SalesConsultantActivityTimeline;
+  role: ActivityTimelineRole;
+}) {
+  const rolePath = `/${role}`;
   return (
     <aside className="space-y-4">
       <Card className="shadow-none">
@@ -235,10 +247,7 @@ function SideRail({ data }: { data: SalesConsultantActivityTimeline }) {
       <Card className="shadow-none">
         <CardHeader className="flex-row items-center justify-between border-b px-4 py-3">
           <CardTitle className="text-sm">Upcoming follow-ups</CardTitle>
-          <Link
-            href="/sales-consultant/follow-ups"
-            className="text-[11px] font-medium text-blue-600"
-          >
+          <Link href={`${rolePath}/follow-ups`} className="text-[11px] font-medium text-blue-600">
             View all
           </Link>
         </CardHeader>
@@ -247,7 +256,7 @@ function SideRail({ data }: { data: SalesConsultantActivityTimeline }) {
             data.upcoming_followups.map((item) => (
               <Link
                 key={item.id}
-                href="/sales-consultant/follow-ups"
+                href={`${rolePath}/follow-ups`}
                 className="flex items-start gap-2 rounded-md p-1 transition-colors hover:bg-slate-50"
               >
                 <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-violet-50 text-violet-600">
@@ -278,7 +287,7 @@ function SideRail({ data }: { data: SalesConsultantActivityTimeline }) {
       <Card className="shadow-none">
         <CardHeader className="flex-row items-center justify-between border-b px-4 py-3">
           <CardTitle className="text-sm">Recent notes</CardTitle>
-          <Link href="/sales-consultant/my-leads" className="text-[11px] font-medium text-blue-600">
+          <Link href={`${rolePath}/my-leads`} className="text-[11px] font-medium text-blue-600">
             View leads
           </Link>
         </CardHeader>
@@ -304,7 +313,14 @@ function SideRail({ data }: { data: SalesConsultantActivityTimeline }) {
   );
 }
 
-export function SalesConsultantActivityTimeline() {
+export function SalesConsultantActivityTimeline({
+  role = 'sales-consultant',
+}: {
+  role?: ActivityTimelineRole;
+}) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
+  const rolePath = `/${role}`;
   const [query, setQuery] = useState<SalesActivityQuery>({
     search: '',
     kind: 'ALL',
@@ -318,26 +334,26 @@ export function SalesConsultantActivityTimeline() {
     [debouncedSearch, query],
   );
   const timeline = useQuery({
-    queryKey: [...salesActivityTimelineKey, requestQuery],
-    queryFn: ({ signal }) => fetchSalesConsultantActivityTimeline(requestQuery, signal),
+    queryKey: [...salesActivityTimelineKey, role, ...queryScope, requestQuery],
+    queryFn: ({ signal }) => fetchSalesConsultantActivityTimeline(requestQuery, role, signal),
     placeholderData: keepPreviousData,
   });
   useTenantRealtimeInvalidation(timeline.data?.organization_id, [
     {
       resource: 'leads',
-      queryKeys: [salesActivityTimelineKey],
+      queryKeys: [[...salesActivityTimelineKey, role, ...queryScope]],
     },
     {
       resource: 'work',
-      queryKeys: [salesActivityTimelineKey],
+      queryKeys: [[...salesActivityTimelineKey, role, ...queryScope]],
     },
     {
       resource: 'communications',
-      queryKeys: [salesActivityTimelineKey],
+      queryKeys: [[...salesActivityTimelineKey, role, ...queryScope]],
     },
     {
       resource: 'sales',
-      queryKeys: [salesActivityTimelineKey],
+      queryKeys: [[...salesActivityTimelineKey, role, ...queryScope]],
     },
   ]);
 
@@ -372,7 +388,7 @@ export function SalesConsultantActivityTimeline() {
     <div className="mx-auto max-w-[1680px]">
       <div className="mb-4">
         <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-          <Link href="/sales-consultant/dashboard" className="text-blue-600 hover:underline">
+          <Link href={`${rolePath}/dashboard`} className="text-blue-600 hover:underline">
             Home
           </Link>
           <span>›</span>
@@ -388,7 +404,7 @@ export function SalesConsultantActivityTimeline() {
             </p>
           </div>
           <Button asChild size="sm" className="shrink-0">
-            <Link href="/sales-consultant/my-leads">
+            <Link href={`${rolePath}/my-leads`}>
               <Send className="size-3.5" /> Open my leads
             </Link>
           </Button>
@@ -498,7 +514,7 @@ export function SalesConsultantActivityTimeline() {
             </div>
           </div>
         </Card>
-        <SideRail data={data} />
+        <SideRail data={data} role={role} />
       </div>
     </div>
   );

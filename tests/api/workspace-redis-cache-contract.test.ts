@@ -37,14 +37,16 @@ describe('workspace Redis cache contract', () => {
     expect(edge).not.toContain('phone');
   });
 
-  it('uses one bounded NX lock and Redis-enforced three-per-ten-minute refresh limit', () => {
+  it('uses a bounded NX lock and Redis-enforced three-per-minute refresh limit', () => {
     expect(shared).toContain("['SET', key, value, 'NX', 'PX', ttlMs]");
     expect(shared).toContain('MANUAL_REFRESH_LIMIT = 3');
-    expect(shared).toContain('MANUAL_REFRESH_WINDOW_MS = 10 * 60_000');
+    expect(shared).toContain('MANUAL_REFRESH_WINDOW_MS = 60_000');
+    expect(shared).toContain('COALESCED_WAIT_MS = 500');
     expect(shared).toContain('forceRefresh?: boolean');
     expect(edge).toContain('forceRefresh: parsed.data.manual_refresh');
     expect(edge).toContain("'MANUAL_REFRESH_LIMITED'");
-    expect(shared).toContain('CacheBusyError');
+    expect(shared).toContain("return loadWithoutCache('FALLBACK')");
+    expect(shared).not.toContain('throw new CacheBusyError');
   });
 
   it('uses authenticated Edge callers and cache-version triggers rather than trusting a browser key', () => {

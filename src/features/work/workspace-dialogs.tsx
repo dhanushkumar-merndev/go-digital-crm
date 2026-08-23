@@ -2,6 +2,10 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -107,12 +111,21 @@ export function WorkCreateDialog({
   open,
   onOpenChange,
   onCreated,
+  initialEntity,
 }: {
   kind: WorkKind;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: () => void;
+  initialEntity?: {
+    leadId: string | null;
+    customerId: string | null;
+    branchId: string;
+    assignedUserId: string | null;
+  };
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 300);
   const [selectedEntityKey, setSelectedEntityKey] = useState('');
@@ -124,14 +137,31 @@ export function WorkCreateDialog({
   const [notes, setNotes] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
   const options = useQuery({
-    queryKey: ['work-create-options', kind, debouncedSearch],
-    queryFn: () => fetchWorkCreateOptions(kind, debouncedSearch),
+    queryKey: ['work-create-options', kind, ...queryScope, debouncedSearch],
+    queryFn: ({ signal }) => fetchWorkCreateOptions(kind, debouncedSearch, signal),
     enabled: open,
     staleTime: 60_000,
   });
+  const initialEntityOption = useMemo(() => {
+    if (!open || !initialEntity) return undefined;
+    return options.data?.entities.find(
+      (candidate) =>
+        candidate.lead_id === initialEntity.leadId &&
+        candidate.customer_id === initialEntity.customerId &&
+        candidate.branch_id === initialEntity.branchId,
+    );
+  }, [initialEntity, open, options.data?.entities]);
+  const resolvedEntityKey =
+    selectedEntityKey || (initialEntityOption ? entityKey(initialEntityOption) : '');
   const selectedEntity = options.data?.entities.find(
-    (entity) => entityKey(entity) === selectedEntityKey,
+    (entity) => entityKey(entity) === resolvedEntityKey,
   );
+  const resolvedAssignedUserId =
+    (assignedUserId ||
+      (initialEntityOption === selectedEntity
+        ? initialEntity?.assignedUserId || selectedEntity?.default_assigned_user_id
+        : selectedEntity?.default_assigned_user_id)) ??
+    '';
   const availableUsers = useMemo(
     () => usersForEntity(options.data?.users ?? [], selectedEntity),
     [options.data?.users, selectedEntity],
@@ -139,7 +169,7 @@ export function WorkCreateDialog({
   const mutation = useMutation({
     mutationFn: async () => {
       if (!selectedEntity) throw new Error('ENTITY_REQUIRED');
-      const assignee = assignedUserId || selectedEntity.default_assigned_user_id;
+      const assignee = resolvedAssignedUserId || selectedEntity.default_assigned_user_id;
       if (!assignee) throw new Error('ASSIGNEE_REQUIRED');
       if (!scheduledAt) throw new Error('SCHEDULE_REQUIRED');
       const scheduledIso = new Date(scheduledAt).toISOString();
@@ -210,7 +240,7 @@ export function WorkCreateDialog({
           <div className="space-y-2 sm:col-span-2">
             <Label>Customer / lead</Label>
             <Select
-              value={selectedEntityKey}
+              value={resolvedEntityKey}
               onValueChange={(value) => {
                 setSelectedEntityKey(value);
                 const entity = options.data?.entities.find((item) => entityKey(item) === value);
@@ -251,7 +281,7 @@ export function WorkCreateDialog({
           <div className="space-y-2">
             <Label>Assigned user</Label>
             <Select
-              value={assignedUserId}
+              value={resolvedAssignedUserId}
               onValueChange={setAssignedUserId}
               disabled={!selectedEntity || availableUsers.length === 0}
             >
@@ -372,6 +402,8 @@ export function WorkEditDialog({
   onOpenChange: (open: boolean) => void;
   onUpdated: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const isFollowup = kind === 'followups' && 'due_at' in record;
   const followup = isFollowup ? (record as FollowupRecord) : null;
   const appointment = !isFollowup ? (record as AppointmentRecord) : null;
@@ -388,8 +420,8 @@ export function WorkEditDialog({
   const [attendance, setAttendance] = useState(appointment?.attendance_status ?? 'NOT_ARRIVED');
   const [assignedUserId, setAssignedUserId] = useState(record.assigned_user_id);
   const options = useQuery({
-    queryKey: ['work-edit-options', kind, record.id],
-    queryFn: () => fetchWorkCreateOptions(kind),
+    queryKey: ['work-edit-options', kind, ...queryScope, record.id],
+    queryFn: ({ signal }) => fetchWorkCreateOptions(kind, '', signal),
     enabled: open,
     staleTime: 60_000,
   });

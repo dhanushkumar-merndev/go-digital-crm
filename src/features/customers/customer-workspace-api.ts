@@ -79,13 +79,14 @@ export async function fetchCustomerWorkspacePermissions(): Promise<CustomerWorks
   return result;
 }
 
-export async function fetchCustomerWorkspace(query: CustomerQuery) {
-  const { data, error } = await createClient().rpc('get_customer_workspace_page', {
+export async function fetchCustomerWorkspace(query: CustomerQuery, signal?: AbortSignal) {
+  const request = createClient().rpc('get_customer_workspace_page', {
     target_search: query.search,
     target_page: query.page,
     target_page_size: query.pageSize,
     target_sort: query.sort,
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return customerWorkspaceSchema.parse(data);
 }
@@ -307,12 +308,115 @@ const customer360Schema = z.object({
 
 export type Customer360 = z.infer<typeof customer360Schema>;
 
-export async function fetchCustomer360(customerId: string) {
-  const { data, error } = await createClient().rpc('get_customer_360', {
+const customer360CoreSchema = customer360Schema.pick({
+  customer: true,
+  current_opportunity: true,
+  section_access: true,
+  contacts: true,
+  addresses: true,
+  custom_fields: true,
+  notes: true,
+});
+
+export type Customer360Core = z.infer<typeof customer360CoreSchema>;
+
+export const customer360LazySections = [
+  'leads',
+  'calls',
+  'conversations',
+  'followups',
+  'appointments',
+  'test_drives',
+  'quotations',
+  'bookings',
+  'vehicles',
+  'documents',
+  'timeline',
+] as const;
+
+export type Customer360LazySection = (typeof customer360LazySections)[number];
+export type Customer360SectionPageSize = 25 | 50 | 100;
+export type Customer360TimelineCursor = { occurred_at: string; id: string };
+
+const customer360SectionEnvelopeSchema = z.object({
+  section: z.enum(customer360LazySections),
+  records: z.array(z.unknown()),
+  total: z.coerce.number().int().nonnegative(),
+  page: z.coerce.number().int().positive(),
+  page_size: z.union([z.literal(25), z.literal(50), z.literal(100)]),
+  has_more: z.boolean(),
+  next_cursor: z.object({ occurred_at: z.string(), id: z.uuid() }).nullable(),
+});
+
+const customer360SectionRecordSchemas = {
+  leads: customer360Schema.shape.leads,
+  calls: customer360Schema.shape.calls,
+  conversations: customer360Schema.shape.conversations,
+  followups: customer360Schema.shape.followups,
+  appointments: customer360Schema.shape.appointments,
+  test_drives: customer360Schema.shape.test_drives,
+  quotations: customer360Schema.shape.quotations,
+  bookings: customer360Schema.shape.bookings,
+  vehicles: customer360Schema.shape.vehicles,
+  documents: customer360Schema.shape.documents,
+  timeline: customer360Schema.shape.timeline,
+} satisfies Record<Customer360LazySection, z.ZodType>;
+
+export type Customer360SectionResult<S extends Customer360LazySection = Customer360LazySection> = {
+  section: S;
+  records: Customer360[S];
+  total: number;
+  page: number;
+  page_size: Customer360SectionPageSize;
+  has_more: boolean;
+  next_cursor: Customer360TimelineCursor | null;
+};
+
+export async function fetchCustomer360(customerId: string, signal?: AbortSignal) {
+  const request = createClient().rpc('get_customer_360', {
     target_customer_id: customerId,
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return customer360Schema.parse(data);
+}
+
+export async function fetchSalesCustomer360Core(customerId: string, signal?: AbortSignal) {
+  const request = createClient().rpc('get_sales_consultant_customer_360_core', {
+    target_customer_id: customerId,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return customer360CoreSchema.parse(data);
+}
+
+export async function fetchSalesCustomer360Section<S extends Customer360LazySection>(
+  input: {
+    customerId: string;
+    section: S;
+    page: number;
+    pageSize: Customer360SectionPageSize;
+    cursor?: Customer360TimelineCursor | null;
+  },
+  signal?: AbortSignal,
+): Promise<Customer360SectionResult<S>> {
+  const request = createClient().rpc('get_sales_consultant_customer_360_section', {
+    target_customer_id: input.customerId,
+    target_section: input.section.toUpperCase(),
+    target_page: input.page,
+    target_page_size: input.pageSize,
+    target_cursor_at: input.cursor?.occurred_at ?? null,
+    target_cursor_id: input.cursor?.id ?? null,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  const envelope = customer360SectionEnvelopeSchema.parse(data);
+  if (envelope.section !== input.section) throw new Error('CUSTOMER_360_SECTION_MISMATCH');
+  return {
+    ...envelope,
+    section: input.section,
+    records: customer360SectionRecordSchemas[input.section].parse(envelope.records),
+  } as Customer360SectionResult<S>;
 }
 
 const possibleMatchSchema = z.object({
@@ -325,10 +429,11 @@ const possibleMatchSchema = z.object({
 
 export type PossibleCustomerMatch = z.infer<typeof possibleMatchSchema>;
 
-export async function fetchPossibleCustomerMatches(leadId: string) {
-  const { data, error } = await createClient().rpc('possible_customer_matches', {
+export async function fetchPossibleCustomerMatches(leadId: string, signal?: AbortSignal) {
+  const request = createClient().rpc('possible_customer_matches', {
     target_lead_id: leadId,
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return z.array(possibleMatchSchema).parse(data ?? []);
 }

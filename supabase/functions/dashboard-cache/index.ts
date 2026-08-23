@@ -2,7 +2,6 @@ import { z } from 'npm:zod@4';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
 import { authenticatedClient } from '../_shared/supabase.ts';
 import {
-  CacheBusyError,
   enforceManualRefresh,
   readWorkspaceCache,
   type WorkspaceCacheResource,
@@ -66,7 +65,7 @@ Deno.serve(async (request) => {
       if (!manualRefreshBudget.allowed)
         return failure(
           'MANUAL_REFRESH_LIMITED',
-          'Refresh limit reached. Try again after the current ten-minute window.',
+          'Refresh limit reached. Try again after the current one-minute window.',
           requestId,
           429,
         );
@@ -110,14 +109,7 @@ Deno.serve(async (request) => {
       },
       requestId,
     );
-  } catch (error) {
-    if (error instanceof CacheBusyError)
-      return failure(
-        'CACHE_REBUILDING',
-        'The dashboard is being refreshed. Retry shortly.',
-        requestId,
-        503,
-      );
+  } catch {
     return failure(
       'DASHBOARD_CACHE_FAILED',
       'The dashboard could not be loaded. Retry shortly.',

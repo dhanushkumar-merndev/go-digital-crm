@@ -5,8 +5,10 @@ import {
   callOutcomeValues,
   callSourceValues,
   callStatusValues,
+  callWorkspaceViewValues,
   isCallVersionConflict,
   type CallQuery,
+  type CallWorkspaceView,
 } from './call-workspace-query';
 
 const nullableString = z.string().nullable();
@@ -113,9 +115,9 @@ export async function fetchCallWorkspacePermissions(): Promise<CallWorkspacePerm
 export async function fetchCallWorkspace(
   query: CallQuery,
   signal?: AbortSignal,
+  view: CallWorkspaceView = 'history',
 ): Promise<CallWorkspaceResult> {
-  const supabase = createClient();
-  const request = supabase.rpc('get_call_workspace_page', {
+  const request = createClient().rpc('get_call_workspace_page', {
     target_search: query.search,
     target_page: query.page,
     target_page_size: query.pageSize,
@@ -123,35 +125,11 @@ export async function fetchCallWorkspace(
     target_outcome: callOutcomeValues[query.outcome],
     target_source: callSourceValues[query.source],
     target_sort: query.sort,
+    target_view: callWorkspaceViewValues[view],
   });
-  const [workspace, summary] = await Promise.all([
-    signal ? request.abortSignal(signal) : request,
-    supabase.rpc('get_call_today_summary'),
-  ]);
-  const { data, error } = workspace;
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
-  if (summary.error) throw summary.error;
-  const parsedSummary = z
-    .object({
-      total_calls: z.coerce.number().int().nonnegative(),
-      connected_calls: z.coerce.number().int().nonnegative(),
-      not_connected_calls: z.coerce.number().int().nonnegative(),
-      talk_time_seconds: z.coerce.number().int().nonnegative(),
-      average_duration_seconds: z.coerce.number().int().nonnegative(),
-    })
-    .parse(summary.data);
-  const raw = data as { kpis?: Record<string, unknown> };
-  return callWorkspaceSchema.parse({
-    ...raw,
-    kpis: {
-      ...raw.kpis,
-      total_today: parsedSummary.total_calls,
-      connected_today: parsedSummary.connected_calls,
-      not_connected_today: parsedSummary.not_connected_calls,
-      talk_time_seconds: parsedSummary.talk_time_seconds,
-      average_duration_seconds: parsedSummary.average_duration_seconds,
-    },
-  });
+  return callWorkspaceSchema.parse(data);
 }
 
 const callPartySchema = z.object({
@@ -185,11 +163,21 @@ export type CallScopeOptions = {
   teams: Array<{ id: string; branch_id: string; name: string }>;
 };
 
-export async function fetchCallScopeOptions(): Promise<CallScopeOptions> {
+export async function fetchCallScopeOptions(signal?: AbortSignal): Promise<CallScopeOptions> {
   const supabase = createClient();
+  const branchRequest = supabase
+    .from('branches')
+    .select('id,name')
+    .eq('active', true)
+    .order('name');
+  const teamRequest = supabase
+    .from('teams')
+    .select('id,branch_id,name')
+    .eq('active', true)
+    .order('name');
   const [branches, teams] = await Promise.all([
-    supabase.from('branches').select('id,name').eq('active', true).order('name'),
-    supabase.from('teams').select('id,branch_id,name').eq('active', true).order('name'),
+    signal ? branchRequest.abortSignal(signal) : branchRequest,
+    signal ? teamRequest.abortSignal(signal) : teamRequest,
   ]);
   if (branches.error) throw branches.error;
   if (teams.error) throw teams.error;
@@ -207,10 +195,14 @@ const callProviderOptionSchema = z.object({
 });
 export type CallProviderOption = z.infer<typeof callProviderOptionSchema>;
 
-export async function fetchCallProviderOptions(branchId: string): Promise<CallProviderOption[]> {
-  const { data, error } = await createClient().rpc('get_call_provider_options', {
+export async function fetchCallProviderOptions(
+  branchId: string,
+  signal?: AbortSignal,
+): Promise<CallProviderOption[]> {
+  const request = createClient().rpc('get_call_provider_options', {
     target_branch_id: branchId,
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return z.array(callProviderOptionSchema).parse(data);
 }
@@ -462,10 +454,11 @@ const callDetailSchema = z.object({
 
 export type CallDetail = z.infer<typeof callDetailSchema>;
 
-export async function fetchCallDetail(callId: string): Promise<CallDetail> {
-  const { data, error } = await createClient().rpc('get_call_detail', {
+export async function fetchCallDetail(callId: string, signal?: AbortSignal): Promise<CallDetail> {
+  const request = createClient().rpc('get_call_detail', {
     target_call_id: callId,
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return callDetailSchema.parse(data);
 }

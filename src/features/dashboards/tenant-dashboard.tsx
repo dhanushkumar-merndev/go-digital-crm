@@ -32,6 +32,7 @@ import {
 import { roleNavigation } from '@/config/navigation';
 import type { RoleKey } from '@/config/navigation/types';
 import type { PageSpec } from '@/lib/domain';
+import { cn } from '@/lib/utils';
 import { ManualDashboardRefreshLimitError } from '@/lib/query/cached-dashboard-api';
 import {
   useTenantRealtimeInvalidation,
@@ -57,6 +58,15 @@ function leadDestination(role: RoleKey) {
   if (role === 'team-manager') return 'team-leads';
   if (role === 'showroom-manager') return 'showroom-leads';
   if (role === 'gm-sales') return 'sales-leads';
+  return null;
+}
+
+function operationalDestination(role: RoleKey) {
+  if (role === 'finance') return 'finance-cases';
+  if (role === 'insurance') return 'insurance-cases';
+  if (role === 'rto') return 'rto-cases';
+  if (role === 'delivery') return 'upcoming-deliveries';
+  if (role === 'exchange') return 'exchange-requests';
   return null;
 }
 
@@ -138,14 +148,38 @@ function dashboardKpis(data: TenantDashboardResult): KpiCard[] {
       icon: UsersRound,
       tone: 'bg-blue-50 text-blue-600',
     });
-  if (capabilities.operations && !cards.length)
-    cards.push({
-      label: 'Open cases',
-      value: kpis.open_cases,
-      helper: 'Current authorized scope',
-      icon: CircleAlert,
-      tone: 'bg-amber-50 text-amber-600',
-    });
+  if (capabilities.operations) {
+    cards.push(
+      {
+        label: 'Open cases',
+        value: kpis.open_cases,
+        helper: 'Current authorized scope',
+        icon: CircleAlert,
+        tone: 'bg-amber-50 text-amber-600',
+      },
+      {
+        label: 'Overdue cases',
+        value: kpis.overdue_cases,
+        helper: 'Needs attention',
+        icon: CircleAlert,
+        tone: 'bg-rose-50 text-rose-600',
+      },
+      {
+        label: 'Due today',
+        value: kpis.cases_due_today,
+        helper: 'Open case commitments',
+        icon: CalendarClock,
+        tone: 'bg-cyan-50 text-cyan-600',
+      },
+      {
+        label: 'Completed MTD',
+        value: kpis.cases_completed_month,
+        helper: 'Closed operational work',
+        icon: CalendarCheck2,
+        tone: 'bg-emerald-50 text-emerald-600',
+      },
+    );
+  }
   return cards.slice(0, 8);
 }
 
@@ -192,6 +226,7 @@ function DashboardHeader({
   spec,
   role,
   generatedAt,
+  heading,
   onRefresh,
   refreshing,
   manualRefreshRemaining,
@@ -200,27 +235,42 @@ function DashboardHeader({
   spec: PageSpec;
   role: RoleKey;
   generatedAt?: string;
+  heading?: string;
   onRefresh: () => void;
   refreshing: boolean;
   manualRefreshRemaining: number;
   manualRefreshMessage?: string;
 }) {
   const navigation = roleNavigation[role];
+  const isTelecaller = role === 'telecaller';
   return (
     <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
       <div>
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <span>Workspace</span>
-          <span>›</span>
-          <span>Dashboard</span>
-        </div>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight text-[#17233d] md:text-[28px]">
-          {navigation.shortLabel} Dashboard
+        {!isTelecaller && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <span>Workspace</span>
+            <span>›</span>
+            <span>Dashboard</span>
+          </div>
+        )}
+        <h1
+          className={cn(
+            'text-2xl font-bold tracking-tight text-[#17233d] md:text-[28px]',
+            !isTelecaller && 'mt-2',
+          )}
+        >
+          {heading ?? `${navigation.shortLabel} Dashboard`}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">{spec.description}</p>
-        <p className="mt-2 text-xs font-medium text-blue-500">
-          {navigation.label} · {navigation.scope}
+        <p className="mt-1 text-sm text-muted-foreground">
+          {isTelecaller
+            ? "Welcome back. Here's what's happening with your leads today."
+            : spec.description}
         </p>
+        {!isTelecaller && (
+          <p className="mt-2 text-xs font-medium text-blue-500">
+            {navigation.label} · {navigation.scope}
+          </p>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
         {generatedAt && <span>Last updated: {formatDateTime(generatedAt)}</span>}
@@ -279,9 +329,11 @@ function PriorityCard({
 function LeadPreviewTable({
   records,
   leadHref,
+  title = 'Leads at a glance',
 }: {
   records: TenantDashboardLeadPreview[];
   leadHref: string | null;
+  title?: string;
 }) {
   const router = useRouter();
   const openLead = (lead: TenantDashboardLeadPreview) => {
@@ -292,7 +344,7 @@ function LeadPreviewTable({
     <Card className="overflow-hidden shadow-none">
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-5 py-4">
         <div>
-          <CardTitle className="text-base">Leads at a glance</CardTitle>
+          <CardTitle className="text-base">{title}</CardTitle>
           <CardDescription className="mt-1">
             Five most recently updated leads in your scope
           </CardDescription>
@@ -375,7 +427,58 @@ function LeadPreviewTable({
   );
 }
 
-export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey }) {
+function OperationalQueueOverview({
+  data,
+  href,
+}: {
+  data: TenantDashboardResult;
+  href: string | null;
+}) {
+  const items = [
+    ['Open cases', data.kpis.open_cases, 'Active work in your authorized scope'],
+    ['Overdue cases', data.kpis.overdue_cases, 'Past due and not terminal'],
+    ['Due today', data.kpis.cases_due_today, 'Case commitments due today'],
+    ['Completed this month', data.kpis.cases_completed_month, 'Terminal cases updated this month'],
+  ] as const;
+  return (
+    <Card className="overflow-hidden shadow-none">
+      <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-5 py-4">
+        <div>
+          <CardTitle className="text-base">Operational case overview</CardTitle>
+          <CardDescription>
+            Live cases, calculated within your permitted department scope.
+          </CardDescription>
+        </div>
+        {href && (
+          <Button asChild variant="link" size="sm" className="h-auto px-0 text-blue-600">
+            <Link href={href}>
+              View cases <ArrowRight className="size-3.5" />
+            </Link>
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="grid gap-3 p-4 sm:grid-cols-2">
+        {items.map(([label, value, description]) => (
+          <div key={label} className="rounded-lg border bg-white p-4">
+            <p className="text-xs font-medium text-muted-foreground">{label}</p>
+            <p className="mt-2 text-2xl font-bold tracking-tight text-[#17233d]">{value}</p>
+            <p className="mt-2 text-xs text-muted-foreground">{description}</p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function TenantDashboard({
+  spec,
+  role,
+  heading,
+}: {
+  spec: PageSpec;
+  role: RoleKey;
+  heading?: string;
+}) {
   const manualRefreshRequest = useRef(false);
   const dashboard = useQuery({
     queryKey: tenantDashboardKey,
@@ -395,7 +498,7 @@ export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey 
     if (result.error instanceof ManualDashboardRefreshLimitError) {
       setManualRefreshRemaining(0);
       setManualRefreshMessage(
-        'Refresh limit reached. Try again after the current ten-minute window.',
+        'Refresh limit reached. Try again after the current one-minute window.',
       );
       return;
     }
@@ -416,6 +519,7 @@ export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey 
         <DashboardHeader
           spec={spec}
           role={role}
+          heading={heading}
           onRefresh={refresh}
           refreshing={dashboard.isFetching}
           manualRefreshRemaining={manualRefreshRemaining}
@@ -433,9 +537,12 @@ export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey 
     );
 
   const data = dashboard.data;
+  const isTelecaller = role === 'telecaller';
   const navigation = roleNavigation[role];
   const leadPage = leadDestination(role);
   const leadsHref = leadPage ? `/${role}/${leadPage}` : null;
+  const operationPage = operationalDestination(role);
+  const operationsHref = operationPage ? `/${role}/${operationPage}` : null;
   const priorityCards = [
     data.capabilities.leads
       ? {
@@ -467,6 +574,26 @@ export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey 
           href: `/${role}/follow-ups`,
         }
       : null,
+    data.capabilities.operations
+      ? {
+          label: 'Open operational cases',
+          value: data.kpis.open_cases,
+          description: 'Current department queue',
+          icon: CircleAlert,
+          tone: 'bg-amber-50 text-amber-600',
+          href: operationsHref ?? undefined,
+        }
+      : null,
+    data.capabilities.operations
+      ? {
+          label: 'Overdue cases',
+          value: data.kpis.overdue_cases,
+          description: 'Requires a case update',
+          icon: CalendarClock,
+          tone: 'bg-rose-50 text-rose-600',
+          href: operationsHref ? `${operationsHref}?status=overdue` : undefined,
+        }
+      : null,
     data.capabilities.work
       ? {
           label: 'Overdue follow-ups',
@@ -478,7 +605,52 @@ export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey 
         }
       : null,
   ].filter((item): item is NonNullable<typeof item> => Boolean(item));
-  const workload = dashboardKpis(data).slice(0, 6);
+  const telecallerKpis: KpiCard[] = [
+    {
+      label: 'New leads today',
+      value: data.kpis.new_leads_today,
+      helper: 'Fresh enquiries',
+      icon: UserCheck,
+      tone: 'bg-blue-50 text-blue-600',
+    },
+    {
+      label: 'Leads assigned',
+      value: data.kpis.open_leads,
+      helper: 'Own active queue',
+      icon: UsersRound,
+      tone: 'bg-indigo-50 text-indigo-600',
+    },
+    {
+      label: 'Calls logged today',
+      value: data.kpis.calls_today,
+      helper: 'Tracked calls',
+      icon: PhoneCall,
+      tone: 'bg-emerald-50 text-emerald-600',
+    },
+    {
+      label: 'Follow-ups today',
+      value: data.kpis.followups_due_today,
+      helper: 'Due customer commitments',
+      icon: CalendarClock,
+      tone: 'bg-amber-50 text-amber-600',
+    },
+    {
+      label: 'Overdue follow-ups',
+      value: data.kpis.followups_overdue,
+      helper: 'Needs attention',
+      icon: CircleAlert,
+      tone: 'bg-rose-50 text-rose-600',
+    },
+    {
+      label: 'Appointments created',
+      value: data.kpis.appointments_today,
+      helper: 'Scheduled today',
+      icon: CalendarCheck2,
+      tone: 'bg-cyan-50 text-cyan-600',
+    },
+  ];
+  const visibleKpis = isTelecaller ? telecallerKpis : dashboardKpis(data);
+  const workload = visibleKpis.slice(0, 6);
   const workloadMaximum = Math.max(...workload.map((item) => item.value), 1);
 
   return (
@@ -486,6 +658,7 @@ export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey 
       <DashboardHeader
         spec={spec}
         role={role}
+        heading={heading}
         generatedAt={data.generated_at}
         onRefresh={refresh}
         refreshing={dashboard.isFetching}
@@ -494,7 +667,7 @@ export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey 
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
-        {dashboardKpis(data).map((metric) => {
+        {visibleKpis.map((metric) => {
           const Icon = metric.icon;
           return (
             <Card
@@ -503,7 +676,7 @@ export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey 
             >
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <p className="truncate text-[11px] font-semibold tracking-wide text-muted-foreground">
                     {metric.label}
                   </p>
                   <span
@@ -530,7 +703,12 @@ export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey 
             <CardTitle className="text-base">Today&apos;s priority</CardTitle>
             <CardDescription>Start with the work that needs attention now.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
+          <CardContent
+            className={cn(
+              'grid gap-3 sm:grid-cols-2',
+              isTelecaller ? 'xl:grid-cols-4' : 'xl:grid-cols-2',
+            )}
+          >
             {priorityCards.length ? (
               priorityCards.map((item) => (
                 <div
@@ -571,12 +749,28 @@ export function TenantDashboard({ spec, role }: { spec: PageSpec; role: RoleKey 
 
       <div className="grid gap-5 xl:grid-cols-12">
         <div className="xl:col-span-8">
-          <LeadPreviewTable records={data.lead_preview} leadHref={leadsHref} />
+          {data.capabilities.leads ? (
+            <LeadPreviewTable
+              records={data.lead_preview}
+              leadHref={leadsHref}
+              title={isTelecaller ? 'My leads – at a glance' : undefined}
+            />
+          ) : data.capabilities.operations ? (
+            <OperationalQueueOverview data={data} href={operationsHref} />
+          ) : (
+            <LeadPreviewTable records={data.lead_preview} leadHref={leadsHref} />
+          )}
         </div>
         <Card className="shadow-none xl:col-span-4">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Today&apos;s workload</CardTitle>
-            <CardDescription>Live volume in your authorized scope</CardDescription>
+            <CardTitle className="text-base">
+              {isTelecaller ? "Today's performance" : "Today's workload"}
+            </CardTitle>
+            <CardDescription>
+              {isTelecaller
+                ? 'Live progress in your assigned queue'
+                : 'Live volume in your authorized scope'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {workload.map((metric) => {

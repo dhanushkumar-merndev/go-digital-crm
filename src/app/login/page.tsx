@@ -2,25 +2,20 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ArrowRight, LockKeyhole, Mail } from 'lucide-react';
-import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { AuthPageShell } from '@/components/shared/auth-page-shell';
 import { AuthLink } from '@/features/auth/auth-link';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
-import {
-  fetchTenantDashboard,
-  tenantDashboardKey,
-} from '@/features/dashboards/tenant-dashboard-api';
 import { getSafeAuthErrorMessage } from '@/lib/auth/safe-errors';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
+import { toast } from '@/components/ui/toast';
 
 const schema = z.object({
   email: z.email('Enter a valid email address'),
@@ -31,31 +26,40 @@ type FormValues = z.infer<typeof schema>;
 export default function LoginPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [error, setError] = useState<string>();
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { email: '', password: '' },
   });
   const onSubmit = form.handleSubmit(async (values) => {
-    setError(undefined);
     if (!hasSupabaseConfig()) {
-      setError(getSafeAuthErrorMessage('SIGN_IN'));
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'Sign in unavailable',
+        description: getSafeAuthErrorMessage('SIGN_IN'),
+      });
       return;
     }
     try {
       const { error: authError } = await createClient().auth.signInWithPassword(values);
       if (authError) throw authError;
-      // Most sign-ins land on the tenant dashboard next. Start warming its
-      // (cold, Redis-cached) query now, in parallel with the redirect, so
-      // the dashboard's first paint doesn't wait out the full round trip.
-      void queryClient.prefetchQuery({
-        queryKey: tenantDashboardKey,
-        queryFn: ({ signal }) => fetchTenantDashboard(signal),
+      // A shared browser can move between tenants/users. Never carry a prior
+      // subject's in-memory CRM data into the newly authenticated session.
+      queryClient.clear();
+      toast.add({
+        type: 'success',
+        title: 'Signed in successfully',
+        description: 'Opening your workspace…',
       });
       router.replace('/');
       router.refresh();
     } catch {
-      setError(getSafeAuthErrorMessage('SIGN_IN'));
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'Sign in failed',
+        description: getSafeAuthErrorMessage('SIGN_IN'),
+      });
     }
   });
   return (
@@ -108,11 +112,6 @@ export default function LoginPage() {
                 <p className="text-xs text-destructive">{form.formState.errors.password.message}</p>
               )}
             </div>
-            {error && (
-              <Alert variant="destructive" role="alert">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
             <Button className="w-full" type="submit" disabled={form.formState.isSubmitting}>
               {form.formState.isSubmitting ? 'Signing in…' : 'Sign in'}
               <ArrowRight className="size-4" />

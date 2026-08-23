@@ -14,18 +14,15 @@ import {
   Menu,
   Plus,
   QrCode,
-  Search,
   UserRoundPlus,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { roleNavigation } from '@/config/navigation';
 import type { RoleKey } from '@/config/navigation/types';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,20 +33,21 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useUiStore } from '@/stores/ui-store';
 import { MobileLinkDialog } from '@/features/auth/mobile-link-dialog';
-import { fetchAssignedDealershipName } from '@/features/auth/header-workspace-api';
+import { GlobalCustomerSearch } from '@/components/shared/global-customer-search';
 import { canLinkMobileApp } from '@/lib/auth/mobile-link-policy';
 import { getSafeAuthErrorMessage } from '@/lib/auth/safe-errors';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+} from '@/components/providers/workspace-session-provider';
 import {
   fetchHeaderNotifications,
   headerNotificationsKey,
   markHeaderNotificationRead,
 } from '@/features/notifications/notification-api';
-
-type HeaderProfile = {
-  displayName: string;
-  email?: string;
-};
+import { NotificationCenterSheet } from '@/features/notifications/notification-center-sheet';
+import { TaskCenterSheet } from '@/features/tasks/task-center-sheet';
 
 function getInitials(value: string) {
   const initials = value
@@ -76,25 +74,30 @@ function notificationTime(value: string) {
 
 export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: boolean }) {
   const router = useRouter();
+  const workspaceSession = useWorkspaceSession();
   const openMobileNavigation = useUiStore((state) => state.setMobileNavigationOpen);
   const [mobileLinkOpen, setMobileLinkOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [menuError, setMenuError] = useState<string>();
-  const [workspaceSearch, setWorkspaceSearch] = useState('');
+  const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
+  const [taskCenterOpen, setTaskCenterOpen] = useState(false);
   const queryClient = useQueryClient();
-  const [profile, setProfile] = useState<HeaderProfile>({
-    displayName: previewMode ? 'Local Preview' : 'Account',
-  });
+  const profile = {
+    displayName: previewMode ? 'Local Preview' : (workspaceSession?.displayName ?? 'Account'),
+    email: workspaceSession?.email ?? undefined,
+  };
   const eligibleForMobile = canLinkMobileApp(role);
   const salesWorkspace = role === 'sales-consultant';
-  const assignedDealership = useQuery({
-    queryKey: ['header-assigned-dealership'],
-    queryFn: fetchAssignedDealershipName,
-    enabled: salesWorkspace && !previewMode && hasSupabaseConfig(),
-    staleTime: 5 * 60_000,
-  });
+  const canOpenTaskCenter =
+    !previewMode &&
+    Boolean(workspaceSession?.organizationId) &&
+    hasWorkspacePermission(workspaceSession, 'task.view');
   const notifications = useQuery({
-    queryKey: headerNotificationsKey,
+    queryKey: [
+      ...headerNotificationsKey,
+      workspaceSession?.organizationId ?? 'no-organization',
+      workspaceSession?.userId ?? 'no-user',
+    ],
     queryFn: ({ signal }) => fetchHeaderNotifications(signal),
     enabled: !previewMode && hasSupabaseConfig(),
     staleTime: 60_000,
@@ -107,38 +110,13 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
     notifications.data?.filter((notification) => !notification.read_at).length ?? 0;
   const dealershipName = previewMode
     ? 'Apex Motors Pvt. Ltd.'
-    : (assignedDealership.data ??
-      (assignedDealership.isPending ? 'Loading dealership…' : 'Assigned dealership'));
+    : (workspaceSession?.workspaceName ?? 'Assigned dealership');
   const currentDate = new Intl.DateTimeFormat('en-IN', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     timeZone: 'Asia/Kolkata',
   }).format(new Date());
-
-  useEffect(() => {
-    if (!hasSupabaseConfig()) return;
-    let active = true;
-    void createClient()
-      .auth.getUser()
-      .then(({ data }) => {
-        if (!active || !data.user) return;
-        const metadata = data.user.user_metadata as Record<string, unknown>;
-        const metadataName = [metadata.full_name, metadata.name].find(
-          (value): value is string => typeof value === 'string' && value.trim().length > 0,
-        );
-        setProfile({
-          displayName: metadataName ?? data.user.email?.split('@')[0] ?? 'Account',
-          email: data.user.email,
-        });
-      })
-      .catch(() => {
-        /* The menu keeps a non-sensitive account fallback if profile loading fails. */
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   async function signOut() {
     setMenuError(undefined);
@@ -148,6 +126,7 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
     }
     setSigningOut(true);
     try {
+      queryClient.clear();
       const { error } = await createClient().auth.signOut();
       if (error) throw error;
       router.replace('/login');
@@ -171,32 +150,8 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
         >
           <Menu className="size-5" />
         </Button>
-        {salesWorkspace ? (
-          <form
-            className="relative hidden w-full max-w-[360px] md:block"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const query = workspaceSearch.trim();
-              router.push(
-                query
-                  ? `/sales-consultant/my-leads?q=${encodeURIComponent(query)}`
-                  : '/sales-consultant/my-leads',
-              );
-            }}
-          >
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={workspaceSearch}
-              onChange={(event) => setWorkspaceSearch(event.target.value)}
-              className="h-9 bg-slate-50 pl-9 pr-14 text-xs"
-              placeholder="Search by Lead ID, Customer Name, Mobile..."
-              aria-label="Search Sales Consultant leads"
-            />
-            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border bg-white px-1.5 py-0.5 text-[9px] text-muted-foreground">
-              Enter
-            </span>
-          </form>
-        ) : (
+        <GlobalCustomerSearch role={role} />
+        {!salesWorkspace && (
           <div className="hidden items-center gap-2 text-sm md:flex">
             <div className="grid size-8 place-items-center rounded-lg bg-blue-50 text-blue-700">
               <Building2 className="size-4" />
@@ -248,13 +203,18 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Button asChild variant="ghost" size="sm" className="hidden xl:inline-flex">
-                <Link href="/sales-consultant/tasks">
-                  <ClipboardList className="size-4" /> Tasks
-                </Link>
-              </Button>
             </>
           )}
+          {canOpenTaskCenter ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="hidden xl:inline-flex"
+              onClick={() => setTaskCenterOpen(true)}
+            >
+              <ClipboardList className="size-4" /> Tasks
+            </Button>
+          ) : null}
           <DropdownMenu
             onOpenChange={(open) => {
               if (open) void notifications.refetch();
@@ -334,6 +294,16 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
                   </div>
                 )}
               </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="justify-center py-2 text-xs font-semibold text-blue-700 focus:text-blue-800"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setNotificationCenterOpen(true);
+                }}
+              >
+                View notification center
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           <div className="hidden h-8 w-px bg-border sm:block" />
@@ -402,6 +372,12 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
       {eligibleForMobile && (
         <MobileLinkDialog open={mobileLinkOpen} onOpenChange={setMobileLinkOpen} />
       )}
+      <TaskCenterSheet open={taskCenterOpen} onOpenChange={setTaskCenterOpen} role={role} />
+      <NotificationCenterSheet
+        open={notificationCenterOpen}
+        onOpenChange={setNotificationCenterOpen}
+        role={role}
+      />
     </>
   );
 }

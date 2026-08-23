@@ -93,4 +93,10 @@ export interface AIAdapter {
   transcribe(objectFileId: string): Promise<ProviderTranscript>;
   summarize(transcript: string): Promise<{ summary: string }>;
   extractFields(transcript: string): Promise<Record<string, unknown>>;
+  generateText(input: { model: string; prompt: string }): Promise<{ text: string }>;
+  generateImage(input: {
+    model: string;
+    prompt: string;
+    size?: string;
+  }): Promise<{ mimeType: string; bytes: Uint8Array }>;
 }

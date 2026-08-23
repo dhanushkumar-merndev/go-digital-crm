@@ -27,6 +27,8 @@
     "env:print:edge-secrets": "node scripts/print-edge-secrets.mjs",
     "env:print:trigger-secrets": "node scripts/print-trigger-secrets.mjs",
     "seed:demo:remote": "node scripts/seed-demo-tenant.mjs --apply",
+    "test:demo:flow": "node scripts/test-demo-business-flow.mjs",
+    "test:demo:roles": "node scripts/test-demo-role-access.mjs",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm typecheck:mobile && pnpm mobile:doctor && pnpm test:api && pnpm check:supabase-config && pnpm check:edge && pnpm build:webpack",
     "supabase:local:start": "pnpm dlx supabase@2.114.0 start",
     "supabase:local:reset": "pnpm dlx supabase@2.114.0 db reset",
@@ -46,6 +48,7 @@
     "@aws-sdk/client-s3": "3.1110.0",
     "@aws-sdk/lib-storage": "3.1110.0",
     "@aws-sdk/s3-request-presigner": "3.1110.0",
+    "@base-ui/react": "^1.7.0",
     "@hookform/resolvers": "latest",
     "@lottiefiles/dotlottie-react": "^0.19.14",
     "@radix-ui/react-alert-dialog": "latest",
@@ -100,5 +103,9 @@
     "node": "24.x",
     "pnpm": "11.21.0"
   },
-  "packageManager": "pnpm@11.21.0"
+  "packageManager": "pnpm@11.21.0",
+  "workspaces": [
+    ".",
+    "mobile"
+  ]
 }

@@ -14,6 +14,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { fetchPossibleCustomerMatches, resolveLeadCustomer } from './customer-workspace-api';
 
 export type MatchableLead = {
@@ -37,12 +41,14 @@ export function CustomerMatchDialog({
   onOpenChange: (open: boolean) => void;
   onResolved: (customerId: string) => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const [resolution, setResolution] = useState<'LINK_EXISTING' | 'CREATE_NEW'>('LINK_EXISTING');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [requestId] = useState(() => crypto.randomUUID());
   const matches = useQuery({
-    queryKey: ['possible-customer-matches', lead?.id],
-    queryFn: () => fetchPossibleCustomerMatches(lead!.id),
+    queryKey: ['possible-customer-matches', ...queryScope, lead?.id],
+    queryFn: ({ signal }) => fetchPossibleCustomerMatches(lead!.id, signal),
     enabled: open && Boolean(lead),
   });
   const effectiveResolution = matches.data?.length ? resolution : 'CREATE_NEW';

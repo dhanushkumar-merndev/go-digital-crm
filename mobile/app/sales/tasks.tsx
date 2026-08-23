@@ -1,4 +1,4 @@
-import { WorkListScreen } from '@/components/work-list-screen';
+import { MobileWorkQueueScreen } from '@/components/mobile-work-queue-screen';
 export default function Tasks() {
-  return <WorkListScreen title="Tasks" />;
+  return <MobileWorkQueueScreen kind="tasks" />;
 }

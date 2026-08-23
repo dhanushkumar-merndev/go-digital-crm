@@ -21,6 +21,14 @@ describe('operational case route and query boundary', () => {
       department: 'FINANCE',
       initialStatus: 'OPEN',
     });
+    expect(operationalCaseRoute('finance', 'my-performance')).toMatchObject({
+      department: 'FINANCE',
+      initialStatus: 'ALL',
+    });
+    expect(operationalCaseRoute('delivery', 'my-performance')).toMatchObject({
+      department: 'DELIVERY',
+      initialStatus: 'ALL',
+    });
     expect(operationalCaseRoute('sales-consultant', 'exchange')).toMatchObject({
       department: 'EXCHANGE',
       canOriginateRequest: true,

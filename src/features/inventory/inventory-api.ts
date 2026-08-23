@@ -71,13 +71,14 @@ export async function fetchInventoryPermissions(): Promise<InventoryPermissions>
 
 export type InventoryBranch = { id: string; name: string };
 
-export async function fetchInventoryBranches(): Promise<InventoryBranch[]> {
-  const { data, error } = await createClient()
+export async function fetchInventoryBranches(signal?: AbortSignal): Promise<InventoryBranch[]> {
+  const request = createClient()
     .from('branches')
     .select('id,name')
     .eq('active', true)
     .is('deleted_at', null)
     .order('name');
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return z.array(z.object({ id: z.uuid(), name: z.string() })).parse(data);
 }
@@ -418,10 +419,11 @@ const stockDetailSchema = stockUnitSchema
 
 export type StockUnitDetail = z.infer<typeof stockDetailSchema>;
 
-export async function fetchStockUnitDetail(stockUnitId: string) {
-  const { data, error } = await createClient().rpc('get_stock_unit_detail', {
+export async function fetchStockUnitDetail(stockUnitId: string, signal?: AbortSignal) {
+  const request = createClient().rpc('get_stock_unit_detail', {
     target_stock_unit_id: stockUnitId,
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return stockDetailSchema.parse(data);
 }

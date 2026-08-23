@@ -1,5 +1,9 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import {
+  encodeWorkspaceBootstrapHeader,
+  WORKSPACE_BOOTSTRAP_HEADER,
+} from '@/lib/auth/workspace-bootstrap-header';
 import { getRuntimeMode } from '@/lib/runtime/runtime-mode';
 
 type AccessContext = {
@@ -55,21 +59,30 @@ export async function proxy(request: NextRequest) {
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) return redirectWithSessionCookies('/access/configuration', request);
 
-  let response = NextResponse.next({ request });
+  const upstreamHeaders = new Headers(request.headers);
+  // Never trust a value supplied by the browser. Only the verified value set
+  // below may be consumed by Server Components.
+  upstreamHeaders.delete(WORKSPACE_BOOTSTRAP_HEADER);
+
+  const nextResponse = () =>
+    NextResponse.next({
+      request: { headers: upstreamHeaders },
+    });
+  let response = nextResponse();
   const supabase = createServerClient(url, key, {
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll: (items, headers) => {
         items.forEach(({ name, value }) => request.cookies.set(name, value));
-        response = NextResponse.next({ request });
+        response = nextResponse();
         items.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
         Object.entries(headers).forEach(([name, value]) => response.headers.set(name, value));
       },
     },
   });
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
   const isPublicAuthPath = publicAuthPaths.has(pathname);
-  if (!userData.user) {
+  if (claimsError || !claimsData?.claims?.sub) {
     return isPublicAuthPath
       ? privateNoStore(response)
       : redirectWithSessionCookies('/login', request, response);
@@ -83,7 +96,7 @@ export async function proxy(request: NextRequest) {
     return privateNoStore(response);
   }
 
-  const { data, error } = await supabase.rpc('get_access_context');
+  const { data, error } = await supabase.rpc('get_workspace_bootstrap');
   if (error || !data) return redirectWithSessionCookies('/access/locked', request, response);
   const context = data as AccessContext;
   if (context.destination !== 'CRM') {
@@ -103,6 +116,14 @@ export async function proxy(request: NextRequest) {
   const requestedRole = pathname.split('/')[1];
   if (requestedRole !== context.role_key) {
     return redirectWithSessionCookies(roleDashboard, request, response);
+  }
+
+  const encodedBootstrap = encodeWorkspaceBootstrapHeader(data);
+  if (encodedBootstrap) {
+    const refreshedCookies = response.cookies.getAll();
+    upstreamHeaders.set(WORKSPACE_BOOTSTRAP_HEADER, encodedBootstrap);
+    response = nextResponse();
+    refreshedCookies.forEach((cookie) => response.cookies.set(cookie));
   }
 
   return privateNoStore(response);

@@ -3,6 +3,10 @@
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeftRight, PackageCheck, Pencil, Plus, TriangleAlert } from 'lucide-react';
 import { useRef, useState } from 'react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -66,6 +70,8 @@ export function StockIntakeDialog({
   onOpenChange: (open: boolean) => void;
   onCreated: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const [variantSearch, setVariantSearch] = useState('');
   const [variantId, setVariantId] = useState('');
   const [branchId, setBranchId] = useState('');
@@ -73,7 +79,7 @@ export function StockIntakeDialog({
   const debouncedVariantSearch = useDebouncedValue(variantSearch, 300);
   const requestId = useRef<string | null>(null);
   const variants = useQuery({
-    queryKey: ['inventory-variant-options', organizationId, debouncedVariantSearch],
+    queryKey: ['inventory-variant-options', organizationId, ...queryScope, debouncedVariantSearch],
     queryFn: ({ signal }) => fetchVariantOptions(debouncedVariantSearch, signal),
     enabled: open,
     placeholderData: keepPreviousData,
@@ -268,9 +274,11 @@ export function StockUnitDetailSheet({
   onOpenChange: (open: boolean) => void;
   onChanged: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const detail = useQuery({
-    queryKey: ['inventory-unit-detail', stockUnitId],
-    queryFn: () => fetchStockUnitDetail(stockUnitId as string),
+    queryKey: ['inventory-unit-detail', stockUnitId, ...queryScope],
+    queryFn: ({ signal }) => fetchStockUnitDetail(stockUnitId as string, signal),
     enabled: Boolean(stockUnitId),
   });
   const [status, setStatus] = useState('');
@@ -292,7 +300,7 @@ export function StockUnitDetailSheet({
     ),
   );
   const bookings = useQuery({
-    queryKey: ['inventory-booking-options', data?.branch_id, debouncedBookingSearch],
+    queryKey: ['inventory-booking-options', data?.branch_id, ...queryScope, debouncedBookingSearch],
     queryFn: ({ signal }) =>
       fetchBookingOptions(data?.branch_id as string, debouncedBookingSearch, signal),
     enabled: Boolean(data?.branch_id && permissions.canAllocate && data.status === 'AVAILABLE'),

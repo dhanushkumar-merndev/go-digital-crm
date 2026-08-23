@@ -18,6 +18,8 @@ Do not release until all of these are true:
 - Trigger.dev schedules and retries are observed in staging
 - approved screenshots and acceptance flows have been manually checked on desktop and release mobile builds
 - rollback owners, backup/restore access and incident contacts are recorded
+- Sales Consultant staging smoke tests meet the latency budget below with production-like row
+  counts and every list query is confirmed to use its tenant/owner/date index
 
 The current repository still needs a verified remote deployment, complete live module coverage and the remaining API/RLS behavior tests before these gates can be signed off.
 
@@ -63,8 +65,10 @@ The validator reports variable names and validation reasons only. `pnpm env:chec
 
 ### Upstash dashboard cache
 
-Create separate Upstash Redis databases for development and production. Add the following only to
-the matching Supabase Edge project secrets, then set `UPSTASH_REDIS_ENABLED=true`:
+Create separate Upstash Redis databases for development and production. Use AWS Mumbai
+(`ap-south-1`) as the primary region so cache reads/writes stay beside the current Supabase Edge and
+PostgreSQL region; review this choice if Supabase moves. Add the following only to the matching
+Supabase Edge project secrets, then set `UPSTASH_REDIS_ENABLED=true`:
 
 ```text
 UPSTASH_REDIS_REST_URL
@@ -73,9 +77,11 @@ UPSTASH_REDIS_CACHE_PREFIX=go-digital
 UPSTASH_REDIS_ENABLED=true
 ```
 
-The Edge function uses one-hour role/scope-versioned caches for aggregate dashboards. It does not
-store customer/lead previews, phone numbers, sessions, credentials, or paginated CRM records in
-Redis. Leave the flag `false` until both values exist; the function safely falls back to Supabase.
+The generic analytical dashboards use role/scope-versioned aggregate caches. The Sales Consultant
+summary has a deliberately short 60-second TTL and a per-user/scope fingerprint. Its schedule,
+recent leads, customer names, phone numbers and signed image URLs always use the uncached live path.
+Sessions, credentials and paginated CRM records are never stored in Redis. Leave the flag `false`
+until both values exist; the function safely and quickly falls back to Supabase.
 
 An operator or protected deployment job can separately run `pnpm env:check:deployment` after supplying the Supabase and Trigger CLI credentials. Those credentials are intentionally absent from `.env.example` because they are not application runtime configuration.
 
@@ -113,6 +119,12 @@ pnpm dlx supabase@2.114.0 migration list
 pnpm supabase:db:push
 pnpm dlx supabase@2.114.0 migration list
 ```
+
+Migration `202608220001_sales_consultant_hot_path_indexes.sql` deliberately uses
+`CREATE INDEX CONCURRENTLY` so large CRM tables remain writable while indexes build. Keep it outside
+an explicit transaction, use the repository-pinned CLI, and exercise the exact path against staging
+before production. After an interrupted build, inspect `pg_index.indisvalid` for every index from the
+migration and repair an invalid index before releasing application code that depends on it.
 
 Upload Edge runtime secrets from a dedicated ignored file. Review the filename and target project before running this state-changing command:
 
@@ -180,9 +192,30 @@ pnpm dlx trigger.dev@4.5.11 promote DEPLOYMENT_VERSION
 
 Confirm the provider outbox, recording ingestion, retention purge and support-session expiry schedules are registered. Trigger.dev schedules replace Vercel cron for these jobs.
 
+For provider-recording AI processing, add the following values to the matching
+Trigger.dev environment before promoting its candidate version:
+
+```text
+IVR_RECORDING_ALLOWED_HOSTS
+GROQ_API_KEY
+GROQ_TRANSCRIPTION_MODEL
+GROQ_ANALYSIS_MODEL
+AI_CALL_TRANSCRIPTION_CREDITS
+AI_CALL_ANALYSIS_CREDITS
+```
+
+The local helper `pnpm env:print:trigger-secrets` prepares the values for the
+Trigger.dev Variables form. Run it only on the trusted workstation and never
+paste its output into source control, browser variables, or a support chat.
+
 ## 4. Deploy the Vercel web application
 
 Vercel detects Next.js using `vercel.json`, installs with the frozen pnpm lockfile and runs `pnpm build:vercel`. The build fails when required public Supabase configuration is absent or malformed.
+
+`vercel.json` pins server compute to Mumbai (`bom1`) so Server Components and Proxy execute beside
+the current Supabase `ap-south-1` database instead of Vercel's default US region. Keep this aligned
+with the database if the Supabase project is ever migrated. Static assets remain globally served by
+Vercel's CDN; do not add multiple write regions to a single-region PostgreSQL deployment.
 
 The preferred release path is Vercel's Git integration after required CI checks pass. For an explicitly authorized CLI deployment:
 
@@ -194,6 +227,25 @@ pnpm vercel:deploy:production
 Configure the production `/auth/callback` URL in the Supabase Auth redirect allowlist before promotion. Provider APIs remain behind Supabase Edge Functions; do not copy provider/service secrets into Vercel merely for convenience.
 
 Vercel Hobby is for personal, non-commercial use. A commercial dealership production deployment must use an eligible Vercel plan or another approved host; free-tier assumptions are suitable only for a non-commercial prototype within provider limits.
+
+### Sales Consultant latency gate
+
+Measure from a Vercel preview wired to staging after applying the complete migration chain. Use at
+least one realistically large tenant and report p50/p95 separately; a tiny demo tenant is only a
+correctness smoke test.
+
+- workspace bootstrap: p95 below 300 ms from `bom1`
+- first 25-row list RPC: p95 below 500 ms for indexed filters and ordinary page depths
+- dashboard Redis hit: p95 below 250 ms excluding browser-to-region network time
+- dashboard cold/fallback response: p95 below 750 ms
+- warm client navigation should show useful content inside 1 second; cold navigation should show
+  the route skeleton immediately and useful content inside 2 seconds under normal network conditions
+
+For million-row validation, run `EXPLAIN (ANALYZE, BUFFERS)` on staging fixtures for owner/date/status
+filters and deep-history paths. High-volume activity/audit streams must use `(created_at, id)` or
+`(occurred_at, id)` cursors; ordinary CRM tables may retain bounded server-side offset pagination.
+Review `pg_stat_statements`, Supabase Query Performance and Index Advisor after each load run. Do not
+claim the budget from a source-code inspection alone.
 
 ## 5. Build the Expo mobile application
 
@@ -228,7 +280,10 @@ Store submission is intentionally separate from building. Review signing identit
 
 These require account ownership or verified external state and cannot be completed by repository changes alone:
 
-- the linked Supabase project has all migrations through `202608150031` and all 27 configured Edge Functions active; tenant/auth fixtures and authenticated cross-tenant smoke tests are still required
+- the current CLI identity receives a Supabase access-control `403`, so remote migration/function
+  parity cannot be re-confirmed from this workspace; none of the `20260822*` Sales performance
+  migrations or the updated dashboard Edge function should be treated as deployed until an
+  authorized owner applies and verifies them in staging
 - a full fresh Docker/CI reset remains a required release gate even though the linked remote migration chain applied successfully
 - the current production dependency audit reports 2 high and 2 moderate findings in Expo/Metro's transitive `image-size@1.2.1` path. The advisory names `>=2.0.3` as fixed, but that version is not currently published to the registry; track the Expo/Metro upstream release or document a time-bounded accepted risk before release
 - Vercel, Trigger.dev and EAS projects must be linked by their owners with protected environment variables

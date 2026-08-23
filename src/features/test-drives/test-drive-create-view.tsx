@@ -14,6 +14,10 @@ import {
   UserRound,
 } from 'lucide-react';
 import { useRef, useState } from 'react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -46,6 +50,8 @@ export function TestDriveCreateView({
   onCancel: () => void;
   onSaved: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const [leadSearch, setLeadSearch] = useState('');
   const [leadId, setLeadId] = useState('');
   const [branchId, setBranchId] = useState('');
@@ -57,14 +63,16 @@ export function TestDriveCreateView({
   const [startLocation, setStartLocation] = useState('');
   const [destination, setDestination] = useState('');
   const requestId = useRef<string | null>(null);
+  const debouncedLeadSearch = useDebouncedValue(leadSearch, 300);
+  const debouncedVehicleSearch = useDebouncedValue(vehicleSearch, 300);
   const leads = useQuery({
-    queryKey: ['test-drive-lead-options', useDebouncedValue(leadSearch, 300)],
-    queryFn: ({ signal }) => fetchTestDriveLeadOptions(leadSearch, signal),
+    queryKey: ['test-drive-lead-options', ...queryScope, debouncedLeadSearch],
+    queryFn: ({ signal }) => fetchTestDriveLeadOptions(debouncedLeadSearch, signal),
     staleTime: 60_000,
   });
   const vehicles = useQuery({
-    queryKey: ['test-drive-vehicle-options', branchId, useDebouncedValue(vehicleSearch, 300)],
-    queryFn: ({ signal }) => fetchTestDriveVehicleOptions(branchId, vehicleSearch, signal),
+    queryKey: ['test-drive-vehicle-options', ...queryScope, branchId, debouncedVehicleSearch],
+    queryFn: ({ signal }) => fetchTestDriveVehicleOptions(branchId, debouncedVehicleSearch, signal),
     enabled: Boolean(branchId),
     staleTime: 60_000,
   });

@@ -29,6 +29,17 @@ export const callSorts = [
 ] as const;
 export type CallSort = (typeof callSorts)[number];
 
+export const callWorkspaceViews = ['today', 'history', 'missed', 'recordings', 'ai'] as const;
+export type CallWorkspaceView = (typeof callWorkspaceViews)[number];
+
+export const callWorkspaceViewValues: Record<CallWorkspaceView, string> = {
+  today: 'TODAY',
+  history: 'HISTORY',
+  missed: 'MISSED',
+  recordings: 'RECORDINGS',
+  ai: 'AI',
+};
+
 export type CallQuery = {
   page: number;
   pageSize: CallPageSize;

@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": ["../../../../../../../.local/share/pnpm/store/v11/links/@opentelemetry/resources/2.7.1/597c46321c08e582b3119595907862a8174865d99122a2cdd16b0906ac57c615/node_modules/@opentelemetry/resources/src/detectors/platform/node/machine-id/execAsync.ts"],
+  "mappings": ";;;;;;;;;;;;;AAKA,QAAA,gBAAA,UAAA,eAAA;AACA,QAAA,OAAA,UAAA,MAAA;AAEa,YAAA,YAAY,KAAK,UAAU,cAAc,IAAI;;;",
+  "names": []
+}

@@ -71,19 +71,26 @@ export type SalesActivityQuery = {
 };
 
 export const salesActivityTimelineKey = ['sales-consultant-activity-timeline'] as const;
+export type ActivityTimelineRole = 'sales-consultant' | 'telecaller';
 
 export async function fetchSalesConsultantActivityTimeline(
   query: SalesActivityQuery,
+  role: ActivityTimelineRole = 'sales-consultant',
   signal?: AbortSignal,
 ) {
-  const request = createClient().rpc('get_sales_consultant_activity_timeline', {
-    target_search: query.search,
-    target_kind: query.kind,
-    target_page: query.page,
-    target_page_size: query.pageSize,
-    target_sort: query.sort,
-    target_timezone: 'Asia/Kolkata',
-  });
+  const request = createClient().rpc(
+    role === 'telecaller'
+      ? 'get_telecaller_activity_timeline'
+      : 'get_sales_consultant_activity_timeline',
+    {
+      target_search: query.search,
+      target_kind: query.kind,
+      target_page: query.page,
+      target_page_size: query.pageSize,
+      target_sort: query.sort,
+      target_timezone: 'Asia/Kolkata',
+    },
+  );
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return timelineSchema.parse(data);

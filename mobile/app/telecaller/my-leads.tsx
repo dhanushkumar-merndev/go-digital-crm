@@ -1,4 +1,4 @@
-import { WorkListScreen } from '@/components/work-list-screen';
+import { MobileLeadListScreen } from '@/components/mobile-lead-list-screen';
 export default function MyLeads() {
-  return <WorkListScreen title="My Leads" />;
+  return <MobileLeadListScreen />;
 }

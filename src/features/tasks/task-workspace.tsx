@@ -50,6 +50,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import type { Metric, PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import {
@@ -413,6 +418,25 @@ function TaskTable({
 }
 
 export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
+  const workspaceSession = useWorkspaceSession();
+  const useSalesBootstrap =
+    role === 'sales-consultant' &&
+    workspaceSession?.roleKey === 'sales-consultant' &&
+    Boolean(workspaceSession.organizationId);
+  const queryScope = useMemo(
+    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
+    [role, useSalesBootstrap, workspaceSession],
+  );
+  const bootstrapPermissions: TaskPermissions | undefined = useSalesBootstrap
+    ? {
+        organizationId: workspaceSession!.organizationId as string,
+        scopeKey: workspaceSession!.scopeKey,
+        canCreate: hasWorkspacePermission(workspaceSession, 'task.create'),
+        canUpdate: hasWorkspacePermission(workspaceSession, 'task.update'),
+        canComplete: hasWorkspacePermission(workspaceSession, 'task.complete'),
+        canCancel: hasWorkspacePermission(workspaceSession, 'task.cancel'),
+      }
+    : undefined;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -438,47 +462,41 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
     () => ({ ...query, search: debouncedSearch }),
     [debouncedSearch, query],
   );
-  const permissions = useQuery({
-    queryKey: ['task-workspace-permissions'],
+  const legacyPermissions = useQuery({
+    queryKey: ['task-workspace-permissions', role],
     queryFn: fetchTaskPermissions,
+    enabled: !useSalesBootstrap,
     staleTime: 60_000,
   });
-  useTenantRealtimeInvalidation(permissions.data?.organizationId, [
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
+  useTenantRealtimeInvalidation(permissions?.organizationId, [
     {
       resource: 'work',
-      queryKeys: [['task-workspace', permissions.data?.organizationId]],
+      queryKeys: [['task-workspace', ...queryScope]],
     },
   ]);
   const workspace = useQuery({
-    queryKey: [
-      'task-workspace',
-      permissions.data?.organizationId,
-      permissions.data?.scopeKey,
-      timezone,
-      requestQuery,
-    ],
+    queryKey: ['task-workspace', ...queryScope, timezone, requestQuery],
     queryFn: ({ signal }) => fetchTaskWorkspace(requestQuery, timezone, signal),
-    enabled: Boolean(permissions.data),
+    enabled: Boolean(permissions),
     placeholderData: keepPreviousData,
   });
-  const onQueryChange = useCallback(
-    (next: Partial<TaskQuery>) => {
-      const updated = { ...query, ...next };
-      setQuery(updated);
-      const queryString = toTaskQueryString(updated);
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
-    },
-    [pathname, query, router],
-  );
+  const onQueryChange = (next: Partial<TaskQuery>) => {
+    const updated = { ...query, ...next };
+    setQuery(updated);
+    const queryString = toTaskQueryString(updated);
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+  };
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: ['task-workspace', permissions.data?.organizationId],
+      queryKey: ['task-workspace', ...queryScope],
     });
     void queryClient.invalidateQueries({ queryKey: ['customer-360'] });
-  }, [permissions.data?.organizationId, queryClient]);
+  }, [queryClient, queryScope]);
 
-  if (permissions.isPending || (workspace.isPending && permissions.data)) return <PageSkeleton />;
-  if (permissions.isError || workspace.isError || !permissions.data || !workspace.data)
+  if ((!useSalesBootstrap && legacyPermissions.isPending) || (workspace.isPending && permissions))
+    return <PageSkeleton />;
+  if (legacyPermissions.isError || workspace.isError || !permissions || !workspace.data)
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -493,7 +511,7 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
             className="mt-5"
             variant="outline"
             onClick={() => {
-              void permissions.refetch();
+              if (!useSalesBootstrap) void legacyPermissions.refetch();
               void workspace.refetch();
             }}
           >
@@ -519,7 +537,7 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
             Plan lead-linked work, prioritize due items and record completion outcomes.
           </p>
         </div>
-        {permissions.data.canCreate && (
+        {permissions.canCreate && (
           <Button className="shrink-0" onClick={() => setCreateOpen(true)}>
             <Plus className="size-4" /> Create task
           </Button>
@@ -557,14 +575,14 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
           result={workspace.data}
           query={query}
           role={role}
-          permissions={permissions.data}
+          permissions={permissions}
           isFetching={workspace.isFetching}
           onQueryChange={onQueryChange}
           onEdit={setEditing}
           onAction={(action, record) => setActionState({ action, record })}
         />
       </div>
-      {permissions.data.canCreate && (
+      {permissions.canCreate && (
         <TaskFormDialog open={createOpen} onOpenChange={setCreateOpen} onSaved={invalidate} />
       )}
       {editing && (

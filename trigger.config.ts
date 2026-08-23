@@ -1,7 +1,9 @@
 import { defineConfig } from '@trigger.dev/sdk';
 
 export default defineConfig({
-  project: process.env.TRIGGER_PROJECT_REF ?? 'proj_go_digital_marketing_crm',
+  // Keep the checked-in default aligned with the shared production project.
+  // Local/staging environments can still override this through TRIGGER_PROJECT_REF.
+  project: process.env.TRIGGER_PROJECT_REF ?? 'proj_fzoptcxghjglrrhbqzql',
   dirs: ['./trigger'],
   maxDuration: 3600,
   retries: {

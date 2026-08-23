@@ -62,7 +62,7 @@ export function customerCareLabel(value: string) {
 }
 
 export function customerCareInitialView(slug: string): CustomerCareView | null {
-  if (slug === 'dashboard') return 'OPEN';
+  if (slug === 'dashboard' || slug === 'my-performance') return 'OPEN';
   if (slug === 'customer-cases') return 'OPEN';
   if (slug === 'feedback') return 'FEEDBACK';
   if (slug === 'reviews') return 'REVIEW_REQUEST';

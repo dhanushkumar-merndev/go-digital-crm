@@ -101,6 +101,7 @@ describe('branch and team administration backend contract', () => {
     expect(route).toContain('BranchTeamWorkspace');
     expect(route).toContain("slug[0] === 'branches'");
     expect(route).toContain("slug[0] === 'teams'");
+    expect(route).toContain("slug[0] === 'lead-assignment-settings'");
     expect(route).toContain("slug[0] === 'branches-access'");
     expect(route).toContain('preset="ACCESS"');
     expect(workspace).toContain('@tanstack/react-query');

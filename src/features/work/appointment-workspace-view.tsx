@@ -242,6 +242,7 @@ export function AppointmentWorkspaceView({
   role,
   result,
   query,
+  requestQuery,
   onQueryChange,
   permissions,
   isFetching,
@@ -255,6 +256,7 @@ export function AppointmentWorkspaceView({
   role: string;
   result: AppointmentWorkspaceResult;
   query: WorkQuery;
+  requestQuery: WorkQuery;
   onQueryChange: (next: Partial<WorkQuery>) => void;
   permissions: WorkWorkspacePermissions;
   isFetching: boolean;
@@ -274,48 +276,58 @@ export function AppointmentWorkspaceView({
   const [selectedDay, setSelectedDay] = useState(() => dateKey(new Date()));
   const [selectedRecord, setSelectedRecord] = useState<AppointmentRecord | null>(null);
   const summary = useQuery({
-    queryKey: ['appointment-type-summary', organizationId, scopeKey, timezone],
-    queryFn: () => fetchAppointmentTypeSummary(timezone),
+    queryKey: ['appointment-type-summary', organizationId, permissions.userId, scopeKey, timezone],
+    queryFn: ({ signal }) => fetchAppointmentTypeSummary(timezone, signal),
   });
   const calendar = useQuery({
     queryKey: [
       'appointment-calendar',
       organizationId,
+      permissions.userId,
       scopeKey,
       timezone,
       monthKey(displayedMonth),
-      query.search,
-      query.status,
-      query.appointmentType,
-      query.branchId,
-      query.teamId,
-      query.ownerId,
+      requestQuery.search,
+      requestQuery.status,
+      requestQuery.appointmentType,
+      requestQuery.branchId,
+      requestQuery.teamId,
+      requestQuery.ownerId,
     ],
-    queryFn: () => fetchAppointmentCalendar({ month: monthKey(displayedMonth), query, timezone }),
+    queryFn: ({ signal }) =>
+      fetchAppointmentCalendar(
+        { month: monthKey(displayedMonth), query: requestQuery, timezone },
+        signal,
+      ),
+    enabled: view === 'calendar',
   });
   const dayRecords = useQuery({
     queryKey: [
       'appointment-calendar-day',
       organizationId,
+      permissions.userId,
       scopeKey,
       timezone,
       monthKey(displayedMonth),
       selectedDay,
-      query.search,
-      query.status,
-      query.appointmentType,
-      query.branchId,
-      query.teamId,
-      query.ownerId,
+      requestQuery.search,
+      requestQuery.status,
+      requestQuery.appointmentType,
+      requestQuery.branchId,
+      requestQuery.teamId,
+      requestQuery.ownerId,
     ],
-    queryFn: () =>
-      fetchAppointmentCalendar({
-        month: monthKey(displayedMonth),
-        day: selectedDay,
-        query,
-        timezone,
-      }),
-    enabled: Boolean(selectedDay),
+    queryFn: ({ signal }) =>
+      fetchAppointmentCalendar(
+        {
+          month: monthKey(displayedMonth),
+          day: selectedDay,
+          query: requestQuery,
+          timezone,
+        },
+        signal,
+      ),
+    enabled: view === 'calendar' && Boolean(selectedDay),
   });
   const recordsByDay = useMemo(
     () => new Map(calendar.data?.days.map((day) => [day.date, day]) ?? []),

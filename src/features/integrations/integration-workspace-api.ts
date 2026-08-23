@@ -6,7 +6,14 @@ import {
 } from './integration-workspace-query';
 
 export type IntegrationProviderKey =
-  'meta' | 'google_ads' | 'google_business_profile' | 'whatsapp_cloud';
+  | 'meta'
+  | 'google_ads'
+  | 'google_business_profile'
+  | 'whatsapp_cloud'
+  | 'openai'
+  | 'gemini'
+  | 'groq'
+  | 'twilio_voice';
 export type IntegrationScopeMode = 'ONE_BRANCH' | 'SELECTED_BRANCHES' | 'ALL_BRANCHES';
 
 export type IntegrationRecord = {
@@ -25,6 +32,16 @@ export type IntegrationRecord = {
   mapped_branch_ids: string[];
   default_inbound_branch_id: string | null;
   default_team_id: string | null;
+  connection_config: {
+    connection_type?: string;
+    capabilities?: string[];
+    models?: {
+      text_model?: string;
+      image_model?: string;
+      transcription_model?: string;
+      analysis_model?: string;
+    };
+  };
 };
 
 export type IntegrationKpis = {
@@ -80,7 +97,7 @@ export async function fetchIntegrationWorkspace(query: IntegrationQuery) {
   let listQuery = supabase
     .from('connected_accounts')
     .select(
-      'id,organization_id,provider_key,display_name,scope_mode,status,external_account_id,last_tested_at,last_sync_at,last_error_code,created_at,updated_at,default_team_id',
+      'id,organization_id,provider_key,display_name,scope_mode,status,external_account_id,last_tested_at,last_sync_at,last_error_code,created_at,updated_at,default_team_id,connection_config',
       { count: 'exact' },
     )
     .is('deleted_at', null)
@@ -224,8 +241,77 @@ export function connectWhatsApp(input: {
   );
 }
 
+export function connectTwilio(input: {
+  organizationId: string;
+  connectionId?: string;
+  displayName: string;
+  scopeMode: IntegrationScopeMode;
+  branchIds: string[];
+  accountSid: string;
+  apiKeySid: string;
+  apiKeySecret: string;
+  authToken: string;
+  phoneNumber: string;
+}) {
+  return invokeIntegrationFunction<{ connection_id: string; tested_at: string }>(
+    'integration-connect-twilio',
+    {
+      organization_id: input.organizationId,
+      connection_id: input.connectionId,
+      display_name: input.displayName,
+      scope_mode: input.scopeMode,
+      branch_ids: input.branchIds,
+      account_sid: input.accountSid,
+      api_key_sid: input.apiKeySid,
+      api_key_secret: input.apiKeySecret,
+      auth_token: input.authToken,
+      phone_number: input.phoneNumber,
+    },
+  );
+}
+
+export function connectAiProvider(input: {
+  organizationId: string;
+  connectionId?: string;
+  providerKey: Extract<IntegrationProviderKey, 'openai' | 'gemini' | 'groq'>;
+  displayName: string;
+  scopeMode: IntegrationScopeMode;
+  branchIds: string[];
+  textModel?: string;
+  imageModel?: string;
+  transcriptionModel?: string;
+  analysisModel?: string;
+  apiKey: string;
+}) {
+  return invokeIntegrationFunction<{
+    connection_id: string;
+    provider_key: string;
+    models: { text_model?: string; image_model?: string };
+    tested_at: string;
+  }>('ai-provider-connect', {
+    organization_id: input.organizationId,
+    connection_id: input.connectionId,
+    provider_key: input.providerKey,
+    display_name: input.displayName,
+    scope_mode: input.scopeMode,
+    branch_ids: input.branchIds,
+    text_model: input.textModel,
+    image_model: input.imageModel,
+    transcription_model: input.transcriptionModel,
+    analysis_model: input.analysisModel,
+    api_key: input.apiKey,
+  });
+}
+
 export function testIntegrationConnection(organizationId: string, connectionId: string) {
   return invokeIntegrationFunction<{ tested_at: string }>('integration-test', {
+    organization_id: organizationId,
+    connection_id: connectionId,
+  });
+}
+
+export function testAiProviderConnection(organizationId: string, connectionId: string) {
+  return invokeIntegrationFunction<{ tested_at: string }>('ai-provider-test', {
     organization_id: organizationId,
     connection_id: connectionId,
   });

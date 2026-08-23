@@ -27,6 +27,11 @@ import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageSkeleton } from '@/components/shared/page-skeleton';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -156,6 +161,7 @@ function WorkTable({
   role,
   result,
   query,
+  calendarQuery,
   onQueryChange,
   permissions,
   isFetching,
@@ -171,6 +177,7 @@ function WorkTable({
   role: string;
   result: WorkWorkspaceResult;
   query: WorkQuery;
+  calendarQuery: WorkQuery;
   onQueryChange: (next: Partial<WorkQuery>) => void;
   permissions: WorkWorkspacePermissions;
   isFetching: boolean;
@@ -724,7 +731,7 @@ function WorkTable({
         {view === 'calendar' && kind === 'followups' ? (
           <FollowupCalendar
             role={role}
-            query={query}
+            query={calendarQuery}
             timezone={timezone}
             organizationId={organizationId}
             scopeKey={scopeKey}
@@ -834,6 +841,32 @@ export function WorkWorkspace({
   role: string;
   spec: PageSpec;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const useSalesBootstrap =
+    role === 'sales-consultant' &&
+    workspaceSession?.roleKey === 'sales-consultant' &&
+    Boolean(workspaceSession.organizationId);
+  const queryScope = useMemo(
+    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
+    [role, useSalesBootstrap, workspaceSession],
+  );
+  const resource = kind === 'followups' ? 'followup' : 'appointment';
+  const bootstrapPermissions: WorkWorkspacePermissions | undefined = useSalesBootstrap
+    ? {
+        organizationId: workspaceSession!.organizationId as string,
+        userId: workspaceSession!.userId,
+        scopeKey: workspaceSession!.scopeKey,
+        canCreate: hasWorkspacePermission(workspaceSession, `${resource}.create`),
+        canUpdate: hasWorkspacePermission(workspaceSession, `${resource}.update`),
+        canComplete: hasWorkspacePermission(workspaceSession, `${resource}.complete`),
+        canCancel: hasWorkspacePermission(workspaceSession, `${resource}.cancel`),
+        canAssign: hasWorkspacePermission(workspaceSession, `${resource}.assign`),
+        canOverrideComplete:
+          kind === 'followups'
+            ? hasWorkspacePermission(workspaceSession, 'followup.override_complete')
+            : hasWorkspacePermission(workspaceSession, 'appointment.complete'),
+      }
+    : undefined;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -860,54 +893,54 @@ export function WorkWorkspace({
     [debouncedSearch, query],
   );
   const queryClient = useQueryClient();
-  const permissions = useQuery({
-    queryKey: ['work-workspace-permissions', kind],
+  const legacyPermissions = useQuery({
+    queryKey: ['work-workspace-permissions', kind, role],
     queryFn: () => fetchWorkWorkspacePermissions(kind),
+    enabled: !useSalesBootstrap,
     staleTime: 60_000,
   });
-  useTenantRealtimeInvalidation(permissions.data?.organizationId, [
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
+  useTenantRealtimeInvalidation(permissions?.organizationId, [
     {
       resource: 'work',
-      queryKeys: [['work-workspace', kind, permissions.data?.organizationId]],
+      queryKeys: [['work-workspace', kind, ...queryScope]],
     },
   ]);
   const workspace = useQuery({
-    queryKey: [
-      'work-workspace',
-      kind,
-      permissions.data?.organizationId,
-      permissions.data?.scopeKey,
-      timezone,
-      requestQuery,
-    ],
-    queryFn: () => fetchWorkWorkspace(kind, requestQuery, timezone),
-    enabled: Boolean(permissions.data),
+    queryKey: ['work-workspace', kind, ...queryScope, timezone, requestQuery],
+    queryFn: ({ signal }) => fetchWorkWorkspace(kind, requestQuery, timezone, signal),
+    enabled: Boolean(permissions),
     placeholderData: keepPreviousData,
   });
-  const onQueryChange = useCallback(
-    (next: Partial<WorkQuery>) => {
-      const updated = { ...query, ...next };
-      setQuery(updated);
-      const queryString = toWorkQueryString(updated);
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
-    },
-    [pathname, query, router],
-  );
+  const onQueryChange = (next: Partial<WorkQuery>) => {
+    const updated = { ...query, ...next };
+    setQuery(updated);
+    const queryString = toWorkQueryString(updated);
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+  };
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: ['work-workspace', kind, permissions.data?.organizationId],
+      queryKey: ['work-workspace', kind, ...queryScope],
     });
-    void queryClient.invalidateQueries({ queryKey: ['lead-workspace'] });
+    void queryClient.invalidateQueries({ queryKey: ['lead-workspace', ...queryScope] });
     void queryClient.invalidateQueries({ queryKey: ['customer-360'] });
-    void queryClient.invalidateQueries({ queryKey: ['followup-calendar'] });
-    void queryClient.invalidateQueries({ queryKey: ['followup-calendar-day'] });
-    void queryClient.invalidateQueries({ queryKey: ['appointment-calendar'] });
-    void queryClient.invalidateQueries({ queryKey: ['appointment-calendar-day'] });
-    void queryClient.invalidateQueries({ queryKey: ['appointment-type-summary'] });
-  }, [kind, permissions.data?.organizationId, queryClient]);
+    const calendarScope = [permissions?.organizationId, permissions?.userId, permissions?.scopeKey];
+    void queryClient.invalidateQueries({ queryKey: ['followup-calendar', ...calendarScope] });
+    void queryClient.invalidateQueries({
+      queryKey: ['followup-calendar-day', ...calendarScope],
+    });
+    void queryClient.invalidateQueries({ queryKey: ['appointment-calendar', ...calendarScope] });
+    void queryClient.invalidateQueries({
+      queryKey: ['appointment-calendar-day', ...calendarScope],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ['appointment-type-summary', ...calendarScope],
+    });
+  }, [kind, permissions, queryClient, queryScope]);
 
-  if (permissions.isPending || (workspace.isPending && permissions.data)) return <PageSkeleton />;
-  if (permissions.isError || workspace.isError || !permissions.data || !workspace.data)
+  if ((!useSalesBootstrap && legacyPermissions.isPending) || (workspace.isPending && permissions))
+    return <PageSkeleton />;
+  if (legacyPermissions.isError || workspace.isError || !permissions || !workspace.data)
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -923,7 +956,7 @@ export function WorkWorkspace({
             className="mt-5"
             variant="outline"
             onClick={() => {
-              void permissions.refetch();
+              if (!useSalesBootstrap) void legacyPermissions.refetch();
               void workspace.refetch();
             }}
           >
@@ -944,13 +977,15 @@ export function WorkWorkspace({
                 Dashboard
               </Link>
               <ChevronRight className="size-3" />
-              <span>Follow-ups</span>
+              <span>{role === 'team-manager' ? 'Team Follow-ups' : 'Follow-ups'}</span>
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
-              Follow-up Management
+              {role === 'team-manager' ? 'Team Follow-up Monitor' : 'Follow-up Management'}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Manage and track customer follow-ups to keep every commitment on time.
+              {role === 'team-manager'
+                ? 'Monitor your team’s customer follow-ups and ensure no opportunity is missed.'
+                : 'Manage and track customer follow-ups to keep every commitment on time.'}
             </p>
           </div>
         ) : (
@@ -997,7 +1032,7 @@ export function WorkWorkspace({
               </button>
             </div>
           )}
-          {permissions.data.canCreate && !spec.readOnly && (
+          {permissions.canCreate && !spec.readOnly && (
             <Button className="shrink-0" onClick={() => setCreateOpen(true)}>
               <Plus className="size-4" />
               {kind === 'followups' ? 'Schedule follow-up' : 'New appointment'}
@@ -1042,16 +1077,17 @@ export function WorkWorkspace({
               role={role}
               result={workspace.data}
               query={query}
+              calendarQuery={requestQuery}
               onQueryChange={onQueryChange}
-              permissions={permissions.data}
+              permissions={permissions}
               isFetching={workspace.isFetching}
               onEdit={setEditingRecord}
               onAction={(action, record) => setActionState({ action, record })}
               view={view}
               onViewChange={setView}
               timezone={timezone}
-              organizationId={permissions.data.organizationId}
-              scopeKey={permissions.data.scopeKey}
+              organizationId={permissions.organizationId}
+              scopeKey={permissions.scopeKey}
             />
           </>
         ) : (
@@ -1059,19 +1095,20 @@ export function WorkWorkspace({
             role={role}
             result={workspace.data as import('./workspace-api').AppointmentWorkspaceResult}
             query={query}
+            requestQuery={requestQuery}
             onQueryChange={onQueryChange}
-            permissions={permissions.data}
+            permissions={permissions}
             isFetching={workspace.isFetching}
             onEdit={setEditingRecord}
             onAction={(action, record) => setActionState({ action, record })}
             view={view}
             timezone={timezone}
-            organizationId={permissions.data.organizationId}
-            scopeKey={permissions.data.scopeKey}
+            organizationId={permissions.organizationId}
+            scopeKey={permissions.scopeKey}
           />
         )}
       </div>
-      {permissions.data.canCreate && (
+      {permissions.canCreate && (
         <WorkCreateDialog
           kind={kind}
           open={createOpen}

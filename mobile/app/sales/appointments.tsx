@@ -1,4 +1,4 @@
-import { WorkListScreen } from '@/components/work-list-screen';
+import { MobileAppointmentsScreen } from '@/components/mobile-appointments-screen';
 export default function Appointments() {
-  return <WorkListScreen title="Appointments" />;
+  return <MobileAppointmentsScreen />;
 }

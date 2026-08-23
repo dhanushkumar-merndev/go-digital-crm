@@ -12,7 +12,12 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageSkeleton } from '@/components/shared/page-skeleton';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -40,6 +45,7 @@ import {
   fetchCustomerWorkspace,
   fetchCustomerWorkspacePermissions,
   type CustomerRecord,
+  type CustomerWorkspacePermissions,
   type CustomerWorkspaceResult,
 } from './customer-workspace-api';
 import {
@@ -323,6 +329,23 @@ function CustomerTable({
 }
 
 export function CustomerWorkspace({ role }: { role: string }) {
+  const workspaceSession = useWorkspaceSession();
+  const useSalesBootstrap =
+    role === 'sales-consultant' &&
+    workspaceSession?.roleKey === 'sales-consultant' &&
+    Boolean(workspaceSession.organizationId);
+  const queryScope = useSalesBootstrap
+    ? workspaceQueryScope(workspaceSession)
+    : (['legacy', role] as const);
+  const bootstrapPermissions: CustomerWorkspacePermissions | undefined = useSalesBootstrap
+    ? {
+        organizationId: workspaceSession!.organizationId as string,
+        scopeKey: workspaceSession!.scopeKey,
+        canView: hasWorkspacePermission(workspaceSession, 'customer.view'),
+        canCreate: hasWorkspacePermission(workspaceSession, 'customer.create'),
+        canLink: hasWorkspacePermission(workspaceSession, 'customer.link'),
+      }
+    : undefined;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -332,35 +355,32 @@ export function CustomerWorkspace({ role }: { role: string }) {
     () => ({ ...query, search: debouncedSearch }),
     [debouncedSearch, query],
   );
-  const permissions = useQuery({
-    queryKey: ['customer-workspace-permissions'],
+  const legacyPermissions = useQuery({
+    queryKey: ['customer-workspace-permissions', role],
     queryFn: fetchCustomerWorkspacePermissions,
+    enabled: !useSalesBootstrap,
     staleTime: 60_000,
   });
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
   const workspace = useQuery({
-    queryKey: [
-      'customer-workspace',
-      permissions.data?.organizationId,
-      permissions.data?.scopeKey,
-      requestQuery,
-    ],
-    queryFn: () => fetchCustomerWorkspace(requestQuery),
-    enabled: Boolean(permissions.data?.canView),
+    queryKey: ['customer-workspace', ...queryScope, requestQuery],
+    queryFn: ({ signal }) => fetchCustomerWorkspace(requestQuery, signal),
+    enabled: Boolean(permissions?.canView),
     placeholderData: keepPreviousData,
   });
-  const onQueryChange = useCallback(
-    (next: Partial<CustomerQuery>) => {
-      const updated = { ...query, ...next };
-      setQuery(updated);
-      const queryString = toCustomerQueryString(updated);
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
-    },
-    [pathname, query, router],
-  );
+  const onQueryChange = (next: Partial<CustomerQuery>) => {
+    const updated = { ...query, ...next };
+    setQuery(updated);
+    const queryString = toCustomerQueryString(updated);
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+  };
 
-  if (permissions.isPending || (workspace.isPending && permissions.data?.canView))
+  if (
+    (!useSalesBootstrap && legacyPermissions.isPending) ||
+    (workspace.isPending && permissions?.canView)
+  )
     return <PageSkeleton />;
-  if (permissions.isError || workspace.isError)
+  if (legacyPermissions.isError || workspace.isError || !permissions?.canView)
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -376,7 +396,7 @@ export function CustomerWorkspace({ role }: { role: string }) {
             className="mt-5"
             variant="outline"
             onClick={() => {
-              void permissions.refetch();
+              if (!useSalesBootstrap) void legacyPermissions.refetch();
               void workspace.refetch();
             }}
           >

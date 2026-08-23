@@ -36,3 +36,13 @@ export async function fetchSalesPerformance(days: 7 | 14 | 30, signal?: AbortSig
   if (error) throw error;
   return schema.parse(data);
 }
+
+export async function fetchPersonalSalesPerformance(days: 7 | 14 | 30, signal?: AbortSignal) {
+  const request = createClient().rpc('get_personal_sales_performance', {
+    target_days: days,
+    target_timezone: 'Asia/Kolkata',
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return schema.parse(data);
+}

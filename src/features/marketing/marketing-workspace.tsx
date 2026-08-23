@@ -33,6 +33,8 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import { fetchMarketingWorkspace, type MarketingWorkspaceResult } from './marketing-api';
+import { SocialContentCalendar } from './social-content-calendar';
+import { SocialPostDraftAction } from './social-post-draft-dialog';
 import {
   marketingInitialView,
   marketingLabel,
@@ -317,7 +319,7 @@ export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: strin
     placeholderData: keepPreviousData,
   });
   useTenantRealtimeInvalidation(workspace.data?.organization_id, [
-    { resource: 'marketing', queryKeys: [workspaceKey] },
+    { resource: 'marketing', queryKeys: [workspaceKey, ['social-content-calendar']] },
     { resource: 'leads', queryKeys: [workspaceKey] },
     { resource: 'customer-care', queryKeys: [workspaceKey] },
   ]);
@@ -386,6 +388,14 @@ export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: strin
           ))}
         </TabsList>
       </Tabs>
+      {routeQuery.view === 'SOCIAL_POSTS' ? (
+        <>
+          <div className="flex justify-end">
+            <SocialPostDraftAction />
+          </div>
+          <SocialContentCalendar />
+        </>
+      ) : null}
       <MarketingTable
         result={data}
         query={routeQuery}

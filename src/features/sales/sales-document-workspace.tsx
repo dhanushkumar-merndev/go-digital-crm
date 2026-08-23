@@ -23,6 +23,11 @@ import {
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { PageSkeleton } from '@/components/shared/page-skeleton';
@@ -64,6 +69,7 @@ import {
   type BookingWorkspaceResult,
   type QuotationRecord,
   type QuotationWorkspaceResult,
+  type SalesDocumentPermissions,
 } from './sales-document-api';
 import {
   BookingCreateDialog,
@@ -502,6 +508,25 @@ export function SalesDocumentWorkspace({
   role: string;
   spec: PageSpec;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const useSalesBootstrap =
+    role === 'sales-consultant' &&
+    workspaceSession?.roleKey === 'sales-consultant' &&
+    Boolean(workspaceSession.organizationId);
+  const queryScope = useMemo(
+    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
+    [role, useSalesBootstrap, workspaceSession],
+  );
+  const resource = kind === 'quotations' ? 'quotation' : 'booking';
+  const bootstrapPermissions: SalesDocumentPermissions | undefined = useSalesBootstrap
+    ? {
+        organizationId: workspaceSession!.organizationId as string,
+        scopeKey: workspaceSession!.scopeKey,
+        canManage: hasWorkspacePermission(workspaceSession, `${resource}.manage`),
+        canApprove:
+          kind === 'quotations' && hasWorkspacePermission(workspaceSession, 'approval.decide'),
+      }
+    : undefined;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -521,55 +546,50 @@ export function SalesDocumentWorkspace({
     () => ({ ...query, search: debouncedSearch }),
     [debouncedSearch, query],
   );
-  const permissions = useQuery({
-    queryKey: ['sales-document-permissions', kind],
+  const directQuotationCreate = kind === 'quotations' && quotationScreen === 'create';
+  const directBookingCreate =
+    kind === 'bookings' && createOpen && searchParams.get('action') === 'create';
+  const directCreate = directQuotationCreate || directBookingCreate;
+  const legacyPermissions = useQuery({
+    queryKey: ['sales-document-permissions', kind, role],
     queryFn: () => fetchSalesDocumentPermissions(kind),
+    enabled: !useSalesBootstrap,
     staleTime: 60_000,
   });
-  useTenantRealtimeInvalidation(permissions.data?.organizationId, [
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
+  useTenantRealtimeInvalidation(permissions?.organizationId, [
     {
       resource: 'sales',
-      queryKeys: [['sales-document-workspace', kind, permissions.data?.organizationId]],
+      queryKeys: [['sales-document-workspace', kind, ...queryScope]],
     },
   ]);
   const workspace = useQuery({
-    queryKey: [
-      'sales-document-workspace',
-      kind,
-      permissions.data?.organizationId,
-      permissions.data?.scopeKey,
-      requestQuery,
-    ],
+    queryKey: ['sales-document-workspace', kind, ...queryScope, requestQuery],
     queryFn: ({ signal }) => fetchSalesDocumentWorkspace(kind, requestQuery, signal),
-    enabled: Boolean(permissions.data),
+    enabled: Boolean(permissions) && !directCreate,
     placeholderData: keepPreviousData,
   });
   const bookingFilterOptions = useQuery({
-    queryKey: [
-      'sales-booking-filter-options',
-      permissions.data?.organizationId,
-      permissions.data?.scopeKey,
-    ],
+    queryKey: ['sales-booking-filter-options', ...queryScope],
     queryFn: ({ signal }) => fetchBookingFilterOptions(signal),
-    enabled: kind === 'bookings' && Boolean(permissions.data),
+    enabled: kind === 'bookings' && Boolean(permissions) && !directBookingCreate,
     staleTime: 60_000,
   });
-  const onQueryChange = useCallback(
-    (next: Partial<SalesDocumentQuery>) => {
-      const updated = { ...query, ...next };
-      setQuery(updated);
-      const queryString = toSalesDocumentQueryString(updated, kind);
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
-    },
-    [kind, pathname, query, router],
-  );
+  const onQueryChange = (next: Partial<SalesDocumentQuery>) => {
+    const updated = { ...query, ...next };
+    setQuery(updated);
+    const queryString = toSalesDocumentQueryString(updated, kind);
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+  };
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: ['sales-document-workspace', kind, permissions.data?.organizationId],
+      queryKey: ['sales-document-workspace', kind, ...queryScope],
     });
     void queryClient.invalidateQueries({ queryKey: ['customer-360'] });
-    void queryClient.invalidateQueries({ queryKey: ['booking-quotation-options'] });
-  }, [kind, permissions.data?.organizationId, queryClient]);
+    void queryClient.invalidateQueries({
+      queryKey: ['booking-quotation-options', ...queryScope],
+    });
+  }, [kind, queryClient, queryScope]);
 
   const quotationColumns = useMemo<ColumnDef<QuotationRecord>[]>(
     () => [
@@ -649,10 +669,10 @@ export function SalesDocumentWorkspace({
         cell: ({ row }) => {
           const record = row.original;
           const canEdit =
-            permissions.data?.canManage && ['DRAFT', 'PENDING_APPROVAL'].includes(record.status);
-          const canDecide = permissions.data?.canApprove && record.approval_status === 'PENDING';
+            permissions?.canManage && ['DRAFT', 'PENDING_APPROVAL'].includes(record.status);
+          const canDecide = permissions?.canApprove && record.approval_status === 'PENDING';
           const hasTransition =
-            (permissions.data?.canManage && ['DRAFT', 'SENT'].includes(record.status)) || canDecide;
+            (permissions?.canManage && ['DRAFT', 'SENT'].includes(record.status)) || canDecide;
           if (!canEdit && !hasTransition) return null;
           return (
             <DropdownMenu>
@@ -673,19 +693,19 @@ export function SalesDocumentWorkspace({
                   </DropdownMenuItem>
                 )}
                 {canEdit && hasTransition && <DropdownMenuSeparator />}
-                {permissions.data?.canManage &&
+                {permissions?.canManage &&
                   record.status === 'DRAFT' &&
                   record.approval_status !== 'REJECTED' && (
                     <DropdownMenuItem onClick={() => setActionState({ record, action: 'SENT' })}>
                       Mark sent
                     </DropdownMenuItem>
                   )}
-                {permissions.data?.canManage && record.status === 'DRAFT' && (
+                {permissions?.canManage && record.status === 'DRAFT' && (
                   <DropdownMenuItem onClick={() => setActionState({ record, action: 'EXPIRED' })}>
                     Expire quotation
                   </DropdownMenuItem>
                 )}
-                {permissions.data?.canManage && record.status === 'SENT' && (
+                {permissions?.canManage && record.status === 'SENT' && (
                   <>
                     <DropdownMenuItem
                       onClick={() => setActionState({ record, action: 'ACCEPTED' })}
@@ -719,7 +739,14 @@ export function SalesDocumentWorkspace({
         },
       },
     ],
-    [permissions.data?.canApprove, permissions.data?.canManage, role],
+    [
+      permissions?.canApprove,
+      permissions?.canManage,
+      role,
+      setActionState,
+      setEditingQuotation,
+      setQuotationScreen,
+    ],
   );
 
   const bookingColumns = useMemo<ColumnDef<BookingRecord>[]>(
@@ -821,7 +848,7 @@ export function SalesDocumentWorkspace({
                   <Eye className="size-4" />
                 </Link>
               </Button>
-              {permissions.data?.canManage && actions.length > 0 && (
+              {permissions?.canManage && actions.length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -850,21 +877,26 @@ export function SalesDocumentWorkspace({
         },
       },
     ],
-    [permissions.data?.canManage, role],
+    [permissions?.canManage, role, setActionState],
   );
 
   if (
-    permissions.isPending ||
-    (workspace.isPending && permissions.data) ||
-    (kind === 'bookings' && bookingFilterOptions.isPending && permissions.data)
+    (!useSalesBootstrap && legacyPermissions.isPending) ||
+    (!directCreate && workspace.isPending && permissions) ||
+    (!useSalesBootstrap &&
+      kind === 'bookings' &&
+      !directBookingCreate &&
+      bookingFilterOptions.isPending &&
+      permissions)
   )
     return <PageSkeleton />;
   if (
-    permissions.isError ||
-    workspace.isError ||
-    (kind === 'bookings' && bookingFilterOptions.isError) ||
-    !permissions.data ||
-    !workspace.data
+    legacyPermissions.isError ||
+    !permissions ||
+    (directCreate && !permissions?.canManage) ||
+    (!directCreate && workspace.isError) ||
+    (!directCreate && !workspace.data) ||
+    (!useSalesBootstrap && kind === 'bookings' && bookingFilterOptions.isError)
   )
     return (
       <Card className="mx-auto max-w-xl">
@@ -881,7 +913,7 @@ export function SalesDocumentWorkspace({
             className="mt-5"
             variant="outline"
             onClick={() => {
-              void permissions.refetch();
+              if (!useSalesBootstrap) void legacyPermissions.refetch();
               void workspace.refetch();
               if (kind === 'bookings') void bookingFilterOptions.refetch();
             }}
@@ -892,7 +924,7 @@ export function SalesDocumentWorkspace({
       </Card>
     );
 
-  if (kind === 'quotations' && quotationScreen === 'create')
+  if (directQuotationCreate)
     return (
       <QuotationCreateView
         record={editingQuotation}
@@ -908,12 +940,21 @@ export function SalesDocumentWorkspace({
       />
     );
 
+  if (directBookingCreate)
+    return (
+      <div className="mx-auto max-w-[1800px]">
+        <PageHeader className="mb-0" spec={{ ...spec, primaryAction: undefined }} />
+        <BookingCreateDialog open onOpenChange={setCreateOpen} onSaved={invalidate} />
+      </div>
+    );
+
+  if (!workspace.data) return null;
   const result = workspace.data;
   return (
     <div className="mx-auto max-w-[1800px]">
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <PageHeader className="mb-0" spec={{ ...spec, primaryAction: undefined }} />
-        {permissions.data.canManage && (
+        {permissions.canManage && (
           <Button
             className="shrink-0 sm:mt-7"
             onClick={() =>
@@ -994,7 +1035,7 @@ export function SalesDocumentWorkspace({
           />
         )}
       </div>
-      {kind === 'bookings' && permissions.data.canManage && (
+      {kind === 'bookings' && permissions.canManage && (
         <BookingCreateDialog open={createOpen} onOpenChange={setCreateOpen} onSaved={invalidate} />
       )}
       {actionState && (

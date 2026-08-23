@@ -123,6 +123,9 @@ describe('tenant dashboard web contract', () => {
 
   it('routes configured tenant dashboards before the fail-closed fallback', () => {
     expect(route).toContain("if (slug[0] === 'dashboard' && !isLocalPreviewMode())");
+    expect(route).toContain("role === 'showroom-manager' && slug[0] === 'performance'");
+    expect(route).toContain("role === 'business-owner' && slug[0] === 'sales-overview'");
+    expect(route).toContain('<TenantDashboard spec={spec} role={role} />');
     expect(route.indexOf('<TenantDashboard')).toBeLessThan(
       route.indexOf('<ProductionDataUnavailable'),
     );

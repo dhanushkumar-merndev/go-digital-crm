@@ -16,6 +16,8 @@ export default function SalesTabs() {
       <Tabs.Screen name="appointments" options={{ title: 'Visits' }} />
       <Tabs.Screen name="test-drives" options={{ title: 'Drives' }} />
       <Tabs.Screen name="tasks" options={{ title: 'Tasks' }} />
+      <Tabs.Screen name="calls" options={{ href: null }} />
+      <Tabs.Screen name="stock-check" options={{ href: null }} />
     </Tabs>
   );
 }

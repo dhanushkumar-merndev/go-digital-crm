@@ -1,17 +1,17 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ArrowRight, CheckCircle2, LockKeyhole } from 'lucide-react';
+import { ArrowRight, LockKeyhole } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { getSafeAuthErrorMessage } from '@/lib/auth/safe-errors';
 import { createClient } from '@/lib/supabase/client';
+import { toast } from '@/components/ui/toast';
 
 const schema = z
   .object({
@@ -30,7 +30,6 @@ const schema = z
 type FormValues = z.infer<typeof schema>;
 
 export function PasswordUpdateForm({ continueHref = '/' }: { continueHref?: string }) {
-  const [error, setError] = useState<string>();
   const [complete, setComplete] = useState(false);
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -38,27 +37,32 @@ export function PasswordUpdateForm({ continueHref = '/' }: { continueHref?: stri
   });
 
   const onSubmit = form.handleSubmit(async ({ password }) => {
-    setError(undefined);
     try {
       const { error: updateError } = await createClient().auth.updateUser({ password });
       if (updateError) throw updateError;
       form.reset();
       setComplete(true);
+      toast.add({
+        type: 'success',
+        title: 'Password updated',
+        description: 'Your new password is active for future sign-ins.',
+      });
     } catch {
-      setError(getSafeAuthErrorMessage('PASSWORD_UPDATE'));
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'Password update failed',
+        description: getSafeAuthErrorMessage('PASSWORD_UPDATE'),
+      });
     }
   });
 
   if (complete) {
     return (
       <div className="space-y-5">
-        <Alert variant="success" role="status">
-          <CheckCircle2 className="size-4" />
-          <div>
-            <AlertTitle>Password updated</AlertTitle>
-            <AlertDescription>Your new password is active for future sign-ins.</AlertDescription>
-          </div>
-        </Alert>
+        <p className="text-sm leading-6 text-muted-foreground">
+          Your new password is active for future sign-ins.
+        </p>
         <Button className="w-full" asChild>
           <Link href={continueHref}>
             Continue to CRM
@@ -97,11 +101,6 @@ export function PasswordUpdateForm({ continueHref = '/' }: { continueHref?: stri
           <p className="text-xs text-destructive">{form.formState.errors.confirmation.message}</p>
         )}
       </div>
-      {error && (
-        <Alert variant="destructive" role="alert">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
       <Button className="w-full" type="submit" disabled={form.formState.isSubmitting}>
         {form.formState.isSubmitting ? 'Updating password…' : 'Update password'}
       </Button>

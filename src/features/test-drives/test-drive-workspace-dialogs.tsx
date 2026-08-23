@@ -32,6 +32,10 @@ import {
 } from '@/components/ui/map';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
+import {
   cancelTestDrive,
   createTestDrive,
   fetchTestDriveLeadOptions,
@@ -121,6 +125,8 @@ export function TestDriveScheduleDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const [leadSearch, setLeadSearch] = useState('');
   const [leadId, setLeadId] = useState('');
   const [branchId, setBranchId] = useState('');
@@ -135,13 +141,13 @@ export function TestDriveScheduleDialog({
   const debouncedLeadSearch = useDebouncedValue(leadSearch, 300);
   const debouncedVehicleSearch = useDebouncedValue(vehicleSearch, 300);
   const leads = useQuery({
-    queryKey: ['test-drive-lead-options', debouncedLeadSearch],
+    queryKey: ['test-drive-lead-options', ...queryScope, debouncedLeadSearch],
     queryFn: ({ signal }) => fetchTestDriveLeadOptions(debouncedLeadSearch, signal),
     enabled: open,
     staleTime: 60_000,
   });
   const vehicles = useQuery({
-    queryKey: ['test-drive-vehicle-options', branchId, debouncedVehicleSearch],
+    queryKey: ['test-drive-vehicle-options', ...queryScope, branchId, debouncedVehicleSearch],
     queryFn: ({ signal }) => fetchTestDriveVehicleOptions(branchId, debouncedVehicleSearch, signal),
     enabled: open && Boolean(branchId),
     staleTime: 60_000,

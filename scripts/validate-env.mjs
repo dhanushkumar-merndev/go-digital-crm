@@ -47,6 +47,7 @@ const runtimeTargets = {
     'TRIGGER_PROJECT_REF',
     'IVR_RECORDING_ALLOWED_HOSTS',
     'MAX_RECORDING_BYTES',
+    'GROQ_API_KEY',
   ],
   deployment: [
     'SUPABASE_ACCESS_TOKEN',
@@ -64,6 +65,10 @@ const optionalRuntimeNames = [
   'UPSTASH_REDIS_REST_TOKEN',
   'UPSTASH_REDIS_CACHE_PREFIX',
   'UPSTASH_REDIS_ENABLED',
+  'GROQ_TRANSCRIPTION_MODEL',
+  'GROQ_ANALYSIS_MODEL',
+  'AI_CALL_TRANSCRIPTION_CREDITS',
+  'AI_CALL_ANALYSIS_CREDITS',
 ];
 const documentedRuntimeNames = new Set([
   ...['web', 'mobile', 'edge', 'trigger'].flatMap((name) => runtimeTargets[name]),

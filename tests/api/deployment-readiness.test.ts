@@ -44,6 +44,7 @@ describe('production deployment contracts', () => {
     expect(vercel.framework).toBe('nextjs');
     expect(vercel.installCommand).toBe('pnpm install --frozen-lockfile');
     expect(vercel.buildCommand).toBe('pnpm build:vercel');
+    expect(vercel.regions).toEqual(['bom1']);
     expect(vercel).not.toHaveProperty('crons');
     expect(vercel).not.toHaveProperty('env');
   });

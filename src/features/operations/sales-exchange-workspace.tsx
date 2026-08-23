@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState, type SetStateAction } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CarFront,
   Check,
@@ -14,10 +14,16 @@ import {
   Phone,
   RotateCcw,
   Save,
+  Search,
   Send,
   Upload,
 } from 'lucide-react';
 import Link from 'next/link';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { PageSkeleton } from '@/components/shared/page-skeleton';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -34,7 +40,11 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
-import { fetchOperationalCasePermissions } from './operational-case-api';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import {
+  fetchOperationalCasePermissions,
+  type OperationalCasePermissions,
+} from './operational-case-api';
 import {
   downloadSalesExchangeDocument,
   fetchSalesExchangeOptions,
@@ -175,7 +185,26 @@ function Field({
 }
 
 export function SalesExchangeWorkspace() {
+  const workspaceSession = useWorkspaceSession();
+  const useSalesBootstrap =
+    workspaceSession?.roleKey === 'sales-consultant' && Boolean(workspaceSession.organizationId);
+  const queryScope = useSalesBootstrap
+    ? workspaceQueryScope(workspaceSession)
+    : (['legacy', 'exchange'] as const);
+  const bootstrapPermissions: OperationalCasePermissions | undefined = useSalesBootstrap
+    ? {
+        organizationId: workspaceSession!.organizationId as string,
+        userId: workspaceSession!.userId,
+        scopeKey: workspaceSession!.scopeKey,
+        canManage: hasWorkspacePermission(workspaceSession, 'exchange.manage'),
+        canRequest: hasWorkspacePermission(workspaceSession, 'exchange.request'),
+        canUpload: hasWorkspacePermission(workspaceSession, 'document.upload'),
+        canDownload: hasWorkspacePermission(workspaceSession, 'document.download'),
+      }
+    : undefined;
   const queryClient = useQueryClient();
+  const [bookingSearch, setBookingSearch] = useState('');
+  const debouncedBookingSearch = useDebouncedValue(bookingSearch, 300);
   const [selectedBookingId, setSelectedBookingId] = useState('');
   const [formState, setFormState] = useState<{
     bookingId: string;
@@ -186,23 +215,34 @@ export function SalesExchangeWorkspace() {
   const uploadInput = useRef<HTMLInputElement>(null);
   const rcInput = useRef<HTMLInputElement>(null);
 
-  const permissions = useQuery({
-    queryKey: ['operational-case-permissions', 'EXCHANGE'],
+  const legacyPermissions = useQuery({
+    queryKey: ['operational-case-permissions', 'EXCHANGE', 'sales-exchange'],
     queryFn: () => fetchOperationalCasePermissions('EXCHANGE'),
+    enabled: !useSalesBootstrap,
     staleTime: 60_000,
   });
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
   const options = useQuery({
-    queryKey: ['sales-exchange-options', permissions.data?.organizationId],
-    queryFn: ({ signal }) => fetchSalesExchangeOptions('', signal),
-    enabled: Boolean(permissions.data?.canRequest),
+    queryKey: ['sales-exchange-options', ...queryScope, debouncedBookingSearch],
+    queryFn: ({ signal }) => fetchSalesExchangeOptions(debouncedBookingSearch, signal),
+    enabled: Boolean(permissions?.canRequest),
+    placeholderData: keepPreviousData,
   });
-  useTenantRealtimeInvalidation(permissions.data?.organizationId, [
+  useTenantRealtimeInvalidation(permissions?.organizationId, [
     {
       resource: 'operations',
-      queryKeys: [['sales-exchange-options'], ['operational-cases'], ['customer-360']],
+      queryKeys: [
+        ['sales-exchange-options', ...queryScope],
+        ['operational-cases', permissions?.organizationId],
+        ['customer-360'],
+      ],
     },
   ]);
-  const effectiveBookingId = selectedBookingId || options.data?.[0]?.booking_id || '';
+  const selectedBookingIsVisible = options.data?.some(
+    (option) => option.booking_id === selectedBookingId,
+  );
+  const effectiveBookingId =
+    (selectedBookingIsVisible ? selectedBookingId : '') || options.data?.[0]?.booking_id || '';
   const selected = useMemo(
     () => options.data?.find((option) => option.booking_id === effectiveBookingId),
     [effectiveBookingId, options.data],
@@ -220,8 +260,10 @@ export function SalesExchangeWorkspace() {
 
   const invalidate = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['sales-exchange-options'] }),
-      queryClient.invalidateQueries({ queryKey: ['operational-cases'] }),
+      queryClient.invalidateQueries({ queryKey: ['sales-exchange-options', ...queryScope] }),
+      queryClient.invalidateQueries({
+        queryKey: ['operational-cases', permissions?.organizationId],
+      }),
       queryClient.invalidateQueries({ queryKey: ['customer-360'] }),
     ]);
   };
@@ -283,7 +325,7 @@ export function SalesExchangeWorkspace() {
   };
 
   const uploadFile = (file: File | undefined, kind: 'photo' | 'rc') => {
-    if (!file || !selected?.case_id || !permissions.data) return;
+    if (!file || !selected?.case_id || !permissions) return;
     const allowed =
       kind === 'photo'
         ? ['image/jpeg', 'image/png', 'image/webp']
@@ -300,15 +342,16 @@ export function SalesExchangeWorkspace() {
       return;
     }
     uploadMutation.mutate({
-      organizationId: permissions.data.organizationId,
+      organizationId: permissions.organizationId,
       branchId: selected.branch_id,
       caseId: selected.case_id,
       file,
     });
   };
 
-  if (permissions.isPending || options.isPending) return <PageSkeleton />;
-  if (permissions.isError || options.isError || !permissions.data?.canRequest)
+  if ((!useSalesBootstrap && legacyPermissions.isPending) || options.isPending)
+    return <PageSkeleton />;
+  if (legacyPermissions.isError || options.isError || !permissions?.canRequest)
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="p-10 text-center">
@@ -393,13 +436,35 @@ export function SalesExchangeWorkspace() {
         </Alert>
       ) : null}
 
+      <Card className="shadow-none">
+        <CardContent className="p-4">
+          <Field label="Find an eligible booking">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={bookingSearch}
+                onChange={(event) => {
+                  setBookingSearch(event.target.value);
+                  setSelectedBookingId('');
+                }}
+                className="pl-9"
+                placeholder="Search customer, booking, phone or model"
+                maxLength={160}
+              />
+            </div>
+          </Field>
+        </CardContent>
+      </Card>
+
       {!options.data?.length ? (
         <Card>
           <CardContent className="p-10 text-center">
             <CarFront className="mx-auto size-8 text-muted-foreground" />
             <h2 className="mt-3 font-semibold">No eligible exchange bookings</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              A confirmed booking assigned to you must have Exchange Required enabled.
+              {debouncedBookingSearch
+                ? 'No assigned exchange booking matches this search.'
+                : 'A confirmed booking assigned to you must have Exchange Required enabled.'}
             </p>
           </CardContent>
         </Card>

@@ -341,7 +341,7 @@ export function CustomerCareWorkspace({
   );
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<CustomerCareRecord | null>(null);
-  const isDashboard = slug === 'dashboard';
+  const isDashboard = slug === 'dashboard' || slug === 'my-performance';
   const debouncedSearch = useDebouncedValue(routeQuery.search, 300);
   const query = useMemo(
     () => ({ ...routeQuery, search: debouncedSearch }),
@@ -436,9 +436,16 @@ export function CustomerCareWorkspace({
         <PageHeader
           spec={{
             ...spec,
-            title: isDashboard ? 'Customer Relationship Dashboard' : spec.title,
+            title:
+              slug === 'dashboard'
+                ? 'Customer Relationship Dashboard'
+                : isDashboard
+                  ? 'Customer Care Performance'
+                  : spec.title,
             description: isDashboard
-              ? 'Monitor customer experience across enquiry, feedback, reviews and complaint resolution.'
+              ? slug === 'dashboard'
+                ? 'Monitor customer experience across enquiry, feedback, reviews and complaint resolution.'
+                : 'Monitor your scoped case outcomes, customer feedback and resolution workload.'
               : spec.description,
             primaryAction: undefined,
           }}

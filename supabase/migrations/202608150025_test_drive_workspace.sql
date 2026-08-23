@@ -1185,7 +1185,7 @@ begin
         select 1 from public.test_drive_appointments appointment_row
         where appointment_row.organization_id = stock_row.organization_id
           and appointment_row.stock_unit_id = stock_row.id
-          and appointment_row.status = 'ACTIVE'
+          and appointment_row.status in ('SCHEDULED', 'ACTIVE')
       )
       and (
         normalized_search = ''

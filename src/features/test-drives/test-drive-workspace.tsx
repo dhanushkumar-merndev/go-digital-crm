@@ -22,6 +22,11 @@ import {
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageSkeleton } from '@/components/shared/page-skeleton';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -523,6 +528,25 @@ function TestDriveTable({
 
 export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: string }) {
   void spec;
+  const workspaceSession = useWorkspaceSession();
+  const useSalesBootstrap =
+    role === 'sales-consultant' &&
+    workspaceSession?.roleKey === 'sales-consultant' &&
+    Boolean(workspaceSession.organizationId);
+  const queryScope = useMemo(
+    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
+    [role, useSalesBootstrap, workspaceSession],
+  );
+  const bootstrapPermissions: TestDrivePermissions | undefined = useSalesBootstrap
+    ? {
+        organizationId: workspaceSession!.organizationId as string,
+        userId: workspaceSession!.userId,
+        roleKey: workspaceSession!.roleKey,
+        scopeKey: workspaceSession!.scopeKey,
+        canManage: hasWorkspacePermission(workspaceSession, 'test_drive.manage'),
+        canProgressOwn: true,
+      }
+    : undefined;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -539,52 +563,50 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
     () => ({ ...query, search: debouncedSearch, model: debouncedModel }),
     [debouncedModel, debouncedSearch, query],
   );
-  const permissions = useQuery({
-    queryKey: ['test-drive-permissions'],
+  const legacyPermissions = useQuery({
+    queryKey: ['test-drive-permissions', role],
     queryFn: fetchTestDrivePermissions,
+    enabled: !useSalesBootstrap,
     staleTime: 60_000,
   });
-  useTenantRealtimeInvalidation(permissions.data?.organizationId, [
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
+  useTenantRealtimeInvalidation(permissions?.organizationId, [
     {
       resource: 'work',
-      queryKeys: [['test-drive-workspace', permissions.data?.organizationId]],
+      queryKeys: [['test-drive-workspace', ...queryScope]],
     },
     {
       resource: 'sales',
-      queryKeys: [['test-drive-workspace', permissions.data?.organizationId]],
+      queryKeys: [['test-drive-workspace', ...queryScope]],
     },
   ]);
   const workspace = useQuery({
-    queryKey: [
-      'test-drive-workspace',
-      permissions.data?.organizationId,
-      permissions.data?.scopeKey,
-      requestQuery,
-    ],
+    queryKey: ['test-drive-workspace', ...queryScope, requestQuery],
     queryFn: ({ signal }) => fetchTestDriveWorkspace(requestQuery, 'Asia/Kolkata', signal),
-    enabled: Boolean(permissions.data),
+    enabled: Boolean(permissions) && screen !== 'create',
     placeholderData: keepPreviousData,
   });
-  const onQueryChange = useCallback(
-    (next: Partial<TestDriveQuery>) => {
-      const updated = { ...query, ...next };
-      setQuery(updated);
-      const queryString = toTestDriveQueryString(updated);
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
-    },
-    [pathname, query, router],
-  );
+  const onQueryChange = (next: Partial<TestDriveQuery>) => {
+    const updated = { ...query, ...next };
+    setQuery(updated);
+    const queryString = toTestDriveQueryString(updated);
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+  };
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: ['test-drive-workspace', permissions.data?.organizationId],
+      queryKey: ['test-drive-workspace', ...queryScope],
     });
-    void queryClient.invalidateQueries({ queryKey: ['test-drive-lead-options'] });
-    void queryClient.invalidateQueries({ queryKey: ['test-drive-vehicle-options'] });
+    void queryClient.invalidateQueries({
+      queryKey: ['test-drive-lead-options', ...queryScope],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ['test-drive-vehicle-options', ...queryScope],
+    });
     void queryClient.invalidateQueries({ queryKey: ['customer-360'] });
-  }, [permissions.data?.organizationId, queryClient]);
+  }, [queryClient, queryScope]);
 
-  if (permissions.isPending || (workspace.isPending && permissions.data)) return <PageSkeleton />;
-  if (permissions.isError || workspace.isError || !permissions.data || !workspace.data)
+  if (!useSalesBootstrap && legacyPermissions.isPending) return <PageSkeleton />;
+  if (legacyPermissions.isError || !permissions || (screen === 'create' && !permissions.canManage))
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -600,7 +622,7 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
             className="mt-5"
             variant="outline"
             onClick={() => {
-              void permissions.refetch();
+              if (!useSalesBootstrap) void legacyPermissions.refetch();
               void workspace.refetch();
             }}
           >
@@ -610,7 +632,7 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
       </Card>
     );
 
-  if (screen === 'create')
+  if (screen === 'create' && permissions.canManage)
     return (
       <TestDriveCreateView
         onCancel={() => setScreen('list')}
@@ -619,6 +641,25 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
           setScreen('list');
         }}
       />
+    );
+  if (workspace.isPending) return <PageSkeleton />;
+  if (workspace.isError || !workspace.data)
+    return (
+      <Card className="mx-auto max-w-xl">
+        <CardContent className="flex flex-col items-center p-10 text-center">
+          <div className="grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
+            <TriangleAlert />
+          </div>
+          <h2 className="mt-4 font-semibold">Test drives are not available yet</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Your access scope or the test-drive workspace migration needs attention. Reference:
+            GDM-TEST-DRIVES.
+          </p>
+          <Button className="mt-5" variant="outline" onClick={() => void workspace.refetch()}>
+            <RotateCcw className="size-4" /> Try again
+          </Button>
+        </CardContent>
+      </Card>
     );
   if (screen === 'detail' && selectedRecord) {
     const current =
@@ -662,7 +703,7 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
             Manage and track every test drive scheduled with your customers.
           </p>
         </div>
-        {permissions.data.canManage && (
+        {permissions.canManage && (
           <Button className="shrink-0 sm:mt-7" onClick={() => setScreen('create')}>
             <Plus className="size-4" /> Book Test Drive
           </Button>
@@ -692,7 +733,7 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
           result={workspace.data}
           query={query}
           role={role}
-          permissions={permissions.data}
+          permissions={permissions}
           isFetching={workspace.isFetching}
           onQueryChange={onQueryChange}
           onAction={setActionState}

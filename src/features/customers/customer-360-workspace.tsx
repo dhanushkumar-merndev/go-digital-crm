@@ -15,11 +15,23 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -32,9 +44,73 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   createCustomerDocumentDownload,
   fetchCustomer360,
+  fetchSalesCustomer360Core,
+  fetchSalesCustomer360Section,
   fetchCustomerWorkspacePermissions,
   type Customer360,
+  type Customer360Core,
+  type Customer360LazySection,
+  type Customer360SectionPageSize,
+  type Customer360SectionResult,
+  type Customer360TimelineCursor,
+  type CustomerWorkspacePermissions,
 } from './customer-workspace-api';
+
+const customer360Tabs = [
+  'overview',
+  'leads',
+  'calls',
+  'conversations',
+  'followups',
+  'appointments',
+  'test-drives',
+  'quotations',
+  'bookings',
+  'vehicles',
+  'documents',
+  'timeline',
+] as const;
+
+type Customer360Tab = (typeof customer360Tabs)[number];
+
+const lazySectionByTab: Record<Exclude<Customer360Tab, 'overview'>, Customer360LazySection> = {
+  leads: 'leads',
+  calls: 'calls',
+  conversations: 'conversations',
+  followups: 'followups',
+  appointments: 'appointments',
+  'test-drives': 'test_drives',
+  quotations: 'quotations',
+  bookings: 'bookings',
+  vehicles: 'vehicles',
+  documents: 'documents',
+  timeline: 'timeline',
+};
+
+function isCustomer360Tab(value: string): value is Customer360Tab {
+  return customer360Tabs.includes(value as Customer360Tab);
+}
+
+function composeSalesCustomer360(
+  core: Customer360Core,
+  section?: Customer360SectionResult,
+): Customer360 {
+  const data = {
+    ...core,
+    vehicles: [],
+    leads: [],
+    calls: [],
+    conversations: [],
+    followups: [],
+    appointments: [],
+    test_drives: [],
+    quotations: [],
+    bookings: [],
+    documents: [],
+    timeline: [],
+  } satisfies Customer360;
+  return (section ? { ...data, [section.section]: section.records } : data) as Customer360;
+}
 
 function formatDate(value: string | null | undefined, includeTime = true) {
   if (!value) return '—';
@@ -131,6 +207,15 @@ function InformationGrid({ values }: { values: Array<[string, ReactNode]> }) {
           <div className="mt-1.5 text-sm font-semibold">{value || '—'}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function CustomerHeaderValue({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <div className="mt-1.5 min-h-5 text-sm font-semibold">{children}</div>
     </div>
   );
 }
@@ -312,7 +397,33 @@ function Timeline({ data }: { data: Customer360 }) {
   );
 }
 
-function Customer360Content({ data }: { data: Customer360 }) {
+type Customer360LazyState = {
+  isPending: boolean;
+  isError: boolean;
+  isFetching: boolean;
+  onRetry: () => void;
+  total: number;
+  page: number;
+  pageSize: Customer360SectionPageSize;
+  hasMore: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
+  onPageSizeChange: (pageSize: Customer360SectionPageSize) => void;
+};
+
+function Customer360Content({
+  data,
+  activeTab: controlledActiveTab,
+  onTabChange,
+  lazyState,
+}: {
+  data: Customer360;
+  activeTab?: Customer360Tab;
+  onTabChange?: (tab: Customer360Tab) => void;
+  lazyState?: Customer360LazyState;
+}) {
+  const [localActiveTab, setLocalActiveTab] = useState<Customer360Tab>('overview');
+  const activeTab = controlledActiveTab ?? localActiveTab;
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const download = useMutation({
     mutationFn: createCustomerDocumentDownload,
@@ -322,8 +433,16 @@ function Customer360Content({ data }: { data: Customer360 }) {
     },
     onError: () => setDownloadingId(null),
   });
+  const showLazyStatus = activeTab === 'overview' ? undefined : lazyState;
   return (
-    <Tabs defaultValue="overview">
+    <Tabs
+      value={activeTab}
+      onValueChange={(value) => {
+        if (!isCustomer360Tab(value)) return;
+        setLocalActiveTab(value);
+        onTabChange?.(value);
+      }}
+    >
       <div className="overflow-x-auto pb-1">
         <TabsList className="h-auto min-w-max justify-start">
           <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -348,249 +467,388 @@ function Customer360Content({ data }: { data: Customer360 }) {
           {data.section_access.timeline && <TabsTrigger value="timeline">Timeline</TabsTrigger>}
         </TabsList>
       </div>
-      <TabsContent value="overview">
-        <Overview data={data} />
-      </TabsContent>
-      {data.section_access.leads && (
-        <TabsContent value="leads">
-          <DetailTable
-            headers={[
-              'Lead ID',
-              'Source',
-              'Model',
-              'Lifecycle',
-              'Branch',
-              'Owner',
-              'Last activity',
-            ]}
-            emptyLabel="Leads"
-            rows={data.leads.map((lead) => [
-              <span key="id" className="font-semibold">
-                {shortId(lead.id)}
-              </span>,
-              lead.source,
-              lead.interested_model ?? '—',
-              <StatusBadge key="status" value={lead.lifecycle_status} />,
-              lead.branch_name,
-              lead.assigned_user_name ?? 'Unassigned',
-              formatDate(lead.updated_at),
-            ])}
-          />
-        </TabsContent>
-      )}
-      {data.section_access.calls && (
-        <TabsContent value="calls">
-          <DetailTable
-            headers={[
-              'Started',
-              'Direction',
-              'Duration',
-              'Outcome',
-              'Agent',
-              'Recording',
-              'Transcript',
-            ]}
-            emptyLabel="Calls"
-            rows={data.calls.map((call) => [
-              formatDate(call.started_at),
-              <StatusBadge key="direction" value={call.direction} />,
-              formatDuration(call.duration_seconds),
-              call.outcome ?? '—',
-              call.assigned_user_name ?? '—',
-              call.recording_status ?? '—',
-              call.transcript_status ?? '—',
-            ])}
-          />
-        </TabsContent>
-      )}
-      {data.section_access.conversations && (
-        <TabsContent value="conversations">
-          <DetailTable
-            headers={['Channel', 'Status', 'Owner', 'Messages', 'Latest message', 'Started']}
-            emptyLabel="Conversations"
-            rows={data.conversations.map((conversation) => [
-              conversation.channel.replaceAll('_', ' '),
-              <StatusBadge key="status" value={conversation.status} />,
-              conversation.assigned_user_name ?? 'Unassigned',
-              conversation.message_count.toLocaleString(),
-              formatDate(conversation.latest_message_at),
-              formatDate(conversation.created_at),
-            ])}
-          />
-        </TabsContent>
-      )}
-      {data.section_access.followups && (
-        <TabsContent value="followups">
-          <DetailTable
-            headers={['Due', 'Reason', 'Status', 'Owner', 'Completed']}
-            emptyLabel="Follow-ups"
-            rows={data.followups.map((followup) => [
-              formatDate(followup.due_at),
-              followup.reason,
-              <StatusBadge key="status" value={followup.status} />,
-              followup.assigned_user_name ?? '—',
-              formatDate(followup.completed_at),
-            ])}
-          />
-        </TabsContent>
-      )}
-      {data.section_access.appointments && (
-        <TabsContent value="appointments">
-          <DetailTable
-            headers={['Scheduled', 'Type', 'Status', 'Attendance', 'Branch', 'Owner']}
-            emptyLabel="Appointments"
-            rows={data.appointments.map((appointment) => [
-              formatDate(appointment.scheduled_at),
-              appointment.appointment_type,
-              <StatusBadge key="status" value={appointment.status} />,
-              appointment.attendance_status ?? '—',
-              appointment.branch_name,
-              appointment.assigned_user_name ?? '—',
-            ])}
-          />
-        </TabsContent>
-      )}
-      {data.section_access.test_drives && (
-        <TabsContent value="test-drives">
-          <DetailTable
-            headers={['Status', 'Branch', 'Owner', 'Started', 'Completed', 'Duration', 'Distance']}
-            emptyLabel="Test drives"
-            rows={data.test_drives.map((drive) => [
-              <StatusBadge key="status" value={drive.status} />,
-              drive.branch_name,
-              drive.assigned_user_name ?? '—',
-              formatDate(drive.started_at),
-              formatDate(drive.completed_at),
-              formatDuration(drive.duration_seconds),
-              drive.distance_meters == null
-                ? '—'
-                : `${(drive.distance_meters / 1000).toFixed(1)} km`,
-            ])}
-          />
-        </TabsContent>
-      )}
-      {data.section_access.quotations && (
-        <TabsContent value="quotations">
-          <DetailTable
-            headers={['Quotation', 'Status', 'Version', 'Amount', 'Approval', 'Updated']}
-            emptyLabel="Quotations"
-            rows={data.quotations.map((quotation) => [
-              <span key="number" className="font-semibold">
-                {quotation.quotation_number}
-              </span>,
-              <StatusBadge key="status" value={quotation.status} />,
-              quotation.current_version,
-              formatCurrency(quotation.total_amount),
-              quotation.approval_status ?? '—',
-              formatDate(quotation.updated_at),
-            ])}
-          />
-        </TabsContent>
-      )}
-      {data.section_access.bookings && (
-        <TabsContent value="bookings">
-          <DetailTable
-            headers={[
-              'Booking',
-              'Status',
-              'Booking amount',
-              'Total value',
-              'Finance',
-              'Exchange',
-              'Expected delivery',
-            ]}
-            emptyLabel="Bookings"
-            rows={data.bookings.map((booking) => [
-              <span key="number" className="font-semibold">
-                {booking.booking_number}
-              </span>,
-              <StatusBadge key="status" value={booking.status} />,
-              formatCurrency(booking.booking_amount),
-              formatCurrency(booking.total_value),
-              booking.finance_required ? 'Required' : 'No',
-              booking.exchange_required ? 'Required' : 'No',
-              formatDate(booking.expected_delivery_date, false),
-            ])}
-          />
-        </TabsContent>
-      )}
-      {data.section_access.vehicles && (
-        <TabsContent value="vehicles">
-          <DetailTable
-            headers={['Registration', 'Brand', 'Model', 'Variant', 'Year', 'Added']}
-            emptyLabel="Vehicles"
-            rows={data.vehicles.map((vehicle) => [
-              vehicle.registration ?? '—',
-              vehicle.brand ?? '—',
-              vehicle.model ?? '—',
-              vehicle.variant ?? '—',
-              vehicle.model_year ?? '—',
-              formatDate(vehicle.created_at, false),
-            ])}
-          />
-        </TabsContent>
-      )}
-      {data.section_access.documents && (
-        <TabsContent value="documents">
-          <DetailTable
-            headers={['File', 'Type', 'Size', 'Uploaded', 'Action']}
-            emptyLabel="Documents"
-            rows={data.documents.map((document) => [
-              <span key="file" className="font-semibold">
-                {document.file_name ?? 'Private document'}
-              </span>,
-              document.mime_type,
-              formatBytes(document.size_bytes),
-              formatDate(document.created_at),
-              <Button
-                key="download"
-                size="sm"
-                variant="outline"
-                disabled={download.isPending && downloadingId === document.id}
-                onClick={() => {
-                  setDownloadingId(document.id);
-                  download.mutate(document.id);
-                }}
-              >
-                <Download className="size-3.5" />
-                {download.isPending && downloadingId === document.id ? 'Preparing…' : 'Download'}
-              </Button>,
-            ])}
-          />
-          {download.isError && (
-            <p className="mt-3 text-sm text-destructive">
-              A short-lived download could not be created. Verify document access and try again.
-            </p>
+      {showLazyStatus?.isPending ? (
+        <div className="mt-6 space-y-3">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      ) : showLazyStatus?.isError ? (
+        <Card className="mt-6 shadow-none">
+          <CardContent className="flex flex-col items-center p-8 text-center">
+            <TriangleAlert className="size-8 text-destructive" />
+            <p className="mt-3 text-sm font-medium">This customer section could not be loaded.</p>
+            <Button className="mt-4" size="sm" variant="outline" onClick={showLazyStatus.onRetry}>
+              <RotateCcw className="size-4" /> Try again
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <TabsContent value="overview">
+            <Overview data={data} />
+          </TabsContent>
+          {data.section_access.leads && (
+            <TabsContent value="leads">
+              <DetailTable
+                headers={[
+                  'Lead ID',
+                  'Source',
+                  'Model',
+                  'Lifecycle',
+                  'Branch',
+                  'Owner',
+                  'Last activity',
+                ]}
+                emptyLabel="Leads"
+                rows={data.leads.map((lead) => [
+                  <span key="id" className="font-semibold">
+                    {shortId(lead.id)}
+                  </span>,
+                  lead.source,
+                  lead.interested_model ?? '—',
+                  <StatusBadge key="status" value={lead.lifecycle_status} />,
+                  lead.branch_name,
+                  lead.assigned_user_name ?? 'Unassigned',
+                  formatDate(lead.updated_at),
+                ])}
+              />
+            </TabsContent>
           )}
-        </TabsContent>
-      )}
-      {data.section_access.timeline && (
-        <TabsContent value="timeline">
-          <Timeline data={data} />
-        </TabsContent>
+          {data.section_access.calls && (
+            <TabsContent value="calls">
+              <DetailTable
+                headers={[
+                  'Started',
+                  'Direction',
+                  'Duration',
+                  'Outcome',
+                  'Agent',
+                  'Recording',
+                  'Transcript',
+                ]}
+                emptyLabel="Calls"
+                rows={data.calls.map((call) => [
+                  formatDate(call.started_at),
+                  <StatusBadge key="direction" value={call.direction} />,
+                  formatDuration(call.duration_seconds),
+                  call.outcome ?? '—',
+                  call.assigned_user_name ?? '—',
+                  call.recording_status ?? '—',
+                  call.transcript_status ?? '—',
+                ])}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.conversations && (
+            <TabsContent value="conversations">
+              <DetailTable
+                headers={['Channel', 'Status', 'Owner', 'Messages', 'Latest message', 'Started']}
+                emptyLabel="Conversations"
+                rows={data.conversations.map((conversation) => [
+                  conversation.channel.replaceAll('_', ' '),
+                  <StatusBadge key="status" value={conversation.status} />,
+                  conversation.assigned_user_name ?? 'Unassigned',
+                  conversation.message_count.toLocaleString(),
+                  formatDate(conversation.latest_message_at),
+                  formatDate(conversation.created_at),
+                ])}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.followups && (
+            <TabsContent value="followups">
+              <DetailTable
+                headers={['Due', 'Reason', 'Status', 'Owner', 'Completed']}
+                emptyLabel="Follow-ups"
+                rows={data.followups.map((followup) => [
+                  formatDate(followup.due_at),
+                  followup.reason,
+                  <StatusBadge key="status" value={followup.status} />,
+                  followup.assigned_user_name ?? '—',
+                  formatDate(followup.completed_at),
+                ])}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.appointments && (
+            <TabsContent value="appointments">
+              <DetailTable
+                headers={['Scheduled', 'Type', 'Status', 'Attendance', 'Branch', 'Owner']}
+                emptyLabel="Appointments"
+                rows={data.appointments.map((appointment) => [
+                  formatDate(appointment.scheduled_at),
+                  appointment.appointment_type,
+                  <StatusBadge key="status" value={appointment.status} />,
+                  appointment.attendance_status ?? '—',
+                  appointment.branch_name,
+                  appointment.assigned_user_name ?? '—',
+                ])}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.test_drives && (
+            <TabsContent value="test-drives">
+              <DetailTable
+                headers={[
+                  'Status',
+                  'Branch',
+                  'Owner',
+                  'Started',
+                  'Completed',
+                  'Duration',
+                  'Distance',
+                ]}
+                emptyLabel="Test drives"
+                rows={data.test_drives.map((drive) => [
+                  <StatusBadge key="status" value={drive.status} />,
+                  drive.branch_name,
+                  drive.assigned_user_name ?? '—',
+                  formatDate(drive.started_at),
+                  formatDate(drive.completed_at),
+                  formatDuration(drive.duration_seconds),
+                  drive.distance_meters == null
+                    ? '—'
+                    : `${(drive.distance_meters / 1000).toFixed(1)} km`,
+                ])}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.quotations && (
+            <TabsContent value="quotations">
+              <DetailTable
+                headers={['Quotation', 'Status', 'Version', 'Amount', 'Approval', 'Updated']}
+                emptyLabel="Quotations"
+                rows={data.quotations.map((quotation) => [
+                  <span key="number" className="font-semibold">
+                    {quotation.quotation_number}
+                  </span>,
+                  <StatusBadge key="status" value={quotation.status} />,
+                  quotation.current_version,
+                  formatCurrency(quotation.total_amount),
+                  quotation.approval_status ?? '—',
+                  formatDate(quotation.updated_at),
+                ])}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.bookings && (
+            <TabsContent value="bookings">
+              <DetailTable
+                headers={[
+                  'Booking',
+                  'Status',
+                  'Booking amount',
+                  'Total value',
+                  'Finance',
+                  'Exchange',
+                  'Expected delivery',
+                ]}
+                emptyLabel="Bookings"
+                rows={data.bookings.map((booking) => [
+                  <span key="number" className="font-semibold">
+                    {booking.booking_number}
+                  </span>,
+                  <StatusBadge key="status" value={booking.status} />,
+                  formatCurrency(booking.booking_amount),
+                  formatCurrency(booking.total_value),
+                  booking.finance_required ? 'Required' : 'No',
+                  booking.exchange_required ? 'Required' : 'No',
+                  formatDate(booking.expected_delivery_date, false),
+                ])}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.vehicles && (
+            <TabsContent value="vehicles">
+              <DetailTable
+                headers={['Registration', 'Brand', 'Model', 'Variant', 'Year', 'Added']}
+                emptyLabel="Vehicles"
+                rows={data.vehicles.map((vehicle) => [
+                  vehicle.registration ?? '—',
+                  vehicle.brand ?? '—',
+                  vehicle.model ?? '—',
+                  vehicle.variant ?? '—',
+                  vehicle.model_year ?? '—',
+                  formatDate(vehicle.created_at, false),
+                ])}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.documents && (
+            <TabsContent value="documents">
+              <DetailTable
+                headers={['File', 'Type', 'Size', 'Uploaded', 'Action']}
+                emptyLabel="Documents"
+                rows={data.documents.map((document) => [
+                  <span key="file" className="font-semibold">
+                    {document.file_name ?? 'Private document'}
+                  </span>,
+                  document.mime_type,
+                  formatBytes(document.size_bytes),
+                  formatDate(document.created_at),
+                  <Button
+                    key="download"
+                    size="sm"
+                    variant="outline"
+                    disabled={download.isPending && downloadingId === document.id}
+                    onClick={() => {
+                      setDownloadingId(document.id);
+                      download.mutate(document.id);
+                    }}
+                  >
+                    <Download className="size-3.5" />
+                    {download.isPending && downloadingId === document.id
+                      ? 'Preparing…'
+                      : 'Download'}
+                  </Button>,
+                ])}
+              />
+              {download.isError && (
+                <p className="mt-3 text-sm text-destructive">
+                  A short-lived download could not be created. Verify document access and try again.
+                </p>
+              )}
+            </TabsContent>
+          )}
+          {data.section_access.timeline && (
+            <TabsContent value="timeline">
+              <Timeline data={data} />
+            </TabsContent>
+          )}
+          {showLazyStatus && (
+            <div className="mt-4 flex flex-col justify-between gap-3 rounded-lg border bg-card p-3 text-sm sm:flex-row sm:items-center">
+              <p className="text-muted-foreground">
+                {showLazyStatus.total === 0
+                  ? 'No records'
+                  : `${((showLazyStatus.page - 1) * showLazyStatus.pageSize + 1).toLocaleString()}–${Math.min(showLazyStatus.page * showLazyStatus.pageSize, showLazyStatus.total).toLocaleString()} of ${showLazyStatus.total.toLocaleString()}`}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={String(showLazyStatus.pageSize)}
+                  onValueChange={(value) =>
+                    showLazyStatus.onPageSizeChange(Number(value) as Customer360SectionPageSize)
+                  }
+                  disabled={showLazyStatus.isFetching}
+                >
+                  <SelectTrigger className="h-9 w-24">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[25, 50, 100].map((size) => (
+                      <SelectItem key={size} value={String(size)}>
+                        {size} rows
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={showLazyStatus.page <= 1 || showLazyStatus.isFetching}
+                  onClick={showLazyStatus.onPrevious}
+                >
+                  Previous
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!showLazyStatus.hasMore || showLazyStatus.isFetching}
+                  onClick={showLazyStatus.onNext}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </Tabs>
   );
 }
 
 export function Customer360Workspace({ role, customerId }: { role: string; customerId: string }) {
-  const permissions = useQuery({
-    queryKey: ['customer-workspace-permissions'],
+  const [activeTab, setActiveTab] = useState<Customer360Tab>('overview');
+  const [sectionPage, setSectionPage] = useState(1);
+  const [sectionPageSize, setSectionPageSize] = useState<Customer360SectionPageSize>(25);
+  const [timelineCursors, setTimelineCursors] = useState<
+    Record<number, Customer360TimelineCursor | null>
+  >({ 1: null });
+  const workspaceSession = useWorkspaceSession();
+  const useSalesBootstrap =
+    role === 'sales-consultant' &&
+    workspaceSession?.roleKey === 'sales-consultant' &&
+    Boolean(workspaceSession.organizationId);
+  const queryScope = useSalesBootstrap
+    ? workspaceQueryScope(workspaceSession)
+    : (['legacy', role] as const);
+  const bootstrapPermissions: CustomerWorkspacePermissions | undefined = useSalesBootstrap
+    ? {
+        organizationId: workspaceSession!.organizationId as string,
+        scopeKey: workspaceSession!.scopeKey,
+        canView: hasWorkspacePermission(workspaceSession, 'customer.view'),
+        canCreate: hasWorkspacePermission(workspaceSession, 'customer.create'),
+        canLink: hasWorkspacePermission(workspaceSession, 'customer.link'),
+      }
+    : undefined;
+  const legacyPermissions = useQuery({
+    queryKey: ['customer-workspace-permissions', role],
     queryFn: fetchCustomerWorkspacePermissions,
+    enabled: !useSalesBootstrap,
     staleTime: 60_000,
   });
-  const customer = useQuery({
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
+  const legacyCustomer = useQuery({
+    queryKey: ['customer-360', ...queryScope, customerId, 'legacy-eager'],
+    queryFn: ({ signal }) => fetchCustomer360(customerId, signal),
+    enabled: !useSalesBootstrap && Boolean(permissions?.canView),
+  });
+  const salesCore = useQuery({
+    queryKey: ['customer-360', ...queryScope, customerId, 'overview'],
+    queryFn: ({ signal }) => fetchSalesCustomer360Core(customerId, signal),
+    enabled: useSalesBootstrap && Boolean(permissions?.canView),
+  });
+  const lazySection = activeTab === 'overview' ? null : lazySectionByTab[activeTab];
+  const activeCursor = lazySection === 'timeline' ? (timelineCursors[sectionPage] ?? null) : null;
+  const sectionFilters = {
+    pageSize: sectionPageSize,
+    cursorAt: activeCursor?.occurred_at ?? null,
+    cursorId: activeCursor?.id ?? null,
+  };
+  const salesSection = useQuery({
     queryKey: [
       'customer-360',
-      permissions.data?.organizationId,
-      permissions.data?.scopeKey,
+      ...queryScope,
       customerId,
+      lazySection ?? 'overview',
+      sectionPage,
+      sectionFilters,
     ],
-    queryFn: () => fetchCustomer360(customerId),
-    enabled: Boolean(permissions.data?.canView),
+    queryFn: ({ signal }) => {
+      if (!lazySection) throw new Error('CUSTOMER_360_SECTION_REQUIRED');
+      return fetchSalesCustomer360Section(
+        {
+          customerId,
+          section: lazySection,
+          page: sectionPage,
+          pageSize: sectionPageSize,
+          cursor: activeCursor,
+        },
+        signal,
+      );
+    },
+    enabled:
+      useSalesBootstrap &&
+      Boolean(lazySection) &&
+      Boolean(salesCore.data && lazySection && salesCore.data.section_access[lazySection]),
   });
 
-  if (permissions.isPending || (customer.isPending && permissions.data?.canView))
+  const customerIsPending = useSalesBootstrap ? salesCore.isPending : legacyCustomer.isPending;
+  const customerIsError = useSalesBootstrap ? salesCore.isError : legacyCustomer.isError;
+
+  if (
+    (!useSalesBootstrap && legacyPermissions.isPending) ||
+    (customerIsPending && permissions?.canView)
+  )
     return (
       <div className="mx-auto max-w-[1800px] space-y-6">
         <Skeleton className="h-24 w-full" />
@@ -601,7 +859,7 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
         </div>
       </div>
     );
-  if (permissions.isError || customer.isError)
+  if (legacyPermissions.isError || customerIsError || !permissions?.canView)
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -622,8 +880,9 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
             <Button
               variant="outline"
               onClick={() => {
-                void permissions.refetch();
-                void customer.refetch();
+                if (!useSalesBootstrap) void legacyPermissions.refetch();
+                if (useSalesBootstrap) void salesCore.refetch();
+                else void legacyCustomer.refetch();
               }}
             >
               <RotateCcw className="size-4" /> Try again
@@ -632,8 +891,41 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
         </CardContent>
       </Card>
     );
-  if (!customer.data) return null;
-  const data = customer.data;
+  if (useSalesBootstrap && !salesCore.data) return null;
+  if (!useSalesBootstrap && !legacyCustomer.data) return null;
+  const data = useSalesBootstrap
+    ? composeSalesCustomer360(salesCore.data as Customer360Core, salesSection.data)
+    : (legacyCustomer.data as Customer360);
+  const lazyState: Customer360LazyState | undefined =
+    useSalesBootstrap && lazySection
+      ? {
+          isPending: salesSection.isPending,
+          isError: salesSection.isError,
+          isFetching: salesSection.isFetching,
+          onRetry: () => void salesSection.refetch(),
+          total: salesSection.data?.total ?? 0,
+          page: sectionPage,
+          pageSize: sectionPageSize,
+          hasMore:
+            Boolean(salesSection.data?.has_more) &&
+            (lazySection !== 'timeline' || Boolean(salesSection.data?.next_cursor)),
+          onPrevious: () => setSectionPage((page) => Math.max(1, page - 1)),
+          onNext: () => {
+            if (lazySection === 'timeline' && salesSection.data?.next_cursor) {
+              setTimelineCursors((cursors) => ({
+                ...cursors,
+                [sectionPage + 1]: salesSection.data?.next_cursor ?? null,
+              }));
+            }
+            setSectionPage((page) => page + 1);
+          },
+          onPageSizeChange: (pageSize) => {
+            setSectionPageSize(pageSize);
+            setSectionPage(1);
+            setTimelineCursors({ 1: null });
+          },
+        }
+      : undefined;
 
   return (
     <div className="mx-auto max-w-[1800px] space-y-6">
@@ -643,40 +935,103 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
             <ArrowLeft className="size-4" /> Authorized customers
           </Link>
         </Button>
-        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-          <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight">{data.customer.full_name}</h1>
-              {data.current_opportunity?.lifecycle_status && (
-                <StatusBadge value={data.current_opportunity.lifecycle_status} />
-              )}
-              {data.current_opportunity?.work_state && (
-                <StatusBadge value={data.current_opportunity.work_state} />
-              )}
+        <Card className="overflow-hidden shadow-none">
+          <CardContent className="p-0">
+            <div className="grid gap-5 p-5 sm:grid-cols-2 xl:grid-cols-[1.45fr_repeat(4,minmax(0,1fr))]">
+              <div className="min-w-0 xl:border-r xl:pr-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="truncate text-2xl font-bold tracking-tight">
+                    {data.customer.full_name}
+                  </h1>
+                  {data.current_opportunity?.work_state && (
+                    <StatusBadge value={data.current_opportunity.work_state} />
+                  )}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                  {data.customer.primary_phone && (
+                    <a
+                      className="inline-flex items-center gap-1.5 font-medium text-foreground hover:text-primary"
+                      href={`tel:${data.customer.primary_phone}`}
+                    >
+                      <Phone className="size-4 text-emerald-600" /> {data.customer.primary_phone}
+                    </a>
+                  )}
+                  {data.customer.primary_email && <span>{data.customer.primary_email}</span>}
+                </div>
+              </div>
+              <CustomerHeaderValue label="Interested model">
+                {data.current_opportunity?.interested_model ?? 'Not recorded'}
+              </CustomerHeaderValue>
+              <CustomerHeaderValue label="Lead stage">
+                {data.current_opportunity?.lifecycle_status ? (
+                  <StatusBadge value={data.current_opportunity.lifecycle_status} />
+                ) : (
+                  'No visible lead'
+                )}
+              </CustomerHeaderValue>
+              <CustomerHeaderValue label="Temperature">
+                {data.current_opportunity?.temperature ? (
+                  <StatusBadge value={data.current_opportunity.temperature} />
+                ) : (
+                  'Not recorded'
+                )}
+              </CustomerHeaderValue>
+              <CustomerHeaderValue label="Sales owner">
+                {data.current_opportunity?.assigned_user_name ?? 'Unassigned'}
+                <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                  {data.current_opportunity?.branch_name ?? 'No branch visible'}
+                </span>
+              </CustomerHeaderValue>
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Customer {shortId(data.customer.id)} · Immutable UUID {data.customer.id}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {data.customer.primary_phone && (
-              <Button variant="outline" asChild>
-                <a href={`tel:${data.customer.primary_phone}`}>
-                  <Phone className="size-4" /> Call
-                </a>
-              </Button>
-            )}
-            {data.current_opportunity?.id && (
-              <Button asChild>
-                <Link href={`/${role}/record/${data.current_opportunity.id}`}>
-                  <FileText className="size-4" /> Open lead
+            <div className="flex flex-wrap gap-2 border-t p-3">
+              {data.customer.primary_phone && (
+                <Button size="sm" variant="outline" asChild>
+                  <a href={`tel:${data.customer.primary_phone}`}>
+                    <Phone className="size-3.5 text-emerald-600" /> Call
+                  </a>
+                </Button>
+              )}
+              <Button size="sm" variant="outline" asChild>
+                <Link href={`/${role}/messages`}>
+                  <MessageSquareText className="size-3.5 text-blue-600" /> Messages
                 </Link>
               </Button>
-            )}
-          </div>
-        </div>
+              <Button size="sm" variant="outline" asChild>
+                <Link href={`/${role}/follow-ups`}>
+                  <CalendarClock className="size-3.5 text-orange-600" /> Follow-up
+                </Link>
+              </Button>
+              <Button size="sm" variant="outline" asChild>
+                <Link href={`/${role}/test-drives`}>
+                  <CarFront className="size-3.5 text-blue-600" /> Test drive
+                </Link>
+              </Button>
+              <Button size="sm" variant="outline" asChild>
+                <Link href={`/${role}/quotations`}>
+                  <FileText className="size-3.5 text-violet-600" /> Quotation
+                </Link>
+              </Button>
+              <Button size="sm" className="ml-auto" asChild>
+                <Link href={`/${role}/bookings`}>Open bookings</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
-      <Customer360Content data={data} />
+      <Customer360Content
+        data={data}
+        activeTab={useSalesBootstrap ? activeTab : undefined}
+        onTabChange={
+          useSalesBootstrap
+            ? (tab) => {
+                setActiveTab(tab);
+                setSectionPage(1);
+                setTimelineCursors({ 1: null });
+              }
+            : undefined
+        }
+        lazyState={lazyState}
+      />
     </div>
   );
 }

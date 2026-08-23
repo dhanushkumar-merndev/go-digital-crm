@@ -1,29 +1,25 @@
-const CACHE_TTL_SECONDS = 60 * 60;
+const DEFAULT_CACHE_TTL_SECONDS = 60 * 60;
 const LOCK_TTL_MS = 15_000;
-const COALESCED_WAIT_MS = 10_000;
-const COALESCED_POLL_MS = 200;
+const COALESCED_WAIT_MS = 500;
+const COALESCED_POLL_MS = 100;
+const REDIS_COMMAND_TIMEOUT_MS = 500;
 const MANUAL_REFRESH_LIMIT = 3;
-const MANUAL_REFRESH_WINDOW_MS = 10 * 60_000;
+const MANUAL_REFRESH_WINDOW_MS = 60_000;
 
 export type WorkspaceCacheResource =
   'tenant-dashboard' | 'inventory-dashboard' | 'platform-dashboard';
-export type ManualRefreshResource = WorkspaceCacheResource | 'sales-consultant-dashboard';
+export type EdgeCacheResource = WorkspaceCacheResource | 'sales-consultant-dashboard';
+export type ManualRefreshResource = EdgeCacheResource;
 
 export type CacheDiagnostic = {
   status: 'HIT' | 'MISS' | 'COALESCED' | 'BYPASS' | 'FALLBACK';
-  resource: WorkspaceCacheResource;
+  resource: EdgeCacheResource;
   version: number;
   age_seconds: number | null;
 };
 
 type CacheEntry<T> = { value: T; created_at: string };
 type RedisResponse = { result?: unknown; error?: string };
-
-export class CacheBusyError extends Error {
-  constructor() {
-    super('CACHE_REBUILDING');
-  }
-}
 
 function configuration() {
   const enabled = Deno.env.get('UPSTASH_REDIS_ENABLED') === 'true';
@@ -57,7 +53,7 @@ class UpstashRest {
     private readonly token: string,
   ) {}
 
-  async command<T>(command: unknown[]): Promise<T> {
+  async command<T>(command: unknown[], timeoutMs = REDIS_COMMAND_TIMEOUT_MS): Promise<T> {
     const response = await fetch(`${this.url.replace(/\/$/, '')}/pipeline`, {
       method: 'POST',
       headers: {
@@ -65,7 +61,7 @@ class UpstashRest {
         'content-type': 'application/json',
       },
       body: JSON.stringify([command]),
-      signal: AbortSignal.timeout(2_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) throw new Error('UPSTASH_UNAVAILABLE');
     const payload = (await response.json()) as RedisResponse[];
@@ -74,8 +70,8 @@ class UpstashRest {
     return entry.result as T;
   }
 
-  async get<T>(key: string): Promise<T | null> {
-    const result = await this.command<unknown>(['GET', key]);
+  async get<T>(key: string, timeoutMs?: number): Promise<T | null> {
+    const result = await this.command<unknown>(['GET', key], timeoutMs);
     if (result === null || result === undefined) return null;
     if (typeof result === 'string') return JSON.parse(result) as T;
     return result as T;
@@ -125,7 +121,7 @@ class UpstashRest {
   }
 }
 
-function cacheKey(prefix: string, resource: WorkspaceCacheResource, fingerprint: string) {
+function cacheKey(prefix: string, resource: EdgeCacheResource, fingerprint: string) {
   return `${prefix}:workspace-cache:v1:${resource}:${fingerprint}`;
 }
 
@@ -142,105 +138,140 @@ export async function enforceManualRefresh(userId: string, resource: ManualRefre
     return { enabled: false, allowed: true, remaining: null, retry_after_ms: null };
   const redis = new UpstashRest(config.url, config.token);
   const fingerprint = await cacheFingerprint({ userId, resource });
-  const result = await redis.consumeManualRefresh(
-    `${config.prefix}:workspace-refresh:v1:${fingerprint}`,
-  );
-  return { enabled: true, ...result };
+  try {
+    const result = await redis.consumeManualRefresh(
+      `${config.prefix}:workspace-refresh:v1:${fingerprint}`,
+    );
+    return { enabled: true, ...result };
+  } catch {
+    // Redis is an optimization and refresh guard, never a page availability dependency.
+    return { enabled: false, allowed: true, remaining: null, retry_after_ms: null };
+  }
 }
 
 export async function readWorkspaceCache<T>(input: {
-  resource: WorkspaceCacheResource;
+  resource: EdgeCacheResource;
   fingerprintInput: unknown;
   version: number;
+  ttlSeconds?: number;
   forceRefresh?: boolean;
   load: () => Promise<T>;
 }): Promise<{ value: T; diagnostic: CacheDiagnostic }> {
-  const config = configuration();
-  if (!config.enabled || !config.url || !config.token) {
+  const loadWithoutCache = async (status: 'BYPASS' | 'FALLBACK') => {
     const value = await input.load();
     return {
       value,
       diagnostic: {
-        status: 'BYPASS',
+        status,
         resource: input.resource,
         version: input.version,
         age_seconds: null,
-      },
+      } satisfies CacheDiagnostic,
     };
-  }
+  };
+  const config = configuration();
+  if (!config.enabled || !config.url || !config.token) return loadWithoutCache('BYPASS');
 
   const redis = new UpstashRest(config.url, config.token);
+  const ttlSeconds =
+    input.ttlSeconds === undefined
+      ? DEFAULT_CACHE_TTL_SECONDS
+      : Math.max(1, Math.floor(input.ttlSeconds));
   const fingerprint = await cacheFingerprint(input.fingerprintInput);
   const key = cacheKey(config.prefix, input.resource, fingerprint);
   const refreshStartedAt = Date.now();
+
+  let existing: CacheEntry<T> | null;
   try {
-    const existing = await redis.get<CacheEntry<T>>(key);
-    if (existing && !input.forceRefresh) {
-      return {
-        value: existing.value,
-        diagnostic: {
-          status: 'HIT',
-          resource: input.resource,
-          version: input.version,
-          age_seconds: entryAgeSeconds(existing),
-        },
-      };
-    }
-
-    const lockKey = `${key}:lock`;
-    const lockToken = crypto.randomUUID();
-    if (await redis.setNx(lockKey, lockToken, LOCK_TTL_MS)) {
-      try {
-        const value = await input.load();
-        await redis.set(key, { value, created_at: new Date().toISOString() }, CACHE_TTL_SECONDS);
-        return {
-          value,
-          diagnostic: {
-            status: 'MISS',
-            resource: input.resource,
-            version: input.version,
-            age_seconds: 0,
-          },
-        };
-      } finally {
-        try {
-          await redis.releaseLock(lockKey, lockToken);
-        } catch {
-          // The bounded lock naturally expires; cache correctness never relies on release.
-        }
-      }
-    }
-
-    const deadline = Date.now() + COALESCED_WAIT_MS;
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, COALESCED_POLL_MS));
-      const rebuilt = await redis.get<CacheEntry<T>>(key);
-      // A force refresh must not immediately return the entry that existed
-      // before the lock holder began rebuilding it.
-      if (rebuilt && (!input.forceRefresh || Date.parse(rebuilt.created_at) >= refreshStartedAt)) {
-        return {
-          value: rebuilt.value,
-          diagnostic: {
-            status: 'COALESCED',
-            resource: input.resource,
-            version: input.version,
-            age_seconds: entryAgeSeconds(rebuilt),
-          },
-        };
-      }
-    }
-    throw new CacheBusyError();
-  } catch (error) {
-    if (error instanceof CacheBusyError) throw error;
-    const value = await input.load();
+    existing = await redis.get<CacheEntry<T>>(key);
+  } catch {
+    return loadWithoutCache('FALLBACK');
+  }
+  if (existing && !input.forceRefresh) {
     return {
-      value,
+      value: existing.value,
       diagnostic: {
-        status: 'FALLBACK',
+        status: 'HIT',
         resource: input.resource,
         version: input.version,
-        age_seconds: null,
+        age_seconds: entryAgeSeconds(existing),
       },
     };
   }
+
+  const lockKey = `${key}:lock`;
+  const lockToken = crypto.randomUUID();
+  let lockAcquired: boolean;
+  try {
+    lockAcquired = await redis.setNx(lockKey, lockToken, LOCK_TTL_MS);
+  } catch {
+    return loadWithoutCache('FALLBACK');
+  }
+  if (lockAcquired) {
+    let value: T;
+    try {
+      value = await input.load();
+    } catch (error) {
+      try {
+        await redis.releaseLock(lockKey, lockToken);
+      } catch {
+        // The bounded lock naturally expires; cache correctness never relies on release.
+      }
+      throw error;
+    }
+
+    let cacheStored = true;
+    try {
+      await redis.set(key, { value, created_at: new Date().toISOString() }, ttlSeconds);
+    } catch {
+      // Do not repeat an expensive successful load just because Redis could not store it.
+      cacheStored = false;
+    } finally {
+      try {
+        await redis.releaseLock(lockKey, lockToken);
+      } catch {
+        // The bounded lock naturally expires; cache correctness never relies on release.
+      }
+    }
+    return {
+      value,
+      diagnostic: {
+        status: cacheStored ? 'MISS' : 'FALLBACK',
+        resource: input.resource,
+        version: input.version,
+        age_seconds: cacheStored ? 0 : null,
+      },
+    };
+  }
+
+  const deadline = Date.now() + COALESCED_WAIT_MS;
+  while (Date.now() < deadline) {
+    const sleepMs = Math.min(COALESCED_POLL_MS, Math.max(0, deadline - Date.now()));
+    if (sleepMs > 0) await new Promise((resolve) => setTimeout(resolve, sleepMs));
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+
+    let rebuilt: CacheEntry<T> | null;
+    try {
+      rebuilt = await redis.get<CacheEntry<T>>(key, remainingMs);
+    } catch {
+      return loadWithoutCache('FALLBACK');
+    }
+    // A force refresh must not immediately return the entry that existed
+    // before the lock holder began rebuilding it.
+    if (rebuilt && (!input.forceRefresh || Date.parse(rebuilt.created_at) >= refreshStartedAt)) {
+      return {
+        value: rebuilt.value,
+        diagnostic: {
+          status: 'COALESCED',
+          resource: input.resource,
+          version: input.version,
+          age_seconds: entryAgeSeconds(rebuilt),
+        },
+      };
+    }
+  }
+
+  // A slow lock holder must not turn into a 10-second page stall or a 503.
+  return loadWithoutCache('FALLBACK');
 }

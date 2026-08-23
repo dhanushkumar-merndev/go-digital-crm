@@ -264,8 +264,7 @@ export function TestDriveScreen() {
           />
         }
       >
-        <View>
-          <Text style={styles.eyebrow}>GO DIGITAL CRM</Text>
+        <View style={styles.header}>
           <Text style={styles.title}>Test Drives</Text>
           <Text style={styles.subtitle}>Scheduled drives, GPS progress and customer feedback</Text>
         </View>
@@ -530,10 +529,10 @@ export function TestDriveScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
-  content: { padding: 18, paddingBottom: 48, gap: 16 },
-  eyebrow: { color: colors.primary, fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
-  title: { color: colors.text, fontSize: 25, fontWeight: '800', marginTop: 5 },
-  subtitle: { color: colors.muted, fontSize: 13, marginTop: 4 },
+  content: { padding: 14, paddingBottom: 36, gap: 12 },
+  header: { gap: 2, paddingHorizontal: 2, paddingBottom: 2 },
+  title: { color: colors.text, fontSize: 17, fontWeight: '800', lineHeight: 22 },
+  subtitle: { color: colors.muted, fontSize: 11, lineHeight: 15 },
   tabs: { gap: 8 },
   tab: {
     borderWidth: 1,

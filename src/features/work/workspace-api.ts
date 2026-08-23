@@ -218,6 +218,7 @@ export async function fetchWorkWorkspace(
   kind: WorkKind,
   query: WorkQuery,
   timezone: string,
+  signal?: AbortSignal,
 ): Promise<WorkWorkspaceResult> {
   const functionName =
     kind === 'followups' ? 'get_followup_workspace_page' : 'get_appointment_workspace_page';
@@ -234,20 +235,24 @@ export async function fetchWorkWorkspace(
   };
   if (kind === 'followups') parameters.target_priority = query.priority;
   else parameters.target_appointment_type = query.appointmentType;
-  const { data, error } = await createClient().rpc(functionName, parameters);
+  const request = createClient().rpc(functionName, parameters);
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return kind === 'followups'
     ? followupWorkspaceSchema.parse(data)
     : appointmentWorkspaceSchema.parse(data);
 }
 
-export async function fetchFollowupCalendar(input: {
-  month: string;
-  day?: string | null;
-  query: WorkQuery;
-  timezone: string;
-}) {
-  const { data, error } = await createClient().rpc('get_followup_calendar', {
+export async function fetchFollowupCalendar(
+  input: {
+    month: string;
+    day?: string | null;
+    query: WorkQuery;
+    timezone: string;
+  },
+  signal?: AbortSignal,
+) {
+  const request = createClient().rpc('get_followup_calendar', {
     target_month: input.month,
     target_day: input.day ?? null,
     target_search: input.query.search,
@@ -258,17 +263,21 @@ export async function fetchFollowupCalendar(input: {
     target_owner_id: nullableFilter(input.query.ownerId),
     target_timezone: input.timezone,
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return followupCalendarSchema.parse(data);
 }
 
-export async function fetchAppointmentCalendar(input: {
-  month: string;
-  day?: string | null;
-  query: WorkQuery;
-  timezone: string;
-}) {
-  const { data, error } = await createClient().rpc('get_appointment_calendar', {
+export async function fetchAppointmentCalendar(
+  input: {
+    month: string;
+    day?: string | null;
+    query: WorkQuery;
+    timezone: string;
+  },
+  signal?: AbortSignal,
+) {
+  const request = createClient().rpc('get_appointment_calendar', {
     target_month: input.month,
     target_day: input.day ?? null,
     target_search: input.query.search,
@@ -279,14 +288,16 @@ export async function fetchAppointmentCalendar(input: {
     target_owner_id: nullableFilter(input.query.ownerId),
     target_timezone: input.timezone,
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return appointmentCalendarSchema.parse(data);
 }
 
-export async function fetchAppointmentTypeSummary(timezone: string) {
-  const { data, error } = await createClient().rpc('get_appointment_type_summary', {
+export async function fetchAppointmentTypeSummary(timezone: string, signal?: AbortSignal) {
+  const request = createClient().rpc('get_appointment_type_summary', {
     target_timezone: timezone,
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return z
     .object({
@@ -327,11 +338,12 @@ export type WorkCreateOptions = z.infer<typeof workCreateOptionsSchema>;
 export type WorkEntityOption = z.infer<typeof entityOptionSchema>;
 export type WorkUserOption = z.infer<typeof userOptionSchema>;
 
-export async function fetchWorkCreateOptions(kind: WorkKind, search = '') {
-  const { data, error } = await createClient().rpc('get_work_create_options', {
+export async function fetchWorkCreateOptions(kind: WorkKind, search = '', signal?: AbortSignal) {
+  const request = createClient().rpc('get_work_create_options', {
     target_kind: kind,
     target_search: search,
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return workCreateOptionsSchema.parse(data);
 }
