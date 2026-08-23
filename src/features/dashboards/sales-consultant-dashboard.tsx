@@ -30,7 +30,7 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { SalesConsultantDashboardSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -695,7 +695,7 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
     }
   }
 
-  if (dashboard.isPending) return <PageSkeleton />;
+  if (dashboard.isPending) return <SalesConsultantDashboardSkeleton />;
   if (dashboard.isError || !data)
     return (
       <div className="mx-auto max-w-[1800px]">

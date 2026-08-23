@@ -16,7 +16,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { AiVoiceCallsSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -119,7 +119,7 @@ export function AiVoiceCallWorkspace() {
     ];
   }, [dataQuery.data?.kpis]);
 
-  if (dataQuery.isPending) return <PageSkeleton />;
+  if (dataQuery.isPending) return <AiVoiceCallsSkeleton />;
   if (dataQuery.isError || !dataQuery.data)
     return (
       <Card className="mx-auto max-w-xl shadow-none">
@@ -269,7 +269,7 @@ export function AiVoiceCallWorkspace() {
                   update({ page: 1, pageSize: Number(value) as 25 | 50 | 100 })
                 }
               >
-                <SelectTrigger className="h-8 w-24">
+                <SelectTrigger className="h-8 w-28 shrink-0 whitespace-nowrap">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

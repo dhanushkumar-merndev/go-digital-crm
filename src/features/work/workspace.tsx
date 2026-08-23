@@ -24,7 +24,10 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import {
+  FollowupsSkeleton,
+  AppointmentsSkeleton,
+} from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import {
@@ -939,7 +942,7 @@ export function WorkWorkspace({
   }, [kind, permissions, queryClient, queryScope]);
 
   if ((!useSalesBootstrap && legacyPermissions.isPending) || (workspace.isPending && permissions))
-    return <PageSkeleton />;
+    return kind === 'appointments' ? <AppointmentsSkeleton /> : <FollowupsSkeleton />;
   if (legacyPermissions.isError || workspace.isError || !permissions || !workspace.data)
     return (
       <Card className="mx-auto max-w-xl">
@@ -1006,32 +1009,6 @@ export function WorkWorkspace({
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">
-          {kind === 'appointments' && (
-            <div className="flex h-10 items-center rounded-md border bg-slate-50 p-1">
-              <button
-                type="button"
-                className={`flex h-8 items-center gap-1.5 rounded px-3 text-xs font-medium ${
-                  view === 'calendar'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                onClick={() => setView('calendar')}
-              >
-                <CalendarDays className="size-3.5" /> Calendar view
-              </button>
-              <button
-                type="button"
-                className={`flex h-8 items-center gap-1.5 rounded px-3 text-xs font-medium ${
-                  view === 'table'
-                    ? 'bg-white text-blue-700 shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                onClick={() => setView('table')}
-              >
-                <List className="size-3.5" /> List view
-              </button>
-            </div>
-          )}
           {permissions.canCreate && !spec.readOnly && (
             <Button className="shrink-0" onClick={() => setCreateOpen(true)}>
               <Plus className="size-4" />
@@ -1101,7 +1078,6 @@ export function WorkWorkspace({
             isFetching={workspace.isFetching}
             onEdit={setEditingRecord}
             onAction={(action, record) => setActionState({ action, record })}
-            view={view}
             timezone={timezone}
             organizationId={permissions.organizationId}
             scopeKey={permissions.scopeKey}

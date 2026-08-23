@@ -1,8 +1,8 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
-import { Check, CircleAlert, GitCompareArrows, Lightbulb, Scale, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { Check, CircleAlert, GitCompareArrows, Lightbulb, Scale } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { CompetitorCompareSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -39,11 +39,24 @@ export function CompetitorComparisonWorkspace({ spec }: { spec: PageSpec }) {
   });
   const [ourId, setOurId] = useState('');
   const [competitorId, setCompetitorId] = useState('');
-  useEffect(() => {
-    if (!ourId && query.data?.our_variants[0]) setOurId(query.data.our_variants[0].id);
-    if (!competitorId && query.data?.competitors[0]) setCompetitorId(query.data.competitors[0].id);
-  }, [query.data, ourId, competitorId]);
-  if (query.isPending) return <PageSkeleton />;
+  const selectedOurId = ourId || query.data?.our_variants[0]?.id || '';
+  const selectedCompetitorId = competitorId || query.data?.competitors[0]?.id || '';
+  const ours = query.data?.our_variants.find((row) => row.id === selectedOurId);
+  const competitor = query.data?.competitors.find((row) => row.id === selectedCompetitorId);
+  const specs = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...Object.keys(ours?.specifications ?? {}),
+          ...Object.keys(competitor?.specifications ?? {}),
+          ...(competitor?.ex_showroom_price !== null && competitor?.ex_showroom_price !== undefined
+            ? ['ex_showroom_price']
+            : []),
+        ]),
+      ).sort(),
+    [ours, competitor],
+  );
+  if (query.isPending) return <CompetitorCompareSkeleton />;
   if (query.isError || !query.data)
     return (
       <Card className="mx-auto max-w-xl shadow-none">
@@ -56,19 +69,6 @@ export function CompetitorComparisonWorkspace({ spec }: { spec: PageSpec }) {
         </CardContent>
       </Card>
     );
-  const ours = query.data.our_variants.find((row) => row.id === ourId);
-  const competitor = query.data.competitors.find((row) => row.id === competitorId);
-  const specs = useMemo(
-    () =>
-      Array.from(
-        new Set([
-          ...Object.keys(ours?.specifications ?? {}),
-          ...Object.keys(competitor?.specifications ?? {}),
-          ...(competitor?.ex_showroom_price !== null ? ['ex_showroom_price'] : []),
-        ]),
-      ).sort(),
-    [ours, competitor],
-  );
   return (
     <div className="mx-auto max-w-[1800px] space-y-5">
       <div>
@@ -85,7 +85,7 @@ export function CompetitorComparisonWorkspace({ spec }: { spec: PageSpec }) {
         <CardContent className="grid gap-5 p-5 lg:grid-cols-[1fr_auto_1fr]">
           <div className="space-y-2">
             <p className="text-sm font-medium">Our vehicle</p>
-            <Select value={ourId} onValueChange={setOurId}>
+            <Select value={selectedOurId} onValueChange={setOurId}>
               <SelectTrigger>
                 <SelectValue placeholder="Select dealership variant" />
               </SelectTrigger>
@@ -105,7 +105,7 @@ export function CompetitorComparisonWorkspace({ spec }: { spec: PageSpec }) {
           </div>
           <div className="space-y-2">
             <p className="text-sm font-medium">Competitor vehicle</p>
-            <Select value={competitorId} onValueChange={setCompetitorId}>
+            <Select value={selectedCompetitorId} onValueChange={setCompetitorId}>
               <SelectTrigger>
                 <SelectValue placeholder="Select verified competitor profile" />
               </SelectTrigger>

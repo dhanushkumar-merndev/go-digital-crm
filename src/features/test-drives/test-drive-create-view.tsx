@@ -43,6 +43,26 @@ function nextHour() {
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
+function saveErrorMessage(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' && error && 'message' in error
+        ? String(error.message)
+        : String(error ?? '');
+  if (message.includes('TEST_DRIVE_VEHICLE_UNAVAILABLE'))
+    return 'That vehicle is no longer available. Select another vehicle and try again.';
+  if (message.includes('TEST_DRIVE_VEHICLE_SCHEDULE_CONFLICT'))
+    return 'That vehicle already has a test drive during this time. Choose another slot or vehicle.';
+  if (message.includes('TEST_DRIVE_CONSULTANT_SCHEDULE_CONFLICT'))
+    return 'You already have a test drive during this time. Choose another slot.';
+  if (message.includes('INVALID_TEST_DRIVE_INPUT'))
+    return 'Check the registration, schedule, duration, and location values before saving.';
+  if (message.includes('TEST_DRIVE_SCOPE_DENIED'))
+    return 'The selected customer or vehicle is outside your assigned scope.';
+  return 'Could not save the test drive. Refresh the available vehicles and try again.';
+}
+
 export function TestDriveCreateView({
   onCancel,
   onSaved,
@@ -93,14 +113,28 @@ export function TestDriveCreateView({
       });
     },
     onSuccess: onSaved,
+    onError: () => {
+      // A changed retry must use a fresh idempotency key; otherwise the backend
+      // correctly rejects the reused key with a different request fingerprint.
+      requestId.current = null;
+    },
   });
-  const valid = Boolean(
-    leadId &&
-    stockUnitId &&
-    scheduledAt &&
-    Number(duration) >= 15 &&
-    /^[A-Z0-9 -]{4,24}$/i.test(registration.trim()),
-  );
+  const validationMessage = !leadId
+    ? 'Select an assigned customer or lead.'
+    : !selectedLead
+      ? 'The selected customer is no longer available. Select the customer again.'
+      : !stockUnitId
+        ? 'Select an available test-drive vehicle.'
+        : !selectedVehicle
+          ? 'The selected vehicle is no longer available. Select another vehicle.'
+          : !scheduledAt
+            ? 'Choose a date and time.'
+            : Number(duration) < 15
+              ? 'Expected duration must be at least 15 minutes.'
+              : !/^[A-Z0-9 -]{4,24}$/i.test(registration.trim())
+                ? 'Enter a valid registration number using 4–24 letters, numbers, spaces, or hyphens.'
+                : null;
+  const valid = validationMessage === null;
   const submit = () => valid && mutation.mutate();
   return (
     <div className="space-y-5">
@@ -125,10 +159,7 @@ export function TestDriveCreateView({
       </div>
       {mutation.isError && (
         <Alert variant="destructive">
-          <AlertDescription>
-            Could not save the test drive. The vehicle may no longer be available or its schedule
-            may conflict.
-          </AlertDescription>
+          <AlertDescription>{saveErrorMessage(mutation.error)}</AlertDescription>
         </Alert>
       )}
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,2fr)_360px]">
@@ -308,6 +339,9 @@ export function TestDriveCreateView({
               Only inventory currently available for test drives in the selected lead’s branch is
               shown.
             </div>
+            {validationMessage && (
+              <p className="text-xs font-medium text-amber-700">{validationMessage}</p>
+            )}
             <Button className="w-full" disabled={!valid || mutation.isPending} onClick={submit}>
               <Play className="size-4" /> Save test drive
             </Button>

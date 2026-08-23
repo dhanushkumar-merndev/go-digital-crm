@@ -28,7 +28,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { TestDrivesSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -605,7 +605,7 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
     void queryClient.invalidateQueries({ queryKey: ['customer-360'] });
   }, [queryClient, queryScope]);
 
-  if (!useSalesBootstrap && legacyPermissions.isPending) return <PageSkeleton />;
+  if (!useSalesBootstrap && legacyPermissions.isPending) return <TestDrivesSkeleton />;
   if (legacyPermissions.isError || !permissions || (screen === 'create' && !permissions.canManage))
     return (
       <Card className="mx-auto max-w-xl">
@@ -642,7 +642,7 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
         }}
       />
     );
-  if (workspace.isPending) return <PageSkeleton />;
+  if (workspace.isPending) return <TestDrivesSkeleton />;
   if (workspace.isError || !workspace.data)
     return (
       <Card className="mx-auto max-w-xl">

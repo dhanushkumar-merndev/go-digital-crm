@@ -8,6 +8,7 @@ function source(path: string) {
 
 const migration = source('supabase/migrations/202608200008_appointment_calendar_workspace.sql');
 const view = source('src/features/work/appointment-workspace-view.tsx');
+const workspace = source('src/features/work/workspace.tsx');
 const api = source('src/features/work/workspace-api.ts');
 const dialogs = source('src/features/work/workspace-dialogs.tsx');
 
@@ -31,12 +32,13 @@ describe('sales consultant appointment workspace contract', () => {
     }
   });
 
-  it('implements the reference list, month calendar, agenda and working actions', () => {
+  it('keeps the list, compact selected-day agenda and working actions without a full calendar mode', () => {
     expect(view).toContain('Appointments (');
     expect(view).toContain("Today's agenda");
     expect(view).toContain('AppointmentActions');
     expect(view).toContain('fetchAppointmentCalendar');
     expect(view).toContain('Customer 360');
-    expect(view).toContain('+{(day?.total ?? 0) - 3} more');
+    expect(view).not.toContain("view: 'table' | 'calendar'");
+    expect(workspace).not.toContain('Calendar view');
   });
 });

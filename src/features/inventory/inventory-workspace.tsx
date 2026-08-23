@@ -28,6 +28,7 @@ import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { StockCheckSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -1149,7 +1150,7 @@ function ListWorkspace({
     placeholderData: keepPreviousData,
   });
 
-  if (page.isPending) return <PageSkeleton />;
+  if (page.isPending) return view === 'stock-check' ? <StockCheckSkeleton /> : <PageSkeleton />;
   if (page.isError || !page.data)
     return (
       <Alert variant="destructive">
@@ -1320,7 +1321,7 @@ export function InventoryWorkspace({
     (!useSalesBootstrap && legacyPermissions.isPending) ||
     (!useSalesBootstrap && branches.isPending)
   )
-    return <PageSkeleton />;
+    return selectedView === 'stock-check' ? <StockCheckSkeleton /> : <PageSkeleton />;
   const permissionDenied =
     permissions &&
     (selectedView === 'stock-check'

@@ -129,8 +129,9 @@ async function main() {
     });
   });
 
+  let createdAppointment;
   await stage('sales test-drive appointment', async () => {
-    await rpc(salesToken, 'create_appointment', {
+    createdAppointment = await rpc(salesToken, 'create_appointment', {
       target_lead_id: lead.id,
       target_customer_id: lead.customer_id,
       target_branch_id: lead.branch_id,
@@ -141,6 +142,45 @@ async function main() {
       target_notes: MARKER,
       target_request_id: requestId(),
     });
+  });
+
+  await stage('appointment type filter', async () => {
+    const result = await rpc(salesToken, 'get_appointment_workspace_page', {
+      target_search: '',
+      target_status: 'all',
+      target_appointment_type: 'Test Drive',
+      target_branch_id: null,
+      target_team_id: null,
+      target_owner_id: null,
+      target_page: 1,
+      target_page_size: 25,
+      target_sort: 'scheduled:desc',
+      target_timezone: 'Asia/Kolkata',
+    });
+    if (!result.records?.some((record) => record.id === createdAppointment?.id))
+      throw new Error('appointment type filter did not return the created appointment');
+  });
+
+  await stage('appointment selected-day agenda', async () => {
+    const scheduledDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(testDriveScheduledAt));
+    const result = await rpc(salesToken, 'get_appointment_calendar', {
+      target_month: `${scheduledDate.slice(0, 7)}-01`,
+      target_day: scheduledDate,
+      target_search: '',
+      target_status: 'all',
+      target_appointment_type: 'all',
+      target_branch_id: null,
+      target_team_id: null,
+      target_owner_id: null,
+      target_timezone: 'Asia/Kolkata',
+    });
+    if (!result.days?.[0]?.items?.some((record) => record.id === createdAppointment?.id))
+      throw new Error('selected-day agenda did not return the created appointment');
   });
 
   const [stockTemplate] = await rows(inventoryToken, 'stock_units', {
@@ -180,8 +220,9 @@ async function main() {
     throw new Error('test-drive picker did not expose newly available stock');
   }
 
+  let createdTestDrive;
   await stage('sales test-drive creation', async () => {
-    await rpc(salesToken, 'create_test_drive', {
+    createdTestDrive = await rpc(salesToken, 'create_test_drive', {
       target_lead_id: lead.id,
       target_stock_unit_id: stockUnitId,
       target_scheduled_at: testDriveScheduledAt,
@@ -191,6 +232,22 @@ async function main() {
       target_destination: { label: 'Demo route' },
       target_request_id: requestId(),
     });
+  });
+
+  await stage('sales test-drive list refresh', async () => {
+    const result = await rpc(salesToken, 'get_test_drive_workspace_page', {
+      target_view: 'UPCOMING',
+      target_search: '',
+      target_model: '',
+      target_from_date: null,
+      target_to_date: null,
+      target_page: 1,
+      target_page_size: 25,
+      target_sort: 'scheduled:desc',
+      target_timezone: 'Asia/Kolkata',
+    });
+    if (!result.records?.some((record) => record.id === createdTestDrive?.id))
+      throw new Error('test-drive list did not return the newly saved test drive');
   });
 
   const quotation = await rpc(salesToken, 'save_quotation', {

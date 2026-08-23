@@ -24,7 +24,7 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { SalesExchangeSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -350,7 +350,7 @@ export function SalesExchangeWorkspace() {
   };
 
   if ((!useSalesBootstrap && legacyPermissions.isPending) || options.isPending)
-    return <PageSkeleton />;
+    return <SalesExchangeSkeleton />;
   if (legacyPermissions.isError || options.isError || !permissions?.canRequest)
     return (
       <Card className="mx-auto max-w-xl">

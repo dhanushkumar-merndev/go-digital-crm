@@ -22,7 +22,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { TasksSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -495,7 +495,7 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
   }, [queryClient, queryScope]);
 
   if ((!useSalesBootstrap && legacyPermissions.isPending) || (workspace.isPending && permissions))
-    return <PageSkeleton />;
+    return <TasksSkeleton />;
   if (legacyPermissions.isError || workspace.isError || !permissions || !workspace.data)
     return (
       <Card className="mx-auto max-w-xl">

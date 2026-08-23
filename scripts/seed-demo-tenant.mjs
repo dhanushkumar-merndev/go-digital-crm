@@ -180,13 +180,6 @@ async function patch(table, query, row) {
   });
 }
 
-async function rpc(name, args) {
-  return request(`${projectUrl}/rest/v1/rpc/${name}`, {
-    method: 'POST',
-    body: JSON.stringify(args),
-  });
-}
-
 function emailFor(roleKey) {
   return `${roleKey.replaceAll('_', '-')}@${DEMO_DOMAIN}`;
 }
@@ -569,20 +562,18 @@ async function seedDemoRecords({ organizationId, branchId, teamId, users }) {
     }
   }
 
-  const appointment = (
-    await insert('appointments', {
-      organization_id: organizationId,
-      branch_id: branchId,
-      team_id: teamId,
-      lead_id: demoLead('Kabir Singh').id,
-      customer_id: demoCustomer('Kabir Singh').id,
-      assigned_user_id: users.salesConsultant,
-      appointment_type: 'Showroom Visit',
-      scheduled_at: new Date(Date.now() + 86_400_000).toISOString(),
-      status: 'SCHEDULED',
-      notes: 'Demo appointment for acceptance testing.',
-    })
-  )[0];
+  await insert('appointments', {
+    organization_id: organizationId,
+    branch_id: branchId,
+    team_id: teamId,
+    lead_id: demoLead('Kabir Singh').id,
+    customer_id: demoCustomer('Kabir Singh').id,
+    assigned_user_id: users.salesConsultant,
+    appointment_type: 'Showroom Visit',
+    scheduled_at: new Date(Date.now() + 86_400_000).toISOString(),
+    status: 'SCHEDULED',
+    notes: 'Demo appointment for acceptance testing.',
+  });
   await insert('followups', {
     organization_id: organizationId,
     branch_id: branchId,
@@ -755,6 +746,156 @@ async function seedDemoRecords({ organizationId, branchId, teamId, users }) {
   return { seeded: true, customers: customers.length, leads: leads.length };
 }
 
+async function seedSalesConsultantActionFixtures({ organizationId, branchId, users }) {
+  const brand = await ensureRecord(
+    'vehicle_brands',
+    {
+      organization_id: `eq.${organizationId}`,
+      name: 'eq.Tata Motors',
+    },
+    {
+      organization_id: organizationId,
+      name: 'Tata Motors',
+    },
+  );
+  const model = await ensureRecord(
+    'vehicle_models',
+    {
+      organization_id: `eq.${organizationId}`,
+      brand_id: `eq.${brand.id}`,
+      name: 'eq.Nexon EV',
+    },
+    {
+      organization_id: organizationId,
+      brand_id: brand.id,
+      name: 'Nexon EV',
+    },
+  );
+  const variant = await ensureRecord(
+    'vehicle_variants',
+    {
+      organization_id: `eq.${organizationId}`,
+      model_id: `eq.${model.id}`,
+      name: 'eq.Empowered+ 45',
+    },
+    {
+      organization_id: organizationId,
+      model_id: model.id,
+      name: 'Empowered+ 45',
+      specifications: {
+        fuel: 'Electric',
+        battery_kwh: 45,
+        certified_range_km: 489,
+        transmission: 'Automatic',
+      },
+    },
+  );
+  const stockFixtures = [
+    ['GDMNEV20260000001', 'GDMCHASSISNEV0001', 'Pristine White'],
+    ['GDMNEV20260000002', 'GDMCHASSISNEV0002', 'Empowered Oxide'],
+    ['GDMNEV20260000003', 'GDMCHASSISNEV0003', 'Flame Red'],
+    ['GDMNEV20260000004', 'GDMCHASSISNEV0004', 'Daytona Grey'],
+    ['GDMNEV20260000005', 'GDMCHASSISNEV0005', 'Creative Ocean'],
+  ];
+  for (const [vin, chassisNumber, color] of stockFixtures) {
+    await ensureRecord(
+      'stock_units',
+      {
+        organization_id: `eq.${organizationId}`,
+        vin: `eq.${vin}`,
+      },
+      {
+        organization_id: organizationId,
+        branch_id: branchId,
+        variant_id: variant.id,
+        vin,
+        chassis_number: chassisNumber,
+        color,
+        status: 'AVAILABLE',
+        received_at: new Date().toISOString(),
+      },
+    );
+  }
+
+  const leads = await select('leads', {
+    select: 'id,customer_id,branch_id,team_id,assigned_user_id,lifecycle_status',
+    organization_id: `eq.${organizationId}`,
+    assigned_user_id: `eq.${users.salesConsultant}`,
+    customer_id: 'not.is.null',
+    deleted_at: 'is.null',
+    order: 'created_at.asc',
+    limit: '20',
+  });
+  const eligibleLeads = leads.filter((lead) => lead.lifecycle_status !== 'Lost');
+  if (eligibleLeads.length < 3)
+    throw new Error('At least three Sales Consultant demo leads are required for action fixtures.');
+
+  const appointmentFixtures = [
+    {
+      marker: 'Demo action fixture — video consultation',
+      type: 'Video Call',
+      lead: eligibleLeads[0],
+      daysFromNow: 1,
+      utcHour: 5,
+      utcMinute: 30,
+    },
+    {
+      marker: 'Demo action fixture — showroom consultation',
+      type: 'Showroom Visit',
+      lead: eligibleLeads[1],
+      daysFromNow: 2,
+      utcHour: 8,
+      utcMinute: 0,
+    },
+    {
+      marker: 'Demo action fixture — consultant callback',
+      type: 'Consultant Call',
+      lead: eligibleLeads[2],
+      daysFromNow: 3,
+      utcHour: 10,
+      utcMinute: 30,
+    },
+  ];
+  for (const fixture of appointmentFixtures) {
+    const scheduledAt = new Date(Date.now() + fixture.daysFromNow * 86_400_000);
+    scheduledAt.setUTCHours(fixture.utcHour, fixture.utcMinute, 0, 0);
+    const appointment = await ensureRecord(
+      'appointments',
+      {
+        organization_id: `eq.${organizationId}`,
+        notes: `eq.${fixture.marker}`,
+      },
+      {
+        organization_id: organizationId,
+        branch_id: fixture.lead.branch_id,
+        team_id: fixture.lead.team_id,
+        lead_id: fixture.lead.id,
+        customer_id: fixture.lead.customer_id,
+        assigned_user_id: users.salesConsultant,
+        appointment_type: fixture.type,
+        scheduled_at: scheduledAt.toISOString(),
+        status: 'SCHEDULED',
+        notes: fixture.marker,
+        created_by: users.clientAdmin,
+      },
+    );
+    await patch(
+      'appointments',
+      { id: `eq.${appointment.id}`, organization_id: `eq.${organizationId}` },
+      {
+        appointment_type: fixture.type,
+        scheduled_at: scheduledAt.toISOString(),
+        status: 'SCHEDULED',
+      },
+    );
+  }
+
+  return {
+    action_ready_stock_units: stockFixtures.length,
+    action_ready_appointments: appointmentFixtures.length,
+  };
+}
+
 async function seedDemoTeamExperience({ organizationId, branchId, teamId, users }) {
   // Extra colleagues make the demo behave like a real sales team: each
   // consultant/telecaller owns distinct work, while the Team Manager can see
@@ -848,12 +989,12 @@ async function seedDemoTeamExperience({ organizationId, branchId, teamId, users 
     );
 
     if (fixture.workKind === 'APPOINTMENT') {
-      await ensureRecord(
+      const appointment = await ensureRecord(
         'appointments',
         {
           organization_id: `eq.${organizationId}`,
           lead_id: `eq.${lead.id}`,
-          appointment_type: 'eq.Demo team appointment',
+          notes: 'eq.Demo appointment owned by the second Sales Consultant.',
         },
         {
           organization_id: organizationId,
@@ -862,11 +1003,16 @@ async function seedDemoTeamExperience({ organizationId, branchId, teamId, users 
           lead_id: lead.id,
           customer_id: customer.id,
           assigned_user_id: fixture.assignedUserId,
-          appointment_type: 'Demo team appointment',
+          appointment_type: 'Video Call',
           scheduled_at: new Date(Date.now() + 2 * 3_600_000).toISOString(),
           status: 'SCHEDULED',
           notes: 'Demo appointment owned by the second Sales Consultant.',
         },
+      );
+      await patch(
+        'appointments',
+        { id: `eq.${appointment.id}`, organization_id: `eq.${organizationId}` },
+        { appointment_type: 'Video Call' },
       );
     } else {
       await ensureRecord(
@@ -1879,6 +2025,14 @@ async function main() {
       digitalMarketingManager: users.digital_marketing_manager,
     },
   });
+  const actionFixtures = await seedSalesConsultantActionFixtures({
+    organizationId,
+    branchId: branch.id,
+    users: {
+      clientAdmin: users.clientAdmin,
+      salesConsultant: users.sales_consultant,
+    },
+  });
   const connectedExperience = await seedDemoConnectedExperience({
     organizationId,
     branchId: branch.id,
@@ -1927,6 +2081,7 @@ async function main() {
         test_account_count: 28,
         seeded_records: {
           ...summary,
+          ...actionFixtures,
           ...connectedExperience,
           ...teamExperience,
           ...additionalTeamExperience,

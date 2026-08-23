@@ -8,6 +8,7 @@ function source(path: string) {
 
 const api = source('src/features/test-drives/test-drive-workspace-api.ts');
 const workspace = source('src/features/test-drives/test-drive-workspace.tsx');
+const createView = source('src/features/test-drives/test-drive-create-view.tsx');
 const dialogs = source('src/features/test-drives/test-drive-workspace-dialogs.tsx');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
 
@@ -42,6 +43,13 @@ describe('test-drive web API boundary', () => {
     expect(workspace).toContain('Boolean(record.route_finalized_at)');
     expect(workspace).toContain('!record.feedback_id');
     expect(workspace).toContain('record.assigned_user_id === permissions.userId');
+  });
+
+  it('explains disabled saves and gives changed retries a fresh idempotency key', () => {
+    expect(createView).toContain('validationMessage');
+    expect(createView).toContain('requestId.current = null');
+    expect(createView).toContain('TEST_DRIVE_VEHICLE_SCHEDULE_CONFLICT');
+    expect(createView).toContain('TEST_DRIVE_CONSULTANT_SCHEDULE_CONFLICT');
   });
 });
 

@@ -30,7 +30,7 @@ import {
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { CallsSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import {
   hasWorkspacePermission,
@@ -1609,7 +1609,7 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
   };
 
   if ((!useSalesBootstrap && legacyPermissions.isPending) || workspace.isPending)
-    return <PageSkeleton />;
+    return <CallsSkeleton />;
   if (legacyPermissions.isError || workspace.isError)
     return (
       <Card className="mx-auto max-w-xl">

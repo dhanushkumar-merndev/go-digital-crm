@@ -20,7 +20,7 @@ import {
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { LeadWorkspaceSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import {
   hasWorkspacePermission,
@@ -1268,7 +1268,7 @@ export function LeadWorkspace({
     [queryClient, queryScope],
   );
 
-  if (workspace.isPending) return <PageSkeleton />;
+  if (workspace.isPending) return <LeadWorkspaceSkeleton />;
   if (workspace.isError || legacyPermissions.isError)
     return (
       <Card className="mx-auto max-w-xl">

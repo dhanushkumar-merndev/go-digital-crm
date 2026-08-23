@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import { InboxSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
@@ -188,6 +189,9 @@ export function InboxWorkspace({ role }: { role: string }) {
   }
 
   const totalPages = Math.max(1, Math.ceil((conversations.data?.total ?? 0) / 25));
+
+  if (conversations.isPending) return <InboxSkeleton />;
+
   return (
     <div className="mx-auto max-w-[1800px] space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">

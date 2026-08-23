@@ -20,6 +20,7 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { SalesConsultantTimelineSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import {
   useWorkspaceSession,
@@ -361,12 +362,7 @@ export function SalesConsultantActivityTimeline({
   const updateQuery = (next: Partial<SalesActivityQuery>) =>
     setQuery((current) => ({ ...current, ...next }));
 
-  if (timeline.isPending)
-    return (
-      <div className="grid min-h-80 place-items-center">
-        <LoaderCircle className="size-5 animate-spin text-blue-600" />
-      </div>
-    );
+  if (timeline.isPending) return <SalesConsultantTimelineSkeleton />;
   if (timeline.isError || !timeline.data)
     return (
       <Card className="mx-auto max-w-xl border-rose-100 shadow-none">

@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const roleKeys = [
+  'super_admin',
   'business_owner',
   'client_admin',
   'system_administrator',

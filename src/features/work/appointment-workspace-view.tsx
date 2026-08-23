@@ -248,7 +248,6 @@ export function AppointmentWorkspaceView({
   isFetching,
   onEdit,
   onAction,
-  view,
   timezone,
   organizationId,
   scopeKey,
@@ -262,7 +261,6 @@ export function AppointmentWorkspaceView({
   isFetching: boolean;
   onEdit: (record: WorkRecord) => void;
   onAction: (action: 'complete' | 'cancel', record: WorkRecord) => void;
-  view: 'table' | 'calendar';
   timezone: string;
   organizationId: string;
   scopeKey: string;
@@ -299,7 +297,6 @@ export function AppointmentWorkspaceView({
         { month: monthKey(displayedMonth), query: requestQuery, timezone },
         signal,
       ),
-    enabled: view === 'calendar',
   });
   const dayRecords = useQuery({
     queryKey: [
@@ -327,7 +324,7 @@ export function AppointmentWorkspaceView({
         },
         signal,
       ),
-    enabled: view === 'calendar' && Boolean(selectedDay),
+    enabled: Boolean(selectedDay),
   });
   const recordsByDay = useMemo(
     () => new Map(calendar.data?.days.map((day) => [day.date, day]) ?? []),
@@ -396,8 +393,11 @@ export function AppointmentWorkspaceView({
             })
           }
         >
-          <SelectTrigger>
-            <SelectValue />
+          <SelectTrigger aria-label="Appointment type filter">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="shrink-0 text-muted-foreground">Type:</span>
+              <SelectValue />
+            </span>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All types</SelectItem>
@@ -412,13 +412,18 @@ export function AppointmentWorkspaceView({
           value={query.status}
           onValueChange={(status) => onQueryChange({ status: status as WorkStatusFilter, page: 1 })}
         >
-          <SelectTrigger>
-            <SelectValue />
+          <SelectTrigger aria-label="Appointment status filter">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="shrink-0 text-muted-foreground">Status:</span>
+              <SelectValue />
+            </span>
           </SelectTrigger>
           <SelectContent>
             {appointmentFilters.map((status) => (
               <SelectItem key={status} value={status}>
-                {status === 'all' ? 'All statuses' : status.replaceAll('-', ' ')}
+                {status === 'all'
+                  ? 'All statuses'
+                  : status.replaceAll('-', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())}
               </SelectItem>
             ))}
           </SelectContent>
@@ -483,261 +488,194 @@ export function AppointmentWorkspaceView({
         })}
       </div>
       {filters}
-      {view === 'table' ? (
-        <div className="grid gap-4 xl:grid-cols-12">
-          <Card className="overflow-hidden shadow-none xl:col-span-9">
-            <CardHeader className="flex-row items-center justify-between border-b p-4">
-              <CardTitle className="text-sm">Appointments ({result.total})</CardTitle>
-              <span className="text-xs text-muted-foreground">
-                Showing {result.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-                {Math.min(query.page * query.pageSize, result.total)}
-              </span>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className={isFetching ? 'overflow-x-auto opacity-60' : 'overflow-x-auto'}>
-                <Table className="min-w-[1000px]">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Appointment type</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Time</TableHead>
-                      <TableHead>Model</TableHead>
-                      <TableHead>Consultant</TableHead>
-                      <TableHead>Branch</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {result.records.length ? (
-                      result.records.map((record) => {
-                        const visual = typeVisual(record.appointment_type);
-                        const Icon = visual.icon;
-                        return (
-                          <TableRow key={record.id}>
-                            <TableCell>
-                              <Link
-                                href={`/${role}/customers/${record.customer_id}`}
-                                className="font-semibold hover:text-blue-700 hover:underline"
-                              >
-                                {record.customer_name}
-                              </Link>
-                              <p className="text-[10px] text-muted-foreground">
-                                {record.phone ?? '—'}
-                              </p>
-                            </TableCell>
-                            <TableCell>
-                              <span className="flex items-center gap-2">
-                                <span
-                                  className={`grid size-6 place-items-center rounded ${visual.tone}`}
-                                >
-                                  <Icon className="size-3.5" />
-                                </span>
-                                {record.appointment_type}
-                              </span>
-                            </TableCell>
-                            <TableCell>{formatDate(record.scheduled_at)}</TableCell>
-                            <TableCell>{formatTime(record.scheduled_at)}</TableCell>
-                            <TableCell>{record.interested_model ?? '—'}</TableCell>
-                            <TableCell>{record.assigned_user_name}</TableCell>
-                            <TableCell>{record.branch_name}</TableCell>
-                            <TableCell>
-                              <StatusBadge value={record.status} />
-                            </TableCell>
-                            <TableCell>
-                              <AppointmentActions
-                                record={record}
-                                permissions={permissions}
-                                onEdit={onEdit}
-                                onAction={onAction}
-                              />
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={9} className="h-40 text-center">
-                          No matching appointments
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="flex items-center justify-between border-t px-4 py-3 text-xs text-muted-foreground">
-                <span>
-                  Showing {result.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-                  {Math.min(query.page * query.pageSize, result.total)} of {result.total}
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="size-8"
-                    disabled={query.page <= 1}
-                    onClick={() => onQueryChange({ page: query.page - 1 })}
-                  >
-                    <ChevronLeft className="size-4" />
-                  </Button>
-                  <span>
-                    Page {query.page} of {Math.max(1, Math.ceil(result.total / query.pageSize))}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="size-8"
-                    disabled={query.page >= Math.ceil(result.total / query.pageSize)}
-                    onClick={() => onQueryChange({ page: query.page + 1 })}
-                  >
-                    <ChevronRight className="size-4" />
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <div className="space-y-4 xl:col-span-3">
-            <Card className="overflow-hidden shadow-none">
-              {monthHeader}
-              <CardContent className="p-3">
-                <div className="grid grid-cols-7">
-                  {weekdays.map((day) => (
-                    <span
-                      key={day}
-                      className="py-1 text-center text-[9px] font-semibold text-muted-foreground"
-                    >
-                      {day.slice(0, 2)}
-                    </span>
-                  ))}
-                  {cells.map((cell) => {
-                    const key = dateKey(cell);
-                    const inMonth = cell.getMonth() === displayedMonth.getMonth();
-                    const hasItems = Boolean(recordsByDay.get(key)?.total);
-                    return (
-                      <button
-                        key={key}
-                        className={`relative grid aspect-square place-items-center rounded-full text-[11px] ${key === selectedDay ? 'bg-blue-600 text-white' : key === today ? 'font-bold text-blue-700' : inMonth ? 'hover:bg-blue-50' : 'text-muted-foreground/40'}`}
-                        onClick={() => selectCalendarDay(cell)}
-                      >
-                        {cell.getDate()}
-                        {hasItems && key !== selectedDay && (
-                          <span className="absolute bottom-0.5 size-1 rounded-full bg-blue-500" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="shadow-none">
-              <CardHeader className="border-b p-4">
-                <CardTitle className="text-sm">
-                  {selectedDay === today ? "Today's agenda" : 'Selected-day agenda'}{' '}
-                  <span className="ml-1 text-muted-foreground">{selectedItems.length}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 p-3">
-                {selectedItems.slice(0, 6).map((record) => {
-                  const visual = typeVisual(record.appointment_type);
-                  const Icon = visual.icon;
-                  return (
-                    <button
-                      key={record.id}
-                      className="flex w-full items-start gap-3 rounded-md p-2 text-left hover:bg-slate-50"
-                      onClick={() => setSelectedRecord(record)}
-                    >
-                      <span
-                        className={`grid size-7 shrink-0 place-items-center rounded ${visual.tone}`}
-                      >
-                        <Icon className="size-3.5" />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-xs font-semibold">
-                          {formatTime(record.scheduled_at)} · {record.customer_name}
-                        </span>
-                        <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
-                          {record.appointment_type} · {record.interested_model ?? 'No model'}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
-                {!dayRecords.isFetching && !selectedItems.length && (
-                  <p className="py-8 text-center text-xs text-muted-foreground">
-                    No appointments for this day.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      ) : (
-        <Card className="overflow-hidden shadow-none">
-          {monthHeader}
+      <div className="grid gap-4 xl:grid-cols-12">
+        <Card className="overflow-hidden shadow-none xl:col-span-9">
+          <CardHeader className="flex-row items-center justify-between border-b p-4">
+            <CardTitle className="text-sm">Appointments ({result.total})</CardTitle>
+            <span className="text-xs text-muted-foreground">
+              Showing {result.total ? (query.page - 1) * query.pageSize + 1 : 0}–
+              {Math.min(query.page * query.pageSize, result.total)}
+            </span>
+          </CardHeader>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <div className="min-w-[980px]">
-                <div className="grid grid-cols-7 border-b bg-slate-50">
-                  {weekdays.map((day) => (
-                    <div
-                      key={day}
-                      className="border-r px-3 py-2 text-[10px] font-semibold uppercase text-muted-foreground"
-                    >
-                      {day}
-                    </div>
-                  ))}
-                </div>
-                <div className="grid grid-cols-7">
-                  {cells.map((cell) => {
-                    const key = dateKey(cell);
-                    const day = recordsByDay.get(key);
-                    const inMonth = cell.getMonth() === displayedMonth.getMonth();
-                    return (
-                      <div
-                        key={key}
-                        className={`min-h-36 border-b border-r p-2 ${inMonth ? 'bg-white' : 'bg-slate-50/70'}`}
-                      >
-                        <button
-                          className={`grid size-6 place-items-center rounded-full text-xs ${key === today ? 'bg-blue-600 text-white' : ''}`}
-                          onClick={() => selectCalendarDay(cell)}
-                        >
-                          {cell.getDate()}
-                        </button>
-                        <div className="mt-1.5 space-y-1">
-                          {day?.items.map((record) => {
-                            const visual = typeVisual(record.appointment_type);
-                            return (
-                              <button
-                                key={record.id}
-                                className={`block w-full rounded border px-2 py-1 text-left text-[10px] ${visual.border}`}
-                                onClick={() => setSelectedRecord(record)}
-                              >
-                                <span className="font-semibold">
-                                  {formatTime(record.scheduled_at)}
-                                </span>
-                                <span className="block truncate">{record.customer_name}</span>
-                              </button>
-                            );
-                          })}
-                          {(day?.total ?? 0) > 3 && (
-                            <button
-                              className="text-[10px] font-semibold text-blue-700"
-                              onClick={() => setSelectedDay(key)}
+            <div className={isFetching ? 'overflow-x-auto opacity-60' : 'overflow-x-auto'}>
+              <Table className="min-w-[1000px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Appointment type</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Model</TableHead>
+                    <TableHead>Consultant</TableHead>
+                    <TableHead>Branch</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {result.records.length ? (
+                    result.records.map((record) => {
+                      const visual = typeVisual(record.appointment_type);
+                      const Icon = visual.icon;
+                      return (
+                        <TableRow key={record.id}>
+                          <TableCell>
+                            <Link
+                              href={`/${role}/customers/${record.customer_id}`}
+                              className="font-semibold hover:text-blue-700 hover:underline"
                             >
-                              +{(day?.total ?? 0) - 3} more
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                              {record.customer_name}
+                            </Link>
+                            <p className="text-[10px] text-muted-foreground">
+                              {record.phone ?? '—'}
+                            </p>
+                          </TableCell>
+                          <TableCell>
+                            <span className="flex items-center gap-2">
+                              <span
+                                className={`grid size-6 place-items-center rounded ${visual.tone}`}
+                              >
+                                <Icon className="size-3.5" />
+                              </span>
+                              {record.appointment_type}
+                            </span>
+                          </TableCell>
+                          <TableCell>{formatDate(record.scheduled_at)}</TableCell>
+                          <TableCell>{formatTime(record.scheduled_at)}</TableCell>
+                          <TableCell>{record.interested_model ?? '—'}</TableCell>
+                          <TableCell>{record.assigned_user_name}</TableCell>
+                          <TableCell>{record.branch_name}</TableCell>
+                          <TableCell>
+                            <StatusBadge value={record.status} />
+                          </TableCell>
+                          <TableCell>
+                            <AppointmentActions
+                              record={record}
+                              permissions={permissions}
+                              onEdit={onEdit}
+                              onAction={onAction}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={9} className="h-40 text-center">
+                        No matching appointments
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="flex items-center justify-between border-t px-4 py-3 text-xs text-muted-foreground">
+              <span>
+                Showing {result.total ? (query.page - 1) * query.pageSize + 1 : 0}–
+                {Math.min(query.page * query.pageSize, result.total)} of {result.total}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="size-8"
+                  disabled={query.page <= 1}
+                  onClick={() => onQueryChange({ page: query.page - 1 })}
+                >
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <span>
+                  Page {query.page} of {Math.max(1, Math.ceil(result.total / query.pageSize))}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="size-8"
+                  disabled={query.page >= Math.ceil(result.total / query.pageSize)}
+                  onClick={() => onQueryChange({ page: query.page + 1 })}
+                >
+                  <ChevronRight className="size-4" />
+                </Button>
               </div>
             </div>
           </CardContent>
         </Card>
-      )}
+        <div className="space-y-4 xl:col-span-3">
+          <Card className="overflow-hidden shadow-none">
+            {monthHeader}
+            <CardContent className="p-3">
+              <div className="grid grid-cols-7">
+                {weekdays.map((day) => (
+                  <span
+                    key={day}
+                    className="py-1 text-center text-[9px] font-semibold text-muted-foreground"
+                  >
+                    {day.slice(0, 2)}
+                  </span>
+                ))}
+                {cells.map((cell) => {
+                  const key = dateKey(cell);
+                  const inMonth = cell.getMonth() === displayedMonth.getMonth();
+                  const hasItems = Boolean(recordsByDay.get(key)?.total);
+                  return (
+                    <button
+                      key={key}
+                      className={`relative grid aspect-square place-items-center rounded-full text-[11px] ${key === selectedDay ? 'bg-blue-600 text-white' : key === today ? 'font-bold text-blue-700' : inMonth ? 'hover:bg-blue-50' : 'text-muted-foreground/40'}`}
+                      onClick={() => selectCalendarDay(cell)}
+                    >
+                      {cell.getDate()}
+                      {hasItems && key !== selectedDay && (
+                        <span className="absolute bottom-0.5 size-1 rounded-full bg-blue-500" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="shadow-none">
+            <CardHeader className="border-b p-4">
+              <CardTitle className="text-sm">
+                {selectedDay === today ? "Today's agenda" : 'Selected-day agenda'}{' '}
+                <span className="ml-1 text-muted-foreground">{selectedItems.length}</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 p-3">
+              {selectedItems.slice(0, 6).map((record) => {
+                const visual = typeVisual(record.appointment_type);
+                const Icon = visual.icon;
+                return (
+                  <button
+                    key={record.id}
+                    className="flex w-full items-start gap-3 rounded-md p-2 text-left hover:bg-slate-50"
+                    onClick={() => setSelectedRecord(record)}
+                  >
+                    <span
+                      className={`grid size-7 shrink-0 place-items-center rounded ${visual.tone}`}
+                    >
+                      <Icon className="size-3.5" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-xs font-semibold">
+                        {formatTime(record.scheduled_at)} · {record.customer_name}
+                      </span>
+                      <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                        {record.appointment_type} · {record.interested_model ?? 'No model'}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+              {!dayRecords.isFetching && !selectedItems.length && (
+                <p className="py-8 text-center text-xs text-muted-foreground">
+                  No appointments for this day.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
       <Sheet
         open={Boolean(selectedRecord)}
         onOpenChange={(open) => !open && setSelectedRecord(null)}

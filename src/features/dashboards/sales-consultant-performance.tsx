@@ -18,7 +18,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { SalesConsultantPerformanceSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select,
@@ -47,7 +47,7 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
         : fetchSalesPerformance(days, signal),
     staleTime: 60_000,
   });
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <SalesConsultantPerformanceSkeleton />;
   if (query.isError)
     return (
       <Card>
