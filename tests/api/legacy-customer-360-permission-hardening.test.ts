@@ -24,6 +24,24 @@ describe('legacy Customer 360 permission hardening', () => {
     expect(migration).toContain("jsonb_set(result, '{appointments}', '[]'::jsonb, true)");
   });
 
+  it('binds customer and section permissions to the assignment that supplies record scope', () => {
+    expect(migration).toContain(
+      'create or replace function app_private.resolve_permission_record_scope(',
+    );
+    expect(migration).toContain('role_permission_row.role_id = assignment_row.role_id');
+    expect(migration).toContain('permission_row.permission_key = any(');
+    expect(migration).toContain("array['customer.view']::text[]");
+    expect(migration).toContain("array['lead.view']::text[]");
+    expect(migration).toContain("array['followup.view']::text[]");
+    expect(migration).toContain("array['appointment.view']::text[]");
+    expect(migration).toContain('followup_row.branch_id = any(followup_scope.branch_scope_ids)');
+    expect(migration).toContain('appointment_row.team_id = any(appointment_scope.team_scope_ids)');
+    expect(migration).toContain('lead_row.branch_id = any(lead_scope.branch_scope_ids)');
+    expect(migration).toContain(
+      'app_private.resolve_permission_record_scope(uuid, text[])\n  from public, anon, authenticated',
+    );
+  });
+
   it('reconciles demo Telecaller permissions to its frozen role preset', () => {
     for (const permission of [
       'followup.view',

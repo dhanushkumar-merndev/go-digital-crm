@@ -42,6 +42,7 @@ describe('GM sales analytics 100k-scale contract', () => {
     expect(migration).not.toMatch(
       /select\s+count\(\*\)\s+from\s+scoped_(?:leads|calls|drives|quotations|bookings)\s+row\s+where/i,
     );
+    expect(migration).toContain('quotation_row.deleted_at is null');
   });
 
   it('bounds response-heavy dimensions with deterministic ordering', () => {

@@ -1229,100 +1229,152 @@ begin
   end if;
 
   if can_view_calls then
-    select count(*)
-    into call_today_count
-    from public.calls call_row
-    join public.branches branch_row
-      on branch_row.id = call_row.branch_id
-     and branch_row.organization_id = call_row.organization_id
-     and branch_row.active
-     and branch_row.deleted_at is null
-    where call_row.organization_id = current_organization_id
-      and call_row.started_at >= day_start
-      and call_row.started_at < day_end
-      and (
-        call_scope.organization_wide
-        or call_row.branch_id = any(call_scope.branch_scope_ids)
-        or call_row.team_id = any(call_scope.team_scope_ids)
-        or (
-          call_scope.own_records
-          and call_row.assigned_user_id = auth.uid()
-          and call_row.branch_id = any(call_scope.own_record_branch_ids)
+    -- Reuse one permission-bound call fact set for both today's KPI and the
+    -- activity series. No per-row SECURITY DEFINER access helper is invoked.
+    with scoped_calls as materialized (
+      select call_row.started_at
+      from public.calls call_row
+      join public.branches branch_row
+        on branch_row.id = call_row.branch_id
+       and branch_row.organization_id = call_row.organization_id
+       and branch_row.active
+       and branch_row.deleted_at is null
+      where call_row.organization_id = current_organization_id
+        and call_row.started_at >= trend_start
+        and call_row.started_at < day_end
+        and (
+          call_scope.organization_wide
+          or call_row.branch_id = any(call_scope.branch_scope_ids)
+          or call_row.team_id = any(call_scope.team_scope_ids)
+          or (
+            call_scope.own_records
+            and call_row.assigned_user_id = auth.uid()
+            and call_row.branch_id = any(call_scope.own_record_branch_ids)
+          )
         )
-      )
-      and (
-        call_row.lead_id is null
-        or (
-          lead_scope.granted
-          and exists (
-            select 1
-            from public.leads linked_lead_row
-            join public.branches linked_branch_row
-              on linked_branch_row.id = linked_lead_row.branch_id
-             and linked_branch_row.organization_id = linked_lead_row.organization_id
-             and linked_branch_row.active
-             and linked_branch_row.deleted_at is null
-            where linked_lead_row.organization_id = current_organization_id
-              and linked_lead_row.id = call_row.lead_id
-              and linked_lead_row.deleted_at is null
-              and (
-                lead_scope.organization_wide
-                or linked_lead_row.branch_id = any(lead_scope.branch_scope_ids)
-                or linked_lead_row.team_id = any(lead_scope.team_scope_ids)
-                or (
-                  lead_scope.own_records
-                  and linked_lead_row.assigned_user_id = auth.uid()
-                  and linked_lead_row.branch_id = any(
-                    lead_scope.own_record_branch_ids
+        and (
+          call_row.lead_id is null
+          or (
+            lead_scope.granted
+            and exists (
+              select 1
+              from public.leads linked_lead_row
+              join public.branches linked_branch_row
+                on linked_branch_row.id = linked_lead_row.branch_id
+               and linked_branch_row.organization_id = linked_lead_row.organization_id
+               and linked_branch_row.active
+               and linked_branch_row.deleted_at is null
+              where linked_lead_row.organization_id = current_organization_id
+                and linked_lead_row.id = call_row.lead_id
+                and linked_lead_row.deleted_at is null
+                and (
+                  lead_scope.organization_wide
+                  or linked_lead_row.branch_id = any(lead_scope.branch_scope_ids)
+                  or linked_lead_row.team_id = any(lead_scope.team_scope_ids)
+                  or (
+                    lead_scope.own_records
+                    and linked_lead_row.assigned_user_id = auth.uid()
+                    and linked_lead_row.branch_id = any(
+                      lead_scope.own_record_branch_ids
+                    )
                   )
                 )
-              )
+            )
           )
         )
-      )
-      and (
-        call_row.customer_id is null
-        or (
-          customer_scope.granted
-          and exists (
-            select 1
-            from public.customers customer_access_row
-            where customer_access_row.organization_id = current_organization_id
-              and customer_access_row.id = call_row.customer_id
-              and customer_access_row.deleted_at is null
-              and (
-                customer_scope.organization_wide
-                or exists (
-                  select 1
-                  from public.leads customer_lead_row
-                  join public.branches customer_branch_row
-                    on customer_branch_row.id = customer_lead_row.branch_id
-                   and customer_branch_row.organization_id = customer_lead_row.organization_id
-                   and customer_branch_row.active
-                   and customer_branch_row.deleted_at is null
-                  where customer_lead_row.organization_id = current_organization_id
-                    and customer_lead_row.customer_id = call_row.customer_id
-                    and customer_lead_row.deleted_at is null
-                    and (
-                      customer_lead_row.branch_id = any(
-                        customer_scope.branch_scope_ids
-                      )
-                      or customer_lead_row.team_id = any(
-                        customer_scope.team_scope_ids
-                      )
-                      or (
-                        customer_scope.own_records
-                        and customer_lead_row.assigned_user_id = auth.uid()
-                        and customer_lead_row.branch_id = any(
-                          customer_scope.own_record_branch_ids
+        and (
+          call_row.customer_id is null
+          or (
+            customer_scope.granted
+            and exists (
+              select 1
+              from public.customers customer_access_row
+              where customer_access_row.organization_id = current_organization_id
+                and customer_access_row.id = call_row.customer_id
+                and customer_access_row.deleted_at is null
+                and (
+                  customer_scope.organization_wide
+                  or exists (
+                    select 1
+                    from public.leads customer_lead_row
+                    join public.branches customer_branch_row
+                      on customer_branch_row.id = customer_lead_row.branch_id
+                     and customer_branch_row.organization_id = customer_lead_row.organization_id
+                     and customer_branch_row.active
+                     and customer_branch_row.deleted_at is null
+                    where customer_lead_row.organization_id = current_organization_id
+                      and customer_lead_row.customer_id = call_row.customer_id
+                      and customer_lead_row.deleted_at is null
+                      and (
+                        customer_lead_row.branch_id = any(
+                          customer_scope.branch_scope_ids
+                        )
+                        or customer_lead_row.team_id = any(
+                          customer_scope.team_scope_ids
+                        )
+                        or (
+                          customer_scope.own_records
+                          and customer_lead_row.assigned_user_id = auth.uid()
+                          and customer_lead_row.branch_id = any(
+                            customer_scope.own_record_branch_ids
+                          )
                         )
                       )
-                    )
+                  )
                 )
-              )
+            )
           )
         )
-      );
+    ), daily as (
+      select
+        timezone(target_timezone, call_row.started_at)::date as day_value,
+        count(*)::bigint as value
+      from scoped_calls call_row
+      group by 1
+    )
+    select
+      (
+        select count(*)
+        from scoped_calls call_row
+        where call_row.started_at >= day_start
+          and call_row.started_at < day_end
+      ),
+      coalesce(
+        jsonb_agg(
+          jsonb_build_object(
+            'name', to_char(day_row.day_value, 'DD Mon'),
+            'value', case
+              when can_view_leads then coalesce(
+                (
+                  activity_result
+                    -> ((day_row.row_index - 1)::integer)
+                    ->> 'value'
+                )::bigint,
+                0
+              )
+              else coalesce(daily.value, 0)
+            end,
+            'secondary', case
+              when can_view_leads then coalesce(daily.value, 0)
+              else 0
+            end
+          )
+          order by day_row.day_value
+        ),
+        '[]'::jsonb
+      )
+    into call_today_count, activity_result
+    from generate_series(
+      local_today - (target_days - 1),
+      local_today,
+      interval '1 day'
+    ) with ordinality as generated_day(day_timestamp, row_index)
+    cross join lateral (
+      select
+        generated_day.day_timestamp::date as day_value,
+        generated_day.row_index as row_index
+    ) day_row
+    left join daily on daily.day_value = day_row.day_value;
   end if;
 
   if can_view_bookings then
@@ -1607,15 +1659,21 @@ begin
       jsonb_agg(
         jsonb_build_object(
           'name', to_char(day_row.day_value, 'DD Mon'),
-          'value', coalesce(
-            (
-              activity_result
-                -> ((day_row.row_index - 1)::integer)
-                ->> 'value'
-            )::bigint,
-            0
-          ),
-          'secondary', coalesce(daily.value, 0)
+          'value', case
+            when can_view_leads or can_view_calls then coalesce(
+              (
+                activity_result
+                  -> ((day_row.row_index - 1)::integer)
+                  ->> 'value'
+              )::bigint,
+              0
+            )
+            else coalesce(daily.value, 0)
+          end,
+          'secondary', case
+            when can_view_leads or can_view_calls then coalesce(daily.value, 0)
+            else 0
+          end
         )
         order by day_row.day_value
       ),
@@ -1677,8 +1735,17 @@ begin
     'pipeline', pipeline_result,
     'attention', attention_result,
     'lead_preview', lead_preview_result,
-    'activity_primary', case when can_view_leads then 'New leads' else 'Calls' end,
-    'activity_secondary', case when can_view_bookings then 'Bookings' else 'Calls' end
+    'activity_primary', case
+      when can_view_leads then 'New leads'
+      when can_view_calls then 'Calls'
+      when can_view_bookings then 'Bookings'
+      else 'Activity'
+    end,
+    'activity_secondary', case
+      when can_view_bookings and (can_view_leads or can_view_calls) then 'Bookings'
+      when can_view_calls and can_view_leads then 'Calls'
+      else ''
+    end
   );
 end;
 $$;

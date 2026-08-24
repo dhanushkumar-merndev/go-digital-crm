@@ -52,6 +52,7 @@ describe('customer-care 100k-scale query boundary', () => {
     expect(page.match(/customer_care_actor_scope\(/g)).toHaveLength(1);
     expect(dashboard.match(/customer_care_actor_scope\(/g)).toHaveLength(1);
     expect(options.match(/customer_care_actor_scope\(/g)).toHaveLength(1);
+    expect(page.match(/resolve_permission_record_scope\(/g)).toHaveLength(2);
 
     for (const sql of [page, dashboard, options]) {
       expect(sql).not.toContain('app_private.can_access_record(');
@@ -62,6 +63,10 @@ describe('customer-care 100k-scale query boundary', () => {
     expect(dashboard).toContain('case_row.branch_id = any(scope_branch_ids)');
     expect(options).toContain('source_booking.branch_id = any(scope_branch_ids)');
     expect(page).toContain('followup_row.team_id = any(scope_team_ids)');
+    expect(page).toContain(
+      'followup_row.branch_id = any(\n          followup_permission_scope.branch_scope_ids',
+    );
+    expect(page).toContain('lead_row.team_id = any(lead_permission_scope.team_scope_ids)');
     expect(dashboard).toContain('drive_row.team_id = any(scope_team_ids)');
     expect(options).toContain('source_booking.team_id = any(scope_team_ids)');
   });

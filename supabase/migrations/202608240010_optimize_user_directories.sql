@@ -61,6 +61,7 @@ declare
   actor_scope public.data_scope;
   actor_scope_branch_id uuid;
   actor_selected_branch_ids uuid[] := '{}'::uuid[];
+  actor_admin_role_id uuid;
   actor_permission_ids uuid[] := '{}'::uuid[];
   normalized_search text := lower(btrim(coalesce(target_search, '')));
   escaped_search text;
@@ -122,12 +123,14 @@ begin
       role_row.authority_level,
       assignment_row.data_scope,
       assignment_row.scope_branch_id,
-      assignment_row.selected_branch_ids
+      assignment_row.selected_branch_ids,
+      role_row.id
     into
       actor_authority,
       actor_scope,
       actor_scope_branch_id,
-      actor_selected_branch_ids
+      actor_selected_branch_ids,
+      actor_admin_role_id
     from public.user_role_assignments assignment_row
     join public.roles role_row
       on role_row.id = assignment_row.role_id
@@ -144,12 +147,14 @@ begin
       role_row.authority_level,
       assignment_row.data_scope,
       assignment_row.scope_branch_id,
-      assignment_row.selected_branch_ids
+      assignment_row.selected_branch_ids,
+      role_row.id
     into
       actor_authority,
       actor_scope,
       actor_scope_branch_id,
-      actor_selected_branch_ids
+      actor_selected_branch_ids,
+      actor_admin_role_id
     from public.user_role_assignments assignment_row
     join public.roles role_row
       on role_row.id = assignment_row.role_id
@@ -172,17 +177,13 @@ begin
       assignment_row.created_at desc
     limit 1;
 
-    select coalesce(
-      array_agg(distinct role_permission_row.permission_id),
-      '{}'::uuid[]
-    )
+    -- The permission and scope ceilings must come from the same selected
+    -- user.manage assignment. An unrelated narrow role must never contribute
+    -- permissions that can be delegated through a wider admin assignment.
+    select coalesce(array_agg(role_permission_row.permission_id), '{}'::uuid[])
     into actor_permission_ids
-    from public.user_role_assignments assignment_row
-    join public.role_permissions role_permission_row
-      on role_permission_row.role_id = assignment_row.role_id
-    where assignment_row.organization_id = actor_organization_id
-      and assignment_row.user_id = actor_id
-      and assignment_row.active;
+    from public.role_permissions role_permission_row
+    where role_permission_row.role_id = actor_admin_role_id;
   end if;
 
   if actor_organization_id is null
@@ -762,5 +763,711 @@ revoke all on function public.get_platform_user_access_workspace(
 grant execute on function public.get_platform_user_access_workspace(
   text, text, integer, integer
 ) to authenticated;
+
+-- Rebind the mutation and row-administration permission ceiling to the same
+-- selected user.manage assignment that supplies authority and branch scope.
+-- This closes the direct-RPC path as well as the optimized directory read.
+create or replace function app_private.can_administer_tenant_user(
+  target_actor_id uuid,
+  target_user_id uuid,
+  target_mode text default 'USER_ADMIN'
+)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare actor_organization_id uuid;
+declare actor_authority integer;
+declare actor_scope public.data_scope;
+declare actor_scope_branch_id uuid;
+declare actor_selected_branch_ids uuid[];
+declare actor_admin_role_id uuid;
+declare target_authority integer;
+declare target_scope public.data_scope;
+declare target_scope_branch_id uuid;
+declare target_selected_branch_ids uuid[];
+declare target_role_id uuid;
+declare target_role_key text;
+begin
+  if target_actor_id is null
+    or target_user_id is null
+    or target_actor_id = target_user_id
+    or target_mode not in ('USER_ADMIN', 'CLIENT_ADMIN_BOOTSTRAP')
+  then
+    return false;
+  end if;
+
+  select profile_row.organization_id
+  into actor_organization_id
+  from public.profiles profile_row
+  join public.organizations organization_row
+    on organization_row.id = profile_row.organization_id
+   and organization_row.status = 'ACTIVE'
+   and organization_row.deleted_at is null
+  where profile_row.id = target_actor_id
+    and profile_row.active
+    and profile_row.deleted_at is null;
+  if actor_organization_id is null then return false; end if;
+  if auth.role() <> 'service_role'
+    and not app_private.mfa_policy_satisfied(actor_organization_id)
+  then
+    return false;
+  end if;
+
+  if target_mode = 'CLIENT_ADMIN_BOOTSTRAP' then
+    select role_row.authority_level,
+           assignment_row.data_scope,
+           assignment_row.scope_branch_id,
+           assignment_row.selected_branch_ids,
+           role_row.id
+    into actor_authority, actor_scope, actor_scope_branch_id, actor_selected_branch_ids,
+         actor_admin_role_id
+    from public.user_role_assignments assignment_row
+    join public.roles role_row
+      on role_row.id = assignment_row.role_id
+     and role_row.organization_id = assignment_row.organization_id
+     and role_row.role_key = 'business_owner'
+    where assignment_row.organization_id = actor_organization_id
+      and assignment_row.user_id = target_actor_id
+      and assignment_row.active
+      and assignment_row.data_scope = 'ORGANIZATION'
+    order by role_row.authority_level desc, assignment_row.created_at desc
+    limit 1;
+  else
+    select role_row.authority_level,
+           assignment_row.data_scope,
+           assignment_row.scope_branch_id,
+           assignment_row.selected_branch_ids,
+           role_row.id
+    into actor_authority, actor_scope, actor_scope_branch_id, actor_selected_branch_ids,
+         actor_admin_role_id
+    from public.user_role_assignments assignment_row
+    join public.roles role_row
+      on role_row.id = assignment_row.role_id
+     and role_row.organization_id = assignment_row.organization_id
+     and role_row.role_key in ('client_admin', 'system_administrator')
+    join public.role_permissions role_permission_row
+      on role_permission_row.role_id = role_row.id
+    join public.permissions permission_row
+      on permission_row.id = role_permission_row.permission_id
+     and permission_row.permission_key = 'user.manage'
+    where assignment_row.organization_id = actor_organization_id
+      and assignment_row.user_id = target_actor_id
+      and assignment_row.active
+      and assignment_row.data_scope in (
+        'ONE_BRANCH', 'SELECTED_BRANCHES', 'ALL_BRANCHES', 'ORGANIZATION'
+      )
+    order by role_row.authority_level desc,
+             app_private.scope_rank(assignment_row.data_scope) desc,
+             assignment_row.created_at desc
+    limit 1;
+  end if;
+  if actor_authority is null then return false; end if;
+
+  select role_row.authority_level,
+         assignment_row.data_scope,
+         assignment_row.scope_branch_id,
+         assignment_row.selected_branch_ids,
+         role_row.id,
+         role_row.role_key
+  into target_authority,
+       target_scope,
+       target_scope_branch_id,
+       target_selected_branch_ids,
+       target_role_id,
+       target_role_key
+  from public.profiles profile_row
+  join public.user_role_assignments assignment_row
+    on assignment_row.organization_id = profile_row.organization_id
+   and assignment_row.user_id = profile_row.id
+   and assignment_row.active
+  join public.roles role_row
+    on role_row.id = assignment_row.role_id
+   and role_row.organization_id = assignment_row.organization_id
+  where profile_row.id = target_user_id
+    and profile_row.organization_id = actor_organization_id
+    and profile_row.deleted_at is null
+  order by role_row.authority_level desc, assignment_row.created_at desc
+  limit 1;
+  if target_authority is null or target_authority >= actor_authority then return false; end if;
+  if app_private.scope_rank(target_scope) > app_private.scope_rank(actor_scope) then return false; end if;
+
+  -- A profile can have more than one active assignment. Every assignment must
+  -- stay below the same selected admin role's authority, permission and branch
+  -- ceilings; checking only the highest assignment can hide a wider secondary
+  -- assignment from both RLS and direct mutation validation.
+  if exists (
+    select 1
+    from public.user_role_assignments target_assignment_row
+    join public.roles target_role_row
+      on target_role_row.id = target_assignment_row.role_id
+     and target_role_row.organization_id = target_assignment_row.organization_id
+    where target_assignment_row.organization_id = actor_organization_id
+      and target_assignment_row.user_id = target_user_id
+      and target_assignment_row.active
+      and (
+        target_role_row.authority_level >= actor_authority
+        or app_private.scope_rank(target_assignment_row.data_scope)
+          > app_private.scope_rank(actor_scope)
+        or (
+          target_mode = 'CLIENT_ADMIN_BOOTSTRAP'
+          and target_role_row.role_key <> 'client_admin'
+        )
+        or (
+          target_mode = 'USER_ADMIN'
+          and target_role_row.role_key in (
+            'business_owner', 'client_admin', 'super_admin'
+          )
+        )
+        or (
+          target_mode = 'USER_ADMIN'
+          and exists (
+            select 1
+            from public.role_permissions target_permission_row
+            where target_permission_row.role_id = target_assignment_row.role_id
+              and not exists (
+                select 1
+                from public.role_permissions actor_permission_row
+                where actor_permission_row.role_id = actor_admin_role_id
+                  and actor_permission_row.permission_id
+                    = target_permission_row.permission_id
+              )
+          )
+        )
+        or (
+          actor_scope = 'ONE_BRANCH'
+          and (
+            (
+              target_assignment_row.data_scope = 'ONE_BRANCH'
+              and target_assignment_row.scope_branch_id
+                is distinct from actor_scope_branch_id
+            )
+            or (
+              target_assignment_row.data_scope = 'SELECTED_BRANCHES'
+              and not coalesce(
+                target_assignment_row.selected_branch_ids,
+                '{}'::uuid[]
+              ) <@ array[actor_scope_branch_id]
+            )
+            or target_assignment_row.data_scope in (
+              'ALL_BRANCHES', 'ORGANIZATION', 'PLATFORM'
+            )
+            or (
+              target_assignment_row.data_scope in ('OWN_RECORDS', 'OWN_TEAM')
+              and (
+                exists (
+                  select 1
+                  from public.user_branch_access access_row
+                  where access_row.organization_id = actor_organization_id
+                    and access_row.user_id = target_user_id
+                    and access_row.active
+                    and access_row.branch_id <> actor_scope_branch_id
+                )
+                or exists (
+                  select 1
+                  from public.team_members member_row
+                  join public.teams team_row
+                    on team_row.id = member_row.team_id
+                   and team_row.organization_id = member_row.organization_id
+                  where member_row.organization_id = actor_organization_id
+                    and member_row.user_id = target_user_id
+                    and member_row.active
+                    and team_row.branch_id <> actor_scope_branch_id
+                )
+              )
+            )
+          )
+        )
+        or (
+          actor_scope = 'SELECTED_BRANCHES'
+          and (
+            (
+              target_assignment_row.data_scope = 'ONE_BRANCH'
+              and not (
+                target_assignment_row.scope_branch_id
+                  = any(coalesce(actor_selected_branch_ids, '{}'::uuid[]))
+              )
+            )
+            or (
+              target_assignment_row.data_scope = 'SELECTED_BRANCHES'
+              and not coalesce(
+                target_assignment_row.selected_branch_ids,
+                '{}'::uuid[]
+              ) <@ coalesce(actor_selected_branch_ids, '{}'::uuid[])
+            )
+            or target_assignment_row.data_scope in (
+              'ALL_BRANCHES', 'ORGANIZATION', 'PLATFORM'
+            )
+            or (
+              target_assignment_row.data_scope in ('OWN_RECORDS', 'OWN_TEAM')
+              and (
+                exists (
+                  select 1
+                  from public.user_branch_access access_row
+                  where access_row.organization_id = actor_organization_id
+                    and access_row.user_id = target_user_id
+                    and access_row.active
+                    and not (
+                      access_row.branch_id
+                        = any(coalesce(actor_selected_branch_ids, '{}'::uuid[]))
+                    )
+                )
+                or exists (
+                  select 1
+                  from public.team_members member_row
+                  join public.teams team_row
+                    on team_row.id = member_row.team_id
+                   and team_row.organization_id = member_row.organization_id
+                  where member_row.organization_id = actor_organization_id
+                    and member_row.user_id = target_user_id
+                    and member_row.active
+                    and not (
+                      team_row.branch_id
+                        = any(coalesce(actor_selected_branch_ids, '{}'::uuid[]))
+                    )
+                )
+              )
+            )
+          )
+        )
+      )
+  ) then
+    return false;
+  end if;
+
+  if target_mode = 'CLIENT_ADMIN_BOOTSTRAP' then
+    if target_role_key <> 'client_admin' then return false; end if;
+  elsif target_role_key in ('business_owner', 'client_admin', 'super_admin') then
+    return false;
+  end if;
+
+  if target_mode = 'USER_ADMIN' and exists (
+    select 1
+    from public.role_permissions target_permission_row
+    where target_permission_row.role_id = target_role_id
+      and not exists (
+        select 1
+        from public.role_permissions actor_permission_row
+        where actor_permission_row.role_id = actor_admin_role_id
+          and actor_permission_row.permission_id = target_permission_row.permission_id
+      )
+  ) then
+    return false;
+  end if;
+
+  if actor_scope = 'ONE_BRANCH' then
+    if target_scope = 'ONE_BRANCH' and target_scope_branch_id <> actor_scope_branch_id then
+      return false;
+    elsif target_scope = 'SELECTED_BRANCHES'
+      and not target_selected_branch_ids <@ array[actor_scope_branch_id]
+    then
+      return false;
+    elsif target_scope in ('ALL_BRANCHES', 'ORGANIZATION') then
+      return false;
+    elsif target_scope in ('OWN_RECORDS', 'OWN_TEAM') and (
+      exists (
+        select 1
+        from public.user_branch_access access_row
+        where access_row.organization_id = actor_organization_id
+          and access_row.user_id = target_user_id
+          and access_row.active
+          and access_row.branch_id <> actor_scope_branch_id
+      )
+      or exists (
+        select 1
+        from public.team_members member_row
+        join public.teams team_row
+          on team_row.id = member_row.team_id
+         and team_row.organization_id = member_row.organization_id
+        where member_row.organization_id = actor_organization_id
+          and member_row.user_id = target_user_id
+          and member_row.active
+          and team_row.branch_id <> actor_scope_branch_id
+      )
+    ) then
+      return false;
+    end if;
+  elsif actor_scope = 'SELECTED_BRANCHES' then
+    if target_scope = 'ONE_BRANCH'
+      and not (target_scope_branch_id = any(actor_selected_branch_ids))
+    then
+      return false;
+    elsif target_scope = 'SELECTED_BRANCHES'
+      and not target_selected_branch_ids <@ actor_selected_branch_ids
+    then
+      return false;
+    elsif target_scope in ('ALL_BRANCHES', 'ORGANIZATION') then
+      return false;
+    elsif target_scope in ('OWN_RECORDS', 'OWN_TEAM') and (
+      exists (
+        select 1
+        from public.user_branch_access access_row
+        where access_row.organization_id = actor_organization_id
+          and access_row.user_id = target_user_id
+          and access_row.active
+          and not (access_row.branch_id = any(actor_selected_branch_ids))
+      )
+      or exists (
+        select 1
+        from public.team_members member_row
+        join public.teams team_row
+          on team_row.id = member_row.team_id
+         and team_row.organization_id = member_row.organization_id
+        where member_row.organization_id = actor_organization_id
+          and member_row.user_id = target_user_id
+          and member_row.active
+          and not (team_row.branch_id = any(actor_selected_branch_ids))
+      )
+    ) then
+      return false;
+    end if;
+  end if;
+  return true;
+end;
+$$;
+
+create or replace function app_private.assert_tenant_user_assignment(
+  target_actor_id uuid,
+  target_role_id uuid,
+  target_data_scope public.data_scope,
+  target_scope_branch_id uuid,
+  target_selected_branch_ids uuid[],
+  target_team_ids uuid[],
+  target_mode text,
+  target_existing_user_id uuid default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare actor_organization_id uuid;
+declare actor_authority integer;
+declare actor_scope public.data_scope;
+declare actor_scope_branch_id uuid;
+declare actor_selected_branch_ids uuid[];
+declare actor_admin_role_id uuid;
+declare target_authority integer;
+declare target_role_key text;
+declare target_role_mfa boolean;
+declare target_member_type text;
+declare normalized_selected_branch_ids uuid[];
+declare normalized_team_ids uuid[];
+declare required_mfa boolean;
+begin
+  if target_actor_id is null
+    or target_role_id is null
+    or target_data_scope is null
+    or target_mode not in ('USER_ADMIN', 'CLIENT_ADMIN_BOOTSTRAP')
+  then
+    raise exception using errcode = '22023', message = 'INVALID_USER_ASSIGNMENT';
+  end if;
+
+  select profile_row.organization_id
+  into actor_organization_id
+  from public.profiles profile_row
+  join public.organizations organization_row
+    on organization_row.id = profile_row.organization_id
+   and organization_row.status = 'ACTIVE'
+   and organization_row.deleted_at is null
+  where profile_row.id = target_actor_id
+    and profile_row.active
+    and profile_row.deleted_at is null;
+  if actor_organization_id is null then
+    raise exception using errcode = '42501', message = 'TENANT_USER_ADMINISTRATION_REQUIRED';
+  end if;
+
+  if target_mode = 'CLIENT_ADMIN_BOOTSTRAP' then
+    select role_row.authority_level,
+           assignment_row.data_scope,
+           assignment_row.scope_branch_id,
+           assignment_row.selected_branch_ids,
+           role_row.id
+    into actor_authority, actor_scope, actor_scope_branch_id, actor_selected_branch_ids,
+         actor_admin_role_id
+    from public.user_role_assignments assignment_row
+    join public.roles role_row
+      on role_row.id = assignment_row.role_id
+     and role_row.organization_id = assignment_row.organization_id
+     and role_row.role_key = 'business_owner'
+    where assignment_row.organization_id = actor_organization_id
+      and assignment_row.user_id = target_actor_id
+      and assignment_row.active
+      and assignment_row.data_scope = 'ORGANIZATION'
+    order by role_row.authority_level desc, assignment_row.created_at desc
+    limit 1;
+  else
+    select role_row.authority_level,
+           assignment_row.data_scope,
+           assignment_row.scope_branch_id,
+           assignment_row.selected_branch_ids,
+           role_row.id
+    into actor_authority, actor_scope, actor_scope_branch_id, actor_selected_branch_ids,
+         actor_admin_role_id
+    from public.user_role_assignments assignment_row
+    join public.roles role_row
+      on role_row.id = assignment_row.role_id
+     and role_row.organization_id = assignment_row.organization_id
+     and role_row.role_key in ('client_admin', 'system_administrator')
+    join public.role_permissions role_permission_row
+      on role_permission_row.role_id = role_row.id
+    join public.permissions permission_row
+      on permission_row.id = role_permission_row.permission_id
+     and permission_row.permission_key = 'user.manage'
+    where assignment_row.organization_id = actor_organization_id
+      and assignment_row.user_id = target_actor_id
+      and assignment_row.active
+      and assignment_row.data_scope in (
+        'ONE_BRANCH', 'SELECTED_BRANCHES', 'ALL_BRANCHES', 'ORGANIZATION'
+      )
+    order by role_row.authority_level desc,
+             app_private.scope_rank(assignment_row.data_scope) desc,
+             assignment_row.created_at desc
+    limit 1;
+  end if;
+  if actor_authority is null then
+    raise exception using errcode = '42501', message = 'TENANT_USER_ADMINISTRATION_REQUIRED';
+  end if;
+
+  select role_row.authority_level,
+         role_row.role_key,
+         role_row.mfa_required
+  into target_authority, target_role_key, target_role_mfa
+  from public.roles role_row
+  where role_row.id = target_role_id
+    and role_row.organization_id = actor_organization_id;
+  if target_authority is null then
+    raise exception using errcode = '23503', message = 'ROLE_NOT_IN_ORGANIZATION';
+  end if;
+  if target_authority >= actor_authority
+    or app_private.scope_rank(target_data_scope) > app_private.scope_rank(actor_scope)
+  then
+    raise exception using errcode = '42501', message = 'DELEGATION_CEILING_EXCEEDED';
+  end if;
+  if target_data_scope = 'PLATFORM' then
+    raise exception using errcode = '42501', message = 'PLATFORM_SCOPE_FORBIDDEN';
+  end if;
+  if target_mode = 'CLIENT_ADMIN_BOOTSTRAP' then
+    if target_role_key <> 'client_admin' then
+      raise exception using errcode = '42501', message = 'CLIENT_ADMIN_ROLE_REQUIRED';
+    end if;
+  elsif target_role_key in ('business_owner', 'client_admin', 'super_admin') then
+    raise exception using errcode = '42501', message = 'ROLE_DELEGATION_FORBIDDEN';
+  end if;
+
+  if target_existing_user_id is not null and not app_private.can_administer_tenant_user(
+    target_actor_id, target_existing_user_id, target_mode
+  ) then
+    raise exception using errcode = '42501', message = 'TARGET_USER_OUTSIDE_AUTHORITY';
+  end if;
+
+  normalized_selected_branch_ids := coalesce(array(
+    select distinct selected_branch.branch_id
+    from unnest(coalesce(target_selected_branch_ids, '{}'::uuid[]))
+      as selected_branch(branch_id)
+    order by selected_branch.branch_id
+  ), '{}'::uuid[]);
+  normalized_team_ids := coalesce(array(
+    select distinct selected_team.team_id
+    from unnest(coalesce(target_team_ids, '{}'::uuid[])) as selected_team(team_id)
+    order by selected_team.team_id
+  ), '{}'::uuid[]);
+  if cardinality(normalized_selected_branch_ids)
+      <> cardinality(coalesce(target_selected_branch_ids, '{}'::uuid[]))
+    or cardinality(normalized_team_ids) <> cardinality(coalesce(target_team_ids, '{}'::uuid[]))
+    or exists (
+      select 1
+      from unnest(coalesce(target_selected_branch_ids, '{}'::uuid[]))
+        as selected_branch(branch_id)
+      where selected_branch.branch_id is null
+    )
+    or exists (
+      select 1
+      from unnest(coalesce(target_team_ids, '{}'::uuid[])) as selected_team(team_id)
+      where selected_team.team_id is null
+    )
+  then
+    raise exception using errcode = '22023', message = 'DUPLICATE_OR_NULL_SCOPE_ID';
+  end if;
+
+  if not (
+    (
+      target_data_scope = 'ONE_BRANCH'
+      and target_scope_branch_id is not null
+      and cardinality(normalized_selected_branch_ids) = 0
+    )
+    or (
+      target_data_scope = 'SELECTED_BRANCHES'
+      and target_scope_branch_id is null
+      and cardinality(normalized_selected_branch_ids) > 0
+    )
+    or (
+      target_data_scope not in ('ONE_BRANCH', 'SELECTED_BRANCHES')
+      and target_scope_branch_id is null
+      and cardinality(normalized_selected_branch_ids) = 0
+    )
+  ) then
+    raise exception using errcode = '22023', message = 'INVALID_BRANCH_SCOPE_SHAPE';
+  end if;
+  if target_scope_branch_id is not null and not exists (
+    select 1 from public.branches branch_row
+    where branch_row.id = target_scope_branch_id
+      and branch_row.organization_id = actor_organization_id
+      and branch_row.active
+      and branch_row.deleted_at is null
+  ) then
+    raise exception using errcode = '23503', message = 'BRANCH_NOT_IN_ORGANIZATION';
+  end if;
+  if exists (
+    select 1
+    from unnest(normalized_selected_branch_ids) as selected_branch(branch_id)
+    where not exists (
+      select 1 from public.branches branch_row
+      where branch_row.id = selected_branch.branch_id
+        and branch_row.organization_id = actor_organization_id
+        and branch_row.active
+        and branch_row.deleted_at is null
+    )
+  ) then
+    raise exception using errcode = '23503', message = 'BRANCH_NOT_IN_ORGANIZATION';
+  end if;
+
+  target_member_type := case target_role_key
+    when 'team_manager' then 'TEAM_MANAGER'
+    when 'sales_consultant' then 'SALES_CONSULTANT'
+    when 'telecaller_bdc' then 'TELECALLER_BDC'
+    else null
+  end;
+  if cardinality(normalized_team_ids) > 0 and target_member_type is null then
+    raise exception using errcode = '22023', message = 'ROLE_DOES_NOT_SUPPORT_TEAM_MEMBERSHIP';
+  end if;
+  if target_data_scope in ('OWN_RECORDS', 'OWN_TEAM')
+    and (target_member_type is null or cardinality(normalized_team_ids) = 0)
+  then
+    raise exception using errcode = '22023', message = 'TEAM_MEMBERSHIP_REQUIRED_FOR_SCOPE';
+  end if;
+  if target_role_key = 'team_manager' and target_data_scope = 'OWN_RECORDS' then
+    raise exception using errcode = '22023', message = 'TEAM_MANAGER_SCOPE_INVALID';
+  end if;
+  if target_role_key in ('sales_consultant', 'telecaller_bdc')
+    and target_data_scope = 'OWN_TEAM'
+  then
+    raise exception using errcode = '22023', message = 'INDIVIDUAL_CONTRIBUTOR_SCOPE_INVALID';
+  end if;
+  if exists (
+    select 1
+    from unnest(normalized_team_ids) as selected_team(team_id)
+    where not exists (
+      select 1 from public.teams team_row
+      where team_row.id = selected_team.team_id
+        and team_row.organization_id = actor_organization_id
+        and team_row.active
+    )
+  ) then
+    raise exception using errcode = '23503', message = 'TEAM_NOT_IN_ORGANIZATION';
+  end if;
+  if target_data_scope = 'ONE_BRANCH' and exists (
+    select 1
+    from public.teams team_row
+    where team_row.id = any(normalized_team_ids)
+      and team_row.branch_id <> target_scope_branch_id
+  ) then
+    raise exception using errcode = '22023', message = 'TEAM_OUTSIDE_TARGET_BRANCH_SCOPE';
+  end if;
+  if target_data_scope = 'SELECTED_BRANCHES' and exists (
+    select 1
+    from public.teams team_row
+    where team_row.id = any(normalized_team_ids)
+      and not (team_row.branch_id = any(normalized_selected_branch_ids))
+  ) then
+    raise exception using errcode = '22023', message = 'TEAM_OUTSIDE_TARGET_BRANCH_SCOPE';
+  end if;
+
+  if target_mode = 'USER_ADMIN' and exists (
+    select 1
+    from public.role_permissions target_permission_row
+    where target_permission_row.role_id = target_role_id
+      and not exists (
+        select 1
+        from public.role_permissions actor_permission_row
+        where actor_permission_row.role_id = actor_admin_role_id
+          and actor_permission_row.permission_id = target_permission_row.permission_id
+      )
+  ) then
+    raise exception using errcode = '42501', message = 'PERMISSION_DELEGATION_CEILING_EXCEEDED';
+  end if;
+
+  if actor_scope = 'ONE_BRANCH' and (
+    (target_data_scope = 'ONE_BRANCH' and target_scope_branch_id <> actor_scope_branch_id)
+    or target_data_scope in ('SELECTED_BRANCHES', 'ALL_BRANCHES', 'ORGANIZATION')
+    or exists (
+      select 1 from public.teams team_row
+      where team_row.id = any(normalized_team_ids)
+        and team_row.branch_id <> actor_scope_branch_id
+    )
+  ) then
+    raise exception using errcode = '42501', message = 'BRANCH_SCOPE_CEILING_EXCEEDED';
+  elsif actor_scope = 'SELECTED_BRANCHES' and (
+    (
+      target_data_scope = 'ONE_BRANCH'
+      and not (target_scope_branch_id = any(actor_selected_branch_ids))
+    )
+    or (
+      target_data_scope = 'SELECTED_BRANCHES'
+      and not normalized_selected_branch_ids <@ actor_selected_branch_ids
+    )
+    or target_data_scope in ('ALL_BRANCHES', 'ORGANIZATION')
+    or exists (
+      select 1 from public.teams team_row
+      where team_row.id = any(normalized_team_ids)
+        and not (team_row.branch_id = any(actor_selected_branch_ids))
+    )
+  ) then
+    raise exception using errcode = '42501', message = 'BRANCH_SCOPE_CEILING_EXCEEDED';
+  end if;
+
+  if target_member_type = 'TEAM_MANAGER' and exists (
+    select 1
+    from public.teams team_row
+    where team_row.id = any(normalized_team_ids)
+      and team_row.manager_id is not null
+      and team_row.manager_id is distinct from target_existing_user_id
+  ) then
+    raise exception using errcode = '40900', message = 'TEAM_ALREADY_HAS_MANAGER';
+  end if;
+
+  required_mfa := coalesce(target_role_mfa, false) or (
+    target_data_scope in ('ALL_BRANCHES', 'ORGANIZATION')
+    and exists (
+      select 1
+      from public.role_permissions role_permission_row
+      join public.permissions permission_row
+        on permission_row.id = role_permission_row.permission_id
+      where role_permission_row.role_id = target_role_id
+        and permission_row.permission_key in (
+          'user.manage', 'role.manage', 'integration.manage', 'credit.allocate',
+          'support.approve', 'audit.view'
+        )
+    )
+  );
+  return jsonb_build_object(
+    'organization_id', actor_organization_id,
+    'role_key', target_role_key,
+    'member_type', target_member_type,
+    'required_mfa', required_mfa,
+    'selected_branch_ids', to_jsonb(normalized_selected_branch_ids),
+    'team_ids', to_jsonb(normalized_team_ids)
+  );
+end;
+$$;
+
+revoke all on function app_private.can_administer_tenant_user(uuid, uuid, text)
+  from public, anon, authenticated;
+revoke all on function app_private.assert_tenant_user_assignment(
+  uuid, uuid, public.data_scope, uuid, uuid[], uuid[], text, uuid
+) from public, anon, authenticated;
 
 commit;

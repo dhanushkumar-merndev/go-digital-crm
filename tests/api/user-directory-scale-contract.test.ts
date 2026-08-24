@@ -53,11 +53,37 @@ describe('100k-scale user directory contract', () => {
     expect(tenantDirectory).toContain(
       'target_permission_row.permission_id = any(actor_permission_ids)',
     );
+    expect(tenantDirectory.match(/role_row\.id\n\s+into\n\s+actor_authority/g)).toHaveLength(2);
+    expect(tenantDirectory).toContain('where role_permission_row.role_id = actor_admin_role_id');
+    expect(tenantDirectory).not.toContain(
+      'where assignment_row.organization_id = actor_organization_id\n      and assignment_row.user_id = actor_id\n      and assignment_row.active;\n  end if;',
+    );
     expect(tenantDirectory).toContain(
       'app_private.scope_rank(assignment_row.data_scope)\n        <= app_private.scope_rank(actor_scope)',
     );
     expect(tenantDirectory).toContain('outside_actor_scope_users as materialized (');
     expect(tenantDirectory).not.toContain('app_private.can_administer_tenant_user(');
+  });
+
+  it('binds direct mutation and row-administration ceilings to the same admin role', () => {
+    expect(migration).toContain(
+      'create or replace function app_private.can_administer_tenant_user(',
+    );
+    expect(migration).toContain(
+      'create or replace function app_private.assert_tenant_user_assignment(',
+    );
+    expect(migration).toContain('where actor_permission_row.role_id = actor_admin_role_id');
+    expect(migration).not.toContain('from public.user_role_assignments actor_assignment_row');
+    expect(migration.match(/declare actor_admin_role_id uuid;/g)).toHaveLength(2);
+    expect(migration.match(/role_row\.id\n\s+into actor_authority/g)).toHaveLength(4);
+    expect(migration).toContain("auth.role() <> 'service_role'");
+    expect(
+      migration.match(/app_private\.mfa_policy_satisfied\(actor_organization_id\)/g),
+    ).toHaveLength(1);
+    expect(migration).toContain('from public.user_role_assignments target_assignment_row');
+    expect(migration).toContain('target_role_row.authority_level >= actor_authority');
+    expect(migration).toContain('target_permission_row.role_id = target_assignment_row.role_id');
+    expect(migration).toContain("target_assignment_row.data_scope in ('OWN_RECORDS', 'OWN_TEAM')");
   });
 
   it('treats wildcard search literally and gates digit-only phone matching', () => {

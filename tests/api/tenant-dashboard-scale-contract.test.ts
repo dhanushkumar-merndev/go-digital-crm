@@ -94,6 +94,18 @@ describe('tenant dashboard 100k-lead scale contract', () => {
     expect(migration).toContain("'attention', attention_result");
   });
 
+  it('builds call activity once and labels every supported series truthfully', () => {
+    expect(migration).toContain('with scoped_calls as materialized (');
+    expect(migration).toContain('from scoped_calls call_row\n      group by 1');
+    expect(migration).toContain('into call_today_count, activity_result');
+    expect(migration).toContain("when can_view_calls then 'Calls'");
+    expect(migration).toContain("when can_view_bookings then 'Bookings'");
+    expect(migration).toContain("when can_view_calls and can_view_leads then 'Calls'");
+    expect(migration).toContain(
+      "when can_view_bookings and (can_view_leads or can_view_calls) then 'Bookings'",
+    );
+  });
+
   it('preserves all public signatures, JSON fields and authenticated-only grants', () => {
     expect(migration).toContain(
       'create or replace function public.get_tenant_performance_dashboard(',

@@ -260,6 +260,7 @@ begin
     join accessible_branches branch_row on branch_row.id = quotation_row.branch_id
     where quotation_row.organization_id = current_organization_id
       and quotation_row.branch_id = any(quotation_branch_ids)
+      and quotation_row.deleted_at is null
       and quotation_row.created_at >= range_start
       and quotation_row.created_at < range_end
   ), quotation_assignment_stats as materialized (

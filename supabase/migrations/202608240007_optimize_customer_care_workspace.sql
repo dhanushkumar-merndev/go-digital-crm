@@ -257,6 +257,8 @@ declare
   today_start timestamptz;
   tomorrow_start timestamptz;
   activity_start timestamptz;
+  followup_permission_scope record;
+  lead_permission_scope record;
   can_view_followups boolean := false;
   can_view_leads boolean := false;
   result jsonb;
@@ -292,6 +294,17 @@ begin
     current_organization_id, 'customer_care.view'
   ) scope_row;
 
+  select * into followup_permission_scope
+  from app_private.resolve_permission_record_scope(
+    current_organization_id,
+    array['followup.view']::text[]
+  );
+  select * into lead_permission_scope
+  from app_private.resolve_permission_record_scope(
+    current_organization_id,
+    array['lead.view']::text[]
+  );
+
   escaped_search := replace(replace(replace(normalized_search, E'\\', E'\\\\'), '%', E'\\%'), '_', E'\\_');
   search_phone_digits := app_private.normalize_phone_digits(normalized_search);
   local_today := pg_catalog.timezone(target_timezone, now())::date;
@@ -300,10 +313,8 @@ begin
   activity_start := pg_catalog.timezone(
     target_timezone, (local_today - 13)::timestamp
   );
-  can_view_followups := app_private.has_permission(
-    current_organization_id, 'followup.view'
-  );
-  can_view_leads := app_private.has_permission(current_organization_id, 'lead.view');
+  can_view_followups := coalesce(followup_permission_scope.granted, false);
+  can_view_leads := coalesce(lead_permission_scope.granted, false);
 
   with scoped_lead_customer_ids as materialized (
     select distinct lead_row.customer_id
@@ -506,23 +517,49 @@ begin
           and followup_row.branch_id = any(scope_own_record_branch_ids)
         )
       )
+      and (
+        followup_permission_scope.organization_wide
+        or followup_row.branch_id = any(
+          followup_permission_scope.branch_scope_ids
+        )
+        or followup_row.team_id = any(followup_permission_scope.team_scope_ids)
+        or (
+          followup_permission_scope.own_records
+          and followup_row.assigned_user_id = current_actor_id
+          and followup_row.branch_id = any(
+            followup_permission_scope.own_record_branch_ids
+          )
+        )
+      )
       and (followup_row.customer_id is null or customer_scope.id is not null)
       and (
         followup_row.lead_id is null
         or (
           can_view_leads
           and lead_row.id is not null
-          and (
-            scope_organization_wide
-            or lead_row.branch_id = any(scope_branch_ids)
+              and (
+                scope_organization_wide
+                or lead_row.branch_id = any(scope_branch_ids)
             or (scope_own_team and lead_row.team_id = any(scope_team_ids))
             or (
               scope_own_records
               and lead_row.assigned_user_id = current_actor_id
-              and lead_row.branch_id = any(scope_own_record_branch_ids)
-            )
-          )
-          and (lead_row.customer_id is null or lead_customer_scope.id is not null)
+                  and lead_row.branch_id = any(scope_own_record_branch_ids)
+                )
+              )
+              and (
+                lead_permission_scope.organization_wide
+                or lead_row.branch_id = any(lead_permission_scope.branch_scope_ids)
+                or lead_row.team_id = any(lead_permission_scope.team_scope_ids)
+                or (
+                  lead_permission_scope.own_records
+                  and lead_row.assigned_user_id = current_actor_id
+                  and lead_row.branch_id = any(
+                    lead_permission_scope.own_record_branch_ids
+                  )
+                )
+              )
+              and (lead_row.customer_id is null or lead_customer_scope.id is not null)
         )
       )
   ), status_counts as (
