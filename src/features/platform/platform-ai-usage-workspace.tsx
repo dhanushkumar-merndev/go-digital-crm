@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   BrainCircuit,
@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { PlatformAiUsageSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -87,6 +87,13 @@ function CreditAllocationDialog({
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
   const [allocationRequestId, setAllocationRequestId] = useState(requestId);
+  const [prevOrgId, setPrevOrgId] = useState(organization.id);
+  if (prevOrgId !== organization.id) {
+    setPrevOrgId(organization.id);
+    setAmount('');
+    setReason('');
+    setAllocationRequestId(requestId());
+  }
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: grantPlatformAiCredits,
@@ -109,11 +116,6 @@ function CreditAllocationDialog({
         description: 'Confirm your Super Admin MFA session and retry.',
       }),
   });
-  useEffect(() => {
-    setAmount('');
-    setReason('');
-    setAllocationRequestId(requestId());
-  }, [organization.id]);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -187,6 +189,11 @@ function CreditLedgerSheet({
   const [cursorHistory, setCursorHistory] = useState<Array<PlatformAiCreditLedgerCursor | null>>([
     null,
   ]);
+  const [prevOrgId, setPrevOrgId] = useState(organization.id);
+  if (prevOrgId !== organization.id) {
+    setPrevOrgId(organization.id);
+    setCursorHistory([null]);
+  }
   const cursor = cursorHistory[cursorHistory.length - 1] ?? null;
   const page = cursorHistory.length;
   const query = useQuery({
@@ -197,7 +204,6 @@ function CreditLedgerSheet({
     placeholderData: keepPreviousData,
   });
   const data = query.data;
-  useEffect(() => setCursorHistory([null]), [organization.id]);
 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
@@ -342,7 +348,7 @@ export function PlatformAiUsageWorkspace({ spec }: { spec: PageSpec }) {
           </SelectContent>
         </Select>
       </div>
-      {query.isPending ? <PageSkeleton /> : null}
+      {query.isPending ? <PlatformAiUsageSkeleton /> : null}
       {data ? <KpiGrid metrics={metrics} className="xl:grid-cols-4" /> : null}
       {data ? (
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">

@@ -12,7 +12,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { ModuleWorkspaceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -109,7 +109,7 @@ export function ModuleWorkspace({ spec }: { spec: PageSpec }) {
           the live platform catalog.
         </p>
       </div>
-      {query.isPending ? <PageSkeleton /> : null}
+      {query.isPending ? <ModuleWorkspaceSkeleton /> : null}
       {result ? <KpiGrid metrics={metrics} className="xl:grid-cols-5" /> : null}
       <Card className="shadow-none">
         <CardContent className="flex flex-col gap-3 p-4 md:flex-row">

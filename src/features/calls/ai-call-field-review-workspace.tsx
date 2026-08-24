@@ -85,7 +85,10 @@ export function AiCallFieldReviewWorkspace({ callId, role }: { callId: string; r
       }),
   });
 
-  const fields = workspace.data?.extraction?.fields ?? [];
+  const fields = useMemo(
+    () => workspace.data?.extraction?.fields ?? [],
+    [workspace.data?.extraction?.fields],
+  );
   const counts = useMemo(
     () => ({
       extracted: fields.length,

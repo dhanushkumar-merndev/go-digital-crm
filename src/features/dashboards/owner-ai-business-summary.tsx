@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { OwnerAiBusinessSummarySkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -47,7 +47,7 @@ export function OwnerAiBusinessSummaryWorkspace({
     queryFn: ({ signal }) => fetchOwnerAiBusinessSummary(days, signal),
     staleTime: 60_000,
   });
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <OwnerAiBusinessSummarySkeleton />;
   if (query.isError || !query.data)
     return (
       <Card className="shadow-none">

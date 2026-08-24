@@ -1,5 +1,5 @@
-// The generated Supabase schema is intentionally not available in Trigger CI.
-// This worker is guarded by the SQL RPC contract in migration 031.
+// The generated Supabase schema is guarded by the SQL RPC contract in migration 031.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';

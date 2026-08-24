@@ -16,7 +16,7 @@ import {
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { DeliveryFeedbackSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -93,7 +93,6 @@ export function DeliveryFeedbackWorkspace({ spec }: { spec: PageSpec }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<DeliveryFeedbackPageSize>(25);
   const [captureTarget, setCaptureTarget] = useState<DeliveryFeedbackRecord | null>(null);
-  const [channel, setChannel] = useState<'MANUAL' | 'SMS' | 'WHATSAPP' | 'EMAIL'>('MANUAL');
   const [rating, setRating] = useState('5');
   const [comments, setComments] = useState('');
   const debouncedSearch = useDebouncedValue(search, 300);
@@ -111,7 +110,7 @@ export function DeliveryFeedbackWorkspace({ spec }: { spec: PageSpec }) {
     mutationFn: (record: DeliveryFeedbackRecord) =>
       requestDeliveryFeedback({
         deliveryCaseId: record.delivery_case_id,
-        channel,
+        channel: 'MANUAL',
         requestId: crypto.randomUUID(),
       }),
     onSuccess: async () => {
@@ -181,7 +180,7 @@ export function DeliveryFeedbackWorkspace({ spec }: { spec: PageSpec }) {
     ];
   }, [query.data?.kpis]);
 
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <DeliveryFeedbackSkeleton />;
   if (query.isError)
     return (
       <Card className="mx-auto max-w-xl shadow-none">

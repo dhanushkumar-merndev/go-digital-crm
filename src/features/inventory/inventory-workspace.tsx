@@ -27,8 +27,7 @@ import {
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
-import { StockCheckSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
+import { StockCheckSkeleton, InventoryWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -1150,7 +1149,8 @@ function ListWorkspace({
     placeholderData: keepPreviousData,
   });
 
-  if (page.isPending) return view === 'stock-check' ? <StockCheckSkeleton /> : <PageSkeleton />;
+  if (page.isPending)
+    return view === 'stock-check' ? <StockCheckSkeleton /> : <InventoryWorkspaceSkeleton />;
   if (page.isError || !page.data)
     return (
       <Alert variant="destructive">
@@ -1321,7 +1321,7 @@ export function InventoryWorkspace({
     (!useSalesBootstrap && legacyPermissions.isPending) ||
     (!useSalesBootstrap && branches.isPending)
   )
-    return selectedView === 'stock-check' ? <StockCheckSkeleton /> : <PageSkeleton />;
+    return selectedView === 'stock-check' ? <StockCheckSkeleton /> : <InventoryWorkspaceSkeleton />;
   const permissionDenied =
     permissions &&
     (selectedView === 'stock-check'
@@ -1391,7 +1391,7 @@ export function InventoryWorkspace({
       )}
       {selectedView === 'dashboard' ? (
         dashboard.isPending ? (
-          <PageSkeleton />
+          <InventoryWorkspaceSkeleton />
         ) : dashboard.isError || !dashboard.data ? (
           <Alert variant="destructive">
             <TriangleAlert className="size-4" />

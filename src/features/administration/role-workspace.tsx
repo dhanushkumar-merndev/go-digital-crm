@@ -7,7 +7,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { RolesPermissionsSkeleton } from '@/components/skeletons';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -588,7 +588,7 @@ export function RoleWorkspace({ spec }: { spec: PageSpec }) {
     void queryClient.invalidateQueries({ queryKey: ['delegable-role-permissions'] });
   }, [queryClient]);
 
-  if (workspace.isPending) return <PageSkeleton />;
+  if (workspace.isPending) return <RolesPermissionsSkeleton />;
   if (workspace.isError || !workspace.data || !workspace.data.viewer.can_manage)
     return (
       <div className="space-y-6">

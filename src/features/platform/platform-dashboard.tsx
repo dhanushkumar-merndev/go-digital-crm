@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { PlatformDashboardSkeleton } from '@/components/skeletons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { Metric, PageSpec } from '@/lib/domain';
@@ -52,7 +52,7 @@ export function PlatformDashboard({ spec }: { spec: PageSpec }) {
     queryKey: ['platform-dashboard'],
     queryFn: fetchPlatformDashboard,
   });
-  if (dashboard.isPending) return <PageSkeleton />;
+  if (dashboard.isPending) return <PlatformDashboardSkeleton />;
   if (dashboard.isError || !dashboard.data)
     return (
       <div className="space-y-6">

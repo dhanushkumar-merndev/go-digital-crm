@@ -46,15 +46,16 @@ export function SocialContentCalendar() {
     () => Array.from({ length: days }, (_, index) => addDays(startDate, index)),
     [days, startDate],
   );
+  const posts = query.data?.posts;
   const postsByDay = useMemo(() => {
-    const result = new Map<string, NonNullable<typeof query.data>['posts']>();
-    for (const post of query.data?.posts ?? []) {
+    const result = new Map<string, Array<NonNullable<typeof posts>[number]>>();
+    for (const post of posts ?? []) {
       if (!post.scheduled_for) continue;
       const key = dateKey(new Date(post.scheduled_for));
       result.set(key, [...(result.get(key) ?? []), post]);
     }
     return result;
-  }, [query.data?.posts]);
+  }, [posts]);
   return (
     <Card className="overflow-hidden shadow-none">
       <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">

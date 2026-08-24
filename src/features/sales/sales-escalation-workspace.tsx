@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight, Check, Search, TriangleAlert } from 'lucide-
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import type { RoleKey } from '@/config/navigation/types';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { SalesEscalationSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -334,7 +334,7 @@ export function SalesEscalationWorkspace({ role }: { role: RoleKey }) {
   const roleLabel =
     role === 'gm-sales' ? 'GM Sales' : role === 'showroom-manager' ? 'Showroom' : 'Team';
 
-  if (permissions.isLoading || workspace.isLoading) return <PageSkeleton />;
+  if (permissions.isLoading || workspace.isLoading) return <SalesEscalationSkeleton />;
   if (permissions.isError || workspace.isError || !workspace.data)
     return (
       <Card className="mx-auto max-w-xl shadow-none">

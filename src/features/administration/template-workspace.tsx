@@ -5,11 +5,11 @@ import { Archive, FileText, Mail, MessageCircle, Plus, Search, Smartphone } from
 import { useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { TemplateWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -182,7 +182,7 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
         description: 'Try again or check administrator access.',
       }),
   });
-  if (workspace.isPending) return <PageSkeleton />;
+  if (workspace.isPending) return <TemplateWorkspaceSkeleton />;
   if (workspace.isError || !workspace.data)
     return (
       <div className="space-y-5">
@@ -359,6 +359,7 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
           </div>
         </div>
       </Card>
+      {open && <CreateTemplateDialog onClose={() => setOpen(false)} />}
     </div>
   );
 }

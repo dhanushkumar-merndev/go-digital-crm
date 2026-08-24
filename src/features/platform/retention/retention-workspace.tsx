@@ -15,7 +15,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { RetentionWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -839,7 +839,7 @@ export function RetentionWorkspace({ spec }: { spec: PageSpec }) {
     void queryClient.invalidateQueries({ queryKey: ['platform-dealerships'] });
   }, [queryClient]);
 
-  if (retention.isPending) return <PageSkeleton />;
+  if (retention.isPending) return <RetentionWorkspaceSkeleton />;
   if (retention.isError || !retention.data)
     return (
       <Card className="mx-auto max-w-xl shadow-none">

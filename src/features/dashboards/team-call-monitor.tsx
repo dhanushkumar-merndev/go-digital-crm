@@ -9,7 +9,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { TeamCallMonitorSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -54,7 +54,7 @@ export function TeamCallMonitor() {
     queryFn: ({ signal }) => fetchTeamManagerPerformance(days, signal),
     staleTime: 60_000,
   });
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <TeamCallMonitorSkeleton />;
   if (query.isError || !query.data)
     return (
       <Card className="mx-auto max-w-xl shadow-none">

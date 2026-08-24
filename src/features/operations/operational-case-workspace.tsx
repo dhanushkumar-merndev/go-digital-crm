@@ -7,7 +7,7 @@ import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tan
 import { ChevronLeft, ChevronRight, Plus, RotateCcw, Search, TriangleAlert } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { OperationalCaseWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -439,7 +439,8 @@ export function OperationalCaseWorkspace({
     [pathname, query, route.initialStatus, router],
   );
 
-  if (permissions.isPending || (workspace.isPending && permissions.data)) return <PageSkeleton />;
+  if (permissions.isPending || (workspace.isPending && permissions.data))
+    return <OperationalCaseWorkspaceSkeleton />;
   if (permissions.isError || workspace.isError || !permissions.data || !workspace.data)
     return (
       <Card className="mx-auto max-w-xl">

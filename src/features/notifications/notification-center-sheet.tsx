@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   BellRing,
@@ -71,13 +71,20 @@ export function NotificationCenterSheet({
   const [page, setPage] = useState(1);
   const search = useDebouncedValue(searchInput, 300);
 
-  useEffect(() => setPage(1), [search, status]);
-  useEffect(() => {
-    if (open) return;
-    setSearchInput('');
-    setStatus('all');
+  const [prevFilter, setPrevFilter] = useState({ search, status });
+  if (prevFilter.search !== search || prevFilter.status !== status) {
+    setPrevFilter({ search, status });
     setPage(1);
-  }, [open]);
+  }
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setSearchInput('');
+      setStatus('all');
+      setPage(1);
+    }
+    onOpenChange(nextOpen);
+  };
 
   const queryKey = useMemo(
     () => [
@@ -118,7 +125,7 @@ export function NotificationCenterSheet({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent side="right" className="flex w-full max-w-xl flex-col p-0 sm:w-[540px]">
         <SheetHeader className="border-b">
           <SheetTitle className="flex items-center gap-2">

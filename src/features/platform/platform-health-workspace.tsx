@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Activity, Building2, Cable, CircleAlert, RefreshCw, Workflow } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { PlatformHealthSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,7 +32,7 @@ export function PlatformHealthWorkspace({ spec }: { spec: PageSpec }) {
     queryFn: ({ signal }) => fetchPlatformHealth(signal),
     staleTime: 60_000,
   });
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <PlatformHealthSkeleton />;
   if (query.isError || !query.data)
     return (
       <Card className="mx-auto max-w-xl shadow-none">

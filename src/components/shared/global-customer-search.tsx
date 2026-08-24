@@ -42,12 +42,13 @@ function CustomerSearchDialog({
   const normalizedSearch = query.normalize('NFKC').trim();
   const ready = normalizedSearch.length >= 2;
 
-  useEffect(() => setPage(1), [normalizedSearch]);
-  useEffect(() => {
-    if (open) return;
-    setValue('');
-    setPage(1);
-  }, [open]);
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setValue('');
+      setPage(1);
+    }
+    onOpenChange(nextOpen);
+  };
 
   const results = useQuery({
     queryKey: [
@@ -63,12 +64,12 @@ function CustomerSearchDialog({
   });
 
   const openCustomer = (customerId: string) => {
-    onOpenChange(false);
+    handleOpenChange(false);
     router.push(`/${role}/customers/${customerId}`);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[calc(100vh-2rem)] max-w-2xl overflow-y-auto p-0">
         <DialogHeader className="border-b px-5 py-4 pr-12">
           <DialogTitle>Customer search</DialogTitle>

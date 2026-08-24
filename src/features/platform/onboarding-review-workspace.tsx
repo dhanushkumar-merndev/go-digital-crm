@@ -7,7 +7,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { OnboardingReviewSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -522,7 +522,7 @@ export function OnboardingReviewWorkspace({ spec }: { spec: PageSpec }) {
     [pathname, router],
   );
 
-  if (reviews.isPending) return <PageSkeleton />;
+  if (reviews.isPending) return <OnboardingReviewSkeleton />;
   if (reviews.isError || !reviews.data)
     return (
       <div className="space-y-6">

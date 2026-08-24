@@ -1,5 +1,5 @@
-// Trigger's generated Supabase schema is intentionally unavailable in CI; the
-// worker boundary is covered by its typed database RPC contract and runtime tests.
+// The worker boundary is covered by its typed database RPC contract and runtime tests.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 import { createHash } from 'node:crypto';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';

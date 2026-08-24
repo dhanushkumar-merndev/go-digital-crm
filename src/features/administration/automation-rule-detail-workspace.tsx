@@ -12,7 +12,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import Link from 'next/link';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { AutomationRuleDetailSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -62,7 +62,7 @@ export function AutomationRuleDetailWorkspace({ ruleId, role }: { ruleId: string
         description: 'Check your administrator access and retry.',
       }),
   });
-  if (detail.isPending) return <PageSkeleton />;
+  if (detail.isPending) return <AutomationRuleDetailSkeleton />;
   if (detail.isError || !detail.data)
     return (
       <div className="p-6 text-sm text-destructive">Automation rule detail is unavailable.</div>

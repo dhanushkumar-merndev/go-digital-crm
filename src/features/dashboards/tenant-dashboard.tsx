@@ -17,7 +17,7 @@ import {
   UsersRound,
 } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { TenantDashboardSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -512,7 +512,7 @@ export function TenantDashboard({
     }
   };
 
-  if (dashboard.isPending) return <PageSkeleton />;
+  if (dashboard.isPending) return <TenantDashboardSkeleton role={role} />;
   if (dashboard.isError || !dashboard.data)
     return (
       <div className="mx-auto max-w-[1600px] space-y-6">

@@ -48,7 +48,10 @@ export function SalesConsultantDashboardSkeleton() {
             </CardHeader>
             <CardContent className="grid gap-2.5 p-3 sm:grid-cols-2 lg:grid-cols-5">
               {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex min-h-32 flex-col justify-between rounded-lg border p-3">
+                <div
+                  key={i}
+                  className="flex min-h-32 flex-col justify-between rounded-lg border p-3"
+                >
                   <div className="flex items-center gap-2.5">
                     <Skeleton className="size-8 rounded-lg" />
                     <Skeleton className="h-6 w-10" />
@@ -1424,7 +1427,10 @@ export function SalesConsultantPerformanceSkeleton() {
             <div className="flex h-56 items-end justify-between gap-3 px-4 pt-6">
               {Array.from({ length: 7 }).map((_, i) => (
                 <div key={i} className="flex-1 flex flex-col items-center gap-2">
-                  <Skeleton className="w-full rounded-t" style={{ height: `${30 + (i * 11) % 55}%` }} />
+                  <Skeleton
+                    className="w-full rounded-t"
+                    style={{ height: `${30 + ((i * 11) % 55)}%` }}
+                  />
                   <Skeleton className="h-2.5 w-6" />
                 </div>
               ))}

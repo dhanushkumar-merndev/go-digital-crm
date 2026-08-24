@@ -5,10 +5,10 @@ import { ChevronLeft, ChevronRight, KeyRound, Search, ShieldCheck, UsersRound } 
 import { useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { PlatformUserAccessSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -42,7 +42,7 @@ export function PlatformUserAccessWorkspace({ spec }: { spec: PageSpec }) {
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <PlatformUserAccessSkeleton />;
   if (query.isError || !query.data)
     return (
       <Card className="mx-auto max-w-xl shadow-none">

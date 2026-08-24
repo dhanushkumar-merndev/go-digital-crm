@@ -8,7 +8,10 @@ import { ChevronLeft, ChevronRight, Plus, Search, TriangleAlert } from 'lucide-r
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import {
+  CustomerCareWorkspaceSkeleton,
+  CustomerRelationshipDashboardSkeleton,
+} from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -405,7 +408,11 @@ export function CustomerCareWorkspace({
   });
 
   if (permissions.isPending || workspace.isPending || (isDashboard && dashboard.isPending))
-    return <PageSkeleton />;
+    return isDashboard ? (
+      <CustomerRelationshipDashboardSkeleton />
+    ) : (
+      <CustomerCareWorkspaceSkeleton />
+    );
   if (
     permissions.isError ||
     workspace.isError ||

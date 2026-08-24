@@ -15,6 +15,7 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
+import { LeadAssignmentSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -206,6 +207,7 @@ export function LeadAssignmentWorkspace({
     ? 'Only unassigned leads in your authorized showroom branches are shown.'
     : 'Only leads in your managed team queue are shown.';
 
+  if (query.isPending) return <LeadAssignmentSkeleton />;
   if (query.isError)
     return (
       <Card className="mx-auto max-w-xl shadow-none">

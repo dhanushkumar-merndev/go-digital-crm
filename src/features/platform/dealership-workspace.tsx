@@ -8,7 +8,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { DealershipWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -457,7 +457,7 @@ export function DealershipWorkspace({ spec }: { spec: PageSpec }) {
     [pathname, router],
   );
 
-  if (dealerships.isPending) return <PageSkeleton />;
+  if (dealerships.isPending) return <DealershipWorkspaceSkeleton />;
   if (dealerships.isError || !dealerships.data)
     return (
       <Card className="mx-auto max-w-xl shadow-none">

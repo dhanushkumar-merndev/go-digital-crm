@@ -5,7 +5,7 @@ import { BarChart3, CalendarDays, CarFront, Pencil, Target, TriangleAlert } from
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { TenantTargetConfigurationSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -111,7 +111,7 @@ export function TenantTargetConfigurationWorkspace({
     setDriveTarget(String(branch.drive_target));
   };
 
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <TenantTargetConfigurationSkeleton />;
   if (query.isError || !query.data)
     return (
       <Card className="mx-auto max-w-xl shadow-none">

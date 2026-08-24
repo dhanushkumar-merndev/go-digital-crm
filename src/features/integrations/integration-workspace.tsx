@@ -16,7 +16,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { IntegrationWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -1428,7 +1428,8 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
     void queryClient.invalidateQueries({ queryKey: ['integration-workspace'] });
   }, [queryClient]);
 
-  if (permissions.isPending || (workspace.isPending && permissions.data)) return <PageSkeleton />;
+  if (permissions.isPending || (workspace.isPending && permissions.data))
+    return <IntegrationWorkspaceSkeleton />;
   if (permissions.isError || workspace.isError || !permissions.data || !workspace.data)
     return (
       <div className="space-y-6">

@@ -7,7 +7,7 @@ import { useMemo, useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { AutomationWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -329,7 +329,7 @@ export function AutomationWorkspace({ spec }: { spec: PageSpec }) {
         : [],
     [query.data],
   );
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <AutomationWorkspaceSkeleton />;
   if (query.isError || !query.data)
     return (
       <div className="space-y-6">

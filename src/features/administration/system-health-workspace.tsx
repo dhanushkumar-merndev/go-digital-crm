@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Activity, Cable, CircleAlert, RefreshCw, Workflow } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { SystemHealthSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -42,7 +42,7 @@ export function SystemHealthWorkspace({ spec }: { spec: PageSpec }) {
     { resource: 'integrations', queryKeys: [['system-health-workspace']] },
   ]);
 
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <SystemHealthSkeleton />;
   if (query.isError || !query.data)
     return (
       <Card className="mx-auto max-w-xl shadow-none">

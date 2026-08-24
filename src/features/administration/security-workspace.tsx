@@ -9,7 +9,7 @@ import {
   ShieldEllipsis,
   UserRoundCheck,
 } from 'lucide-react';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { SecurityWorkspaceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useWorkspaceSession } from '@/components/providers/workspace-session-provider';
@@ -31,7 +31,7 @@ export function SecurityWorkspace({ spec }: { spec: PageSpec }) {
     queryFn: ({ signal }) => fetchSecurityPosture(signal),
     staleTime: 60_000,
   });
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <SecurityWorkspaceSkeleton />;
   if (query.isError || !query.data)
     return (
       <Card className="shadow-none">

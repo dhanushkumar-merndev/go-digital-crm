@@ -4,7 +4,7 @@ import { CarFront, Database, Filter, Search, Tag, ToggleLeft } from 'lucide-reac
 import { useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { MasterDataSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -58,7 +58,7 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
         description: 'Check your administrator access and retry.',
       }),
   });
-  if (data.isPending) return <PageSkeleton />;
+  if (data.isPending) return <MasterDataSkeleton />;
   if (!data.data) return <div className="p-6 text-destructive">Master data is unavailable.</div>;
   const k = data.data.kpis;
   const metrics: Metric[] = [

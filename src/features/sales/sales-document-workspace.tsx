@@ -30,7 +30,10 @@ import {
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { QuotationsSkeleton, BookingsSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
+import {
+  QuotationsSkeleton,
+  BookingsSkeleton,
+} from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';

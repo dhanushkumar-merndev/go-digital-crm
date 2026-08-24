@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Blocks, CheckCircle2, Coins, Plus, ShieldCheck } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { SubscriptionPlanSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,6 +43,13 @@ function PlanDialog({
   const [moduleIds, setModuleIds] = useState<string[]>(
     plan?.modules.map((module) => module.id) ?? [],
   );
+  const [prevPlan, setPrevPlan] = useState(plan);
+  if (prevPlan !== plan) {
+    setPrevPlan(plan);
+    setName(plan?.name ?? '');
+    setActive(plan?.active ?? true);
+    setModuleIds(plan?.modules.map((module) => module.id) ?? []);
+  }
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: saveSubscriptionPlan,
@@ -62,11 +69,6 @@ function PlanDialog({
         description: 'Check your Super Admin MFA session and retry.',
       }),
   });
-  useEffect(() => {
-    setName(plan?.name ?? '');
-    setActive(plan?.active ?? true);
-    setModuleIds(plan?.modules.map((module) => module.id) ?? []);
-  }, [plan]);
   const toggleModule = (moduleId: string) =>
     setModuleIds((current) =>
       current.includes(moduleId) ? current.filter((id) => id !== moduleId) : [...current, moduleId],
@@ -197,7 +199,7 @@ export function SubscriptionPlanWorkspace({ spec }: { spec: PageSpec }) {
         description: 'Please retry after confirming your MFA session.',
       }),
   });
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <SubscriptionPlanSkeleton />;
   if (query.isError || !workspace)
     return (
       <Card className="mx-auto max-w-xl shadow-none">

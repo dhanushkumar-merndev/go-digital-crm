@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight, Search, TriangleAlert } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { MarketingWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -331,7 +331,7 @@ export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: strin
     [initialView, pathname, routeQuery, router],
   );
 
-  if (workspace.isPending) return <PageSkeleton />;
+  if (workspace.isPending) return <MarketingWorkspaceSkeleton />;
   if (workspace.isError || !workspace.data)
     return (
       <div className="space-y-6">

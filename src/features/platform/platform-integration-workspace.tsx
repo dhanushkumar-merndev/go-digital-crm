@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { PlatformIntegrationSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -100,7 +100,7 @@ export function PlatformIntegrationWorkspace({ spec }: { spec: PageSpec }) {
           Monitor tenant provider connections without exposing credentials or provider payloads.
         </p>
       </div>
-      {query.isPending ? <PageSkeleton /> : null}
+      {query.isPending ? <PlatformIntegrationSkeleton /> : null}
       {result ? <KpiGrid metrics={metrics} className="xl:grid-cols-5" /> : null}
       <Card className="shadow-none">
         <CardContent className="flex flex-col gap-3 p-4 md:flex-row">

@@ -4,12 +4,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ImagePlus, LoaderCircle, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { AiImageCreationSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -72,7 +71,7 @@ export function AiImageCreationWorkspace({ spec }: { spec: PageSpec }) {
         description: 'The secure preview link could not be created. Try again shortly.',
       }),
   });
-  if (workspace.isPending) return <PageSkeleton />;
+  if (workspace.isPending) return <AiImageCreationSkeleton />;
   if (workspace.isError || !workspace.data)
     return (
       <Alert>
@@ -214,6 +213,7 @@ export function AiImageCreationWorkspace({ spec }: { spec: PageSpec }) {
               )}
             </div>
             {image.data && (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={image.data.download_url}
                 alt="Generated CRM creative"

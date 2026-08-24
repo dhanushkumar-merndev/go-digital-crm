@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FilePenLine, LoaderCircle, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -61,14 +61,18 @@ function SocialPostDraftDialog({
   const queryClient = useQueryClient();
   const [platform, setPlatform] = useState<SocialPostPlatform>('FACEBOOK');
   const [content, setContent] = useState('');
-  const [scopeValue, setScopeValue] = useState('');
+  const defaultScope = options.can_use_organization_scope
+    ? 'organization'
+    : (options.branches[0]?.id ?? '');
+  const [scopeValue, setScopeValue] = useState(defaultScope);
   const [requestId, setRequestId] = useState(newRequestId);
+  const effectiveScope = scopeValue || defaultScope;
   const mutation = useMutation({
     mutationFn: () =>
       createSocialPostDraft({
         platform,
         content: content.trim(),
-        branchId: scopeValue === 'organization' ? null : scopeValue,
+        branchId: effectiveScope === 'organization' ? null : effectiveScope,
         requestId,
       }),
     onSuccess: () => {
@@ -91,13 +95,7 @@ function SocialPostDraftDialog({
       }),
   });
 
-  useEffect(() => {
-    if (!open || scopeValue) return;
-    if (options.can_use_organization_scope) setScopeValue('organization');
-    else if (options.branches[0]) setScopeValue(options.branches[0].id);
-  }, [open, options, scopeValue]);
-
-  const hasScope = Boolean(scopeValue);
+  const hasScope = Boolean(effectiveScope);
   const canSave = content.trim().length > 0 && content.trim().length <= 5000 && hasScope;
 
   return (

@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { BarChart3, CarFront, FileText, PhoneCall, Trophy, UsersRound } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { GmSalesAnalyticsSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -65,7 +65,7 @@ export function GmSalesAnalyticsWorkspace({ view }: { view: GmSalesAnalyticsView
     staleTime: 60_000,
   });
   const heading = copy[view];
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <GmSalesAnalyticsSkeleton />;
   if (query.isError || !query.data)
     return (
       <Card className="mx-auto max-w-xl shadow-none">

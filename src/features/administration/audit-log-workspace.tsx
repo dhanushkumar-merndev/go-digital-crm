@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, History, Search } from 'lucide-react';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { AuditLogWorkspaceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -52,11 +52,13 @@ export function AuditLogWorkspace({ spec }: { spec: PageSpec }) {
   const resource = useDebouncedValue(resourceInput, 300);
   const [page, setPage] = useState(1);
   const [cursors, setCursors] = useState<Array<AuditLogCursor | null>>([null]);
-  const cursor = cursors[page - 1] ?? null;
-  useEffect(() => {
+  const [prevFilter, setPrevFilter] = useState({ action, resource });
+  if (prevFilter.action !== action || prevFilter.resource !== resource) {
+    setPrevFilter({ action, resource });
     setPage(1);
     setCursors([null]);
-  }, [action, resource]);
+  }
+  const cursor = cursors[page - 1] ?? null;
   const query = useQuery({
     queryKey: ['audit-log-page', action, resource, cursor?.created_at ?? null, cursor?.id ?? null],
     queryFn: ({ signal }) => fetchAuditLogPage({ action, resource, cursor, signal }),
@@ -103,7 +105,7 @@ export function AuditLogWorkspace({ spec }: { spec: PageSpec }) {
           />
         </CardContent>
       </Card>
-      {query.isPending ? <PageSkeleton /> : null}
+      {query.isPending ? <AuditLogWorkspaceSkeleton /> : null}
       {query.isError ? (
         <Card className="shadow-none">
           <CardContent className="p-8 text-center text-sm text-muted-foreground">

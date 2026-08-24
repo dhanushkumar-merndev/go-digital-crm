@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, CircleCheck, Mail, MessageCircle, Plus, Send, Star } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { MarketingAutomationSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -551,7 +551,7 @@ export function MarketingAutomationWorkspace({
     [workspace.data],
   );
 
-  if (workspace.isPending) return <PageSkeleton />;
+  if (workspace.isPending) return <MarketingAutomationSkeleton />;
   if (workspace.isError || !workspace.data)
     return (
       <div className="space-y-6">

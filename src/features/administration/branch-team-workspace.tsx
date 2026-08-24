@@ -18,7 +18,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { BranchTeamSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -710,7 +710,8 @@ export function BranchTeamWorkspace({
     void queryClient.invalidateQueries({ queryKey: ['tenant-user-administration'] });
   }, [permissions.data?.organizationId, queryClient]);
 
-  if (permissions.isPending || (workspace.isPending && permissions.data)) return <PageSkeleton />;
+  if (permissions.isPending || (workspace.isPending && permissions.data))
+    return <BranchTeamSkeleton />;
   if (permissions.isError || workspace.isError || !permissions.data || !workspace.data)
     return (
       <Card className="mx-auto max-w-xl">

@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellRing, CheckCheck, ChevronLeft, ChevronRight, Search } from 'lucide-react';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { NotificationWorkspaceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -62,8 +62,15 @@ export function NotificationWorkspace({ spec }: { spec: PageSpec }) {
   const [pageSize, setPageSize] = useState<NotificationPageSize>(25);
   const [page, setPage] = useState(1);
   const search = useDebouncedValue(searchInput, 300);
-
-  useEffect(() => setPage(1), [search, status, pageSize]);
+  const [prevFilter, setPrevFilter] = useState({ search, status, pageSize });
+  if (
+    prevFilter.search !== search ||
+    prevFilter.status !== status ||
+    prevFilter.pageSize !== pageSize
+  ) {
+    setPrevFilter({ search, status, pageSize });
+    setPage(1);
+  }
 
   const queryKey = useMemo(
     () => [
@@ -151,7 +158,7 @@ export function NotificationWorkspace({ spec }: { spec: PageSpec }) {
         </CardContent>
       </Card>
 
-      {query.isPending ? <PageSkeleton /> : null}
+      {query.isPending ? <NotificationWorkspaceSkeleton /> : null}
       {query.isError ? (
         <Card className="shadow-none">
           <CardContent className="p-8 text-center text-sm text-muted-foreground">

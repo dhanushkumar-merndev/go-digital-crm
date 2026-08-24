@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Plus, Search, SlidersHorizontal } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { CustomFieldsSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -234,9 +234,17 @@ export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
   const [status, setStatus] = useState<CustomFieldStatus>('ALL');
   const [pageSize, setPageSize] = useState<CustomFieldPageSize>(25);
   const [page, setPage] = useState(1);
+  const [prevFilter, setPrevFilter] = useState({ search, status, pageSize });
+  if (
+    prevFilter.search !== search ||
+    prevFilter.status !== status ||
+    prevFilter.pageSize !== pageSize
+  ) {
+    setPrevFilter({ search, status, pageSize });
+    setPage(1);
+  }
   const [dialogOpen, setDialogOpen] = useState(false);
   const queryClient = useQueryClient();
-  useEffect(() => setPage(1), [search, status, pageSize]);
   const query = useQuery({
     queryKey: ['custom-field-administration', search, status, page, pageSize],
     queryFn: ({ signal }) => fetchCustomFieldPage({ search, status, page, pageSize, signal }),
@@ -255,7 +263,7 @@ export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
         description: 'The definition may have changed. Refresh and try again.',
       }),
   });
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <CustomFieldsSkeleton />;
   if (query.isError || !query.data)
     return (
       <Card className="shadow-none">

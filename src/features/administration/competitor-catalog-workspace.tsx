@@ -4,7 +4,7 @@ import { CarFront, Pencil, Plus, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { CompetitorCatalogSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -108,7 +108,7 @@ export function CompetitorCatalogWorkspace({ spec }: { spec: PageSpec }) {
         description: 'Check required fields and valid JSON specifications.',
       }),
   });
-  if (query.isPending) return <PageSkeleton />;
+  if (query.isPending) return <CompetitorCatalogSkeleton />;
   if (!query.data)
     return <div className="p-6 text-destructive">Competitor catalog is unavailable.</div>;
   const profiles = query.data;

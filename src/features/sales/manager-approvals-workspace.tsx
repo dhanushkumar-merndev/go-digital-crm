@@ -8,6 +8,7 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
+import { ManagerApprovalsSkeleton } from '@/components/skeletons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -120,6 +121,7 @@ export function ManagerApprovalsWorkspace() {
         </CardContent>
       </Card>
     );
+  if (query.isPending) return <ManagerApprovalsSkeleton />;
   if (query.isError)
     return (
       <Card className="mx-auto max-w-xl shadow-none">

@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight, Download, FileDown, Search } from 'lucide-re
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { ReportExportWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -177,7 +177,7 @@ export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
     manualPagination: true,
     rowCount: page.data?.total ?? 0,
   });
-  if (page.isLoading || permissions.isLoading) return <PageSkeleton />;
+  if (page.isLoading || permissions.isLoading) return <ReportExportWorkspaceSkeleton />;
   if (page.isError || permissions.isError || !page.data)
     return (
       <div className="p-6 text-sm text-destructive">
