@@ -22,7 +22,9 @@ describe('platform module workspace backend contract', () => {
 
   it('returns the platform catalog with bounded plan, entitlement and usage aggregates', () => {
     expect(migration).toContain('paged_modules as materialized');
-    expect(migration).toContain('limit target_page_size offset ((target_page - 1) * target_page_size)');
+    expect(migration).toContain(
+      'limit target_page_size offset ((target_page - 1) * target_page_size)',
+    );
     expect(migration).toContain("'plan_count'");
     expect(migration).toContain("'tenant_count'");
     expect(migration).toContain("'enabled_tenant_count'");
@@ -62,6 +64,8 @@ describe('platform module workspace web contract', () => {
 
   it('routes the real Super Admin module workspace before the unavailable fallback', () => {
     expect(route).toContain("role === 'super-admin' && slug[0] === 'modules-entitlements'");
-    expect(route.indexOf('<ModuleWorkspace')).toBeLessThan(route.indexOf('<ProductionDataUnavailable'));
+    expect(route.indexOf('<ModuleWorkspace')).toBeLessThan(
+      route.indexOf('<ProductionDataUnavailable'),
+    );
   });
 });

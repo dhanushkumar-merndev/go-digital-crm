@@ -24,7 +24,9 @@ describe('social content calendar backend contract', () => {
     expect(migration).toContain('social_posts_calendar_idx');
     expect(migration).toContain('post_source.scheduled_for >= range_start');
     expect(migration).toContain('post_source.scheduled_for < range_end');
-    expect(migration).toContain('app_private.can_access_branch(current_organization_id, post_source.branch_id)');
+    expect(migration).toContain(
+      'app_private.can_access_branch(current_organization_id, post_source.branch_id)',
+    );
     expect(migration).toContain('limit 500');
     expect(migration).not.toContain('media_object_file_ids');
   });

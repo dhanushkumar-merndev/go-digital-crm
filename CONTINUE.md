@@ -35,7 +35,7 @@ revoke all on function app_private.realtime_topic_resource()     from public, an
 ```
 
 Those two are **RLS policy helpers** on `realtime.messages`. A policy expression
-runs as the *calling* role — `SECURITY DEFINER` changes the body's privileges, not
+runs as the _calling_ role — `SECURITY DEFINER` changes the body's privileges, not
 the caller's right to invoke the function. So every authenticated subscribe raised
 `42501 permission denied for function realtime_topic_organization`, and the client
 retried on a ~4s loop (visible in the logs as one error every 4 seconds).
@@ -85,7 +85,7 @@ Two compounding defects:
 **(1) Per-row SECURITY DEFINER calls — the real killer.** Every scoped scan filters
 with `app_private.can_access_record(...)` in the `WHERE`. That helper is
 `SECURITY DEFINER`, which makes it **non-inlinable** by the planner, so it becomes a
-real function call *per candidate row*. Each call runs `can_access_organization()`
+real function call _per candidate row_. Each call runs `can_access_organization()`
 plus `EXISTS` over `user_role_assignments ⋈ roles`, `branches`, and `team_members`
 (see `202608150021_branch_team_administration.sql:244`). The leads table is scanned
 this way **twice** — once in the KPI block, once in the trend block — so 100k leads
@@ -99,7 +99,7 @@ Sales Consultant dashboard has the identical ceiling.
 wraps the indexed column in a function → no index usable → full scan. Same for the
 `date_trunc('month', timezone(...))` month filters.
 
-**(3) Wasted work.** `get_tenant_dashboard_summary` called the *full* dashboard and
+**(3) Wasted work.** `get_tenant_dashboard_summary` called the _full_ dashboard and
 then stripped `lead_preview` and `attention` with the jsonb `-` operator — paying to
 build both sections before throwing them away.
 
@@ -139,7 +139,7 @@ indexing back into the jsonb the leads block just produced:
 
 This is fragile and wrong when `can_view_leads` is false (`activity_result` is still
 `[]`, so every primary value silently becomes 0). **Rework:** build the lead daily
-series and the booking daily series in a *single* statement with both CTEs, and
+series and the booking daily series in a _single_ statement with both CTEs, and
 `FULL JOIN` them onto the `generate_series` day spine. Do not carry state through
 jsonb between statements.
 
@@ -152,7 +152,7 @@ says `'Calls'` in that case, so the payload and the data currently disagree.
 
 **C. Unconverted scans.** `followups`, `appointments`, `calls`,
 `test_drive_appointments` still use per-row `can_access_record` (plus
-`can_access_lead` / `can_access_customer`, which are *also* SECURITY DEFINER and
+`can_access_lead` / `can_access_customer`, which are _also_ SECURITY DEFINER and
 per-row). They are bounded by `day_start`/`day_end` now so they are much smaller
 working sets, but calls in particular will grow with lead volume. Apply the same
 distinct-scope treatment.
@@ -182,7 +182,7 @@ Suggested: run both predicates over the same org and diff the id sets.
 - **"Live workspace unavailable" (GDM-DATA-BOUNDARY) on Performance.** Screenshot
   shows the boundary card on the Performance page, but
   `src/app/[role]/[[...slug]]/page.tsx:112` routes `sales-consultant` + `performance`
-  to `<SalesConsultantPerformance />` *unconditionally* (no `isLocalPreviewMode()`
+  to `<SalesConsultantPerformance />` _unconditionally_ (no `isLocalPreviewMode()`
   guard), so it should be unreachable. **Unresolved** — either the screenshot predates
   that route or the deployed build is stale. Confirm which before chasing it.
 - **Redis / TanStack tuning.** `202608150041_workspace_redis_cache.sql` and

@@ -179,7 +179,10 @@ export default function LeadDetail() {
             {lead.customer_id ? (
               <Pressable
                 onPress={() =>
-                  router.push({ pathname: '/customer/[id]', params: { id: lead.customer_id as string } })
+                  router.push({
+                    pathname: '/customer/[id]',
+                    params: { id: lead.customer_id as string },
+                  })
                 }
               >
                 <Text style={styles.customerLink}>Open customer profile</Text>

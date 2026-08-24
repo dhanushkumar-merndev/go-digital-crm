@@ -2,10 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '@/components/screen';
-import {
-  fetchMobileCustomerDetail,
-  type MobileCustomerDetail,
-} from '@/lib/customer-detail';
+import { fetchMobileCustomerDetail, type MobileCustomerDetail } from '@/lib/customer-detail';
 import { colors } from '@/theme';
 
 function dateTime(value: string | null | undefined) {
@@ -27,7 +24,10 @@ function initials(name: string) {
 }
 
 function humanize(value: string) {
-  return value.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase());
+  return value
+    .replaceAll('_', ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function currency(value: number | null) {
@@ -111,7 +111,8 @@ export default function CustomerDetail() {
               <View style={styles.opportunityStrip}>
                 <Text style={styles.opportunityLabel}>Active opportunity</Text>
                 <Text style={styles.opportunityValue}>
-                  {opportunity.interested_model ?? 'Model not specified'} · {humanize(opportunity.lifecycle_status)}
+                  {opportunity.interested_model ?? 'Model not specified'} ·{' '}
+                  {humanize(opportunity.lifecycle_status)}
                 </Text>
               </View>
             ) : null}
@@ -126,12 +127,17 @@ export default function CustomerDetail() {
             <Action
               label="Open lead"
               enabled={Boolean(opportunity?.id)}
-              onPress={() => opportunity && router.push({ pathname: '/lead/[id]', params: { id: opportunity.id } })}
+              onPress={() =>
+                opportunity &&
+                router.push({ pathname: '/lead/[id]', params: { id: opportunity.id } })
+              }
             />
             <Action
               label="Latest call"
               enabled={Boolean(latestCall)}
-              onPress={() => latestCall && router.push({ pathname: '/call/[id]', params: { id: latestCall.id } })}
+              onPress={() =>
+                latestCall && router.push({ pathname: '/call/[id]', params: { id: latestCall.id } })
+              }
             />
           </View>
 
@@ -139,9 +145,15 @@ export default function CustomerDetail() {
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Customer requirement</Text>
               <View style={styles.details}>
-                <Detail label="Interested model" value={opportunity.interested_model ?? 'Not specified'} />
+                <Detail
+                  label="Interested model"
+                  value={opportunity.interested_model ?? 'Not specified'}
+                />
                 <Detail label="Current stage" value={humanize(opportunity.lifecycle_status)} />
-                <Detail label="Assigned to" value={opportunity.assigned_user_name ?? 'Unassigned'} />
+                <Detail
+                  label="Assigned to"
+                  value={opportunity.assigned_user_name ?? 'Unassigned'}
+                />
                 <Detail label="Lead source" value={opportunity.source} />
               </View>
             </View>
@@ -153,12 +165,16 @@ export default function CustomerDetail() {
               <>
                 <Text style={styles.actionTitle}>{nextFollowup.reason}</Text>
                 <Text style={styles.muted}>
-                  {dateTime(nextFollowup.due_at)} · {nextFollowup.assigned_user_name ?? 'Assigned user'}
+                  {dateTime(nextFollowup.due_at)} ·{' '}
+                  {nextFollowup.assigned_user_name ?? 'Assigned user'}
                 </Text>
                 {nextFollowup.lead_id ? (
                   <Pressable
                     onPress={() =>
-                      router.push({ pathname: '/lead/[id]', params: { id: nextFollowup.lead_id as string } })
+                      router.push({
+                        pathname: '/lead/[id]',
+                        params: { id: nextFollowup.lead_id as string },
+                      })
                     }
                   >
                     <Text style={styles.link}>Open lead to update follow-up</Text>
@@ -216,7 +232,15 @@ export default function CustomerDetail() {
   );
 }
 
-function Action({ label, enabled, onPress }: { label: string; enabled: boolean; onPress: () => void }) {
+function Action({
+  label,
+  enabled,
+  onPress,
+}: {
+  label: string;
+  enabled: boolean;
+  onPress: () => void;
+}) {
   return (
     <Pressable
       style={[styles.action, !enabled && styles.actionDisabled]}
@@ -240,22 +264,57 @@ function Detail({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   back: { color: colors.primary, fontWeight: '700' },
   loading: { padding: 36, alignItems: 'center' },
-  error: { borderColor: '#fecaca', borderWidth: 1, backgroundColor: '#fef2f2', borderRadius: 14, padding: 16 },
+  error: {
+    borderColor: '#fecaca',
+    borderWidth: 1,
+    backgroundColor: '#fef2f2',
+    borderRadius: 14,
+    padding: 16,
+  },
   errorTitle: { color: '#991b1b', fontWeight: '800' },
   errorText: { color: '#b91c1c', fontSize: 12, marginTop: 4 },
-  card: { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 15, gap: 11 },
+  card: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 15,
+    gap: 11,
+  },
   customerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 62, height: 62, borderRadius: 31, backgroundColor: '#dbeafe', justifyContent: 'center', alignItems: 'center' },
+  avatar: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: '#dbeafe',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   avatarText: { color: colors.primary, fontSize: 20, fontWeight: '800' },
   grow: { flex: 1 },
   customerName: { color: colors.navy, fontSize: 19, fontWeight: '800' },
   phone: { color: colors.success, fontSize: 14, fontWeight: '700', marginTop: 5 },
   email: { color: colors.muted, fontSize: 12, marginTop: 4 },
   opportunityStrip: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 11, gap: 3 },
-  opportunityLabel: { color: colors.muted, fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  opportunityLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
   opportunityValue: { color: colors.text, fontSize: 13, fontWeight: '800' },
   actions: { flexDirection: 'row', gap: 8 },
-  action: { flex: 1, minHeight: 50, borderWidth: 1, borderColor: colors.border, borderRadius: 13, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  action: {
+    flex: 1,
+    minHeight: 50,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 13,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
   actionDisabled: { opacity: 0.45 },
   actionText: { color: colors.primary, fontSize: 11, fontWeight: '800', textAlign: 'center' },
   actionTextDisabled: { color: colors.muted },
@@ -268,7 +327,13 @@ const styles = StyleSheet.create({
   link: { color: colors.primary, fontSize: 12, fontWeight: '800', marginTop: 3 },
   muted: { color: colors.muted, fontSize: 12, lineHeight: 18 },
   timelineRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 7 },
-  timelineDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary, marginTop: 5 },
+  timelineDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: colors.primary,
+    marginTop: 5,
+  },
   timelineTitle: { color: colors.text, fontSize: 13, fontWeight: '800' },
   timelineTime: { color: colors.muted, fontSize: 9, maxWidth: 84, textAlign: 'right' },
 });

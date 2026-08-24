@@ -13,7 +13,9 @@ const route = source('src/app/[role]/[[...slug]]/page.tsx');
 
 describe('GM sales analytics backend contract', () => {
   it('allows only bounded time periods and a GM Sales Executive CRM context', () => {
-    expect(migration).toContain('create or replace function public.get_gm_sales_analytics_workspace(');
+    expect(migration).toContain(
+      'create or replace function public.get_gm_sales_analytics_workspace(',
+    );
     expect(migration).toContain('target_days not in (7, 14, 30)');
     expect(migration).toContain("target_timezone not in ('Asia/Kolkata', 'UTC')");
     expect(migration).toContain("access_context->>'role_key' <> 'gm-sales'");

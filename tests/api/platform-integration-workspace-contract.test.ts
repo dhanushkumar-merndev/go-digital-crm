@@ -13,16 +13,22 @@ const route = source('src/app/[role]/[[...slug]]/page.tsx');
 
 describe('platform integration workspace backend contract', () => {
   it('requires an MFA-assured Super Admin and validates bounded query inputs', () => {
-    expect(migration).toContain('create or replace function public.get_platform_integration_workspace(');
+    expect(migration).toContain(
+      'create or replace function public.get_platform_integration_workspace(',
+    );
     expect(migration).toContain('app_private.is_platform_admin()');
     expect(migration).toContain('app_private.mfa_policy_satisfied(null)');
     expect(migration).toContain('target_page_size not in (25, 50, 100)');
-    expect(migration).toContain("normalized_status not in ('ALL', 'CONNECTED', 'ATTENTION', 'PENDING')");
+    expect(migration).toContain(
+      "normalized_status not in ('ALL', 'CONNECTED', 'ATTENTION', 'PENDING')",
+    );
   });
 
   it('returns a paged aggregate-only view without credentials or provider payloads', () => {
     expect(migration).toContain('paged_connections as materialized');
-    expect(migration).toContain('limit target_page_size offset ((target_page - 1) * target_page_size)');
+    expect(migration).toContain(
+      'limit target_page_size offset ((target_page - 1) * target_page_size)',
+    );
     expect(migration).toContain("'external_account_hint'");
     expect(migration).toContain("'events_last_30_days'");
     expect(migration).toContain("'sync_runs_last_30_days'");

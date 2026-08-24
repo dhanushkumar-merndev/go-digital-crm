@@ -1,3 +1,14 @@
+-- Master-data records predate the generic timestamp convention. Keep the
+-- workspace response consistent without requiring a destructive table rebuild.
+alter table public.vehicle_brands
+  add column if not exists created_at timestamptz not null default now();
+
+alter table public.vehicle_models
+  add column if not exists created_at timestamptz not null default now();
+
+alter table public.lead_sources
+  add column if not exists created_at timestamptz not null default now();
+
 create index if not exists vehicle_models_master_data_idx
   on public.vehicle_models (organization_id, active, name, id);
 create index if not exists vehicle_brands_master_data_idx

@@ -41,7 +41,9 @@ describe('audit log workspace UI contract', () => {
   it('debounces filters and keys each query by filters plus server cursor', () => {
     expect(workspace).toContain('useDebouncedValue(actionInput, 300)');
     expect(workspace).toContain('useDebouncedValue(resourceInput, 300)');
-    expect(workspace).toContain("['audit-log-page', action, resource, cursor?.created_at ?? null, cursor?.id ?? null]");
+    expect(workspace).toContain(
+      "['audit-log-page', action, resource, cursor?.created_at ?? null, cursor?.id ?? null]",
+    );
     expect(workspace).toContain('cursor pagination');
   });
 
@@ -56,6 +58,8 @@ describe('audit log workspace UI contract', () => {
     expect(route).toContain("slug[0] === 'audit-logs'");
     expect(route).toContain("role === 'client-admin'");
     expect(route).toContain("role === 'system-administrator'");
-    expect(route.indexOf('<AuditLogWorkspace')).toBeLessThan(route.indexOf('<ProductionDataUnavailable'));
+    expect(route.indexOf('<AuditLogWorkspace')).toBeLessThan(
+      route.indexOf('<ProductionDataUnavailable'),
+    );
   });
 });

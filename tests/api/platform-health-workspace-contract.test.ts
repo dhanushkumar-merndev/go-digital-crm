@@ -13,7 +13,9 @@ const route = source('src/app/[role]/[[...slug]]/page.tsx');
 
 describe('platform health workspace backend contract', () => {
   it('requires MFA-assured Super Admin access and aggregates recorded platform signals', () => {
-    expect(migration).toContain('create or replace function public.get_platform_health_workspace()');
+    expect(migration).toContain(
+      'create or replace function public.get_platform_health_workspace()',
+    );
     expect(migration).toContain('app_private.is_platform_admin()');
     expect(migration).toContain('app_private.mfa_policy_satisfied(null)');
     expect(migration).toContain("'sync_runs_24h'");

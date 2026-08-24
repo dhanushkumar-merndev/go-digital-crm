@@ -13,7 +13,9 @@ const route = source('src/app/[role]/[[...slug]]/page.tsx');
 
 describe('platform AI usage workspace backend contract', () => {
   it('requires a Super Admin MFA session and validates bounded period/page inputs', () => {
-    expect(migration).toContain('create or replace function public.get_platform_ai_usage_workspace(');
+    expect(migration).toContain(
+      'create or replace function public.get_platform_ai_usage_workspace(',
+    );
     expect(migration).toContain('app_private.is_platform_admin()');
     expect(migration).toContain('app_private.mfa_policy_satisfied(null)');
     expect(migration).toContain('target_days not in (7, 14, 30)');
