@@ -3,6 +3,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, History, Search } from 'lucide-react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { AuditLogWorkspaceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,6 +50,7 @@ function auditSummary(record: AuditLogRecord) {
 }
 
 export function AuditLogWorkspace({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
   const [actionInput, setActionInput] = useState('');
   const [resourceInput, setResourceInput] = useState('');
   const action = useDebouncedValue(actionInput, 300);
@@ -60,7 +65,14 @@ export function AuditLogWorkspace({ spec }: { spec: PageSpec }) {
   }
   const cursor = cursors[page - 1] ?? null;
   const query = useQuery({
-    queryKey: ['audit-log-page', action, resource, cursor?.created_at ?? null, cursor?.id ?? null],
+    queryKey: [
+      'audit-log-page',
+      ...workspaceQueryScope(session),
+      action,
+      resource,
+      cursor?.created_at ?? null,
+      cursor?.id ?? null,
+    ],
     queryFn: ({ signal }) => fetchAuditLogPage({ action, resource, cursor, signal }),
     staleTime: 60_000,
   });

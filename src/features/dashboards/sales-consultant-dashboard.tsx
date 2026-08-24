@@ -192,6 +192,12 @@ const alertDefinitions: Record<
   SalesConsultantDashboardResult['alerts'][number]['key'],
   { label: string; icon: LucideIcon; tone: Tone; href: string }
 > = {
+  TASKS_DUE: {
+    label: 'Tasks due today',
+    icon: ClipboardList,
+    tone: 'rose',
+    href: '/sales-consultant/tasks?status=today',
+  },
   FOLLOWUPS_DUE: {
     label: 'Follow-ups due today',
     icon: Clock3,

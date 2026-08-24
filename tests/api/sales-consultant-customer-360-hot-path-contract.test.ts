@@ -164,7 +164,8 @@ describe('Sales Consultant Customer 360 client boundary', () => {
     expect(api).toContain("rpc('get_sales_consultant_customer_360_core'");
     expect(api).toContain("rpc('get_sales_consultant_customer_360_section'");
     expect(api.match(/request\.abortSignal\(signal\)/g)?.length).toBeGreaterThanOrEqual(4);
-    expect(workspace).toContain('enabled: !useSalesBootstrap && Boolean(permissions?.canView)');
+    expect(workspace).toContain('enabled: !useSalesHotPath && Boolean(permissions?.canView)');
+    expect(workspace).toContain('enabled: !useWorkspaceBootstrap');
     expect(workspace).toContain('fetchSalesCustomer360Core(customerId, signal)');
     expect(workspace).toContain('fetchSalesCustomer360Section(');
     expect(workspace).toContain("activeTab === 'overview' ? null : lazySectionByTab[activeTab]");

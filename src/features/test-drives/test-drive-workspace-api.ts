@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
 import {
+  isValidTestDriveRegistration,
+  normalizeTestDriveRegistration,
+} from './test-drive-registration';
+import {
   isTestDriveVersionConflict,
   TestDriveVersionConflictError,
   testDriveViewValue,
@@ -253,13 +257,17 @@ export async function createTestDrive(input: {
   destination: { label: string } | null;
   requestId: string;
 }) {
+  const vehicleRegistration = normalizeTestDriveRegistration(input.vehicleRegistration);
+  if (!isValidTestDriveRegistration(vehicleRegistration)) {
+    throw new Error('INVALID_TEST_DRIVE_INPUT');
+  }
   return testDriveMutation(
     createClient().rpc('create_test_drive', {
       target_lead_id: input.leadId,
       target_stock_unit_id: input.stockUnitId,
       target_scheduled_at: input.scheduledAt,
       target_expected_duration_minutes: input.expectedDurationMinutes,
-      target_vehicle_registration: input.vehicleRegistration,
+      target_vehicle_registration: vehicleRegistration,
       target_start_location: input.startLocation,
       target_destination: input.destination,
       target_request_id: input.requestId,

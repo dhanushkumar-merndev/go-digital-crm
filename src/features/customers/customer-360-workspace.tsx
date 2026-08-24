@@ -14,7 +14,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
@@ -774,14 +774,17 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
     Record<number, Customer360TimelineCursor | null>
   >({ 1: null });
   const workspaceSession = useWorkspaceSession();
-  const useSalesBootstrap =
+  const useSalesHotPath =
     role === 'sales-consultant' &&
     workspaceSession?.roleKey === 'sales-consultant' &&
     Boolean(workspaceSession.organizationId);
-  const queryScope = useSalesBootstrap
-    ? workspaceQueryScope(workspaceSession)
-    : (['legacy', role] as const);
-  const bootstrapPermissions: CustomerWorkspacePermissions | undefined = useSalesBootstrap
+  const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
+  const queryScope = useMemo(
+    () =>
+      useWorkspaceBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const),
+    [role, useWorkspaceBootstrap, workspaceSession],
+  );
+  const bootstrapPermissions: CustomerWorkspacePermissions | undefined = useWorkspaceBootstrap
     ? {
         organizationId: workspaceSession!.organizationId as string,
         scopeKey: workspaceSession!.scopeKey,
@@ -791,21 +794,21 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
       }
     : undefined;
   const legacyPermissions = useQuery({
-    queryKey: ['customer-workspace-permissions', role],
+    queryKey: ['customer-workspace-permissions', ...queryScope, role],
     queryFn: fetchCustomerWorkspacePermissions,
-    enabled: !useSalesBootstrap,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
   const permissions = bootstrapPermissions ?? legacyPermissions.data;
   const legacyCustomer = useQuery({
     queryKey: ['customer-360', ...queryScope, customerId, 'legacy-eager'],
     queryFn: ({ signal }) => fetchCustomer360(customerId, signal),
-    enabled: !useSalesBootstrap && Boolean(permissions?.canView),
+    enabled: !useSalesHotPath && Boolean(permissions?.canView),
   });
   const salesCore = useQuery({
     queryKey: ['customer-360', ...queryScope, customerId, 'overview'],
     queryFn: ({ signal }) => fetchSalesCustomer360Core(customerId, signal),
-    enabled: useSalesBootstrap && Boolean(permissions?.canView),
+    enabled: useSalesHotPath && Boolean(permissions?.canView),
   });
   const lazySection = activeTab === 'overview' ? null : lazySectionByTab[activeTab];
   const activeCursor = lazySection === 'timeline' ? (timelineCursors[sectionPage] ?? null) : null;
@@ -837,16 +840,16 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
       );
     },
     enabled:
-      useSalesBootstrap &&
+      useSalesHotPath &&
       Boolean(lazySection) &&
       Boolean(salesCore.data && lazySection && salesCore.data.section_access[lazySection]),
   });
 
-  const customerIsPending = useSalesBootstrap ? salesCore.isPending : legacyCustomer.isPending;
-  const customerIsError = useSalesBootstrap ? salesCore.isError : legacyCustomer.isError;
+  const customerIsPending = useSalesHotPath ? salesCore.isPending : legacyCustomer.isPending;
+  const customerIsError = useSalesHotPath ? salesCore.isError : legacyCustomer.isError;
 
   if (
-    (!useSalesBootstrap && legacyPermissions.isPending) ||
+    (!useWorkspaceBootstrap && legacyPermissions.isPending) ||
     (customerIsPending && permissions?.canView)
   )
     return (
@@ -859,7 +862,11 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
         </div>
       </div>
     );
-  if (legacyPermissions.isError || customerIsError || !permissions?.canView)
+  if (
+    (!useWorkspaceBootstrap && legacyPermissions.isError) ||
+    customerIsError ||
+    !permissions?.canView
+  )
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -880,8 +887,8 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
             <Button
               variant="outline"
               onClick={() => {
-                if (!useSalesBootstrap) void legacyPermissions.refetch();
-                if (useSalesBootstrap) void salesCore.refetch();
+                if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
+                if (useSalesHotPath) void salesCore.refetch();
                 else void legacyCustomer.refetch();
               }}
             >
@@ -891,13 +898,13 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
         </CardContent>
       </Card>
     );
-  if (useSalesBootstrap && !salesCore.data) return null;
-  if (!useSalesBootstrap && !legacyCustomer.data) return null;
-  const data = useSalesBootstrap
+  if (useSalesHotPath && !salesCore.data) return null;
+  if (!useSalesHotPath && !legacyCustomer.data) return null;
+  const data = useSalesHotPath
     ? composeSalesCustomer360(salesCore.data as Customer360Core, salesSection.data)
     : (legacyCustomer.data as Customer360);
   const lazyState: Customer360LazyState | undefined =
-    useSalesBootstrap && lazySection
+    useSalesHotPath && lazySection
       ? {
           isPending: salesSection.isPending,
           isError: salesSection.isError,
@@ -926,6 +933,12 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
           },
         }
       : undefined;
+
+  function selectCustomerTab(tab: Customer360Tab) {
+    setActiveTab(tab);
+    setSectionPage(1);
+    setTimelineCursors({ 1: null });
+  }
 
   return (
     <div className="mx-auto max-w-[1800px] space-y-6">
@@ -991,45 +1004,64 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
                   </a>
                 </Button>
               )}
-              <Button size="sm" variant="outline" asChild>
-                <Link href={`/${role}/messages`}>
+              {data.section_access.conversations ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => selectCustomerTab('conversations')}
+                >
                   <MessageSquareText className="size-3.5 text-blue-600" /> Messages
-                </Link>
-              </Button>
-              <Button size="sm" variant="outline" asChild>
-                <Link href={`/${role}/follow-ups`}>
+                </Button>
+              ) : null}
+              {data.section_access.followups ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => selectCustomerTab('followups')}
+                >
                   <CalendarClock className="size-3.5 text-orange-600" /> Follow-up
-                </Link>
-              </Button>
-              <Button size="sm" variant="outline" asChild>
-                <Link href={`/${role}/test-drives`}>
+                </Button>
+              ) : null}
+              {data.section_access.test_drives ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => selectCustomerTab('test-drives')}
+                >
                   <CarFront className="size-3.5 text-blue-600" /> Test drive
-                </Link>
-              </Button>
-              <Button size="sm" variant="outline" asChild>
-                <Link href={`/${role}/quotations`}>
+                </Button>
+              ) : null}
+              {data.section_access.quotations ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => selectCustomerTab('quotations')}
+                >
                   <FileText className="size-3.5 text-violet-600" /> Quotation
-                </Link>
-              </Button>
-              <Button size="sm" className="ml-auto" asChild>
-                <Link href={`/${role}/bookings`}>Open bookings</Link>
-              </Button>
+                </Button>
+              ) : null}
+              {data.section_access.bookings ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="ml-auto"
+                  onClick={() => selectCustomerTab('bookings')}
+                >
+                  Open bookings
+                </Button>
+              ) : null}
             </div>
           </CardContent>
         </Card>
       </div>
       <Customer360Content
         data={data}
-        activeTab={useSalesBootstrap ? activeTab : undefined}
-        onTabChange={
-          useSalesBootstrap
-            ? (tab) => {
-                setActiveTab(tab);
-                setSectionPage(1);
-                setTimelineCursors({ 1: null });
-              }
-            : undefined
-        }
+        activeTab={activeTab}
+        onTabChange={selectCustomerTab}
         lazyState={lazyState}
       />
     </div>

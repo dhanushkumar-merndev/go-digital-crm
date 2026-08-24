@@ -198,7 +198,7 @@ export function DeliveryFeedbackWorkspace({ spec }: { spec: PageSpec }) {
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4">
-      <PageHeader spec={spec} />
+      <PageHeader spec={{ ...spec, primaryAction: undefined }} />
       <KpiGrid metrics={metrics} />
       <Card className="overflow-hidden shadow-none">
         <CardHeader className="border-b p-4">

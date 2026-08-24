@@ -4,6 +4,10 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3, CarFront, FileText, PhoneCall, Trophy, UsersRound } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { GmSalesAnalyticsSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
@@ -58,9 +62,12 @@ function initials(name: string) {
 }
 
 export function GmSalesAnalyticsWorkspace({ view }: { view: GmSalesAnalyticsView }) {
+  const session = useWorkspaceSession();
   const [days, setDays] = useState<7 | 14 | 30>(30);
   const query = useQuery({
-    queryKey: ['gm-sales-analytics', view, days],
+    // Every GM analytics route consumes the same bounded aggregate payload.
+    // Keep one scope-aware cache entry so changing views does not repeat the RPC.
+    queryKey: ['gm-sales-analytics', ...workspaceQueryScope(session), days],
     queryFn: ({ signal }) => fetchGmSalesAnalytics(days, signal),
     staleTime: 60_000,
   });

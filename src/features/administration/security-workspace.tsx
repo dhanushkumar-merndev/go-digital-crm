@@ -12,7 +12,10 @@ import {
 import { SecurityWorkspaceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useWorkspaceSession } from '@/components/providers/workspace-session-provider';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import type { PageSpec } from '@/lib/domain';
 import { fetchSecurityPosture } from './security-workspace-api';
 
@@ -27,7 +30,7 @@ function formatDate(value: string) {
 export function SecurityWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
   const query = useQuery({
-    queryKey: ['security-posture', session?.organizationId, session?.userId],
+    queryKey: ['security-posture', ...workspaceQueryScope(session)],
     queryFn: ({ signal }) => fetchSecurityPosture(signal),
     staleTime: 60_000,
   });

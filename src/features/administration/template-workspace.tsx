@@ -3,6 +3,10 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, FileText, Mail, MessageCircle, Plus, Search, Smartphone } from 'lucide-react';
 import { useState } from 'react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { TemplateWorkspaceSkeleton } from '@/components/skeletons';
@@ -150,6 +154,7 @@ function CreateTemplateDialog({ onClose }: { onClose: () => void }) {
 }
 
 export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
   const [query, setQuery] = useState<TemplateWorkspaceQuery>({
     page: 1,
     pageSize: 25,
@@ -160,7 +165,7 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
   const [open, setOpen] = useState(false);
   const client = useQueryClient();
   const workspace = useQuery({
-    queryKey: ['template-workspace', query],
+    queryKey: ['template-workspace', ...workspaceQueryScope(session), query],
     queryFn: () => fetchTemplateWorkspace(query),
     placeholderData: keepPreviousData,
     staleTime: 60_000,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronLeft, ChevronRight, ClipboardList, LoaderCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -20,6 +20,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import type { RoleKey } from '@/config/navigation/types';
+import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import {
   completeTask,
   fetchTaskPermissions,
@@ -36,14 +37,14 @@ const statusTabs: Array<{ value: TaskStatusFilter; label: string }> = [
   { value: 'completed', label: 'Completed' },
 ];
 
-function formatDueDate(value: string | null) {
+function formatDueDate(value: string | null, timezone: string) {
   if (!value) return 'No due date';
   return new Intl.DateTimeFormat('en-IN', {
     day: 'numeric',
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: 'Asia/Kolkata',
+    timeZone: timezone,
   }).format(new Date(value));
 }
 
@@ -67,6 +68,9 @@ export function TaskCenterSheet({
   const router = useRouter();
   const [status, setStatus] = useState<TaskStatusFilter>('today');
   const [page, setPage] = useState(1);
+  const completeRequest = useRef<{ key: string; requestId: string } | null>(null);
+  const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
+  const queryScope = useMemo(() => workspaceQueryScope(workspaceSession), [workspaceSession]);
   const timezone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata',
     [],
@@ -82,10 +86,10 @@ export function TaskCenterSheet({
     }),
     [page, status],
   );
-  const bootstrapPermissions: TaskPermissions | undefined = workspaceSession?.organizationId
+  const bootstrapPermissions: TaskPermissions | undefined = useWorkspaceBootstrap
     ? {
-        organizationId: workspaceSession.organizationId,
-        scopeKey: workspaceSession.scopeKey,
+        organizationId: workspaceSession!.organizationId as string,
+        scopeKey: workspaceSession!.scopeKey,
         canCreate: hasWorkspacePermission(workspaceSession, 'task.create'),
         canUpdate: hasWorkspacePermission(workspaceSession, 'task.update'),
         canComplete: hasWorkspacePermission(workspaceSession, 'task.complete'),
@@ -93,36 +97,55 @@ export function TaskCenterSheet({
       }
     : undefined;
   const legacyPermissions = useQuery({
-    queryKey: ['task-center-permissions', role],
+    queryKey: ['task-center-permissions', ...queryScope, role],
     queryFn: fetchTaskPermissions,
-    enabled: open && !bootstrapPermissions,
+    enabled: open && !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
   const permissions = bootstrapPermissions ?? legacyPermissions.data;
+  useTenantRealtimeInvalidation(permissions?.organizationId, [
+    {
+      resource: 'work',
+      queryKeys: [['task-center', ...queryScope]],
+    },
+  ]);
   const taskPage = useQuery({
-    queryKey: ['task-center', ...workspaceQueryScope(workspaceSession), query, timezone],
+    queryKey: ['task-center', ...queryScope, query, timezone],
     queryFn: ({ signal }) => fetchTaskWorkspace(query, timezone, signal),
     enabled: open && Boolean(permissions),
     staleTime: 60_000,
   });
+  const invalidateTaskViews = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['task-center', ...queryScope] });
+    void queryClient.invalidateQueries({ queryKey: ['task-workspace', ...queryScope] });
+    void queryClient.invalidateQueries({ queryKey: ['customer-360'] });
+    void queryClient.invalidateQueries({
+      queryKey: ['sales-consultant-dashboard', ...queryScope],
+    });
+  }, [queryClient, queryScope]);
   const complete = useMutation({
-    mutationFn: (record: TaskRecord) =>
-      completeTask({
+    mutationFn: (record: TaskRecord) => {
+      const key = `${record.id}:${record.version}`;
+      if (completeRequest.current?.key !== key)
+        completeRequest.current = { key, requestId: globalThis.crypto.randomUUID() };
+      return completeTask({
         taskId: record.id,
         expectedVersion: record.version,
         note: '',
-        requestId: crypto.randomUUID(),
-      }),
+        requestId: completeRequest.current.requestId,
+      });
+    },
     onSuccess: () => {
+      completeRequest.current = null;
       toast.add({
         title: 'Task completed',
         description: 'The task was marked complete.',
         type: 'success',
       });
-      void queryClient.invalidateQueries({ queryKey: ['task-center'] });
-      void queryClient.invalidateQueries({ queryKey: ['task-workspace'] });
+      invalidateTaskViews();
     },
     onError: () => {
+      invalidateTaskViews();
       toast.add({
         title: 'Could not complete task',
         description: 'The task may have changed. Refresh and try again.',
@@ -155,6 +178,7 @@ export function TaskCenterSheet({
             <button
               key={tab.value}
               type="button"
+              aria-pressed={status === tab.value}
               className={`whitespace-nowrap border-b-2 px-3 py-2 text-xs font-medium ${status === tab.value ? 'border-blue-600 text-blue-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
               onClick={() => changeStatus(tab.value)}
             >
@@ -163,15 +187,31 @@ export function TaskCenterSheet({
           ))}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          {taskPage.isPending || legacyPermissions.isPending ? (
+          {taskPage.isPending || (!useWorkspaceBootstrap && legacyPermissions.isPending) ? (
             <div className="space-y-2 p-2" aria-label="Loading tasks">
               <div className="h-24 animate-pulse rounded-md bg-slate-100" />
               <div className="h-24 animate-pulse rounded-md bg-slate-100" />
             </div>
-          ) : taskPage.isError || legacyPermissions.isError || !permissions ? (
-            <p className="p-8 text-center text-sm text-muted-foreground">
-              Tasks are unavailable for this account right now.
-            </p>
+          ) : taskPage.isError ||
+            (!useWorkspaceBootstrap && legacyPermissions.isError) ||
+            !permissions ? (
+            <div className="p-8 text-center">
+              <p className="text-sm text-muted-foreground">
+                Tasks are unavailable for this account right now.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={() => {
+                  if (!permissions && !useWorkspaceBootstrap) void legacyPermissions.refetch();
+                  else void taskPage.refetch();
+                }}
+              >
+                Try again
+              </Button>
+            </div>
           ) : taskPage.data?.records.length ? (
             taskPage.data.records.map((record) => (
               <article key={record.id} className="rounded-lg border-b px-3 py-3 last:border-b-0">
@@ -183,7 +223,7 @@ export function TaskCenterSheet({
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {record.customer_name ?? 'Unlinked customer'} · Due{' '}
-                      {formatDueDate(record.due_at)}
+                      {formatDueDate(record.due_at, timezone)}
                     </p>
                     {record.description ? (
                       <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
@@ -193,6 +233,7 @@ export function TaskCenterSheet({
                     <div className="mt-2 flex flex-wrap gap-2">
                       {record.customer_id ? (
                         <Button
+                          type="button"
                           variant="ghost"
                           size="sm"
                           className="h-7 px-2 text-xs text-blue-700 hover:text-blue-800"
@@ -204,13 +245,14 @@ export function TaskCenterSheet({
                       {permissions.canComplete &&
                       ['OPEN', 'IN_PROGRESS'].includes(record.status) ? (
                         <Button
+                          type="button"
                           variant="ghost"
                           size="sm"
                           className="h-7 px-2 text-xs"
                           disabled={complete.isPending}
                           onClick={() => complete.mutate(record)}
                         >
-                          {complete.isPending ? (
+                          {complete.isPending && complete.variables?.id === record.id ? (
                             <LoaderCircle className="size-3.5 animate-spin" />
                           ) : (
                             <Check className="size-3.5" />

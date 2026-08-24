@@ -1,10 +1,21 @@
 import { ChevronRight, Plus } from 'lucide-react';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { PageSpec } from '@/lib/domain';
 import { cn } from '@/lib/utils';
 
-export function PageHeader({ spec, className }: { spec: PageSpec; className?: string }) {
+export function PageHeader({
+  spec,
+  className,
+  primaryActionHref,
+  onPrimaryAction,
+}: {
+  spec: PageSpec;
+  className?: string;
+  primaryActionHref?: string;
+  onPrimaryAction?: () => void;
+}) {
   return (
     <div
       className={cn(
@@ -24,12 +35,19 @@ export function PageHeader({ spec, className }: { spec: PageSpec; className?: st
         </div>
         <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{spec.description}</p>
       </div>
-      {spec.primaryAction && (
-        <Button className="shrink-0">
+      {spec.primaryAction && primaryActionHref ? (
+        <Button className="shrink-0" asChild>
+          <Link href={primaryActionHref}>
+            <Plus className="size-4" />
+            {spec.primaryAction}
+          </Link>
+        </Button>
+      ) : spec.primaryAction && onPrimaryAction ? (
+        <Button type="button" className="shrink-0" onClick={onPrimaryAction}>
           <Plus className="size-4" />
           {spec.primaryAction}
         </Button>
-      )}
+      ) : null}
     </div>
   );
 }

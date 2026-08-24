@@ -80,6 +80,9 @@ const dashboardAttentionSchema = z.object({
 });
 const customerCareDashboardSchema = z.object({
   organization_id: z.uuid(),
+  // The optimized dashboard RPC carries its own bounded, display-ready queue.
+  // A default keeps rolling deployments compatible while the migration lands.
+  records: z.array(customerCareRecordSchema).default([]),
   kpis: z.object({
     feedback_calls_today: z.coerce.number().int().nonnegative(),
     feedback_pending: z.coerce.number().int().nonnegative(),

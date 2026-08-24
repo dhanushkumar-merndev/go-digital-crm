@@ -56,6 +56,11 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { Metric, PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
+import {
   connectAiProvider,
   connectTwilio,
   connectWhatsApp,
@@ -1379,16 +1384,34 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const workspaceSession = useWorkspaceSession();
   const [query, setQuery] = useState<IntegrationQuery>(() => parseIntegrationQuery(searchParams));
   const [connectOpen, setConnectOpen] = useState(false);
   const [replaceConnection, setReplaceConnection] = useState<IntegrationRecord | null>(null);
   const [mappingConnection, setMappingConnection] = useState<IntegrationRecord | null>(null);
   const [detailConnection, setDetailConnection] = useState<IntegrationRecord | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
-  const permissions = useQuery({
-    queryKey: ['integration-workspace-permissions'],
+  const permissionQuery = useQuery({
+    queryKey: ['integration-workspace-permissions', ...workspaceQueryScope(workspaceSession)],
     queryFn: fetchIntegrationWorkspacePermissions,
+    enabled: !workspaceSession,
   });
+  const canView =
+    hasWorkspacePermission(workspaceSession, 'integration.view') ||
+    hasWorkspacePermission(workspaceSession, 'integration.manage');
+  const bootstrapPermissions =
+    workspaceSession?.organizationId && canView
+      ? {
+          organizationId: workspaceSession.organizationId,
+          canManage: hasWorkspacePermission(workspaceSession, 'integration.manage'),
+        }
+      : undefined;
+  const permissions = {
+    data: bootstrapPermissions ?? permissionQuery.data,
+    isPending: !workspaceSession && permissionQuery.isPending,
+    isError: workspaceSession ? !bootstrapPermissions : permissionQuery.isError,
+  };
+  const queryScope = workspaceQueryScope(workspaceSession);
   useTenantRealtimeInvalidation(permissions.data?.organizationId, [
     { resource: 'integrations', queryKeys: [['integration-workspace']] },
   ]);
@@ -1398,7 +1421,7 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
     [debouncedSearch, query],
   );
   const workspace = useQuery({
-    queryKey: ['integration-workspace', permissions.data?.organizationId, requestQuery],
+    queryKey: ['integration-workspace', ...queryScope, requestQuery],
     queryFn: () => fetchIntegrationWorkspace(requestQuery),
     enabled: Boolean(permissions.data),
     placeholderData: keepPreviousData,

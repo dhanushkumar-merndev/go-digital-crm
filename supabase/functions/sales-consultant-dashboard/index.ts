@@ -8,9 +8,13 @@ import { tigrisClient } from '../_shared/tigris.ts';
 
 const SALES_DASHBOARD_CACHE_TTL_SECONDS = 60;
 const SALES_DASHBOARD_CACHE_SCHEMA_VERSION = 1;
+const SALES_DASHBOARD_RESPONSE_VERSION = 2;
 const SALES_DASHBOARD_TIMEZONE = 'Asia/Kolkata';
 
-const schema = z.object({ manual_refresh: z.boolean().optional().default(false) });
+const schema = z.object({
+  manual_refresh: z.boolean().optional().default(false),
+  response_version: z.literal(SALES_DASHBOARD_RESPONSE_VERSION).optional(),
+});
 const metricShape = z.object({
   value: z.coerce.number(),
   change: z.coerce.number(),
@@ -18,6 +22,7 @@ const metricShape = z.object({
 });
 const countItemShape = z.object({ key: z.string(), value: z.coerce.number() });
 const pipelineItemShape = z.object({ name: z.string(), value: z.coerce.number() });
+const taskDueCountShape = z.coerce.number().int().nonnegative();
 const topModelShape = z.object({
   model_id: z.uuid().nullable(),
   name: z.string(),
@@ -58,6 +63,9 @@ const dashboardShape = dashboardSummaryShape.extend({
   schedule: dashboardLiveShape.shape.schedule,
   recent_leads: dashboardLiveShape.shape.recent_leads,
 });
+const legacyTaskWorkspaceShape = z.object({
+  kpis: z.object({ today: taskDueCountShape }),
+});
 const workspaceBootstrapShape = z.object({
   destination: z.literal('CRM'),
   user_id: z.uuid(),
@@ -68,6 +76,35 @@ const workspaceBootstrapShape = z.object({
 });
 
 class SalesDashboardAccessError extends Error {}
+
+function isMissingTaskCountRpc(error: { code?: string } | null) {
+  // PGRST202 is returned while PostgREST has not seen the new function in its
+  // schema cache; 42883 is PostgreSQL's undefined_function code. Fall back
+  // only for those rollout states, never for permission or query failures.
+  return error?.code === 'PGRST202' || error?.code === '42883';
+}
+
+async function loadTaskDueCount(client: ReturnType<typeof authenticatedClient>) {
+  const taskDueResponse = await client.rpc('get_sales_consultant_task_due_count', {
+    target_timezone: SALES_DASHBOARD_TIMEZONE,
+  });
+  if (!taskDueResponse.error) return taskDueCountShape.parse(taskDueResponse.data);
+  if (!isMissingTaskCountRpc(taskDueResponse.error)) throw new SalesDashboardAccessError();
+
+  // Keep Edge and database deploys rolling-compatible. The prior task
+  // workspace RPC computes the same owner, active-branch and local-day KPI.
+  const fallbackResponse = await client.rpc('get_task_workspace_page', {
+    target_search: '',
+    target_status: 'TODAY',
+    target_priority: 'ALL',
+    target_page: 1,
+    target_page_size: 25,
+    target_sort: 'due:asc',
+    target_timezone: SALES_DASHBOARD_TIMEZONE,
+  });
+  if (fallbackResponse.error) throw new SalesDashboardAccessError();
+  return legacyTaskWorkspaceShape.parse(fallbackResponse.data).kpis.today;
+}
 
 async function loadDashboardSummary(client: ReturnType<typeof authenticatedClient>) {
   const { data, error } = await client.rpc('get_sales_consultant_dashboard_summary', {
@@ -171,11 +208,13 @@ Deno.serve(async (request) => {
         );
     }
 
-    const [contextResponse, liveResponse] = await Promise.all([
+    const useTaskAlerts = parsed.data.response_version === SALES_DASHBOARD_RESPONSE_VERSION;
+    const [contextResponse, liveResponse, taskDueCount] = await Promise.all([
       client.rpc('get_workspace_bootstrap'),
       client.rpc('get_sales_consultant_dashboard_live', {
         target_timezone: SALES_DASHBOARD_TIMEZONE,
       }),
+      useTaskAlerts ? loadTaskDueCount(client) : Promise.resolve(null),
     ]);
     if (contextResponse.error || liveResponse.error)
       return failure('PERMISSION_DENIED', 'Dashboard access is not available.', requestId, 403);
@@ -219,6 +258,12 @@ Deno.serve(async (request) => {
       generated_at: live.generated_at,
       schedule: live.schedule,
       recent_leads: live.recent_leads,
+      alerts: useTaskAlerts
+        ? [
+            { key: 'TASKS_DUE', value: taskDueCount },
+            ...cachedSummary.value.alerts.filter((item) => item.key !== 'FOLLOWUPS_DUE'),
+          ].slice(0, 5)
+        : cachedSummary.value.alerts,
     });
     return success(
       {

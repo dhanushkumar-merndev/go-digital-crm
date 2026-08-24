@@ -5,6 +5,7 @@ import { isRoleKey } from '@/config/navigation';
 import { isLocalPreviewMode } from '@/lib/runtime/runtime-mode';
 import { createClient } from '@/lib/supabase/server';
 import { toWorkspaceSession, workspaceBootstrapSchema } from '@/lib/auth/workspace-bootstrap';
+import { isTransientSupabaseError } from '@/lib/supabase/transient-error';
 import {
   decodeWorkspaceBootstrapHeader,
   WORKSPACE_BOOTSTRAP_HEADER,
@@ -34,13 +35,15 @@ export default async function RoleLayout({
     let bootstrapFailed = false;
     if (!data) {
       const supabase = await createClient();
-      const result = await supabase.rpc('get_workspace_bootstrap');
+      let result = await supabase.rpc('get_workspace_bootstrap');
+      if (isTransientSupabaseError(result.error))
+        result = await supabase.rpc('get_workspace_bootstrap');
       data = result.data;
       bootstrapFailed = Boolean(result.error);
     }
     const parsed = workspaceBootstrapSchema.safeParse(data);
     const context = parsed.success ? parsed.data : null;
-    if (bootstrapFailed || !context) redirect('/access/locked');
+    if (bootstrapFailed || !context) redirect('/access/unavailable');
     if (context.destination === 'LOGIN') redirect('/login');
     if (
       context.destination === 'CRM' &&
@@ -52,9 +55,10 @@ export default async function RoleLayout({
     if (context.destination === 'ONBOARDING') redirect('/access/onboarding');
     if (context.destination === 'MAINTENANCE') redirect('/access/maintenance');
     if (context.destination === 'NO_ROLE') redirect('/access/no-role');
-    if (context.destination !== 'CRM') redirect('/access/locked');
+    if (context.destination === 'ACCOUNT_LOCKED') redirect('/access/locked');
+    if (context.destination !== 'CRM') redirect('/access/unavailable');
     workspaceSession = toWorkspaceSession(context);
-    if (!workspaceSession) redirect('/access/locked');
+    if (!workspaceSession) redirect('/access/unavailable');
   }
   return (
     <CrmShell role={role} session={workspaceSession}>

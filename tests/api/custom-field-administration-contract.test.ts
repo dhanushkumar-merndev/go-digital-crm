@@ -33,7 +33,8 @@ describe('custom field administration contract', () => {
     expect(api).toContain("rpc('create_custom_field_definition'");
     expect(api).toContain("rpc('set_custom_field_active'");
     expect(workspace).toContain('useDebouncedValue(searchInput, 300)');
-    expect(workspace).toContain("['custom-field-administration', search, status, page, pageSize]");
+    expect(workspace).toContain("'custom-field-administration'");
+    expect(workspace).toContain('...workspaceQueryScope(session)');
     expect(route).toContain("role === 'client-admin' && slug[0] === 'custom-fields'");
   });
 });

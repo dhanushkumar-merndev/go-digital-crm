@@ -9,6 +9,10 @@ import {
   PackageX,
   RefreshCw,
 } from 'lucide-react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { TenantModuleEntitlementsSkeleton } from '@/components/skeletons';
@@ -42,8 +46,9 @@ function statusVariant(status: string) {
 }
 
 export function TenantModuleEntitlementsWorkspace({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
   const query = useQuery({
-    queryKey: ['tenant-module-entitlements'],
+    queryKey: ['tenant-module-entitlements', ...workspaceQueryScope(session)],
     queryFn: ({ signal }) => fetchTenantModuleEntitlementsWorkspace(signal),
     staleTime: 60_000,
   });

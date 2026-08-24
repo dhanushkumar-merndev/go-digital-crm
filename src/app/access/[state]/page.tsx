@@ -1,6 +1,14 @@
 'use client';
 
-import { CircleAlert, Clock3, LockKeyhole, Settings2, ShieldCheck, UserRoundX } from 'lucide-react';
+import {
+  CircleAlert,
+  Clock3,
+  CloudAlert,
+  LockKeyhole,
+  Settings2,
+  ShieldCheck,
+  UserRoundX,
+} from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -19,6 +27,11 @@ const states = {
     title: 'Account access is unavailable',
     body: 'This account or dealership is inactive, suspended, rejected, or scheduled for controlled deletion. Contact an authorized administrator and share your account email.',
     icon: LockKeyhole,
+  },
+  unavailable: {
+    title: 'Access check is temporarily unavailable',
+    body: 'We could not verify your workspace access right now. Your account has not been marked inactive. Check again, or sign out and retry if the problem continues.',
+    icon: CloudAlert,
   },
   onboarding: {
     title: 'Dealership onboarding in progress',
@@ -41,9 +54,10 @@ export default function AccessStatePage() {
   const { state } = useParams<{ state: string }>();
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
+  const [checking, setChecking] = useState(false);
   if (state === 'mfa') return <MfaGate />;
   if (state === 'onboarding') return <BusinessOwnerOnboarding />;
-  const content = states[state as keyof typeof states] ?? states.locked;
+  const content = states[state as keyof typeof states] ?? states.unavailable;
   const Icon = content.icon;
 
   async function signOutAndSwitchAccount() {
@@ -56,6 +70,12 @@ export default function AccessStatePage() {
     }
   }
 
+  function checkAgain() {
+    setChecking(true);
+    router.replace('/');
+    router.refresh();
+  }
+
   return (
     <main className="grid min-h-screen place-items-center bg-muted/40 p-6">
       <Card className="w-full max-w-lg">
@@ -66,11 +86,12 @@ export default function AccessStatePage() {
           <h1 className="mt-5 text-xl font-bold">{content.title}</h1>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">{content.body}</p>
           <div className="mt-6 flex gap-2">
-            <Button variant="outline" onClick={() => window.location.reload()}>
-              Check again
+            <Button type="button" variant="outline" disabled={checking} onClick={checkAgain}>
+              {checking ? 'Checking…' : 'Check again'}
             </Button>
-            {state === 'locked' ? (
+            {state === 'locked' || state === 'unavailable' ? (
               <Button
+                type="button"
                 variant="ghost"
                 disabled={signingOut}
                 onClick={() => void signOutAndSwitchAccount()}
@@ -78,7 +99,7 @@ export default function AccessStatePage() {
                 {signingOut ? 'Signing out…' : 'Sign out'}
               </Button>
             ) : null}
-            <Button variant="ghost" onClick={() => history.back()}>
+            <Button type="button" variant="ghost" onClick={() => router.back()}>
               <CircleAlert className="size-4" />
               Go back
             </Button>

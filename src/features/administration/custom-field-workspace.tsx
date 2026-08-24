@@ -4,6 +4,10 @@ import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Plus, Search, SlidersHorizontal } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { CustomFieldsSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -229,6 +233,7 @@ function CreateFieldDialog({
 }
 
 export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
   const [searchInput, setSearchInput] = useState('');
   const search = useDebouncedValue(searchInput, 300);
   const [status, setStatus] = useState<CustomFieldStatus>('ALL');
@@ -246,7 +251,14 @@ export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const queryClient = useQueryClient();
   const query = useQuery({
-    queryKey: ['custom-field-administration', search, status, page, pageSize],
+    queryKey: [
+      'custom-field-administration',
+      ...workspaceQueryScope(session),
+      search,
+      status,
+      page,
+      pageSize,
+    ],
     queryFn: ({ signal }) => fetchCustomFieldPage({ search, status, page, pageSize, signal }),
     staleTime: 60_000,
     placeholderData: keepPreviousData,

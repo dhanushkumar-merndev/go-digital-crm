@@ -336,8 +336,26 @@ export const roleNavigation: Record<RoleKey, RoleNavigation> = {
 
 export const roleKeys = Object.keys(roleNavigation) as RoleKey[];
 
+const leadListSlugs: Partial<Record<RoleKey, string>> = {
+  telecaller: 'my-leads',
+  'sales-consultant': 'my-leads',
+  'team-manager': 'team-leads',
+  'showroom-manager': 'showroom-leads',
+  'gm-sales': 'sales-leads',
+};
+
 export function isRoleKey(value: string): value is RoleKey {
   return value in roleNavigation;
+}
+
+export function roleHasNavigationSlug(role: string, slug: string) {
+  return isRoleKey(role) && roleNavigation[role].items.some((item) => item.slug === slug);
+}
+
+export function roleLeadListHref(role: string) {
+  if (!isRoleKey(role)) return '/';
+  const slug = leadListSlugs[role];
+  return slug ? `/${role}/${slug}` : `/${role}/dashboard`;
 }
 
 export { EMPTY_NAVIGATION_ACCESS, filterNavigationItems, NAVIGATION_CAPABILITIES } from './access';

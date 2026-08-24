@@ -10,6 +10,10 @@ import {
   Sparkles,
   WalletCards,
 } from 'lucide-react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { OwnerAiBusinessSummarySkeleton } from '@/components/skeletons';
@@ -41,9 +45,10 @@ export function OwnerAiBusinessSummaryWorkspace({
   audience?: 'OWNER' | 'CLIENT_ADMIN';
   heading?: string;
 }) {
+  const session = useWorkspaceSession();
   const [days, setDays] = useState<7 | 30 | 90>(30);
   const query = useQuery({
-    queryKey: ['owner-ai-business-summary', days],
+    queryKey: ['owner-ai-business-summary', ...workspaceQueryScope(session), days],
     queryFn: ({ signal }) => fetchOwnerAiBusinessSummary(days, signal),
     staleTime: 60_000,
   });

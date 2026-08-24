@@ -107,7 +107,7 @@ describe('task web contract', () => {
     expect(workspace).toContain("from '@tanstack/react-query'");
     expect(workspace).toContain("from '@tanstack/react-table'");
     expect(workspace).toContain('manualPagination: true');
-    expect(workspace).toContain('useDebouncedValue(query.search, 300)');
+    expect(workspace).toContain('useDebouncedValue(searchInput, 300)');
     expect(workspace).toContain("resource: 'work'");
     expect(workspace).toContain("from '@/components/ui/table'");
     expect(dialogs).toContain("from '@/components/ui/dialog'");

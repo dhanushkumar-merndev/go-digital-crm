@@ -13,7 +13,7 @@ import {
   Save,
   UserRound,
 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -36,6 +36,13 @@ import {
   fetchTestDriveLeadOptions,
   fetchTestDriveVehicleOptions,
 } from './test-drive-workspace-api';
+import {
+  isValidTestDriveRegistration,
+  normalizeTestDriveRegistration,
+  sanitizeTestDriveRegistrationInput,
+  TEST_DRIVE_REGISTRATION_MAX_LENGTH,
+  TEST_DRIVE_REGISTRATION_MIN_LENGTH,
+} from './test-drive-registration';
 
 function nextHour() {
   const value = new Date(Date.now() + 3_600_000);
@@ -83,6 +90,7 @@ export function TestDriveCreateView({
   const [startLocation, setStartLocation] = useState('');
   const [destination, setDestination] = useState('');
   const requestId = useRef<string | null>(null);
+  const registrationInputRef = useRef<HTMLInputElement>(null);
   const debouncedLeadSearch = useDebouncedValue(leadSearch, 300);
   const debouncedVehicleSearch = useDebouncedValue(vehicleSearch, 300);
   const leads = useQuery({
@@ -98,6 +106,13 @@ export function TestDriveCreateView({
   });
   const selectedLead = leads.data?.find((item) => item.lead_id === leadId);
   const selectedVehicle = vehicles.data?.find((item) => item.stock_unit_id === stockUnitId);
+  useEffect(() => {
+    if (!stockUnitId) return;
+    const frame = globalThis.requestAnimationFrame(() => {
+      registrationInputRef.current?.focus({ preventScroll: true });
+    });
+    return () => globalThis.cancelAnimationFrame(frame);
+  }, [stockUnitId]);
   const mutation = useMutation({
     mutationFn: () => {
       requestId.current ??= crypto.randomUUID();
@@ -106,7 +121,7 @@ export function TestDriveCreateView({
         stockUnitId,
         scheduledAt: new Date(scheduledAt).toISOString(),
         expectedDurationMinutes: Number(duration),
-        vehicleRegistration: registration.trim().toUpperCase(),
+        vehicleRegistration: normalizeTestDriveRegistration(registration),
         startLocation: startLocation.trim() ? { label: startLocation.trim() } : null,
         destination: destination.trim() ? { label: destination.trim() } : null,
         requestId: requestId.current,
@@ -119,6 +134,11 @@ export function TestDriveCreateView({
       requestId.current = null;
     },
   });
+  const registrationValidationMessage = !registration.trim()
+    ? 'Enter the vehicle registration number.'
+    : !isValidTestDriveRegistration(registration)
+      ? 'Use 4–24 letters, numbers, spaces, or hyphens only.'
+      : null;
   const validationMessage = !leadId
     ? 'Select an assigned customer or lead.'
     : !selectedLead
@@ -131,8 +151,8 @@ export function TestDriveCreateView({
             ? 'Choose a date and time.'
             : Number(duration) < 15
               ? 'Expected duration must be at least 15 minutes.'
-              : !/^[A-Z0-9 -]{4,24}$/i.test(registration.trim())
-                ? 'Enter a valid registration number using 4–24 letters, numbers, spaces, or hyphens.'
+              : registrationValidationMessage
+                ? registrationValidationMessage
                 : null;
   const valid = validationMessage === null;
   const submit = () => valid && mutation.mutate();
@@ -175,8 +195,11 @@ export function TestDriveCreateView({
                 <Select
                   value={leadId}
                   onValueChange={(value) => {
+                    requestId.current = null;
                     setLeadId(value);
                     setStockUnitId('');
+                    setVehicleSearch('');
+                    setRegistration('');
                     setBranchId(
                       leads.data?.find((item) => item.lead_id === value)?.branch_id ?? '',
                     );
@@ -217,7 +240,15 @@ export function TestDriveCreateView({
                   }
                   onChange={(e) => setVehicleSearch(e.target.value)}
                 />
-                <Select disabled={!branchId} value={stockUnitId} onValueChange={setStockUnitId}>
+                <Select
+                  disabled={!branchId}
+                  value={stockUnitId}
+                  onValueChange={(value) => {
+                    requestId.current = null;
+                    setStockUnitId(value);
+                    setRegistration('');
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue
                       placeholder={vehicles.isPending ? 'Loading…' : 'Select available vehicle'}
@@ -233,15 +264,49 @@ export function TestDriveCreateView({
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="Registration number">
+              <div className="space-y-2">
+                <Label htmlFor="test-drive-registration-number">
+                  Registration number <span aria-hidden="true">*</span>
+                  <span className="sr-only"> (required)</span>
+                </Label>
                 <Input
+                  ref={registrationInputRef}
+                  id="test-drive-registration-number"
+                  type="text"
                   required
                   value={registration}
-                  maxLength={24}
+                  minLength={TEST_DRIVE_REGISTRATION_MIN_LENGTH}
+                  maxLength={TEST_DRIVE_REGISTRATION_MAX_LENGTH}
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  spellCheck={false}
+                  inputMode="text"
+                  className="cursor-text bg-background"
                   placeholder="KA 01 AB 1234"
-                  onChange={(e) => setRegistration(e.target.value.toUpperCase())}
+                  aria-invalid={Boolean(stockUnitId && registrationValidationMessage)}
+                  aria-describedby={
+                    stockUnitId && registrationValidationMessage
+                      ? 'test-drive-registration-help test-drive-registration-error'
+                      : 'test-drive-registration-help'
+                  }
+                  onChange={(event) => {
+                    requestId.current = null;
+                    setRegistration(sanitizeTestDriveRegistrationInput(event.target.value));
+                  }}
                 />
-              </Field>
+                <p id="test-drive-registration-help" className="text-xs text-muted-foreground">
+                  Enter the selected vehicle’s actual registration; it is not filled automatically.
+                </p>
+                {stockUnitId && registrationValidationMessage && (
+                  <p
+                    id="test-drive-registration-error"
+                    className="text-xs font-medium text-destructive"
+                    role="alert"
+                  >
+                    {registrationValidationMessage}
+                  </p>
+                )}
+              </div>
             </div>
           </Section>
           <Section icon={CalendarDays} title="3. Schedule">

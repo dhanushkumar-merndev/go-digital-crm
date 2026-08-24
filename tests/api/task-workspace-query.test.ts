@@ -23,6 +23,8 @@ describe('task URL boundary', () => {
       priority: 'all',
       sort: 'due:asc',
     });
+    expect(parseTaskQuery(new URLSearchParams('page=1000001')).page).toBe(1);
+    expect(parseTaskQuery(new URLSearchParams('page=1000000')).page).toBe(1_000_000);
   });
 
   it('preserves meaningful state and canonicalizes derived filters', () => {

@@ -3,6 +3,11 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, CircleCheck, Mail, MessageCircle, Plus, Send, Star } from 'lucide-react';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { MarketingAutomationSkeleton } from '@/components/skeletons';
@@ -463,17 +468,25 @@ export function MarketingAutomationWorkspace({
   spec: PageSpec;
   initialTab?: 'DRIP' | 'REVIEWS';
 }) {
+  const session = useWorkspaceSession();
+  const useWorkspaceBootstrap = Boolean(session?.organizationId);
+  const queryScope = useMemo(() => workspaceQueryScope(session), [session]);
+  const bootstrapPermissions = useWorkspaceBootstrap
+    ? { canManage: hasWorkspacePermission(session, 'marketing.automation.manage') }
+    : undefined;
   const [tab, setTab] = useState<'DRIP' | 'REVIEWS'>(initialTab);
   const queryClient = useQueryClient();
   const workspace = useQuery({
-    queryKey: workspaceKey,
+    queryKey: [...workspaceKey, ...queryScope],
     queryFn: ({ signal }) => fetchMarketingAutomationWorkspace(signal),
   });
-  const permissions = useQuery({
-    queryKey: ['marketing-automation-permissions'],
+  const legacyPermissions = useQuery({
+    queryKey: ['marketing-automation-permissions', ...queryScope],
     queryFn: fetchMarketingAutomationPermissions,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 5 * 60_000,
   });
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
   useTenantRealtimeInvalidation(workspace.data?.organization_id, [
     { resource: 'marketing', queryKeys: [workspaceKey] },
   ]);
@@ -583,7 +596,7 @@ export function MarketingAutomationWorkspace({
       </Tabs>
       {tab === 'DRIP' ? (
         <>
-          {permissions.data?.canManage ? (
+          {permissions?.canManage ? (
             <div className="flex justify-end">
               <CreateDripCampaignDialog onComplete={invalidate} />
             </div>
@@ -654,7 +667,7 @@ export function MarketingAutomationWorkspace({
         </>
       ) : (
         <>
-          {permissions.data?.canManage ? (
+          {permissions?.canManage ? (
             <div className="flex justify-end">
               <CreateReviewRequestDialog onComplete={invalidate} />
             </div>

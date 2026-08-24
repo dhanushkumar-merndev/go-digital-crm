@@ -12,6 +12,10 @@ import {
   Workflow,
 } from 'lucide-react';
 import Link from 'next/link';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { AutomationRuleDetailSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
@@ -38,9 +42,10 @@ function asText(value: unknown) {
 }
 
 export function AutomationRuleDetailWorkspace({ ruleId, role }: { ruleId: string; role: string }) {
+  const session = useWorkspaceSession();
   const client = useQueryClient();
   const detail = useQuery({
-    queryKey: ['automation-rule-detail', ruleId],
+    queryKey: ['automation-rule-detail', ...workspaceQueryScope(session), ruleId],
     queryFn: ({ signal }) => fetchAutomationRuleDetail(ruleId, signal),
     staleTime: 30_000,
   });

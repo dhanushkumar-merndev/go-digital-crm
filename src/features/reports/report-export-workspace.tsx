@@ -6,6 +6,11 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Download, FileDown, Search } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { ReportExportWorkspaceSkeleton } from '@/components/skeletons';
@@ -71,6 +76,15 @@ function metrics(page: Awaited<ReturnType<typeof fetchReportExports>>): Metric[]
 }
 
 export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
+  const useWorkspaceBootstrap = Boolean(session?.organizationId);
+  const queryScope = useMemo(() => workspaceQueryScope(session), [session]);
+  const bootstrapPermissions = useWorkspaceBootstrap
+    ? {
+        organizationId: session!.organizationId as string,
+        canExport: hasWorkspacePermission(session, 'report.export'),
+      }
+    : undefined;
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -90,7 +104,7 @@ export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
     [pathname, router, searchParams],
   );
   const page = useQuery({
-    queryKey: [...exportsKey, query],
+    queryKey: [...exportsKey, ...queryScope, query],
     queryFn: ({ signal }) => fetchReportExports(query, signal),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
@@ -103,11 +117,13 @@ export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
         ? 15_000
         : false,
   });
-  const permissions = useQuery({
-    queryKey: ['report-permissions'],
+  const legacyPermissions = useQuery({
+    queryKey: ['report-permissions', ...queryScope],
     queryFn: fetchReportPermissions,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
   const requestExport = useMutation({
     mutationFn: (key: ReportKind) => requestReportExport(key),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: exportsKey }),
@@ -177,8 +193,14 @@ export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
     manualPagination: true,
     rowCount: page.data?.total ?? 0,
   });
-  if (page.isLoading || permissions.isLoading) return <ReportExportWorkspaceSkeleton />;
-  if (page.isError || permissions.isError || !page.data)
+  if (page.isLoading || (!useWorkspaceBootstrap && legacyPermissions.isLoading))
+    return <ReportExportWorkspaceSkeleton />;
+  if (
+    page.isError ||
+    (!useWorkspaceBootstrap && legacyPermissions.isError) ||
+    !permissions ||
+    !page.data
+  )
     return (
       <div className="p-6 text-sm text-destructive">
         Reports could not be loaded. Refresh and try again.
@@ -187,7 +209,7 @@ export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
   const pages = Math.max(1, Math.ceil(page.data.total / query.pageSize));
   return (
     <div className="space-y-6">
-      <PageHeader spec={spec} />
+      <PageHeader spec={spec} primaryActionHref="#request-export" />
       <KpiGrid metrics={metrics(page.data)} />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <Card className="shadow-none">
@@ -201,7 +223,7 @@ export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
             <EChart kind="donut" data={page.data.status_chart} className="h-64" />
           </CardContent>
         </Card>
-        <Card className="shadow-none">
+        <Card id="request-export" className="scroll-mt-24 shadow-none">
           <CardHeader>
             <CardTitle>Request an export</CardTitle>
             <CardDescription>
@@ -215,14 +237,14 @@ export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
                 key={kind}
                 variant="outline"
                 className="justify-start"
-                disabled={!permissions.data?.canExport || requestExport.isPending}
+                disabled={!permissions.canExport || requestExport.isPending}
                 onClick={() => requestExport.mutate(kind)}
               >
                 <FileDown className="size-4" />
                 {reportLabel(kind)}
               </Button>
             ))}
-            {!permissions.data?.canExport && (
+            {!permissions.canExport && (
               <p className="col-span-2 text-xs text-muted-foreground">
                 Your role can view report history but cannot request an export.
               </p>

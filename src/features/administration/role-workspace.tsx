@@ -7,6 +7,10 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { RolesPermissionsSkeleton } from '@/components/skeletons';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -107,6 +111,7 @@ function RoleEditorDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const session = useWorkspaceSession();
   const [name, setName] = useState(record?.name ?? '');
   const [authorityLevel, setAuthorityLevel] = useState(
     record?.authority_level ?? Math.max(1, authorityCeiling - 100),
@@ -115,7 +120,7 @@ function RoleEditorDialog({
   const [selectedPermissions, setSelectedPermissions] = useState(record?.permissions ?? []);
   const [permissionSearch, setPermissionSearch] = useState('');
   const permissions = useQuery({
-    queryKey: ['delegable-role-permissions'],
+    queryKey: ['delegable-role-permissions', ...workspaceQueryScope(session)],
     queryFn: fetchDelegablePermissions,
   });
   const delegableKeys = useMemo(
@@ -551,6 +556,7 @@ function RoleTable({
 }
 
 export function RoleWorkspace({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
   const router = useRouter();
   const pathname = usePathname();
   const searchParameters = useSearchParams();
@@ -567,7 +573,7 @@ export function RoleWorkspace({ spec }: { spec: PageSpec }) {
     [debouncedSearch, query],
   );
   const workspace = useQuery({
-    queryKey: ['role-administration', effectiveQuery],
+    queryKey: ['role-administration', ...workspaceQueryScope(session), effectiveQuery],
     queryFn: () => fetchRoleWorkspace(effectiveQuery),
     placeholderData: keepPreviousData,
   });

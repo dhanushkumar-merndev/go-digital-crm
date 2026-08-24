@@ -10,8 +10,17 @@ const contextSchema = z.object({
   mfa_satisfied: z.boolean().optional(),
   support_controller: z.boolean().optional(),
 });
+const auditLogIdSchema = z.union([
+  z.string().regex(/^[1-9]\d*$/),
+  z
+    .number()
+    .int()
+    .positive()
+    .refine(Number.isSafeInteger, 'Audit log identity exceeds the safe integer range')
+    .transform(String),
+]);
 const auditSchema = z.object({
-  id: z.coerce.number().int(),
+  id: auditLogIdSchema,
   action: z.string(),
   resource_type: z.string(),
   created_at: z.string(),

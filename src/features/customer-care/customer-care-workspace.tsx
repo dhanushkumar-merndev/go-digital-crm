@@ -32,6 +32,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import type { RoleKey } from '@/config/navigation/types';
 import type { Metric, PageSpec } from '@/lib/domain';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
@@ -337,6 +342,7 @@ export function CustomerCareWorkspace({
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const workspaceSession = useWorkspaceSession();
   const initialView = customerCareInitialView(slug) ?? 'OPEN';
   const routeQuery = useMemo(
     () => parseCustomerCareQuery(new URLSearchParams(searchParams.toString()), initialView),
@@ -350,18 +356,35 @@ export function CustomerCareWorkspace({
     () => ({ ...routeQuery, search: debouncedSearch }),
     [debouncedSearch, routeQuery],
   );
-  const permissions = useQuery({
-    queryKey: ['customer-care-permissions'],
+  const permissionQuery = useQuery({
+    queryKey: ['customer-care-permissions', ...workspaceQueryScope(workspaceSession)],
     queryFn: fetchCustomerCarePermissions,
+    enabled: !workspaceSession,
   });
+  const bootstrapPermissions =
+    workspaceSession?.organizationId &&
+    hasWorkspacePermission(workspaceSession, 'customer_care.view')
+      ? {
+          organizationId: workspaceSession.organizationId,
+          userId: workspaceSession.userId,
+          canManage: hasWorkspacePermission(workspaceSession, 'customer_care.manage'),
+          canEscalate: hasWorkspacePermission(workspaceSession, 'customer_care.escalate'),
+        }
+      : undefined;
+  const permissions = {
+    data: bootstrapPermissions ?? permissionQuery.data,
+    isPending: !workspaceSession && permissionQuery.isPending,
+    isError: workspaceSession ? !bootstrapPermissions : permissionQuery.isError,
+  };
+  const queryScope = workspaceQueryScope(workspaceSession);
   const workspace = useQuery({
-    queryKey: [...workspaceKey, permissions.data?.organizationId, query],
+    queryKey: [...workspaceKey, ...queryScope, query],
     queryFn: ({ signal }) => fetchCustomerCareWorkspace(query, signal),
-    enabled: Boolean(permissions.data),
+    enabled: !isDashboard && Boolean(permissions.data),
     placeholderData: keepPreviousData,
   });
   const dashboard = useQuery({
-    queryKey: [...dashboardKey, permissions.data?.organizationId],
+    queryKey: [...dashboardKey, ...queryScope],
     queryFn: ({ signal }) => fetchCustomerCareDashboard(signal),
     enabled: isDashboard && Boolean(permissions.data),
   });
@@ -407,20 +430,17 @@ export function CustomerCareWorkspace({
     },
   });
 
-  if (permissions.isPending || workspace.isPending || (isDashboard && dashboard.isPending))
+  const pageIsPending = isDashboard ? dashboard.isPending : workspace.isPending;
+  const pageIsError = isDashboard ? dashboard.isError : workspace.isError;
+  const pageHasData = isDashboard ? Boolean(dashboard.data) : Boolean(workspace.data);
+
+  if (permissions.isPending || pageIsPending)
     return isDashboard ? (
       <CustomerRelationshipDashboardSkeleton />
     ) : (
       <CustomerCareWorkspaceSkeleton />
     );
-  if (
-    permissions.isError ||
-    workspace.isError ||
-    (isDashboard && dashboard.isError) ||
-    !permissions.data ||
-    !workspace.data ||
-    (isDashboard && !dashboard.data)
-  )
+  if (permissions.isError || pageIsError || !permissions.data || !pageHasData)
     return (
       <div className="space-y-6">
         <PageHeader spec={{ ...spec, primaryAction: undefined }} />
@@ -436,7 +456,7 @@ export function CustomerCareWorkspace({
       </div>
     );
 
-  const result = workspace.data;
+  const permissionData = permissions.data;
   return (
     <div className="mx-auto max-w-[1600px] space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -457,7 +477,7 @@ export function CustomerCareWorkspace({
             primaryAction: undefined,
           }}
         />
-        {permissions.data.canManage && (
+        {permissionData.canManage && (
           <Button className="shrink-0" onClick={() => setCreateOpen(true)}>
             <Plus className="size-4" /> Create case
           </Button>
@@ -466,12 +486,12 @@ export function CustomerCareWorkspace({
       {isDashboard && dashboard.data ? (
         <CustomerRelationshipDashboard
           summary={dashboard.data}
-          records={result.records}
+          records={dashboard.data.records}
           onOpen={setSelected}
         />
-      ) : (
+      ) : workspace.data ? (
         <>
-          <KpiGrid metrics={metrics(result)} />
+          <KpiGrid metrics={metrics(workspace.data)} />
 
           <div className="grid gap-6 xl:grid-cols-12">
             <Card className="shadow-none xl:col-span-5">
@@ -480,7 +500,7 @@ export function CustomerCareWorkspace({
                 <CardDescription>Current scoped case distribution</CardDescription>
               </CardHeader>
               <CardContent>
-                <EChart kind="donut" data={result.status_chart} />
+                <EChart kind="donut" data={workspace.data.status_chart} />
               </CardContent>
             </Card>
             <Card className="shadow-none xl:col-span-7">
@@ -491,7 +511,7 @@ export function CustomerCareWorkspace({
               <CardContent>
                 <EChart
                   kind="line"
-                  data={result.activity_chart}
+                  data={workspace.data.activity_chart}
                   seriesNames={['Opened', 'Resolved']}
                 />
               </CardContent>
@@ -514,14 +534,14 @@ export function CustomerCareWorkspace({
           </Tabs>
 
           <CustomerCareTable
-            result={result}
+            result={workspace.data}
             query={routeQuery}
             isFetching={workspace.isFetching}
             onQueryChange={replaceQuery}
             onOpen={setSelected}
           />
         </>
-      )}
+      ) : null}
 
       <CreateCustomerCareDialog
         key={defaultCreateType(query.view)}
@@ -539,7 +559,7 @@ export function CustomerCareWorkspace({
             customerId: option.customer_id,
             bookingId: option.booking_id,
             vehicleId: option.vehicle_id ?? undefined,
-            assignedUserId: permissions.data.userId,
+            assignedUserId: permissionData.userId,
           });
         }}
       />
@@ -547,8 +567,8 @@ export function CustomerCareWorkspace({
         key={selected ? `${selected.id}:${selected.version}` : 'empty'}
         record={selected}
         role={role}
-        canManage={permissions.data.canManage}
-        canEscalate={permissions.data.canEscalate}
+        canManage={permissionData.canManage}
+        canEscalate={permissionData.canEscalate}
         pending={updateMutation.isPending}
         error={updateMutation.isError ? actionError(updateMutation.error) : undefined}
         onClose={() => {

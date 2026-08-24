@@ -5,6 +5,11 @@ import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tan
 import { ChevronLeft, ChevronRight, Check, Search, TriangleAlert } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import type { RoleKey } from '@/config/navigation/types';
 import { SalesEscalationSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
@@ -42,6 +47,7 @@ import {
   fetchSalesEscalationWorkspace,
   resolveSalesEscalation,
   type SalesEscalationRecord,
+  type SalesEscalationPermissions,
 } from './sales-escalation-api';
 import {
   parseSalesEscalationQuery,
@@ -210,6 +216,20 @@ function ResolveEscalationDialog({
 }
 
 export function SalesEscalationWorkspace({ role }: { role: RoleKey }) {
+  const session = useWorkspaceSession();
+  const useWorkspaceBootstrap = Boolean(session?.organizationId);
+  const queryScope = useMemo(
+    () => (useWorkspaceBootstrap ? workspaceQueryScope(session) : (['legacy', role] as const)),
+    [role, session, useWorkspaceBootstrap],
+  );
+  const bootstrapPermissions: SalesEscalationPermissions | undefined =
+    useWorkspaceBootstrap && hasWorkspacePermission(session, 'escalation.view')
+      ? {
+          organizationId: session!.organizationId as string,
+          scopeKey: session!.scopeKey,
+          canResolve: hasWorkspacePermission(session, 'escalation.resolve'),
+        }
+      : undefined;
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -218,24 +238,21 @@ export function SalesEscalationWorkspace({ role }: { role: RoleKey }) {
   const debouncedSearch = useDebouncedValue(query.search, 300);
   const [selected, setSelected] = useState<SalesEscalationRecord | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const permissions = useQuery({
-    queryKey: ['sales-escalation-permissions'],
+  const legacyPermissions = useQuery({
+    queryKey: ['sales-escalation-permissions', ...queryScope],
     queryFn: fetchSalesEscalationPermissions,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
   const requestQuery = useMemo(
     () => ({ ...query, search: debouncedSearch }),
     [debouncedSearch, query],
   );
   const workspace = useQuery({
-    queryKey: [
-      workspaceKey,
-      permissions.data?.organizationId,
-      permissions.data?.scopeKey,
-      requestQuery,
-    ],
+    queryKey: [...workspaceKey, ...queryScope, requestQuery],
     queryFn: ({ signal }) => fetchSalesEscalationWorkspace(requestQuery, signal),
-    enabled: Boolean(permissions.data),
+    enabled: Boolean(permissions),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
     gcTime: 30 * 60_000,
@@ -334,8 +351,14 @@ export function SalesEscalationWorkspace({ role }: { role: RoleKey }) {
   const roleLabel =
     role === 'gm-sales' ? 'GM Sales' : role === 'showroom-manager' ? 'Showroom' : 'Team';
 
-  if (permissions.isLoading || workspace.isLoading) return <SalesEscalationSkeleton />;
-  if (permissions.isError || workspace.isError || !workspace.data)
+  if ((!useWorkspaceBootstrap && legacyPermissions.isLoading) || workspace.isLoading)
+    return <SalesEscalationSkeleton />;
+  if (
+    (!useWorkspaceBootstrap && legacyPermissions.isError) ||
+    workspace.isError ||
+    !permissions ||
+    !workspace.data
+  )
     return (
       <Card className="mx-auto max-w-xl shadow-none">
         <CardContent className="p-10 text-center">
@@ -344,7 +367,14 @@ export function SalesEscalationWorkspace({ role }: { role: RoleKey }) {
           <p className="mt-2 text-sm text-muted-foreground">
             Your role may not have escalation access, or the latest data could not be loaded.
           </p>
-          <Button className="mt-5" variant="outline" onClick={() => void workspace.refetch()}>
+          <Button
+            className="mt-5"
+            variant="outline"
+            onClick={() => {
+              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
+              void workspace.refetch();
+            }}
+          >
             Try again
           </Button>
         </CardContent>
@@ -352,7 +382,7 @@ export function SalesEscalationWorkspace({ role }: { role: RoleKey }) {
     );
 
   const kpis = workspace.data.kpis;
-  const canResolve = permissions.data?.canResolve ?? false;
+  const canResolve = permissions.canResolve;
   return (
     <div className="mx-auto max-w-[1800px] space-y-5">
       <div>

@@ -17,8 +17,14 @@ const hotPathMigration = readFileSync(
   'supabase/migrations/202608220002_sales_consultant_hot_path_rpcs.sql',
   'utf8',
 );
+const taskAlertMigration = readFileSync(
+  'supabase/migrations/202608240013_sales_consultant_task_alert_count.sql',
+  'utf8',
+);
 const api = readFileSync('src/features/dashboards/sales-consultant-dashboard-api.ts', 'utf8');
 const workspace = readFileSync('src/features/dashboards/sales-consultant-dashboard.tsx', 'utf8');
+const taskWorkspace = readFileSync('src/features/tasks/task-workspace.tsx', 'utf8');
+const taskCenter = readFileSync('src/features/tasks/task-center-sheet.tsx', 'utf8');
 const dashboardHandler = readFileSync(
   'supabase/functions/sales-consultant-dashboard/index.ts',
   'utf8',
@@ -119,5 +125,28 @@ describe('sales consultant dashboard contract', () => {
     ]) {
       expect(workspace).toContain(destination);
     }
+  });
+
+  it('shows the indexed, permission-bound due-task count instead of a follow-up count', () => {
+    expect(taskAlertMigration).toContain('get_sales_consultant_task_due_count');
+    expect(taskAlertMigration).toContain("role_row.role_key = 'sales_consultant'");
+    expect(taskAlertMigration).toContain("permission_row.permission_key = 'task.view'");
+    expect(taskAlertMigration).toContain('task_row.assigned_user_id = current_actor_id');
+    expect(taskAlertMigration).toContain("task_row.status in ('OPEN', 'IN_PROGRESS')");
+    expect(taskAlertMigration).toContain('task_row.branch_id = any(allowed_branch_ids)');
+    expect(taskAlertMigration).not.toContain('task_row.branch_id is null');
+    expect(taskAlertMigration).not.toContain('app_private.can_access_record(');
+    expect(dashboardHandler).toContain("client.rpc('get_sales_consultant_task_due_count'");
+    expect(dashboardHandler).toContain("error?.code === 'PGRST202'");
+    expect(dashboardHandler).toContain("client.rpc('get_task_workspace_page'");
+    expect(dashboardHandler).toContain("target_status: 'TODAY'");
+    expect(dashboardHandler).toContain('response_version: z.literal');
+    expect(dashboardHandler).toContain(': cachedSummary.value.alerts');
+    expect(dashboardHandler).toContain("{ key: 'TASKS_DUE', value: taskDueCount }");
+    expect(api).toContain("'TASKS_DUE'");
+    expect(api).toContain('response_version: 2');
+    expect(workspace).toContain("label: 'Tasks due today'");
+    expect(taskWorkspace).toContain("queryKey: ['sales-consultant-dashboard', ...queryScope]");
+    expect(taskCenter).toContain("queryKey: ['sales-consultant-dashboard', ...queryScope]");
   });
 });

@@ -2,6 +2,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CarFront, Pencil, Plus, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { CompetitorCatalogSkeleton } from '@/components/skeletons';
@@ -44,11 +48,12 @@ const empty = {
   advantages: '',
 };
 export function CompetitorCatalogWorkspace({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<CompetitorProfile | null | undefined>(undefined);
   const [form, setForm] = useState(empty);
   const query = useQuery({
-    queryKey: ['competitor-catalog'],
+    queryKey: ['competitor-catalog', ...workspaceQueryScope(session)],
     queryFn: ({ signal }) => fetchCompetitorProfiles(signal),
     staleTime: 60_000,
   });

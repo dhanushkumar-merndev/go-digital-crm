@@ -28,6 +28,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import type { RoleKey } from '@/config/navigation/types';
 import type { PageSpec } from '@/lib/domain';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
@@ -330,6 +335,7 @@ export function OperationalCaseWorkspace({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const workspaceSession = useWorkspaceSession();
   const [query, setQuery] = useState(() =>
     parseOperationalCaseQuery(searchParams, route.initialStatus),
   );
@@ -344,37 +350,71 @@ export function OperationalCaseWorkspace({
     [debouncedSearch, query],
   );
 
-  const permissions = useQuery({
-    queryKey: ['operational-case-permissions', route.department],
+  const permissionQuery = useQuery({
+    queryKey: [
+      'operational-case-permissions',
+      ...workspaceQueryScope(workspaceSession),
+      route.department,
+    ],
     queryFn: () => fetchOperationalCasePermissions(route.department),
+    enabled: !workspaceSession,
     staleTime: 60_000,
   });
+  const viewPermission = `${route.department.toLowerCase()}.view`;
+  const managePermission = `${route.department.toLowerCase()}.manage`;
+  const bootstrapPermissions =
+    workspaceSession?.organizationId && hasWorkspacePermission(workspaceSession, viewPermission)
+      ? {
+          organizationId: workspaceSession.organizationId,
+          userId: workspaceSession.userId,
+          scopeKey: workspaceSession.scopeKey,
+          canManage: hasWorkspacePermission(workspaceSession, managePermission),
+          canRequest:
+            route.department === 'EXCHANGE'
+              ? hasWorkspacePermission(workspaceSession, 'exchange.request')
+              : hasWorkspacePermission(workspaceSession, managePermission),
+          canUpload: hasWorkspacePermission(workspaceSession, 'document.upload'),
+          canDownload: hasWorkspacePermission(workspaceSession, 'document.download'),
+        }
+      : undefined;
+  const permissions = {
+    data: bootstrapPermissions ?? permissionQuery.data,
+    isPending: !workspaceSession && permissionQuery.isPending,
+    isError: workspaceSession ? !bootstrapPermissions : permissionQuery.isError,
+    refetch: permissionQuery.refetch,
+  };
+  const queryScope = workspaceQueryScope(workspaceSession);
   useTenantRealtimeInvalidation(permissions.data?.organizationId, [
     {
       resource: 'operations',
-      queryKeys: [['operational-cases', permissions.data?.organizationId]],
+      queryKeys: [['operational-cases', ...queryScope]],
     },
   ]);
   const workspace = useQuery({
-    queryKey: [
-      'operational-cases',
-      permissions.data?.organizationId,
-      permissions.data?.scopeKey,
-      route.department,
-      requestQuery,
-    ],
+    queryKey: ['operational-cases', ...queryScope, route.department, requestQuery],
     queryFn: ({ signal }) => fetchOperationalCaseWorkspace(route.department, requestQuery, signal),
     enabled: Boolean(permissions.data),
     placeholderData: keepPreviousData,
   });
   const options = useQuery({
-    queryKey: ['operational-case-booking-options', route.department, debouncedBookingSearch],
+    queryKey: [
+      'operational-case-booking-options',
+      ...queryScope,
+      route.department,
+      debouncedBookingSearch,
+    ],
     queryFn: ({ signal }) =>
       fetchOperationalCaseBookingOptions(route.department, debouncedBookingSearch, signal),
     enabled: createOpen && Boolean(permissions.data?.canManage || permissions.data?.canRequest),
   });
   const detail = useQuery({
-    queryKey: ['operational-case-detail', route.department, selected?.id, selected?.version],
+    queryKey: [
+      'operational-case-detail',
+      ...queryScope,
+      route.department,
+      selected?.id,
+      selected?.version,
+    ],
     queryFn: () => fetchOperationalCaseDetail(route.department, selected!.id),
     enabled: Boolean(selected),
   });
@@ -382,15 +422,15 @@ export function OperationalCaseWorkspace({
   const invalidate = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({
-        queryKey: ['operational-cases', permissions.data?.organizationId],
+        queryKey: ['operational-cases', ...queryScope],
       }),
-      queryClient.invalidateQueries({ queryKey: ['operational-case-detail', route.department] }),
+      queryClient.invalidateQueries({ queryKey: ['operational-case-detail', ...queryScope] }),
       queryClient.invalidateQueries({
-        queryKey: ['operational-case-booking-options', route.department],
+        queryKey: ['operational-case-booking-options', ...queryScope, route.department],
       }),
       queryClient.invalidateQueries({ queryKey: ['customer-360'] }),
     ]);
-  }, [permissions.data?.organizationId, queryClient, route.department]);
+  }, [queryClient, queryScope, route.department]);
 
   const createMutation = useMutation({
     mutationFn: createOperationalCase,

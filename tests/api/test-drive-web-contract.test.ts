@@ -10,6 +10,7 @@ const api = source('src/features/test-drives/test-drive-workspace-api.ts');
 const workspace = source('src/features/test-drives/test-drive-workspace.tsx');
 const createView = source('src/features/test-drives/test-drive-create-view.tsx');
 const dialogs = source('src/features/test-drives/test-drive-workspace-dialogs.tsx');
+const registration = source('src/features/test-drives/test-drive-registration.ts');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
 
 describe('test-drive web API boundary', () => {
@@ -50,6 +51,22 @@ describe('test-drive web API boundary', () => {
     expect(createView).toContain('requestId.current = null');
     expect(createView).toContain('TEST_DRIVE_VEHICLE_SCHEDULE_CONFLICT');
     expect(createView).toContain('TEST_DRIVE_CONSULTANT_SCHEDULE_CONFLICT');
+  });
+
+  it('keeps registration editable, focusable, accessible and consistent at the API boundary', () => {
+    expect(createView).toContain('ref={registrationInputRef}');
+    expect(createView).toContain('globalThis.requestAnimationFrame');
+    expect(createView).toContain('htmlFor="test-drive-registration-number"');
+    expect(createView).toContain('sanitizeTestDriveRegistrationInput(event.target.value)');
+    expect(createView).toContain(
+      'aria-invalid={Boolean(stockUnitId && registrationValidationMessage)}',
+    );
+    expect(createView.match(/setRegistration\(''\)/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(dialogs).toContain('ref={registrationInputRef}');
+    expect(dialogs).toContain('sanitizeTestDriveRegistrationInput(event.target.value)');
+    expect(api).toContain('if (!isValidTestDriveRegistration(vehicleRegistration))');
+    expect(api).toContain('target_vehicle_registration: vehicleRegistration');
+    expect(registration).toContain('const validRegistration = /^[A-Z0-9 -]{4,24}$/');
   });
 });
 

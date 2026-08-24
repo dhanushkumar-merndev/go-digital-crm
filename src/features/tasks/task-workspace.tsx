@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { TasksSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -131,7 +131,9 @@ function TaskTable({
   role,
   permissions,
   isFetching,
+  searchInput,
   onQueryChange,
+  onSearchChange,
   onEdit,
   onAction,
 }: {
@@ -140,7 +142,9 @@ function TaskTable({
   role: string;
   permissions: TaskPermissions;
   isFetching: boolean;
+  searchInput: string;
   onQueryChange: (next: Partial<TaskQuery>) => void;
+  onSearchChange: (value: string) => void;
   onEdit: (record: TaskRecord) => void;
   onAction: (action: 'complete' | 'cancel', record: TaskRecord) => void;
 }) {
@@ -226,13 +230,19 @@ function TaskTable({
           return (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="Task actions">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8"
+                  aria-label={`Actions for ${row.original.title}`}
+                >
                   <MoreHorizontal className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {permissions.canUpdate && (
-                  <DropdownMenuItem onClick={() => onEdit(row.original)}>
+                  <DropdownMenuItem onSelect={() => onEdit(row.original)}>
                     <Pencil className="size-4" /> Edit task
                   </DropdownMenuItem>
                 )}
@@ -240,12 +250,15 @@ function TaskTable({
                   <DropdownMenuSeparator />
                 )}
                 {permissions.canComplete && (
-                  <DropdownMenuItem onClick={() => onAction('complete', row.original)}>
+                  <DropdownMenuItem onSelect={() => onAction('complete', row.original)}>
                     <Check className="size-4" /> Complete
                   </DropdownMenuItem>
                 )}
                 {permissions.canCancel && (
-                  <DropdownMenuItem onClick={() => onAction('cancel', row.original)}>
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => onAction('cancel', row.original)}
+                  >
                     <X className="size-4" /> Cancel
                   </DropdownMenuItem>
                 )}
@@ -272,12 +285,14 @@ function TaskTable({
       <CardHeader className="border-b p-4">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
           <div className="relative min-w-0 flex-1 xl:w-[360px] xl:flex-none">
-            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="pl-9"
               placeholder="Search task, customer or phone"
-              value={query.search}
-              onChange={(event) => onQueryChange({ search: event.target.value, page: 1 })}
+              value={searchInput}
+              maxLength={160}
+              aria-label="Search tasks"
+              onChange={(event) => onSearchChange(event.target.value)}
             />
           </div>
           <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2 xl:flex">
@@ -287,13 +302,13 @@ function TaskTable({
                 onQueryChange({ priority: priority as TaskQuery['priority'], page: 1 })
               }
             >
-              <SelectTrigger className="w-full xl:flex-1">
+              <SelectTrigger className="w-full xl:flex-1" aria-label="Filter by priority">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {taskPriorityFilters.map((priority) => (
                   <SelectItem key={priority} value={priority}>
-                    {titleCase(priority)}
+                    {priority === 'all' ? 'All priorities' : titleCase(priority)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -302,7 +317,7 @@ function TaskTable({
               value={query.sort}
               onValueChange={(sort) => onQueryChange({ sort: sort as TaskQuery['sort'], page: 1 })}
             >
-              <SelectTrigger className="w-full xl:flex-1">
+              <SelectTrigger className="w-full xl:flex-1" aria-label="Sort tasks">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -319,7 +334,7 @@ function TaskTable({
                 onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
               }
             >
-              <SelectTrigger className="w-full xl:w-[105px] xl:shrink-0">
+              <SelectTrigger className="w-full xl:w-[105px] xl:shrink-0" aria-label="Rows per page">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -332,7 +347,10 @@ function TaskTable({
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <div className={isFetching ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+        <div
+          aria-busy={isFetching}
+          className={isFetching ? 'opacity-60 transition-opacity' : 'transition-opacity'}
+        >
           <Table className="min-w-[1120px]">
             <TableHeader>
               {table.getHeaderGroups().map((group) => (
@@ -419,15 +437,13 @@ function TaskTable({
 
 export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
   const workspaceSession = useWorkspaceSession();
-  const useSalesBootstrap =
-    role === 'sales-consultant' &&
-    workspaceSession?.roleKey === 'sales-consultant' &&
-    Boolean(workspaceSession.organizationId);
+  const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
   const queryScope = useMemo(
-    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
-    [role, useSalesBootstrap, workspaceSession],
+    () =>
+      useWorkspaceBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const),
+    [role, useWorkspaceBootstrap, workspaceSession],
   );
-  const bootstrapPermissions: TaskPermissions | undefined = useSalesBootstrap
+  const bootstrapPermissions: TaskPermissions | undefined = useWorkspaceBootstrap
     ? {
         organizationId: workspaceSession!.organizationId as string,
         scopeKey: workspaceSession!.scopeKey,
@@ -447,6 +463,7 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
       return { ...parsed, status: 'today' };
     return parsed;
   });
+  const [searchInput, setSearchInput] = useState(query.search);
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<TaskRecord | null>(null);
   const [actionState, setActionState] = useState<{
@@ -457,15 +474,20 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata',
     [],
   );
-  const debouncedSearch = useDebouncedValue(query.search, 300);
+  const debouncedSearch = useDebouncedValue(searchInput, 300);
   const requestQuery = useMemo(
     () => ({ ...query, search: debouncedSearch }),
     [debouncedSearch, query],
   );
+  useEffect(() => {
+    const queryString = toTaskQueryString(requestQuery);
+    if (queryString === searchParams.toString()) return;
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+  }, [pathname, requestQuery, router, searchParams]);
   const legacyPermissions = useQuery({
-    queryKey: ['task-workspace-permissions', role],
+    queryKey: ['task-workspace-permissions', ...queryScope, role],
     queryFn: fetchTaskPermissions,
-    enabled: !useSalesBootstrap,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
   const permissions = bootstrapPermissions ?? legacyPermissions.data;
@@ -484,19 +506,35 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
   const onQueryChange = (next: Partial<TaskQuery>) => {
     const updated = { ...query, ...next };
     setQuery(updated);
-    const queryString = toTaskQueryString(updated);
-    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+  };
+  const onSearchChange = (value: string) => {
+    setSearchInput(value);
+    setQuery((current) => (current.page === 1 ? current : { ...current, page: 1 }));
   };
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: ['task-workspace', ...queryScope],
     });
     void queryClient.invalidateQueries({ queryKey: ['customer-360'] });
+    void queryClient.invalidateQueries({
+      queryKey: ['task-center', ...queryScope],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ['sales-consultant-dashboard', ...queryScope],
+    });
   }, [queryClient, queryScope]);
 
-  if ((!useSalesBootstrap && legacyPermissions.isPending) || (workspace.isPending && permissions))
+  if (
+    (!useWorkspaceBootstrap && legacyPermissions.isPending) ||
+    (workspace.isPending && permissions)
+  )
     return <TasksSkeleton />;
-  if (legacyPermissions.isError || workspace.isError || !permissions || !workspace.data)
+  if (
+    (!useWorkspaceBootstrap && legacyPermissions.isError) ||
+    workspace.isError ||
+    !permissions ||
+    !workspace.data
+  )
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -511,7 +549,7 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
             className="mt-5"
             variant="outline"
             onClick={() => {
-              if (!useSalesBootstrap) void legacyPermissions.refetch();
+              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
               void workspace.refetch();
             }}
           >
@@ -560,6 +598,7 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
                 key={value}
                 type="button"
                 onClick={() => onQueryChange({ status: value, page: 1 })}
+                aria-pressed={active}
                 className={`relative h-full shrink-0 px-3 text-xs font-semibold ${
                   active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
                 }`}
@@ -577,13 +616,15 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
           role={role}
           permissions={permissions}
           isFetching={workspace.isFetching}
+          searchInput={searchInput}
           onQueryChange={onQueryChange}
+          onSearchChange={onSearchChange}
           onEdit={setEditing}
           onAction={(action, record) => setActionState({ action, record })}
         />
       </div>
-      {permissions.canCreate && (
-        <TaskFormDialog open={createOpen} onOpenChange={setCreateOpen} onSaved={invalidate} />
+      {permissions.canCreate && createOpen && (
+        <TaskFormDialog open onOpenChange={setCreateOpen} onSaved={invalidate} />
       )}
       {editing && (
         <TaskFormDialog

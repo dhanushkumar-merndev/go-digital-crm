@@ -57,6 +57,7 @@ const leadSchema = z.object({
 
 const alertSchema = z.object({
   key: z.enum([
+    'TASKS_DUE',
     'FOLLOWUPS_DUE',
     'TEST_DRIVES_SCHEDULED',
     'QUOTATIONS_AWAITING',
@@ -136,7 +137,7 @@ export async function fetchSalesConsultantDashboard(
   options: { manualRefresh?: boolean } = {},
 ) {
   const { data, error } = await createClient().functions.invoke('sales-consultant-dashboard', {
-    body: { manual_refresh: Boolean(options.manualRefresh) },
+    body: { manual_refresh: Boolean(options.manualRefresh), response_version: 2 },
     signal,
   });
   if (error) {

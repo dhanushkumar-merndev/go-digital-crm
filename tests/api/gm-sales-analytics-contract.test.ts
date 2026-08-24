@@ -6,7 +6,8 @@ function source(relativePath: string) {
   return readFileSync(join(process.cwd(), relativePath), 'utf8');
 }
 
-const migration = source('supabase/migrations/202608220014_gm_sales_analytics_workspace.sql');
+const baseMigration = source('supabase/migrations/202608220014_gm_sales_analytics_workspace.sql');
+const migration = source('supabase/migrations/202608240011_optimize_gm_sales_analytics.sql');
 const api = source('src/features/dashboards/gm-sales-analytics-api.ts');
 const workspace = source('src/features/dashboards/gm-sales-analytics-workspace.tsx');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
@@ -30,8 +31,10 @@ describe('GM sales analytics backend contract', () => {
     expect(migration).toContain('scoped_drives as materialized');
     expect(migration).toContain('scoped_quotations as materialized');
     expect(migration).toContain('scoped_bookings as materialized');
-    expect(migration).toContain('app_private.can_access_branch(');
-    expect(migration).toContain('app_private.can_access_record(');
+    expect(migration).toContain('permission_bound_active_branch_ids');
+    expect(migration).toContain('group by grouping sets');
+    expect(migration).not.toContain('app_private.can_access_branch(');
+    expect(migration).not.toContain('app_private.can_access_record(');
     expect(migration).toContain("'branches', coalesce(");
     expect(migration).toContain("'consultants', coalesce(");
     expect(migration).toContain("'models', coalesce(");
@@ -46,12 +49,12 @@ describe('GM sales analytics backend contract', () => {
       'quotations_gm_analytics_branch_created_idx',
       'bookings_gm_analytics_branch_created_idx',
     ])
-      expect(migration).toContain(index);
-    expect(migration).toContain(
-      'revoke all on function public.get_gm_sales_analytics_workspace(integer, text) from public, anon',
+      expect(baseMigration).toContain(index);
+    expect(migration).toMatch(
+      /revoke all on function public\.get_gm_sales_analytics_workspace\(integer, text\)\s+from public, anon/,
     );
-    expect(migration).toContain(
-      'grant execute on function public.get_gm_sales_analytics_workspace(integer, text) to authenticated',
+    expect(migration).toMatch(
+      /grant execute on function public\.get_gm_sales_analytics_workspace\(integer, text\)\s+to authenticated/,
     );
   });
 });
@@ -72,6 +75,8 @@ describe('GM sales analytics web contract', () => {
     expect(workspace).toContain('kind="funnel"');
     expect(workspace).toContain('kind="bar"');
     expect(workspace).not.toMatch(/recharts|chart\.js|apexcharts/i);
+    expect(workspace).toContain("['gm-sales-analytics', ...workspaceQueryScope(session), days]");
+    expect(workspace).not.toContain("['gm-sales-analytics', view, days]");
   });
 
   it('routes each GM view before the fail-closed unavailable fallback', () => {

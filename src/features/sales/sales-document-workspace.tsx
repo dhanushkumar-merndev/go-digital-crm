@@ -512,16 +512,18 @@ export function SalesDocumentWorkspace({
   spec: PageSpec;
 }) {
   const workspaceSession = useWorkspaceSession();
-  const useSalesBootstrap =
+  const useSalesHotPath =
     role === 'sales-consultant' &&
     workspaceSession?.roleKey === 'sales-consultant' &&
     Boolean(workspaceSession.organizationId);
+  const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
   const queryScope = useMemo(
-    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
-    [role, useSalesBootstrap, workspaceSession],
+    () =>
+      useWorkspaceBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const),
+    [role, useWorkspaceBootstrap, workspaceSession],
   );
   const resource = kind === 'quotations' ? 'quotation' : 'booking';
-  const bootstrapPermissions: SalesDocumentPermissions | undefined = useSalesBootstrap
+  const bootstrapPermissions: SalesDocumentPermissions | undefined = useWorkspaceBootstrap
     ? {
         organizationId: workspaceSession!.organizationId as string,
         scopeKey: workspaceSession!.scopeKey,
@@ -554,9 +556,9 @@ export function SalesDocumentWorkspace({
     kind === 'bookings' && createOpen && searchParams.get('action') === 'create';
   const directCreate = directQuotationCreate || directBookingCreate;
   const legacyPermissions = useQuery({
-    queryKey: ['sales-document-permissions', kind, role],
+    queryKey: ['sales-document-permissions', kind, ...queryScope, role],
     queryFn: () => fetchSalesDocumentPermissions(kind),
-    enabled: !useSalesBootstrap,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
   const permissions = bootstrapPermissions ?? legacyPermissions.data;
@@ -884,9 +886,9 @@ export function SalesDocumentWorkspace({
   );
 
   if (
-    (!useSalesBootstrap && legacyPermissions.isPending) ||
+    (!useWorkspaceBootstrap && legacyPermissions.isPending) ||
     (!directCreate && workspace.isPending && permissions) ||
-    (!useSalesBootstrap &&
+    (!useSalesHotPath &&
       kind === 'bookings' &&
       !directBookingCreate &&
       bookingFilterOptions.isPending &&
@@ -894,12 +896,12 @@ export function SalesDocumentWorkspace({
   )
     return kind === 'bookings' ? <BookingsSkeleton /> : <QuotationsSkeleton />;
   if (
-    legacyPermissions.isError ||
+    (!useWorkspaceBootstrap && legacyPermissions.isError) ||
     !permissions ||
     (directCreate && !permissions?.canManage) ||
     (!directCreate && workspace.isError) ||
     (!directCreate && !workspace.data) ||
-    (!useSalesBootstrap && kind === 'bookings' && bookingFilterOptions.isError)
+    (!useSalesHotPath && kind === 'bookings' && bookingFilterOptions.isError)
   )
     return (
       <Card className="mx-auto max-w-xl">
@@ -916,7 +918,7 @@ export function SalesDocumentWorkspace({
             className="mt-5"
             variant="outline"
             onClick={() => {
-              if (!useSalesBootstrap) void legacyPermissions.refetch();
+              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
               void workspace.refetch();
               if (kind === 'bookings') void bookingFilterOptions.refetch();
             }}

@@ -186,12 +186,15 @@ function Field({
 
 export function SalesExchangeWorkspace() {
   const workspaceSession = useWorkspaceSession();
-  const useSalesBootstrap =
-    workspaceSession?.roleKey === 'sales-consultant' && Boolean(workspaceSession.organizationId);
-  const queryScope = useSalesBootstrap
-    ? workspaceQueryScope(workspaceSession)
-    : (['legacy', 'exchange'] as const);
-  const bootstrapPermissions: OperationalCasePermissions | undefined = useSalesBootstrap
+  const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
+  const queryScope = useMemo(
+    () =>
+      useWorkspaceBootstrap
+        ? workspaceQueryScope(workspaceSession)
+        : (['legacy', 'exchange'] as const),
+    [useWorkspaceBootstrap, workspaceSession],
+  );
+  const bootstrapPermissions: OperationalCasePermissions | undefined = useWorkspaceBootstrap
     ? {
         organizationId: workspaceSession!.organizationId as string,
         userId: workspaceSession!.userId,
@@ -216,9 +219,9 @@ export function SalesExchangeWorkspace() {
   const rcInput = useRef<HTMLInputElement>(null);
 
   const legacyPermissions = useQuery({
-    queryKey: ['operational-case-permissions', 'EXCHANGE', 'sales-exchange'],
+    queryKey: ['operational-case-permissions', 'EXCHANGE', ...queryScope, 'sales-exchange'],
     queryFn: () => fetchOperationalCasePermissions('EXCHANGE'),
-    enabled: !useSalesBootstrap,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
   const permissions = bootstrapPermissions ?? legacyPermissions.data;
@@ -349,9 +352,13 @@ export function SalesExchangeWorkspace() {
     });
   };
 
-  if ((!useSalesBootstrap && legacyPermissions.isPending) || options.isPending)
+  if ((!useWorkspaceBootstrap && legacyPermissions.isPending) || options.isPending)
     return <SalesExchangeSkeleton />;
-  if (legacyPermissions.isError || options.isError || !permissions?.canRequest)
+  if (
+    (!useWorkspaceBootstrap && legacyPermissions.isError) ||
+    options.isError ||
+    !permissions?.canRequest
+  )
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="p-10 text-center">

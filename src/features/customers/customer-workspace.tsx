@@ -330,14 +330,11 @@ function CustomerTable({
 
 export function CustomerWorkspace({ role }: { role: string }) {
   const workspaceSession = useWorkspaceSession();
-  const useSalesBootstrap =
-    role === 'sales-consultant' &&
-    workspaceSession?.roleKey === 'sales-consultant' &&
-    Boolean(workspaceSession.organizationId);
-  const queryScope = useSalesBootstrap
+  const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
+  const queryScope = useWorkspaceBootstrap
     ? workspaceQueryScope(workspaceSession)
     : (['legacy', role] as const);
-  const bootstrapPermissions: CustomerWorkspacePermissions | undefined = useSalesBootstrap
+  const bootstrapPermissions: CustomerWorkspacePermissions | undefined = useWorkspaceBootstrap
     ? {
         organizationId: workspaceSession!.organizationId as string,
         scopeKey: workspaceSession!.scopeKey,
@@ -356,9 +353,9 @@ export function CustomerWorkspace({ role }: { role: string }) {
     [debouncedSearch, query],
   );
   const legacyPermissions = useQuery({
-    queryKey: ['customer-workspace-permissions', role],
+    queryKey: ['customer-workspace-permissions', ...queryScope, role],
     queryFn: fetchCustomerWorkspacePermissions,
-    enabled: !useSalesBootstrap,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
   const permissions = bootstrapPermissions ?? legacyPermissions.data;
@@ -376,11 +373,15 @@ export function CustomerWorkspace({ role }: { role: string }) {
   };
 
   if (
-    (!useSalesBootstrap && legacyPermissions.isPending) ||
+    (!useWorkspaceBootstrap && legacyPermissions.isPending) ||
     (workspace.isPending && permissions?.canView)
   )
     return <PageSkeleton />;
-  if (legacyPermissions.isError || workspace.isError || !permissions?.canView)
+  if (
+    (!useWorkspaceBootstrap && legacyPermissions.isError) ||
+    workspace.isError ||
+    !permissions?.canView
+  )
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -396,7 +397,7 @@ export function CustomerWorkspace({ role }: { role: string }) {
             className="mt-5"
             variant="outline"
             onClick={() => {
-              if (!useSalesBootstrap) void legacyPermissions.refetch();
+              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
               void workspace.refetch();
             }}
           >

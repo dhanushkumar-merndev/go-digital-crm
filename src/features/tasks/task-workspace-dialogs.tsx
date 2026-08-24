@@ -104,9 +104,15 @@ export function TaskFormDialog({
   });
   const resetRequest = () => {
     requestId.current = null;
+    mutation.reset();
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!mutation.isPending) onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{record ? 'Edit task' : 'Create task'}</DialogTitle>
@@ -134,8 +140,10 @@ export function TaskFormDialog({
             ) : (
               <div className="space-y-2">
                 <Input
+                  id="task-lead-search"
                   value={leadSearch}
                   maxLength={160}
+                  aria-label="Search customer opportunities"
                   placeholder="Search customer, phone, model or lead ID"
                   onChange={(event) => setLeadSearch(event.target.value)}
                 />
@@ -146,9 +154,15 @@ export function TaskFormDialog({
                     setLeadId(value);
                   }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="Select customer opportunity">
                     <SelectValue
-                      placeholder={options.isPending ? 'Loading…' : 'Select opportunity'}
+                      placeholder={
+                        options.isPending
+                          ? 'Loading…'
+                          : options.isError
+                            ? 'Opportunities unavailable'
+                            : 'Select opportunity'
+                      }
                     />
                   </SelectTrigger>
                   <SelectContent>
@@ -160,6 +174,25 @@ export function TaskFormDialog({
                     ))}
                   </SelectContent>
                 </Select>
+                {options.isError ? (
+                  <Alert variant="destructive">
+                    <AlertDescription className="flex items-center justify-between gap-3">
+                      <span>Customer opportunities could not be loaded.</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void options.refetch()}
+                      >
+                        Try again
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                ) : !options.isPending && options.data?.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No authorized active opportunities match this search.
+                  </p>
+                ) : null}
               </div>
             )}
           </div>
@@ -191,7 +224,7 @@ export function TaskFormDialog({
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label>Priority</Label>
+              <Label htmlFor="task-priority">Priority</Label>
               <Select
                 value={priority}
                 onValueChange={(value) => {
@@ -199,7 +232,7 @@ export function TaskFormDialog({
                   setPriority(value);
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger id="task-priority">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -213,7 +246,7 @@ export function TaskFormDialog({
             </div>
             {record && (
               <div className="grid gap-2">
-                <Label>Status</Label>
+                <Label htmlFor="task-status">Status</Label>
                 <Select
                   value={status}
                   onValueChange={(value) => {
@@ -221,7 +254,7 @@ export function TaskFormDialog({
                     setStatus(value);
                   }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="task-status">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -255,7 +288,12 @@ export function TaskFormDialog({
             </Alert>
           )}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={mutation.isPending}
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
             <Button
@@ -304,8 +342,17 @@ export function TaskActionDialog({
       onOpenChange(false);
     },
   });
+  const resetRequest = () => {
+    requestId.current = null;
+    mutation.reset();
+  };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!mutation.isPending) onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{action === 'complete' ? 'Complete task' : 'Cancel task'}</DialogTitle>
@@ -332,7 +379,7 @@ export function TaskActionDialog({
               maxLength={action === 'cancel' ? 500 : 2000}
               rows={3}
               onChange={(event) => {
-                requestId.current = null;
+                resetRequest();
                 setNote(event.target.value);
               }}
             />
@@ -347,7 +394,12 @@ export function TaskActionDialog({
             </Alert>
           )}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={mutation.isPending}
+              onClick={() => onOpenChange(false)}
+            >
               Back
             </Button>
             <Button

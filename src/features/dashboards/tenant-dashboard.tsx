@@ -17,6 +17,10 @@ import {
   UsersRound,
 } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { TenantDashboardSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -479,9 +483,10 @@ export function TenantDashboard({
   role: RoleKey;
   heading?: string;
 }) {
+  const session = useWorkspaceSession();
   const manualRefreshRequest = useRef(false);
   const dashboard = useQuery({
-    queryKey: tenantDashboardKey,
+    queryKey: [...tenantDashboardKey, ...workspaceQueryScope(session)],
     queryFn: ({ signal }) =>
       fetchTenantDashboard(signal, { manualRefresh: manualRefreshRequest.current }),
   });

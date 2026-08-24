@@ -3,8 +3,18 @@ import { createClient } from '@/lib/supabase/client';
 
 const pageSize = 25;
 
+const auditLogIdSchema = z.union([
+  z.string().regex(/^[1-9]\d*$/),
+  z
+    .number()
+    .int()
+    .positive()
+    .refine(Number.isSafeInteger, 'Audit log identity exceeds the safe integer range')
+    .transform(String),
+]);
+
 const auditLogSchema = z.object({
-  id: z.uuid(),
+  id: auditLogIdSchema,
   action: z.string(),
   resource_type: z.string(),
   resource_id: z.string().nullable(),
@@ -21,7 +31,9 @@ function filterValue(value: string) {
   return value
     .trim()
     .slice(0, 80)
-    .replace(/[,.()]/g, '');
+    .replaceAll('\\', '\\\\')
+    .replaceAll('%', '\\%')
+    .replaceAll('_', '\\_');
 }
 
 export async function fetchAuditLogPage(input: {

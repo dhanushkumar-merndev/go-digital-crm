@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { LocateFixed } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -47,6 +47,13 @@ import {
   type TestDriveRecord,
 } from './test-drive-workspace-api';
 import { isTestDriveVersionConflict } from './test-drive-workspace-query';
+import {
+  isValidTestDriveRegistration,
+  normalizeTestDriveRegistration,
+  sanitizeTestDriveRegistrationInput,
+  TEST_DRIVE_REGISTRATION_MAX_LENGTH,
+  TEST_DRIVE_REGISTRATION_MIN_LENGTH,
+} from './test-drive-registration';
 
 function nextLocalHour() {
   const value = new Date(Date.now() + 60 * 60 * 1000);
@@ -138,6 +145,7 @@ export function TestDriveScheduleDialog({
   const [startLocation, setStartLocation] = useState('');
   const [destination, setDestination] = useState('');
   const requestId = useRef<string | null>(null);
+  const registrationInputRef = useRef<HTMLInputElement>(null);
   const debouncedLeadSearch = useDebouncedValue(leadSearch, 300);
   const debouncedVehicleSearch = useDebouncedValue(vehicleSearch, 300);
   const leads = useQuery({
@@ -152,6 +160,13 @@ export function TestDriveScheduleDialog({
     enabled: open && Boolean(branchId),
     staleTime: 60_000,
   });
+  useEffect(() => {
+    if (!open || !stockUnitId) return;
+    const frame = globalThis.requestAnimationFrame(() => {
+      registrationInputRef.current?.focus({ preventScroll: true });
+    });
+    return () => globalThis.cancelAnimationFrame(frame);
+  }, [open, stockUnitId]);
   const mutation = useMutation({
     mutationFn: () => {
       requestId.current ??= globalThis.crypto.randomUUID();
@@ -160,7 +175,7 @@ export function TestDriveScheduleDialog({
         stockUnitId,
         scheduledAt: new Date(scheduledAt).toISOString(),
         expectedDurationMinutes: Number(duration),
-        vehicleRegistration: registration.trim().toUpperCase(),
+        vehicleRegistration: normalizeTestDriveRegistration(registration),
         startLocation: startLocation.trim() ? { label: startLocation.trim() } : null,
         destination: destination.trim() ? { label: destination.trim() } : null,
         requestId: requestId.current,
@@ -173,7 +188,12 @@ export function TestDriveScheduleDialog({
     },
   });
   const durationValue = Number(duration);
-  const validRegistration = /^[A-Z0-9 -]{4,24}$/i.test(registration.trim());
+  const validRegistration = isValidTestDriveRegistration(registration);
+  const registrationValidationMessage = !registration.trim()
+    ? 'Enter the vehicle registration number.'
+    : !validRegistration
+      ? 'Use 4–24 letters, numbers, spaces, or hyphens only.'
+      : null;
   const validSchedule = Boolean(scheduledAt) && !Number.isNaN(new Date(scheduledAt).getTime());
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -208,6 +228,8 @@ export function TestDriveScheduleDialog({
                 requestId.current = null;
                 setLeadId(value);
                 setStockUnitId('');
+                setVehicleSearch('');
+                setRegistration('');
                 setBranchId(leads.data?.find((lead) => lead.lead_id === value)?.branch_id ?? '');
               }}
             >
@@ -245,6 +267,7 @@ export function TestDriveScheduleDialog({
               onValueChange={(value) => {
                 requestId.current = null;
                 setStockUnitId(value);
+                setRegistration('');
               }}
             >
               <SelectTrigger>
@@ -293,19 +316,47 @@ export function TestDriveScheduleDialog({
             </div>
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="test-drive-registration">Registration</Label>
+            <Label htmlFor="test-drive-registration">
+              Registration <span aria-hidden="true">*</span>
+              <span className="sr-only"> (required)</span>
+            </Label>
             <Input
+              ref={registrationInputRef}
               id="test-drive-registration"
+              type="text"
               value={registration}
-              minLength={4}
-              maxLength={24}
+              minLength={TEST_DRIVE_REGISTRATION_MIN_LENGTH}
+              maxLength={TEST_DRIVE_REGISTRATION_MAX_LENGTH}
+              autoCapitalize="characters"
+              autoComplete="off"
+              spellCheck={false}
+              inputMode="text"
+              className="cursor-text bg-background"
               placeholder="KA 01 AB 1234"
               required
+              aria-invalid={Boolean(stockUnitId && registrationValidationMessage)}
+              aria-describedby={
+                stockUnitId && registrationValidationMessage
+                  ? 'test-drive-dialog-registration-help test-drive-dialog-registration-error'
+                  : 'test-drive-dialog-registration-help'
+              }
               onChange={(event) => {
                 requestId.current = null;
-                setRegistration(event.target.value.toUpperCase());
+                setRegistration(sanitizeTestDriveRegistrationInput(event.target.value));
               }}
             />
+            <p id="test-drive-dialog-registration-help" className="text-xs text-muted-foreground">
+              Enter the selected vehicle’s actual registration; it is not filled automatically.
+            </p>
+            {stockUnitId && registrationValidationMessage && (
+              <p
+                id="test-drive-dialog-registration-error"
+                className="text-xs font-medium text-destructive"
+                role="alert"
+              >
+                {registrationValidationMessage}
+              </p>
+            )}
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">

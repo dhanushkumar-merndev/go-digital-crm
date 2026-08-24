@@ -3,6 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BarChart3, CalendarDays, CarFront, Pencil, Target, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { TenantTargetConfigurationSkeleton } from '@/components/skeletons';
@@ -65,6 +69,7 @@ export function TenantTargetConfigurationWorkspace({
   spec: PageSpec;
   readOnly?: boolean;
 }) {
+  const session = useWorkspaceSession();
   const [month, setMonth] = useState(currentMonth);
   const [selected, setSelected] = useState<BranchTarget | null>(null);
   const [salesTarget, setSalesTarget] = useState('0');
@@ -72,7 +77,7 @@ export function TenantTargetConfigurationWorkspace({
   const [driveTarget, setDriveTarget] = useState('0');
   const queryClient = useQueryClient();
   const query = useQuery({
-    queryKey: ['tenant-target-configuration', month],
+    queryKey: ['tenant-target-configuration', ...workspaceQueryScope(session), month],
     queryFn: ({ signal }) => fetchTenantTargetConfiguration(month, signal),
     staleTime: 60_000,
   });

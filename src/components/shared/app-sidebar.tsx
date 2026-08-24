@@ -12,6 +12,17 @@ import {
 } from '@/config/navigation';
 import type { RoleKey } from '@/config/navigation/types';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { useUiStore } from '@/stores/ui-store';
 import { AppIcon } from './icon';
@@ -31,6 +42,12 @@ function SidebarContent({
   const pathname = usePathname();
   const navigation = roleNavigation[role];
   const navigationItems = filterNavigationItems(navigation.items, navigationAccess);
+  const supportHref =
+    role === 'super-admin'
+      ? '/super-admin/support-sessions'
+      : role === 'business-owner'
+        ? '/business-owner/support-maintenance'
+        : null;
   return (
     <>
       <div className="flex h-16 items-center gap-3 border-b border-white/10 px-5">
@@ -84,10 +101,41 @@ function SidebarContent({
         })}
       </nav>
       <div className="border-t border-white/10 p-3">
-        <button className="flex h-9 w-full items-center gap-3 rounded-lg px-3 text-xs text-slate-400 hover:bg-white/5 hover:text-white">
-          <CircleHelp className="size-4" />
-          Help & support
-        </button>
+        <Dialog>
+          <DialogTrigger asChild>
+            <button
+              type="button"
+              className="flex h-9 w-full items-center gap-3 rounded-lg px-3 text-xs text-slate-400 hover:bg-white/5 hover:text-white"
+            >
+              <CircleHelp className="size-4" />
+              Help & support
+            </button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Help & support</DialogTitle>
+              <DialogDescription>
+                {supportHref
+                  ? 'Open the authorized support workspace to review or manage support access.'
+                  : 'Contact your dealership Client Admin and share the page name and what you were trying to do. Platform support can access tenant data only through an approved support session.'}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="mt-5">
+              <DialogClose asChild>
+                <Button type="button" variant="outline">
+                  Close
+                </Button>
+              </DialogClose>
+              {supportHref ? (
+                <Button asChild>
+                  <Link href={supportHref} onClick={onNavigate}>
+                    Open support workspace
+                  </Link>
+                </Button>
+              ) : null}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </>
   );

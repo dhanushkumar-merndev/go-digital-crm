@@ -845,16 +845,14 @@ export function WorkWorkspace({
   spec: PageSpec;
 }) {
   const workspaceSession = useWorkspaceSession();
-  const useSalesBootstrap =
-    role === 'sales-consultant' &&
-    workspaceSession?.roleKey === 'sales-consultant' &&
-    Boolean(workspaceSession.organizationId);
+  const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
   const queryScope = useMemo(
-    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
-    [role, useSalesBootstrap, workspaceSession],
+    () =>
+      useWorkspaceBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const),
+    [role, useWorkspaceBootstrap, workspaceSession],
   );
   const resource = kind === 'followups' ? 'followup' : 'appointment';
-  const bootstrapPermissions: WorkWorkspacePermissions | undefined = useSalesBootstrap
+  const bootstrapPermissions: WorkWorkspacePermissions | undefined = useWorkspaceBootstrap
     ? {
         organizationId: workspaceSession!.organizationId as string,
         userId: workspaceSession!.userId,
@@ -897,9 +895,9 @@ export function WorkWorkspace({
   );
   const queryClient = useQueryClient();
   const legacyPermissions = useQuery({
-    queryKey: ['work-workspace-permissions', kind, role],
+    queryKey: ['work-workspace-permissions', kind, ...queryScope, role],
     queryFn: () => fetchWorkWorkspacePermissions(kind),
-    enabled: !useSalesBootstrap,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
   const permissions = bootstrapPermissions ?? legacyPermissions.data;
@@ -941,9 +939,17 @@ export function WorkWorkspace({
     });
   }, [kind, permissions, queryClient, queryScope]);
 
-  if ((!useSalesBootstrap && legacyPermissions.isPending) || (workspace.isPending && permissions))
+  if (
+    (!useWorkspaceBootstrap && legacyPermissions.isPending) ||
+    (workspace.isPending && permissions)
+  )
     return kind === 'appointments' ? <AppointmentsSkeleton /> : <FollowupsSkeleton />;
-  if (legacyPermissions.isError || workspace.isError || !permissions || !workspace.data)
+  if (
+    (!useWorkspaceBootstrap && legacyPermissions.isError) ||
+    workspace.isError ||
+    !permissions ||
+    !workspace.data
+  )
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -959,7 +965,7 @@ export function WorkWorkspace({
             className="mt-5"
             variant="outline"
             onClick={() => {
-              if (!useSalesBootstrap) void legacyPermissions.refetch();
+              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
               void workspace.refetch();
             }}
           >

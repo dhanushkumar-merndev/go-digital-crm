@@ -529,24 +529,25 @@ function TestDriveTable({
 export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: string }) {
   void spec;
   const workspaceSession = useWorkspaceSession();
-  const useSalesBootstrap =
-    role === 'sales-consultant' &&
-    workspaceSession?.roleKey === 'sales-consultant' &&
-    Boolean(workspaceSession.organizationId);
+  const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
   const queryScope = useMemo(
-    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
-    [role, useSalesBootstrap, workspaceSession],
+    () =>
+      useWorkspaceBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const),
+    [role, useWorkspaceBootstrap, workspaceSession],
   );
-  const bootstrapPermissions: TestDrivePermissions | undefined = useSalesBootstrap
-    ? {
-        organizationId: workspaceSession!.organizationId as string,
-        userId: workspaceSession!.userId,
-        roleKey: workspaceSession!.roleKey,
-        scopeKey: workspaceSession!.scopeKey,
-        canManage: hasWorkspacePermission(workspaceSession, 'test_drive.manage'),
-        canProgressOwn: true,
-      }
-    : undefined;
+  const bootstrapPermissions: TestDrivePermissions | undefined =
+    useWorkspaceBootstrap &&
+    hasWorkspacePermission(workspaceSession, 'test_drive.manage') &&
+    hasWorkspacePermission(workspaceSession, 'customer.view')
+      ? {
+          organizationId: workspaceSession!.organizationId as string,
+          userId: workspaceSession!.userId,
+          roleKey: workspaceSession!.roleKey,
+          scopeKey: workspaceSession!.scopeKey,
+          canManage: true,
+          canProgressOwn: workspaceSession!.roleKey === 'sales-consultant',
+        }
+      : undefined;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -564,9 +565,9 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
     [debouncedModel, debouncedSearch, query],
   );
   const legacyPermissions = useQuery({
-    queryKey: ['test-drive-permissions', role],
+    queryKey: ['test-drive-permissions', ...queryScope, role],
     queryFn: fetchTestDrivePermissions,
-    enabled: !useSalesBootstrap,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
   const permissions = bootstrapPermissions ?? legacyPermissions.data;
@@ -605,8 +606,12 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
     void queryClient.invalidateQueries({ queryKey: ['customer-360'] });
   }, [queryClient, queryScope]);
 
-  if (!useSalesBootstrap && legacyPermissions.isPending) return <TestDrivesSkeleton />;
-  if (legacyPermissions.isError || !permissions || (screen === 'create' && !permissions.canManage))
+  if (!useWorkspaceBootstrap && legacyPermissions.isPending) return <TestDrivesSkeleton />;
+  if (
+    (!useWorkspaceBootstrap && legacyPermissions.isError) ||
+    !permissions ||
+    (screen === 'create' && !permissions.canManage)
+  )
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -622,7 +627,7 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
             className="mt-5"
             variant="outline"
             onClick={() => {
-              if (!useSalesBootstrap) void legacyPermissions.refetch();
+              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
               void workspace.refetch();
             }}
           >

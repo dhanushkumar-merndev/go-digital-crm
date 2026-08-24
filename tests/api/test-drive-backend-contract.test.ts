@@ -160,6 +160,17 @@ describe('test-drive lifecycle and concurrency boundary', () => {
     expect(create).toContain('insert into public.audit_logs');
   });
 
+  it('normalizes and validates the required registration before any write', () => {
+    expect(create).toContain(
+      "normalized_registration text := upper(btrim(coalesce(target_vehicle_registration, '')))",
+    );
+    expect(create).toContain("normalized_registration !~ '^[A-Z0-9 -]{4,24}$'");
+    expect(create.indexOf("normalized_registration !~ '^[A-Z0-9 -]{4,24}$'")).toBeLessThan(
+      create.indexOf('insert into public.test_drive_appointments'),
+    );
+    expect(create).toContain('target_start_location, normalized_registration, auth.uid()');
+  });
+
   it('makes cancellation, anchors, route finalization and feedback optimistic and replay-safe', () => {
     for (const mutation of [cancel, anchor, finalize, feedback]) {
       expect(mutation).toContain('target_request_id');

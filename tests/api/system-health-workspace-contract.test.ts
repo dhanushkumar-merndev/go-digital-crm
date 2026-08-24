@@ -40,6 +40,6 @@ describe('System Administrator health workspace contract', () => {
     expect(workspace).toContain(
       'does not claim external uptime, latency, backups, or tenant-wide error monitoring.',
     );
-    expect(workspace).toContain("['system-health-workspace', session?.organizationId]");
+    expect(workspace).toContain("['system-health-workspace', ...workspaceQueryScope(session)]");
   });
 });

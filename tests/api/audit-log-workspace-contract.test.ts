@@ -33,6 +33,11 @@ describe('audit log workspace data contract', () => {
 
   it('validates records before they enter the browser state', () => {
     expect(api).toContain('const auditLogSchema = z.object({');
+    expect(api).toContain('const auditLogIdSchema = z.union([');
+    expect(api).toContain('Number.isSafeInteger');
+    expect(api).toContain('.transform(String)');
+    expect(api).toContain('id: auditLogIdSchema');
+    expect(api).not.toMatch(/^\s*id: z\.uuid\(\),$/m);
     expect(api).toContain('z.array(auditLogSchema).parse(data ?? [])');
   });
 });
@@ -41,9 +46,9 @@ describe('audit log workspace UI contract', () => {
   it('debounces filters and keys each query by filters plus server cursor', () => {
     expect(workspace).toContain('useDebouncedValue(actionInput, 300)');
     expect(workspace).toContain('useDebouncedValue(resourceInput, 300)');
-    expect(workspace).toContain(
-      "['audit-log-page', action, resource, cursor?.created_at ?? null, cursor?.id ?? null]",
-    );
+    expect(workspace).toContain('...workspaceQueryScope(session)');
+    expect(workspace).toContain("'audit-log-page'");
+    expect(workspace).toContain('cursor?.id ?? null');
     expect(workspace).toContain('cursor pagination');
   });
 

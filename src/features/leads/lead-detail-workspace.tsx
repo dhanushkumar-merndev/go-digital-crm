@@ -34,6 +34,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
+import { roleHasNavigationSlug, roleLeadListHref } from '@/config/navigation';
 import { toWhatsAppClickToChatUrl } from '@/lib/phone';
 import { WorkCreateDialog } from '@/features/work/workspace-dialogs';
 import { updateLead } from './lead-workspace-api';
@@ -288,6 +289,7 @@ function LeadDetailSkeleton() {
 
 export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: string }) {
   const queryClient = useQueryClient();
+  const canOpenAppointments = roleHasNavigationSlug(role, 'appointments');
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [lostOpen, setLostOpen] = useState(false);
   const [lostReason, setLostReason] = useState('');
@@ -347,7 +349,7 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
   return (
     <div className="mx-auto max-w-[1600px] space-y-4">
       <Button variant="ghost" size="sm" asChild className="-ml-2">
-        <Link href={`/${role}/my-leads`}>
+        <Link href={roleLeadListHref(role)}>
           <ArrowLeft className="size-4" /> Back to leads
         </Link>
       </Button>
@@ -530,9 +532,15 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
                     ? `${data.counts.appointments} linked appointments`
                     : 'No linked appointments'}
                 </p>
-                <Button asChild variant="outline">
-                  <Link href={`/${role}/appointments`}>Open appointments</Link>
-                </Button>
+                {canOpenAppointments ? (
+                  <Button asChild variant="outline">
+                    <Link href={`/${role}/appointments`}>Open appointments</Link>
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Appointment details remain available in this scoped lead view.
+                  </p>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

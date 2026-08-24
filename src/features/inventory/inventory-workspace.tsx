@@ -1226,15 +1226,13 @@ export function InventoryWorkspace({
 }) {
   const view = inventoryViewForRoute(role, slug);
   const workspaceSession = useWorkspaceSession();
-  const useSalesBootstrap =
-    role === 'sales-consultant' &&
-    workspaceSession?.roleKey === 'sales-consultant' &&
-    Boolean(workspaceSession.organizationId);
+  const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
   const queryScope = useMemo(
-    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
-    [role, useSalesBootstrap, workspaceSession],
+    () =>
+      useWorkspaceBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const),
+    [role, useWorkspaceBootstrap, workspaceSession],
   );
-  const bootstrapPermissions: InventoryPermissions | undefined = useSalesBootstrap
+  const bootstrapPermissions: InventoryPermissions | undefined = useWorkspaceBootstrap
     ? {
         organizationId: workspaceSession!.organizationId as string,
         scopeKey: workspaceSession!.scopeKey,
@@ -1258,9 +1256,9 @@ export function InventoryWorkspace({
   const [selectedStockUnitId, setSelectedStockUnitId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const legacyPermissions = useQuery({
-    queryKey: ['inventory-permissions', role],
+    queryKey: ['inventory-permissions', ...queryScope, role],
     queryFn: fetchInventoryPermissions,
-    enabled: !useSalesBootstrap,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
   const permissions = bootstrapPermissions ?? legacyPermissions.data;
@@ -1317,10 +1315,7 @@ export function InventoryWorkspace({
         </div>
       </Alert>
     );
-  if (
-    (!useSalesBootstrap && legacyPermissions.isPending) ||
-    (!useSalesBootstrap && branches.isPending)
-  )
+  if ((!useWorkspaceBootstrap && legacyPermissions.isPending) || branches.isPending)
     return selectedView === 'stock-check' ? <StockCheckSkeleton /> : <InventoryWorkspaceSkeleton />;
   const permissionDenied =
     permissions &&
@@ -1328,8 +1323,8 @@ export function InventoryWorkspace({
       ? !permissions.canStockCheck && !permissions.canView
       : !permissions.canView);
   if (
-    legacyPermissions.isError ||
-    (!useSalesBootstrap && branches.isError) ||
+    (!useWorkspaceBootstrap && legacyPermissions.isError) ||
+    branches.isError ||
     !permissions ||
     permissionDenied
   )
@@ -1348,7 +1343,7 @@ export function InventoryWorkspace({
             className="mt-5"
             variant="outline"
             onClick={() => {
-              if (!useSalesBootstrap) void legacyPermissions.refetch();
+              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
               void branches.refetch();
             }}
           >

@@ -4,6 +4,10 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { Activity, CircleAlert, CopyPlus, Play, Plus, Search, ToggleLeft } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
@@ -283,6 +287,7 @@ function AutomationTable({
 }
 
 export function AutomationWorkspace({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
   const [searchInput, setSearchInput] = useState('');
   const [status, setStatus] = useState<AutomationWorkspaceQuery['status']>('ALL');
   const [page, setPage] = useState(1);
@@ -290,7 +295,7 @@ export function AutomationWorkspace({ spec }: { spec: PageSpec }) {
   const client = useQueryClient();
   const search = useDebouncedValue(searchInput, 300);
   const query = useQuery({
-    queryKey: ['automation-workspace', page, search, status],
+    queryKey: ['automation-workspace', ...workspaceQueryScope(session), page, search, status],
     queryFn: () => fetchAutomationWorkspace({ page, pageSize: 25, search, status }),
     placeholderData: keepPreviousData,
     staleTime: 60_000,

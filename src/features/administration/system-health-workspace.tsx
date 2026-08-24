@@ -15,7 +15,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useWorkspaceSession } from '@/components/providers/workspace-session-provider';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import type { Metric, PageSpec } from '@/lib/domain';
 import { fetchSystemHealthWorkspace } from './system-health-workspace-api';
@@ -34,7 +37,7 @@ function attentionVariant(status: string, safeCode: string | null) {
 export function SystemHealthWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
   const query = useQuery({
-    queryKey: ['system-health-workspace', session?.organizationId],
+    queryKey: ['system-health-workspace', ...workspaceQueryScope(session)],
     queryFn: ({ signal }) => fetchSystemHealthWorkspace(signal),
     staleTime: 60_000,
   });

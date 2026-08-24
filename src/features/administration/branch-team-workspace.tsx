@@ -16,6 +16,11 @@ import {
 } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { BranchTeamSkeleton } from '@/components/skeletons';
@@ -635,6 +640,7 @@ function TeamTable({
 export function BranchTeamWorkspace({
   kind,
   preset = 'MANAGE',
+  role,
   spec,
 }: {
   kind: AdministrationKind;
@@ -642,6 +648,24 @@ export function BranchTeamWorkspace({
   role: string;
   spec: PageSpec;
 }) {
+  const session = useWorkspaceSession();
+  const useWorkspaceBootstrap = Boolean(session?.organizationId);
+  const queryScope = useMemo(
+    () => (useWorkspaceBootstrap ? workspaceQueryScope(session) : (['legacy', role] as const)),
+    [role, session, useWorkspaceBootstrap],
+  );
+  const bootstrapPermissions: BranchTeamPermissions | undefined = useWorkspaceBootstrap
+    ? {
+        organizationId: session!.organizationId as string,
+        userId: session!.userId,
+        roleKey: session!.roleKey,
+        dataScope: session!.dataScope ?? 'unknown',
+        scopeKey: session!.scopeKey,
+        canManageBranches: hasWorkspacePermission(session, 'branch.manage'),
+        canManageTeams: hasWorkspacePermission(session, 'team.manage'),
+        canManageUsers: hasWorkspacePermission(session, 'user.manage'),
+      }
+    : undefined;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -658,37 +682,32 @@ export function BranchTeamWorkspace({
   const [teamEditor, setTeamEditor] = useState<TeamAdministrationRecord | null | 'create'>(null);
   const [teamMembers, setTeamMembers] = useState<TeamAdministrationRecord | null>(null);
   const queryClient = useQueryClient();
-  const permissions = useQuery({
-    queryKey: ['branch-team-permissions'],
+  const legacyPermissions = useQuery({
+    queryKey: ['branch-team-permissions', ...queryScope],
     queryFn: fetchBranchTeamPermissions,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
-  useTenantRealtimeInvalidation(permissions.data?.organizationId, [
+  const permissions = bootstrapPermissions ?? legacyPermissions.data;
+  useTenantRealtimeInvalidation(permissions?.organizationId, [
     {
       resource: 'administration',
       queryKeys: [
-        ['branch-team-workspace', permissions.data?.organizationId],
+        ['branch-team-workspace', permissions?.organizationId],
         ['team-administration-options'],
         ['branch-access-options'],
       ],
     },
   ]);
   const workspace = useQuery<BranchAdministrationWorkspace | TeamAdministrationWorkspace>({
-    queryKey: [
-      'branch-team-workspace',
-      permissions.data?.organizationId,
-      permissions.data?.scopeKey,
-      kind,
-      preset,
-      requestQuery,
-    ],
+    queryKey: ['branch-team-workspace', ...queryScope, kind, preset, requestQuery],
     queryFn: () =>
       kind === 'branches'
         ? fetchBranchAdministrationWorkspace(requestQuery, preset)
         : fetchTeamAdministrationWorkspace(requestQuery),
     enabled: Boolean(
-      permissions.data &&
-      (kind === 'branches' ? permissions.data.canManageBranches : permissions.data.canManageTeams),
+      permissions &&
+      (kind === 'branches' ? permissions.canManageBranches : permissions.canManageTeams),
     ),
     placeholderData: keepPreviousData,
   });
@@ -703,16 +722,24 @@ export function BranchTeamWorkspace({
   );
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: ['branch-team-workspace', permissions.data?.organizationId],
+      queryKey: ['branch-team-workspace', permissions?.organizationId],
     });
     void queryClient.invalidateQueries({ queryKey: ['team-administration-options'] });
     void queryClient.invalidateQueries({ queryKey: ['branch-access-options'] });
     void queryClient.invalidateQueries({ queryKey: ['tenant-user-administration'] });
-  }, [permissions.data?.organizationId, queryClient]);
+  }, [permissions?.organizationId, queryClient]);
 
-  if (permissions.isPending || (workspace.isPending && permissions.data))
+  if (
+    (!useWorkspaceBootstrap && legacyPermissions.isPending) ||
+    (workspace.isPending && permissions)
+  )
     return <BranchTeamSkeleton />;
-  if (permissions.isError || workspace.isError || !permissions.data || !workspace.data)
+  if (
+    (!useWorkspaceBootstrap && legacyPermissions.isError) ||
+    workspace.isError ||
+    !permissions ||
+    !workspace.data
+  )
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -728,7 +755,7 @@ export function BranchTeamWorkspace({
             className="mt-5"
             variant="outline"
             onClick={() => {
-              void permissions.refetch();
+              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
               void workspace.refetch();
             }}
           >
@@ -744,9 +771,9 @@ export function BranchTeamWorkspace({
   const canCreate =
     kind === 'branches'
       ? preset === 'MANAGE' &&
-        ['ALL_BRANCHES', 'ORGANIZATION'].includes(permissions.data.dataScope) &&
-        permissions.data.canManageBranches
-      : permissions.data.canManageTeams;
+        ['ALL_BRANCHES', 'ORGANIZATION'].includes(permissions.dataScope) &&
+        permissions.canManageBranches
+      : permissions.canManageTeams;
   return (
     <div className="mx-auto max-w-[1600px]">
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
@@ -770,7 +797,7 @@ export function BranchTeamWorkspace({
             result={branchResult}
             query={query}
             preset={preset}
-            permissions={permissions.data}
+            permissions={permissions}
             isFetching={workspace.isFetching}
             onQueryChange={onQueryChange}
             onEdit={setBranchEditor}
@@ -780,7 +807,7 @@ export function BranchTeamWorkspace({
           <TeamTable
             result={teamResult!}
             query={query}
-            permissions={permissions.data}
+            permissions={permissions}
             isFetching={workspace.isFetching}
             onQueryChange={onQueryChange}
             onEdit={setTeamEditor}

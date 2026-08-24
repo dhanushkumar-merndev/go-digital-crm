@@ -61,6 +61,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { roleHasNavigationSlug } from '@/config/navigation';
 import type { PageSpec } from '@/lib/domain';
 import { toWhatsAppClickToChatUrl } from '@/lib/phone';
 import {
@@ -688,6 +689,7 @@ function LeadTable({
   onMatchCustomer: (lead: LeadRecord) => void;
 }) {
   const isManagerView = ['team-manager', 'showroom-manager', 'gm-sales'].includes(role);
+  const canOpenFollowups = roleHasNavigationSlug(role, 'follow-ups');
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
   const [draftFollowupFrom, setDraftFollowupFrom] = useState('');
   const [draftFollowupTo, setDraftFollowupTo] = useState('');
@@ -800,15 +802,17 @@ function LeadTable({
                 <WhatsAppIcon className="size-4" />
               </a>
             </Button>
-            <Button asChild variant="ghost" size="icon" className="size-7 text-blue-600">
-              <Link
-                href={`/${role}/follow-ups?q=${encodeURIComponent(row.original.phone)}`}
-                aria-label={`Open follow-ups for ${row.original.customer_name}`}
-                title={`Open follow-ups for ${row.original.customer_name}`}
-              >
-                <CalendarDays className="size-3.5" />
-              </Link>
-            </Button>
+            {canOpenFollowups ? (
+              <Button asChild variant="ghost" size="icon" className="size-7 text-blue-600">
+                <Link
+                  href={`/${role}/follow-ups?q=${encodeURIComponent(row.original.phone)}`}
+                  aria-label={`Open follow-ups for ${row.original.customer_name}`}
+                  title={`Open follow-ups for ${row.original.customer_name}`}
+                >
+                  <CalendarDays className="size-3.5" />
+                </Link>
+              </Button>
+            ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -850,7 +854,17 @@ function LeadTable({
         ),
       },
     ],
-    [canAssign, canLinkCustomer, canUpdate, isManagerView, onAssign, onEdit, onMatchCustomer, role],
+    [
+      canAssign,
+      canLinkCustomer,
+      canOpenFollowups,
+      canUpdate,
+      isManagerView,
+      onAssign,
+      onEdit,
+      onMatchCustomer,
+      role,
+    ],
   );
   // TanStack Table returns an imperative model; React Compiler intentionally skips this hook.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -1203,15 +1217,13 @@ export function LeadWorkspace({
   role: string;
 }) {
   const workspaceSession = useWorkspaceSession();
-  const useSalesBootstrap =
-    role === 'sales-consultant' &&
-    workspaceSession?.roleKey === 'sales-consultant' &&
-    Boolean(workspaceSession.organizationId);
+  const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
   const queryScope = useMemo(
-    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
-    [role, useSalesBootstrap, workspaceSession],
+    () =>
+      useWorkspaceBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const),
+    [role, useWorkspaceBootstrap, workspaceSession],
   );
-  const bootstrapPermissions: LeadWorkspacePermissions | undefined = useSalesBootstrap
+  const bootstrapPermissions: LeadWorkspacePermissions | undefined = useWorkspaceBootstrap
     ? {
         organizationId: workspaceSession!.organizationId as string,
         canCreate: hasWorkspacePermission(workspaceSession, 'lead.create'),
@@ -1250,9 +1262,9 @@ export function LeadWorkspace({
     placeholderData: keepPreviousData,
   });
   const legacyPermissions = useQuery({
-    queryKey: ['lead-workspace-permissions', role],
+    queryKey: ['lead-workspace-permissions', ...queryScope, role],
     queryFn: fetchLeadWorkspacePermissions,
-    enabled: !useSalesBootstrap,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
   const permissions = bootstrapPermissions ?? legacyPermissions.data;
@@ -1269,7 +1281,7 @@ export function LeadWorkspace({
   );
 
   if (workspace.isPending) return <LeadWorkspaceSkeleton />;
-  if (workspace.isError || legacyPermissions.isError)
+  if (workspace.isError || (!useWorkspaceBootstrap && legacyPermissions.isError))
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -1286,7 +1298,7 @@ export function LeadWorkspace({
             variant="outline"
             onClick={() => {
               void workspace.refetch();
-              if (!useSalesBootstrap) void legacyPermissions.refetch();
+              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
             }}
           >
             <RotateCcw className="size-4" />

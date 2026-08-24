@@ -200,6 +200,13 @@ async function patch(table, query, row) {
   });
 }
 
+async function removeRows(table, query) {
+  return request(restUrl(table, query), {
+    method: 'DELETE',
+    headers: { Prefer: 'return=minimal' },
+  });
+}
+
 function emailFor(roleKey) {
   return `${roleKey.replaceAll('_', '-')}@${DEMO_DOMAIN}`;
 }
@@ -1794,6 +1801,36 @@ async function main() {
     'sales_consultant',
     'telecaller_bdc',
   ]);
+  const telecallerPermissionKeys = new Set([
+    'customer.view',
+    'customer.create',
+    'customer.link',
+    'lead.view',
+    'lead.create',
+    'lead.update',
+    'call.view',
+    'call.create',
+    'message.view',
+    'message.send',
+    'task.view',
+    'task.create',
+    'task.update',
+    'task.complete',
+    'task.cancel',
+    'followup.view',
+    'followup.create',
+    'followup.update',
+    'followup.complete',
+    'followup.cancel',
+    'appointment.view',
+    'appointment.create',
+    'appointment.update',
+    'appointment.complete',
+    'appointment.cancel',
+    'document.upload',
+    'document.download',
+    'email.send',
+  ]);
   const rolePermissionPrefixes = {
     business_owner: [
       'customer.',
@@ -1841,17 +1878,19 @@ async function main() {
   for (const tenantRole of tenantRoles) {
     const allowedKeys = broadRoles.has(tenantRole.role_key)
       ? [...permissionIdByKey.keys()]
-      : salesRoles.has(tenantRole.role_key)
-        ? [...permissionIdByKey.keys()].filter((key) =>
-            /^(customer|lead|call|message|task|test_drive|quotation|booking|document|email|approval)\./.test(
-              key,
-            ),
-          )
-        : [...permissionIdByKey.keys()].filter((key) =>
-            (rolePermissionPrefixes[tenantRole.role_key] ?? ['customer.', 'document.']).some(
-              (prefix) => key === prefix || key.startsWith(prefix),
-            ),
-          );
+      : tenantRole.role_key === 'telecaller_bdc'
+        ? [...telecallerPermissionKeys].filter((key) => permissionIdByKey.has(key))
+        : salesRoles.has(tenantRole.role_key)
+          ? [...permissionIdByKey.keys()].filter((key) =>
+              /^(customer|lead|call|message|task|test_drive|quotation|booking|document|email|approval)\./.test(
+                key,
+              ),
+            )
+          : [...permissionIdByKey.keys()].filter((key) =>
+              (rolePermissionPrefixes[tenantRole.role_key] ?? ['customer.', 'document.']).some(
+                (prefix) => key === prefix || key.startsWith(prefix),
+              ),
+            );
     for (const permissionKey of allowedKeys) {
       rolePermissionRows.push({
         role_id: tenantRole.id,
@@ -1860,6 +1899,17 @@ async function main() {
     }
   }
   await insert('role_permissions', rolePermissionRows, { onConflict: 'role_id,permission_id' });
+  for (const tenantRole of tenantRoles.filter((role) => role.role_key === 'telecaller_bdc')) {
+    const allowedPermissionIds = [...telecallerPermissionKeys]
+      .map((key) => permissionIdByKey.get(key))
+      .filter(Boolean);
+    if (allowedPermissionIds.length === 0)
+      throw new Error('Telecaller permission preset is unavailable for the demo tenant.');
+    await removeRows('role_permissions', {
+      role_id: `eq.${tenantRole.id}`,
+      permission_id: `not.in.(${allowedPermissionIds.join(',')})`,
+    });
+  }
 
   const moduleRows = await select('modules', { select: 'id,module_key', order: 'module_key.asc' });
   await insert(

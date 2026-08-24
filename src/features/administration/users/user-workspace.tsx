@@ -16,6 +16,10 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { AdminUsersSkeleton } from '@/components/skeletons';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -853,6 +857,7 @@ function UserTable({
 }
 
 export function UserWorkspace({ spec, mode }: { spec: PageSpec; mode: UserAdministrationMode }) {
+  const session = useWorkspaceSession();
   const router = useRouter();
   const pathname = usePathname();
   const searchParameters = useSearchParams();
@@ -869,12 +874,12 @@ export function UserWorkspace({ spec, mode }: { spec: PageSpec; mode: UserAdmini
     [debouncedSearch, query],
   );
   const workspace = useQuery({
-    queryKey: ['tenant-user-administration', mode, effectiveQuery],
+    queryKey: ['tenant-user-administration', ...workspaceQueryScope(session), mode, effectiveQuery],
     queryFn: () => fetchUserWorkspace(effectiveQuery, mode),
     placeholderData: keepPreviousData,
   });
   const options = useQuery({
-    queryKey: ['tenant-user-administration-options', mode],
+    queryKey: ['tenant-user-administration-options', ...workspaceQueryScope(session), mode],
     queryFn: () => fetchUserAdministrationOptions(mode),
   });
   const changeQuery = useCallback(

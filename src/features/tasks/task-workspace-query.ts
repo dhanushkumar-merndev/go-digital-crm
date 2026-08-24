@@ -50,7 +50,7 @@ export function parseTaskQuery(params: URLSearchParams): TaskQuery {
   const priority = params.get('priority');
   const sort = params.get('sort');
   return {
-    page: Number.isSafeInteger(page) && page > 0 ? page : 1,
+    page: Number.isSafeInteger(page) && page > 0 && page <= 1_000_000 ? page : 1,
     pageSize: taskPageSizes.includes(pageSize as TaskPageSize) ? (pageSize as TaskPageSize) : 25,
     search: (params.get('q') ?? '').trim().slice(0, 160),
     status: (taskStatusFilters as readonly string[]).includes(status ?? '')

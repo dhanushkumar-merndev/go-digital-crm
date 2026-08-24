@@ -1538,15 +1538,17 @@ function CallTable({
 
 export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) {
   const workspaceSession = useWorkspaceSession();
-  const useSalesBootstrap =
+  const useSalesHotPath =
     role === 'sales-consultant' &&
     workspaceSession?.roleKey === 'sales-consultant' &&
     Boolean(workspaceSession.organizationId);
+  const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
   const queryScope = useMemo(
-    () => (useSalesBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const)),
-    [role, useSalesBootstrap, workspaceSession],
+    () =>
+      useWorkspaceBootstrap ? workspaceQueryScope(workspaceSession) : (['legacy', role] as const),
+    [role, useWorkspaceBootstrap, workspaceSession],
   );
-  const bootstrapPermissions: CallWorkspacePermissions | undefined = useSalesBootstrap
+  const bootstrapPermissions: CallWorkspacePermissions | undefined = useWorkspaceBootstrap
     ? {
         organizationId: workspaceSession!.organizationId as string,
         scopeKey: workspaceSession!.scopeKey,
@@ -1571,9 +1573,9 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
   );
   const queryClient = useQueryClient();
   const legacyPermissions = useQuery({
-    queryKey: ['call-workspace-permissions', role],
+    queryKey: ['call-workspace-permissions', ...queryScope, role],
     queryFn: fetchCallWorkspacePermissions,
-    enabled: !useSalesBootstrap,
+    enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
   const permissions = bootstrapPermissions ?? legacyPermissions.data;
@@ -1608,9 +1610,9 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
     setSelectedCallId(call.id);
   };
 
-  if ((!useSalesBootstrap && legacyPermissions.isPending) || workspace.isPending)
+  if ((!useWorkspaceBootstrap && legacyPermissions.isPending) || workspace.isPending)
     return <CallsSkeleton />;
-  if (legacyPermissions.isError || workspace.isError)
+  if ((!useWorkspaceBootstrap && legacyPermissions.isError) || workspace.isError)
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -1626,7 +1628,7 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
             className="mt-5"
             variant="outline"
             onClick={() => {
-              if (!useSalesBootstrap) void legacyPermissions.refetch();
+              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
               void workspace.refetch();
             }}
           >
@@ -1663,7 +1665,7 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
   // The optimized Sales RPC filters and counts each tab before pagination.
   // Legacy role wrappers retain their existing response contract until those
   // roles are migrated, so keep the prior current-page presentation for them.
-  const displayedWorkspace = useSalesBootstrap
+  const displayedWorkspace = useSalesHotPath
     ? workspace.data
     : activeTab === 'history'
       ? workspace.data

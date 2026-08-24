@@ -6,6 +6,7 @@ import {
   WORKSPACE_BOOTSTRAP_HEADER,
 } from '@/lib/auth/workspace-bootstrap-header';
 import { createClient } from '@/lib/supabase/server';
+import { isTransientSupabaseError } from '@/lib/supabase/transient-error';
 
 type AccessContext = {
   destination?: string;
@@ -21,8 +22,10 @@ export default async function HomePage() {
     const supabase = await createClient();
     const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
     if (claimsError || !claimsData?.claims?.sub) redirect('/login');
-    const { data, error } = await supabase.rpc('get_workspace_bootstrap');
-    if (error || !data) redirect('/access/locked');
+    let { data, error } = await supabase.rpc('get_workspace_bootstrap');
+    if (isTransientSupabaseError(error))
+      ({ data, error } = await supabase.rpc('get_workspace_bootstrap'));
+    if (error || !data) redirect('/access/unavailable');
     context = data as AccessContext;
   }
 
@@ -33,5 +36,6 @@ export default async function HomePage() {
   if (context.destination === 'ONBOARDING') redirect('/access/onboarding');
   if (context.destination === 'MAINTENANCE') redirect('/access/maintenance');
   if (context.destination === 'NO_ROLE') redirect('/access/no-role');
-  redirect('/access/locked');
+  if (context.destination === 'ACCOUNT_LOCKED') redirect('/access/locked');
+  redirect('/access/unavailable');
 }

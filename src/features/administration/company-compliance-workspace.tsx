@@ -11,6 +11,10 @@ import {
   RefreshCw,
   ShieldCheck,
 } from 'lucide-react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { CompanyComplianceSkeleton } from '@/components/skeletons';
@@ -51,8 +55,9 @@ function statusVariant(status: string) {
 }
 
 export function CompanyComplianceWorkspace({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
   const query = useQuery({
-    queryKey: ['company-compliance'],
+    queryKey: ['company-compliance', ...workspaceQueryScope(session)],
     queryFn: ({ signal }) => fetchCompanyComplianceWorkspace(signal),
     staleTime: 60_000,
   });

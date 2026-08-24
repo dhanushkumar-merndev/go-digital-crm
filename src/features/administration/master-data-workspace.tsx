@@ -2,10 +2,15 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CarFront, Database, Filter, Search, Tag, ToggleLeft } from 'lucide-react';
 import { useState } from 'react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { MasterDataSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -30,12 +35,13 @@ const categories: Array<{ value: MasterDataCategory; label: string }> = [
   { value: 'LEAD_SOURCES', label: 'Lead sources' },
 ];
 export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
   const [category, setCategory] = useState<MasterDataCategory>('MODELS');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const client = useQueryClient();
   const data = useQuery({
-    queryKey: ['master-data', category, page, search],
+    queryKey: ['master-data', ...workspaceQueryScope(session), category, page, search],
     queryFn: ({ signal }) => fetchMasterDataWorkspace(category, page, search, signal),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
@@ -108,9 +114,9 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
                   placeholder={`Search ${category.toLowerCase().replaceAll('_', ' ')}`}
                 />
               </div>
-              <Button variant="outline">
-                <Filter /> Server filtered
-              </Button>
+              <Badge variant="outline" className="h-9 gap-2 px-3 font-medium">
+                <Filter className="size-4" /> Server filtered
+              </Badge>
             </div>
           </CardHeader>
           <CardContent className="overflow-x-auto p-0">

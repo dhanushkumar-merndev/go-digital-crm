@@ -5,12 +5,22 @@ import {
   WORKSPACE_BOOTSTRAP_HEADER,
 } from '@/lib/auth/workspace-bootstrap-header';
 import { getRuntimeMode } from '@/lib/runtime/runtime-mode';
+import { isTransientSupabaseError } from '@/lib/supabase/transient-error';
 
 type AccessContext = {
   destination:
     'CRM' | 'LOGIN' | 'ACCOUNT_LOCKED' | 'ONBOARDING' | 'MFA' | 'MAINTENANCE' | 'NO_ROLE';
   role_key?: string;
 };
+const accessDestinations = new Set<AccessContext['destination']>([
+  'CRM',
+  'LOGIN',
+  'ACCOUNT_LOCKED',
+  'ONBOARDING',
+  'MFA',
+  'MAINTENANCE',
+  'NO_ROLE',
+]);
 const accessPaths: Record<Exclude<AccessContext['destination'], 'CRM' | 'LOGIN'>, string> = {
   ACCOUNT_LOCKED: '/access/locked',
   ONBOARDING: '/access/onboarding',
@@ -18,6 +28,17 @@ const accessPaths: Record<Exclude<AccessContext['destination'], 'CRM' | 'LOGIN'>
   MAINTENANCE: '/access/maintenance',
   NO_ROLE: '/access/no-role',
 };
+
+function isAccessContext(value: unknown): value is AccessContext {
+  if (!value || typeof value !== 'object') return false;
+  const destination = (value as Record<string, unknown>).destination;
+  if (
+    typeof destination !== 'string' ||
+    !accessDestinations.has(destination as AccessContext['destination'])
+  )
+    return false;
+  return destination !== 'CRM' || typeof (value as Record<string, unknown>).role_key === 'string';
+}
 
 const publicAuthPaths = new Set([
   '/login',
@@ -96,9 +117,19 @@ export async function proxy(request: NextRequest) {
     return privateNoStore(response);
   }
 
-  const { data, error } = await supabase.rpc('get_workspace_bootstrap');
-  if (error || !data) return redirectWithSessionCookies('/access/locked', request, response);
-  const context = data as AccessContext;
+  let bootstrap = await supabase.rpc('get_workspace_bootstrap');
+  if (isTransientSupabaseError(bootstrap.error))
+    bootstrap = await supabase.rpc('get_workspace_bootstrap');
+  if (bootstrap.error || !isAccessContext(bootstrap.data)) {
+    console.error('WORKSPACE_BOOTSTRAP_UNAVAILABLE', {
+      code: bootstrap.error?.code ?? (bootstrap.data ? 'INVALID_PAYLOAD' : 'NO_DATA'),
+    });
+    return pathname === '/access/unavailable'
+      ? privateNoStore(response)
+      : redirectWithSessionCookies('/access/unavailable', request, response);
+  }
+  const data = bootstrap.data;
+  const context = data;
   if (context.destination !== 'CRM') {
     const target = accessPaths[context.destination as keyof typeof accessPaths] ?? '/login';
     return pathname === target
