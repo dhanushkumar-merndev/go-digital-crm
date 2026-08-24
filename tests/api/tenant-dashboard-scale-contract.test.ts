@@ -106,6 +106,32 @@ describe('tenant dashboard 100k-lead scale contract', () => {
     );
   });
 
+  it('declares operational aggregation state in the function that consumes it', () => {
+    const dashboardStart = migration.indexOf(
+      'create or replace function app_private.tenant_performance_dashboard(',
+    );
+    const dashboardEnd = migration.indexOf(
+      'revoke all on function app_private.tenant_performance_dashboard(',
+      dashboardStart,
+    );
+    const dashboardFunction = migration.slice(dashboardStart, dashboardEnd);
+    const liveItemsStart = migration.indexOf(
+      'create or replace function app_private.tenant_dashboard_live_items(',
+    );
+    const liveItemsEnd = migration.indexOf(
+      'revoke all on function app_private.tenant_dashboard_live_items(',
+      liveItemsStart,
+    );
+    const liveItemsFunction = migration.slice(liveItemsStart, liveItemsEnd);
+
+    expect(dashboardFunction).toContain('operational_counts record;');
+    expect(dashboardFunction).toContain('operational_department text;');
+    expect(dashboardFunction).toContain('foreach operational_department in array');
+    expect(dashboardFunction).toContain('select * into operational_counts');
+    expect(liveItemsFunction).not.toContain('operational_counts record;');
+    expect(liveItemsFunction).not.toContain('operational_department text;');
+  });
+
   it('preserves all public signatures, JSON fields and authenticated-only grants', () => {
     expect(migration).toContain(
       'create or replace function public.get_tenant_performance_dashboard(',

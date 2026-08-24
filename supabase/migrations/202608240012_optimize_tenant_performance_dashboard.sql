@@ -502,8 +502,6 @@ declare
   lead_scope record;
   followup_scope record;
   customer_scope record;
-  operational_counts record;
-  operational_department text;
   preview_result jsonb := '[]'::jsonb;
   attention_result jsonb := '[]'::jsonb;
 begin
@@ -785,6 +783,8 @@ declare
   inventory_scope record;
   test_drive_scope record;
   customer_scope record;
+  operational_counts record;
+  operational_department text;
   can_view_leads boolean := false;
   can_view_calls boolean := false;
   can_view_work boolean := false;
