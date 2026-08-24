@@ -1698,6 +1698,7 @@ declare
   normalized_comments text := nullif(btrim(coalesce(target_comments, '')), '');
   normalized_competitor text := nullif(btrim(coalesce(target_competitor_compared, '')), '');
   normalized_intent text := upper(btrim(coalesce(target_purchase_intent, '')));
+  lead_row public.leads%rowtype;
   fingerprint text;
   replay_result jsonb;
   result jsonb;
@@ -1778,6 +1779,23 @@ begin
   returning * into feedback_row;
   update public.test_drives set version = version + 1, updated_at = now()
   where id = drive_row.id returning * into drive_row;
+
+  if normalized_intent = 'NOT_INTERESTED' and drive_row.lead_id is not null then
+    select * into lead_row from public.leads
+    where id = drive_row.lead_id and organization_id = current_organization_id
+    for update;
+    if found and lead_row.lifecycle_status <> 'Lost' then
+      insert into public.lead_stage_history (
+        organization_id, lead_id, from_status, to_status, changed_by, reason
+      ) values (
+        current_organization_id, lead_row.id, lead_row.lifecycle_status,
+        'Lost', auth.uid(), 'Test drive feedback: Not interested'
+      );
+      update public.leads set lifecycle_status = 'Lost', updated_at = clock_timestamp()
+      where id = lead_row.id and organization_id = current_organization_id;
+    end if;
+  end if;
+
   result := jsonb_build_object('id', drive_row.id, 'feedback_id', feedback_row.id,
     'version', drive_row.version, 'status', drive_row.status, 'replayed', false);
   insert into public.activities (organization_id, customer_id, lead_id, activity_type, actor_id, metadata)

@@ -1238,6 +1238,7 @@ declare
   call_record public.calls%rowtype;
   normalized_outcome text := upper(btrim(coalesce(target_outcome, '')));
   normalized_notes text := nullif(btrim(coalesce(target_notes, '')), '');
+  lead_row public.leads%rowtype;
   calculated_duration integer;
   fingerprint text;
   previous_action text;
@@ -1344,6 +1345,26 @@ begin
   returning * into call_record;
   if not found then
     raise exception using errcode = '40001', message = 'CALL_VERSION_CONFLICT';
+  end if;
+
+  if call_record.lead_id is not null then
+    select * into lead_row
+    from public.leads
+    where id = call_record.lead_id and organization_id = call_record.organization_id
+    for update;
+    if found and lead_row.lifecycle_status = 'New' then
+      insert into public.lead_stage_history (
+        organization_id, lead_id, from_status, to_status, changed_by, reason
+      ) values (
+        call_record.organization_id, lead_row.id, 'New', 'Contacted',
+        auth.uid(), 'Call finalized'
+      );
+      update public.leads
+      set lifecycle_status = 'Contacted',
+          first_contacted_at = coalesce(first_contacted_at, call_record.started_at),
+          updated_at = clock_timestamp()
+      where id = lead_row.id and organization_id = call_record.organization_id;
+    end if;
   end if;
 
   result := jsonb_build_object(

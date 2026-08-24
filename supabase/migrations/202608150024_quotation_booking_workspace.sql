@@ -1329,6 +1329,7 @@ declare
   current_organization_id uuid;
   quotation_row public.quotations%rowtype;
   booking_row public.bookings%rowtype;
+  lead_row public.leads%rowtype;
   request_fingerprint text;
   replay_result jsonb;
   result jsonb;
@@ -1415,6 +1416,25 @@ begin
   update public.quotations
   set status = 'CONVERTED', version = version + 1, updated_at = now()
   where id = quotation_row.id;
+
+  if quotation_row.lead_id is not null then
+    select * into lead_row
+    from public.leads
+    where id = quotation_row.lead_id and organization_id = current_organization_id
+    for update;
+    if found and lead_row.lifecycle_status <> 'Transferred to Sales' and lead_row.lifecycle_status <> 'Lost' then
+      insert into public.lead_stage_history (
+        organization_id, lead_id, from_status, to_status, changed_by, reason
+      ) values (
+        current_organization_id, lead_row.id, lead_row.lifecycle_status, 'Transferred to Sales',
+        auth.uid(), 'Booking created'
+      );
+      update public.leads
+      set lifecycle_status = 'Transferred to Sales',
+          updated_at = clock_timestamp()
+      where id = lead_row.id and organization_id = current_organization_id;
+    end if;
+  end if;
   insert into public.activities (
     organization_id, customer_id, lead_id, activity_type, actor_id, metadata
   ) values (
