@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../../../../../../.local/share/pnpm/store/v11/links/@/trigger.dev/4.5.11/dc822566f3edc76752e6bc62bed2d0a0fca10cb8c39491ce0d81dfd0769aeb80/node_modules/trigger.dev/src/shims/esm.ts"],
-  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAAA,SAAS,qBAAqB;AAC9B,OAAO,UAAU;AACjB,OAAO,SAAS;AAFhB;;AAKA,eAAW,UAAU,cAAc,YAAY,GAAG;AAElD,eAAW,aAAa,IAAI,cAAc,YAAY,GAAG;AACzD,eAAW,YAAY,KAAK,QAAQ,UAAU;;;",
-  "names": []
-}
