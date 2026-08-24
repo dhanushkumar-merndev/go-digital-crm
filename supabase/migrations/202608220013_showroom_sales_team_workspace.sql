@@ -54,7 +54,7 @@ begin
   end if;
 
   current_organization_id := (access_context->>'organization_id')::uuid;
-  select count(*), min(branch_row.id)
+  select count(*), (array_agg(branch_row.id order by branch_row.id))[1]
     into branch_count, resolved_branch_id
   from public.branches branch_row
   where branch_row.organization_id = current_organization_id

@@ -8,6 +8,18 @@ const migrations = readdirSync(migrationDirectory)
   .sort()
   .map((name) => readFileSync(join(migrationDirectory, name), 'utf8'))
   .join('\n');
+const showroomTargetMigration = readFileSync(
+  join(migrationDirectory, '202608220012_showroom_target_workspace.sql'),
+  'utf8',
+);
+const showroomSalesTeamMigration = readFileSync(
+  join(migrationDirectory, '202608220013_showroom_sales_team_workspace.sql'),
+  'utf8',
+);
+const showroomUuidForwardFix = readFileSync(
+  join(migrationDirectory, '202608240001_fix_showroom_uuid_aggregates.sql'),
+  'utf8',
+);
 
 const edgeHttp = readFileSync(
   join(process.cwd(), 'supabase', 'functions', '_shared', 'http.ts'),
@@ -32,6 +44,15 @@ describe('database security contract', () => {
   });
   it('enforces one selected branch-scope mode', () =>
     expect(migrations).toContain('valid_branch_scope'));
+
+  it('uses a deterministic UUID-safe aggregate when resolving a sole branch', () => {
+    const uuidSafeAggregate = '(array_agg(branch_row.id order by branch_row.id))[1]';
+
+    expect(migrations).not.toContain('min(branch_row.id)');
+    expect(showroomTargetMigration).toContain(uuidSafeAggregate);
+    expect(showroomSalesTeamMigration).toContain(uuidSafeAggregate);
+    expect(showroomUuidForwardFix.split(uuidSafeAggregate)).toHaveLength(3);
+  });
 
   it('allows authenticated browser clients to complete an Edge Function preflight', () => {
     expect(edgeHttp).toContain("'access-control-allow-origin': '*'");
