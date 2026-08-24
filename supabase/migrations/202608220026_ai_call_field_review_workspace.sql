@@ -145,7 +145,7 @@ begin
         email = case when decision_row.field_key = 'email' then nullif(resolved_value #>> '{}', '') else email end,
         interested_model = case when decision_row.field_key = 'interested_model' then nullif(resolved_value #>> '{}', '') else interested_model end,
         lifecycle_status = case when decision_row.field_key = 'lifecycle_status' then (resolved_value #>> '{}')::public.lead_lifecycle else lifecycle_status end,
-        temperature = case when decision_row.field_key = 'temperature' then nullif(resolved_value #>> '', '')::public.lead_temperature else temperature end,
+        temperature = case when decision_row.field_key = 'temperature' then nullif(resolved_value #>> '{}', '')::public.lead_temperature else temperature end,
         next_followup_at = case when decision_row.field_key = 'next_followup_at' then nullif(resolved_value #>> '{}', '')::timestamptz else next_followup_at end,
         updated_at = now()
       where id = lead_record.id;

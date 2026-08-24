@@ -27,6 +27,8 @@ describe('AI call field review contract', () => {
       "('customer_name', 'phone', 'email', 'interested_model', 'lifecycle_status', 'temperature', 'next_followup_at')",
     );
     expect(migration).toContain("decision_row.decision not in ('APPLIED', 'REJECTED', 'EDITED')");
+    expect(migration).toContain("resolved_value #>> '{}'");
+    expect(migration).not.toContain("resolved_value #>> ''");
     expect(migration).toContain("'ai_call_fields.reviewed'");
   });
 
