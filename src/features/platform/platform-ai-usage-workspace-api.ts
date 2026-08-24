@@ -16,6 +16,17 @@ const resultSchema = z.object({
     z.object({
       id: z.uuid(),
       name: z.string().min(1),
+      status: z.enum([
+        'ONBOARDING',
+        'UNDER_REVIEW',
+        'CHANGES_REQUIRED',
+        'ACTIVE',
+        'SUPPORT_MAINTENANCE',
+        'SUSPENDED',
+        'REJECTED',
+        'SOFT_DELETED',
+      ]),
+      credit_allocation_allowed: z.boolean(),
       used_period: z.coerce.number().nonnegative(),
       balance: z.coerce.number(),
       daily_average: z.coerce.number().nonnegative(),

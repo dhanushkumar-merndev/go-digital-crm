@@ -12,8 +12,10 @@ import {
   Search,
   Sparkles,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { PlatformAiUsageSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -60,6 +62,10 @@ import {
   type PlatformAiCreditLedgerCursor,
   type PlatformAiUsage,
 } from './platform-ai-usage-workspace-api';
+import {
+  classifyPlatformAiCreditAllocationFailure,
+  platformAiCreditAllocationFailureDescription,
+} from './platform-ai-usage-query';
 
 type Organization = PlatformAiUsage['organizations'][number];
 
@@ -84,6 +90,7 @@ function CreditAllocationDialog({
   organization: Organization;
   onClose: () => void;
 }) {
+  const router = useRouter();
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
   const [allocationRequestId, setAllocationRequestId] = useState(requestId);
@@ -109,12 +116,26 @@ function CreditAllocationDialog({
       });
       onClose();
     },
-    onError: () =>
+    onError: (error) => {
+      const failure = classifyPlatformAiCreditAllocationFailure(error);
       toast.add({
         type: 'error',
-        title: 'AI credits not added',
-        description: 'Confirm your Super Admin MFA session and retry.',
-      }),
+        title:
+          failure === 'UNKNOWN' ? 'AI credit allocation not confirmed' : 'AI credits not added',
+        description: platformAiCreditAllocationFailureDescription(failure),
+        actionProps:
+          failure === 'MFA_REQUIRED'
+            ? {
+                children: 'Verify MFA',
+                onClick: () => router.push('/access/mfa'),
+              }
+            : undefined,
+      });
+      if (failure === 'ORGANIZATION_NOT_ACTIVE') {
+        void queryClient.invalidateQueries({ queryKey: ['platform-ai-usage-workspace'] });
+        onClose();
+      }
+    },
   });
 
   return (
@@ -327,8 +348,9 @@ export function PlatformAiUsageWorkspace({ spec }: { spec: PageSpec }) {
           <div className="mb-2 text-xs text-muted-foreground">Platform › Credits</div>
           <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">{spec.title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Immutable AI-credit ledger activity across active dealerships. Cost is intentionally not
-            estimated because no rate card is stored.
+            Immutable platform-wide AI-credit ledger activity. New allocations are available only
+            for Active or Support Maintenance dealerships. Cost is intentionally not estimated
+            because no rate card is stored.
           </p>
         </div>
         <Select
@@ -411,7 +433,7 @@ export function PlatformAiUsageWorkspace({ spec }: { spec: PageSpec }) {
                   <TableHead>Credits used · {data.days}d</TableHead>
                   <TableHead>Daily average</TableHead>
                   <TableHead>AI credit balance</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Dealership status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -423,9 +445,7 @@ export function PlatformAiUsageWorkspace({ spec }: { spec: PageSpec }) {
                     <TableCell>{organization.daily_average.toLocaleString()}</TableCell>
                     <TableCell>{organization.balance.toLocaleString()}</TableCell>
                     <TableCell>
-                      <Badge variant={organization.balance > 0 ? 'success' : 'destructive'}>
-                        {organization.balance > 0 ? 'Available' : 'No balance'}
-                      </Badge>
+                      <StatusBadge value={organization.status} />
                     </TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-2">
@@ -436,7 +456,16 @@ export function PlatformAiUsageWorkspace({ spec }: { spec: PageSpec }) {
                         >
                           <ScrollText className="size-4" /> Ledger
                         </Button>
-                        <Button size="sm" onClick={() => setAllocationOrganization(organization)}>
+                        <Button
+                          size="sm"
+                          disabled={!organization.credit_allocation_allowed}
+                          title={
+                            organization.credit_allocation_allowed
+                              ? 'Add AI credits'
+                              : 'Available after dealership activation'
+                          }
+                          onClick={() => setAllocationOrganization(organization)}
+                        >
                           <Plus className="size-4" /> Add credits
                         </Button>
                       </div>
@@ -449,7 +478,7 @@ export function PlatformAiUsageWorkspace({ spec }: { spec: PageSpec }) {
                       colSpan={6}
                       className="py-10 text-center text-sm text-muted-foreground"
                     >
-                      No active dealerships match this server-side search.
+                      No dealerships match this server-side search.
                     </TableCell>
                   </TableRow>
                 ) : null}

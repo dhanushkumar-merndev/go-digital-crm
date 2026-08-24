@@ -48,11 +48,20 @@ For Trigger.dev, set `TRIGGER_PROJECT_REF` and `TRIGGER_SECRET_KEY`, then deploy
 
 ## Mobile
 
+Create `mobile/.env.local` from `mobile/.env.example` and set only
+`EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`. Expo loads environment files from
+the `mobile/` project directory, and these public values are embedded in the mobile bundle. Never
+copy server or provider secrets into that file.
+
 ```bash
-pnpm --dir mobile start
+pnpm dlx node@24.18.0 mobile/node_modules/expo/bin/cli start mobile --clear --android
 ```
 
-Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` for the Expo environment. Provider/service credentials never belong in Expo variables. Test-drive background location requires a development or production build; Expo Go cannot validate every background-location behavior.
+Fully stop the old Metro process before restarting it after any environment change. For EAS builds,
+configure the same two public values separately in the selected preview or production environment.
+Provider/service credentials never belong in Expo variables. Test-drive background location
+requires a development or production build; Expo Go cannot validate every background-location
+behavior.
 
 ## Verification
 

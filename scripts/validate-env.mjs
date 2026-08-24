@@ -150,15 +150,16 @@ function parseEnvironmentFile(filePath) {
   return { values, duplicates };
 }
 
-function loadRuntimeEnvironment(mode, explicitFile) {
+function loadRuntimeEnvironment(mode, explicitFile, target) {
   const values = {};
+  const environmentRoot = target === 'mobile' ? resolve(root, 'mobile') : root;
   const candidates = explicitFile
     ? [resolve(root, explicitFile)]
     : [
-        resolve(root, '.env'),
-        resolve(root, `.env.${mode}`),
-        ...(mode === 'test' ? [] : [resolve(root, '.env.local')]),
-        resolve(root, `.env.${mode}.local`),
+        resolve(environmentRoot, '.env'),
+        resolve(environmentRoot, `.env.${mode}`),
+        ...(mode === 'test' ? [] : [resolve(environmentRoot, '.env.local')]),
+        resolve(environmentRoot, `.env.${mode}.local`),
       ];
   for (const candidate of candidates) {
     try {
@@ -469,7 +470,7 @@ try {
       : validateRuntime(
           options.target,
           options.mode,
-          loadRuntimeEnvironment(options.mode, options.file),
+          loadRuntimeEnvironment(options.mode, options.file, options.target),
         );
   process.stdout.write(
     `Environment contract valid for target "${options.target}" (${count} variables checked).\n`,

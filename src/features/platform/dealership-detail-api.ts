@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
+import { platformDealershipActivitySchema } from './dealership-detail-query';
 
 const dealershipDetailSchema = z.object({
   organization: z.object({
@@ -40,15 +41,7 @@ const dealershipDetailSchema = z.object({
       leads_this_week: z.coerce.number().int().nonnegative(),
     }),
   ),
-  recent_activity: z.array(
-    z.object({
-      id: z.uuid(),
-      action: z.string(),
-      resource_type: z.string(),
-      summary: z.string().nullable(),
-      created_at: z.string(),
-    }),
-  ),
+  recent_activity: z.array(platformDealershipActivitySchema),
 });
 
 export type PlatformDealershipDetail = z.infer<typeof dealershipDetailSchema>;

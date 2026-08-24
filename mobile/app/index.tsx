@@ -1,7 +1,9 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { routeForCurrentSession } from '@/lib/session-route';
+import { mobileSupabaseConfigured } from '@/lib/runtime-config';
 import { supabase } from '@/lib/supabase';
 import { colors } from '@/theme';
 
@@ -11,21 +13,32 @@ export default function LoginScreen() {
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
   async function signIn() {
-    setLoading(true);
-    setError(undefined);
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    if (authError) {
-      setError(authError.message);
-      setLoading(false);
+    if (!mobileSupabaseConfigured) {
+      setError('Mobile setup is incomplete. Restart the app after configuring its environment.');
       return;
     }
+    if (!email.trim() || !password) {
+      setError('Enter your work email and password.');
+      return;
+    }
+    setLoading(true);
+    setError(undefined);
     try {
-      router.replace(await routeForCurrentSession());
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (authError) {
+        setError('Sign-in failed. Check your email, password, and internet connection.');
+        return;
+      }
+      try {
+        router.replace(await routeForCurrentSession());
+      } catch {
+        setError('Your account is not eligible for the mobile app.');
+      }
     } catch {
-      setError('Your account is not eligible for the mobile app.');
+      setError('The sign-in service could not be reached. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -59,7 +72,11 @@ export default function LoginScreen() {
           autoComplete="current-password"
         />
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Pressable style={styles.primary} disabled={loading} onPress={() => void signIn()}>
+        <Pressable
+          style={[styles.primary, loading && styles.disabled]}
+          disabled={loading}
+          onPress={() => void signIn()}
+        >
           <Text style={styles.primaryText}>{loading ? 'Signing in…' : 'Sign in'}</Text>
         </Pressable>
         <Pressable style={styles.secondary} onPress={() => router.push('/link-mobile')}>
@@ -106,6 +123,7 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   primaryText: { color: 'white', fontWeight: '800' },
+  disabled: { opacity: 0.6 },
   secondary: {
     borderWidth: 1,
     borderColor: colors.border,

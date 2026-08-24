@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  classifyPlatformAiCreditAllocationFailure,
+  platformAiCreditAllocationFailureDescription,
+} from '../../src/features/platform/platform-ai-usage-query';
 
 function source(relativePath: string) {
   return readFileSync(join(process.cwd(), relativePath), 'utf8');
@@ -9,6 +13,7 @@ function source(relativePath: string) {
 const migration = source('supabase/migrations/202608220033_platform_ai_credit_allocations.sql');
 const api = source('src/features/platform/platform-ai-usage-workspace-api.ts');
 const workspace = source('src/features/platform/platform-ai-usage-workspace.tsx');
+const query = source('src/features/platform/platform-ai-usage-query.ts');
 
 describe('platform AI-credit allocation contract', () => {
   it('allows allocations only to a Super Admin with MFA and records immutable audit data', () => {
@@ -62,5 +67,43 @@ describe('platform AI-credit allocation workspace contract', () => {
     expect(workspace).toContain('fetchPlatformAiCreditLedger');
     expect(workspace).toContain("['platform-ai-credit-ledger', organization.id, cursor]");
     expect(workspace).toContain('setAllocationRequestId(requestId())');
+  });
+
+  it('does not mislabel every allocation failure as an MFA problem', () => {
+    expect(query).toContain("'ORGANIZATION_NOT_ACTIVE'");
+    expect(query).toContain('AI_CREDIT_ORGANIZATION_NOT_ACTIVE');
+    expect(query).toContain('Approve its onboarding before adding AI credits.');
+    expect(workspace).toContain("failure === 'MFA_REQUIRED'");
+    expect(workspace).toContain("router.push('/access/mfa')");
+    expect(workspace).not.toContain('Confirm your Super Admin MFA session and retry.');
+  });
+
+  it('classifies plain PostgREST errors and keeps unrelated permission errors generic', () => {
+    const inactive = classifyPlatformAiCreditAllocationFailure({
+      code: 'P0002',
+      message: 'AI_CREDIT_ORGANIZATION_NOT_ACTIVE',
+    });
+    const mfa = classifyPlatformAiCreditAllocationFailure({
+      code: '42501',
+      message: 'SUPER_ADMIN_MFA_REQUIRED',
+    });
+    const unknown = classifyPlatformAiCreditAllocationFailure({
+      code: '42501',
+      message: 'OTHER_PERMISSION_REQUIRED',
+    });
+    const misleadingDetails = classifyPlatformAiCreditAllocationFailure({
+      code: '42501',
+      message: 'OTHER_PERMISSION_REQUIRED',
+      details: 'SUPER_ADMIN_MFA_REQUIRED',
+    });
+
+    expect(inactive).toBe('ORGANIZATION_NOT_ACTIVE');
+    expect(platformAiCreditAllocationFailureDescription(inactive)).toMatch(/not active/i);
+    expect(mfa).toBe('MFA_REQUIRED');
+    expect(platformAiCreditAllocationFailureDescription(mfa)).toMatch(/MFA/i);
+    expect(unknown).toBe('UNKNOWN');
+    expect(misleadingDetails).toBe('UNKNOWN');
+    expect(platformAiCreditAllocationFailureDescription(unknown)).not.toMatch(/MFA/i);
+    expect(platformAiCreditAllocationFailureDescription(unknown)).toMatch(/duplicate credits/i);
   });
 });

@@ -7,6 +7,9 @@ function source(relativePath: string) {
 }
 
 const migration = source('supabase/migrations/202608220017_platform_ai_usage_workspace.sql');
+const activeDealershipFix = source(
+  'supabase/migrations/202608240003_fix_platform_ai_credit_eligibility.sql',
+);
 const api = source('src/features/platform/platform-ai-usage-workspace-api.ts');
 const workspace = source('src/features/platform/platform-ai-usage-workspace.tsx');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
@@ -42,6 +45,20 @@ describe('platform AI usage workspace backend contract', () => {
       'grant execute on function public.get_platform_ai_usage_workspace(integer, integer, integer, text) to authenticated',
     );
   });
+
+  it('exposes lifecycle eligibility without hiding immutable dealership ledger history', () => {
+    expect(activeDealershipFix).toContain(
+      'create or replace function public.get_platform_ai_usage_workspace(',
+    );
+    expect(activeDealershipFix).toContain("'status', organization_row.status");
+    expect(activeDealershipFix).toContain(
+      "'credit_allocation_allowed', organization_row.status in ('ACTIVE', 'SUPPORT_MAINTENANCE')",
+    );
+    expect(activeDealershipFix).toContain('app_private.mfa_policy_satisfied(null)');
+    expect(activeDealershipFix).toContain(
+      'grant execute on function public.get_platform_ai_usage_workspace',
+    );
+  });
 });
 
 describe('platform AI usage workspace web contract', () => {
@@ -50,13 +67,15 @@ describe('platform AI usage workspace web contract', () => {
     expect(api).toContain("rpc('get_platform_ai_usage_workspace'");
     expect(workspace).toContain('useDebouncedValue(searchInput, 300)');
     expect(workspace).toContain("['platform-ai-usage-workspace', days, page, search]");
+    expect(api).toContain('credit_allocation_allowed: z.boolean()');
+    expect(workspace).toContain('disabled={!organization.credit_allocation_allowed}');
   });
 
   it('uses approved ECharts and clearly avoids unrecorded cost estimates', () => {
     expect(workspace).toContain("from '@/components/charts/e-chart'");
     expect(workspace).toContain('kind="line"');
     expect(workspace).toContain('kind="donut"');
-    expect(workspace).toContain('estimated because no rate card is stored.');
+    expect(workspace).toMatch(/estimated\s+because no rate card is stored\./);
     expect(workspace).not.toMatch(/recharts|chart\.js|apexcharts/i);
   });
 
