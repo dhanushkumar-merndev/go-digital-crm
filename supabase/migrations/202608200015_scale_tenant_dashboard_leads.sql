@@ -352,7 +352,7 @@ begin
     select coalesce(jsonb_agg(jsonb_build_object(
       'name', to_char(day_row.day_value, 'DD Mon'),
       'value', coalesce(
-        (activity_result -> (day_row.row_index - 1) ->> 'value')::bigint, 0
+        (activity_result -> ((day_row.row_index - 1)::integer) ->> 'value')::bigint, 0
       ),
       'secondary', coalesce(daily.value, 0)
     ) order by day_row.day_value), '[]'::jsonb)

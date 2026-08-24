@@ -125,6 +125,8 @@ const env = readEnv();
 const projectUrl = env.get('SUPABASE_URL')?.replace(/\/$/, '');
 const serviceRoleKey = env.get('SUPABASE_SERVICE_ROLE_KEY');
 const demoPassword = env.get('DEMO_TEST_PASSWORD');
+const remoteSeedAllowed = env.get('DEMO_ALLOW_REMOTE_SEED') === 'true';
+const allowedProjectRef = env.get('DEMO_ALLOWED_SUPABASE_PROJECT_REF')?.trim();
 
 if (!process.argv.includes('--apply')) {
   console.error('Refusing to write remote demo data. Re-run with: pnpm seed:demo:remote');
@@ -133,6 +135,24 @@ if (!process.argv.includes('--apply')) {
 if (!projectUrl || !serviceRoleKey || !demoPassword || demoPassword.length < 16) {
   console.error(
     'SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and a 16+ character DEMO_TEST_PASSWORD are required.',
+  );
+  process.exit(1);
+}
+
+let projectHostname;
+try {
+  projectHostname = new URL(projectUrl).hostname;
+} catch {
+  projectHostname = undefined;
+}
+if (
+  !remoteSeedAllowed ||
+  !allowedProjectRef ||
+  !/^[a-z]{20}$/.test(allowedProjectRef) ||
+  projectHostname !== `${allowedProjectRef}.supabase.co`
+) {
+  console.error(
+    'Remote demo seed blocked. Set DEMO_ALLOW_REMOTE_SEED=true and make DEMO_ALLOWED_SUPABASE_PROJECT_REF match SUPABASE_URL for an isolated dev/staging project.',
   );
   process.exit(1);
 }

@@ -204,9 +204,10 @@ AI_CALL_TRANSCRIPTION_CREDITS
 AI_CALL_ANALYSIS_CREDITS
 ```
 
-The local helper `pnpm env:print:trigger-secrets` prepares the values for the
-Trigger.dev Variables form. Run it only on the trusted workstation and never
-paste its output into source control, browser variables, or a support chat.
+Load Trigger.dev variables from a dedicated ignored environment file or enter
+them directly in the authenticated Trigger.dev Variables form. Do not print
+the complete secret set to a terminal, CI log, source control, browser variable,
+or support chat.
 
 ## 4. Deploy the Vercel web application
 

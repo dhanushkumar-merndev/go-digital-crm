@@ -1,0 +1,11 @@
+.env*
+!/.env.example
+
+/supabase/
+/trigger/
+/trigger.config.ts
+/tests/
+/docs/
+/scripts/*
+!/scripts/validate-env.mjs
+/tsconfig.tsbuildinfo

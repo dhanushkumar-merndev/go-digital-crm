@@ -69,6 +69,9 @@ const optionalRuntimeNames = [
   'GROQ_ANALYSIS_MODEL',
   'AI_CALL_TRANSCRIPTION_CREDITS',
   'AI_CALL_ANALYSIS_CREDITS',
+  'DEMO_ALLOW_REMOTE_SEED',
+  'DEMO_ALLOWED_SUPABASE_PROJECT_REF',
+  'DEMO_TEST_PASSWORD',
 ];
 const documentedRuntimeNames = new Set([
   ...['web', 'mobile', 'edge', 'trigger'].flatMap((name) => runtimeTargets[name]),
@@ -85,6 +88,7 @@ const safeExampleDefaults = new Set([
   'PROVIDER_EVENT_CONCURRENCY',
   'UPSTASH_REDIS_CACHE_PREFIX',
   'UPSTASH_REDIS_ENABLED',
+  'DEMO_ALLOW_REMOTE_SEED',
 ]);
 const publicCredentialNames = new Set([
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
@@ -443,6 +447,15 @@ function validateExample() {
   validatePublicNames(Object.keys(values), errors);
   if (values.NEXT_PUBLIC_ENABLE_LOCAL_PREVIEW !== 'false') {
     errors.push('NEXT_PUBLIC_ENABLE_LOCAL_PREVIEW: example must default to false');
+  }
+  if (values.DEMO_ALLOW_REMOTE_SEED !== 'false') {
+    errors.push('DEMO_ALLOW_REMOTE_SEED: example must default to false');
+  }
+  if (values.DEMO_ALLOWED_SUPABASE_PROJECT_REF) {
+    errors.push('DEMO_ALLOWED_SUPABASE_PROJECT_REF: example must remain empty');
+  }
+  if (values.DEMO_TEST_PASSWORD) {
+    errors.push('DEMO_TEST_PASSWORD: example must remain empty');
   }
   if (errors.length > 0) throw new Error(errors.join('\n'));
   return Object.keys(values).length;

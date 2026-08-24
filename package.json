@@ -24,8 +24,6 @@
     "env:check:trigger": "node scripts/validate-env.mjs --target trigger --mode production",
     "env:check:all": "node scripts/validate-env.mjs --target all --mode production",
     "env:check:deployment": "node scripts/validate-env.mjs --target deployment --mode production",
-    "env:print:edge-secrets": "node scripts/print-edge-secrets.mjs",
-    "env:print:trigger-secrets": "node scripts/print-trigger-secrets.mjs",
     "seed:demo:remote": "node scripts/seed-demo-tenant.mjs --apply",
     "test:demo:flow": "node scripts/test-demo-business-flow.mjs",
     "test:demo:roles": "node scripts/test-demo-role-access.mjs",

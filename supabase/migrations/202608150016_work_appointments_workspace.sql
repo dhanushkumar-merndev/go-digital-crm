@@ -1607,6 +1607,7 @@ declare
   request_fingerprint text;
   replay_result jsonb;
   manager_override boolean;
+  normalized_completion_note text;
   result jsonb;
 begin
   if auth.uid() is null then
@@ -1618,6 +1619,7 @@ begin
   if char_length(btrim(coalesce(completion_note, ''))) > 1000 then
     raise exception using errcode = '22023', message = 'COMPLETION_NOTE_TOO_LONG';
   end if;
+  normalized_completion_note := nullif(btrim(completion_note), '');
 
   select * into current_row
   from public.followups followup_row
@@ -1648,7 +1650,7 @@ begin
   request_fingerprint := app_private.work_request_fingerprint(jsonb_build_object(
     'followup_id', target_followup_id,
     'expected_version', expected_version,
-    'completion_note', nullif(btrim(completion_note), '')
+    'completion_note', normalized_completion_note
   ));
   perform pg_advisory_xact_lock(pg_catalog.hashtextextended(
     auth.uid()::text || ':followup.completed:' || target_request_id::text,
@@ -1673,7 +1675,7 @@ begin
   update public.followups
   set status = 'COMPLETED',
       completed_at = clock_timestamp(),
-      completion_note = nullif(btrim(completion_note), ''),
+      completion_note = normalized_completion_note,
       version = version + 1,
       updated_at = clock_timestamp()
   where id = current_row.id

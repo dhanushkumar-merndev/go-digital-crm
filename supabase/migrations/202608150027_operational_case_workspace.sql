@@ -1701,7 +1701,7 @@ begin
         'completed_by', item_row.completed_by,
         'completed_at', item_row.completed_at,
         'version', item_row.version
-      ) order by item_row.category, item_row.created_at, item_row.id), '[]'::jsonb)
+      ) order by item_row.category, item_row.updated_at, item_row.id), '[]'::jsonb)
       into checklist
     from public.delivery_checklist_items item_row
     where item_row.organization_id = current_organization_id

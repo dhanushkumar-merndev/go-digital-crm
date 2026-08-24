@@ -49,6 +49,16 @@ describe('production deployment contracts', () => {
     expect(vercel).not.toHaveProperty('env');
   });
 
+  it('keeps local secrets and non-web tooling out of Vercel source uploads', () => {
+    const vercelIgnore = read('.vercelignore');
+    for (const entry of ['.env*', '/supabase/', '/trigger/', '/tests/', '/docs/', '/scripts/*']) {
+      expect(vercelIgnore).toContain(entry);
+    }
+    expect(vercelIgnore).toContain('!/.env.example');
+    expect(vercelIgnore).toContain('!/scripts/validate-env.mjs');
+    expect(vercelIgnore).not.toMatch(/^supabase\/$/m);
+  });
+
   it('uses isolated EAS preview and production environments without embedded values', () => {
     const eas = JSON.parse(read('mobile/eas.json')) as {
       build: Record<string, Record<string, unknown>>;

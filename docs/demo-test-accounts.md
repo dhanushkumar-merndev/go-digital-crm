@@ -1,6 +1,6 @@
 # Demo test accounts
 
-`pnpm seed:demo:remote` creates an isolated tenant named **Go Digital Demo Motors (Test Only)**. All accounts use the password stored in the ignored local `.env` variable `DEMO_TEST_PASSWORD`.
+`pnpm seed:demo:remote` creates an isolated tenant named **Go Digital Demo Motors (Test Only)**. All accounts use the password stored in the ignored local `.env` variable `DEMO_TEST_PASSWORD`. The command also requires `DEMO_ALLOW_REMOTE_SEED=true` and an exact `DEMO_ALLOWED_SUPABASE_PROJECT_REF` match, preventing accidental writes to another project.
 
 | Role                          | Test email                                              |
 | ----------------------------- | ------------------------------------------------------- |

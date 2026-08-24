@@ -69,9 +69,7 @@ begin
     order by coalesce(last_message_at, created_at) desc, id desc
     limit target_page_size offset offset_rows
   )
-  select count(*) into total_rows from filtered;
-
-  select coalesce(jsonb_agg(jsonb_build_object(
+  select (select count(*) from filtered), coalesce(jsonb_agg(jsonb_build_object(
     'id', page_row.id,
     'lead_id', page_row.lead_id,
     'customer_id', page_row.customer_id,
@@ -85,7 +83,7 @@ begin
     'last_message_body', latest_message.body,
     'last_message_direction', latest_message.direction
   ) order by coalesce(page_row.last_message_at, page_row.created_at) desc, page_row.id desc), '[]'::jsonb)
-  into rows_data
+  into total_rows, rows_data
   from page_rows page_row
   left join public.customers customer_row
     on customer_row.organization_id = page_row.organization_id and customer_row.id = page_row.customer_id

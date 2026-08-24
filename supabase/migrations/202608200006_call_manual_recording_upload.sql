@@ -218,18 +218,18 @@ security definer
 set search_path = ''
 as $$
 declare
-  organization_id uuid;
+  current_organization_id uuid;
   result jsonb;
 begin
-  select profile_row.organization_id into organization_id
+  select profile_row.organization_id into current_organization_id
   from public.profiles profile_row
   where profile_row.id = auth.uid()
     and profile_row.active
     and profile_row.deleted_at is null;
-  if organization_id is null
-    or not app_private.has_permission(organization_id, 'call.create')
+  if current_organization_id is null
+    or not app_private.has_permission(current_organization_id, 'call.create')
     or target_branch_id is null
-    or not app_private.can_access_branch(organization_id, target_branch_id)
+    or not app_private.can_access_branch(current_organization_id, target_branch_id)
   then
     raise exception using errcode = '42501', message = 'PERMISSION_DENIED';
   end if;
@@ -242,7 +242,7 @@ begin
   ) order by connection_row.display_name, connection_row.id), '[]'::jsonb)
   into result
   from public.connected_accounts connection_row
-  where connection_row.organization_id = organization_id
+  where connection_row.organization_id = current_organization_id
     and connection_row.provider_key = 'twilio_voice'
     and connection_row.status = 'CONNECTED'
     and connection_row.deleted_at is null
@@ -251,7 +251,7 @@ begin
       or exists (
         select 1
         from public.integration_branch_mappings mapping_row
-        where mapping_row.organization_id = organization_id
+        where mapping_row.organization_id = current_organization_id
           and mapping_row.connected_account_id = connection_row.id
           and mapping_row.branch_id = target_branch_id
           and mapping_row.deleted_at is null
