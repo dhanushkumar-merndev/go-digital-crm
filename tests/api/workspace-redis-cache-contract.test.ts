@@ -40,7 +40,7 @@ describe('workspace Redis cache contract', () => {
   it('uses a bounded NX lock and Redis-enforced three-per-minute refresh limit', () => {
     expect(shared).toContain("['SET', key, value, 'NX', 'PX', ttlMs]");
     expect(shared).toContain('MANUAL_REFRESH_LIMIT = 3');
-    expect(shared).toContain('MANUAL_REFRESH_WINDOW_MS = 60_000');
+    expect(shared).toContain('MANUAL_REFRESH_WINDOW_MS = 30 * 60_000');
     expect(shared).toContain('COALESCED_WAIT_MS = 500');
     expect(shared).toContain('forceRefresh?: boolean');
     expect(edge).toContain('forceRefresh: parsed.data.manual_refresh');

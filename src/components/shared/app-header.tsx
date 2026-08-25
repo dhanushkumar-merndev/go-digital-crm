@@ -20,7 +20,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { roleNavigation } from '@/config/navigation';
+import { roleHasNavigationSlug, roleNavigation } from '@/config/navigation';
 import type { RoleKey } from '@/config/navigation/types';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -54,7 +54,6 @@ import {
   markHeaderNotificationRead,
 } from '@/features/notifications/notification-api';
 import { NotificationCenterSheet } from '@/features/notifications/notification-center-sheet';
-import { TaskCenterSheet } from '@/features/tasks/task-center-sheet';
 
 function getInitials(value: string) {
   const initials = value
@@ -89,7 +88,6 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
   const [signingOut, setSigningOut] = useState(false);
   const [menuError, setMenuError] = useState<string>();
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
-  const [taskCenterOpen, setTaskCenterOpen] = useState(false);
   const queryClient = useQueryClient();
   const sessionProfile = {
     displayName: previewMode ? 'Local Preview' : (workspaceSession?.displayName ?? 'Account'),
@@ -102,11 +100,21 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
     : sessionProfile;
 
   const eligibleForMobile = canLinkMobileApp(role);
-  const salesWorkspace = role === 'sales-consultant';
-  const canOpenTaskCenter =
-    !previewMode &&
-    Boolean(workspaceSession?.organizationId) &&
-    hasWorkspacePermission(workspaceSession, 'task.view');
+  // Telecaller works the same front-line surface as Sales Consultant, so it
+  // gets the same header furniture rather than the generic tenant block.
+  const salesWorkspace = role === 'sales-consultant' || role === 'telecaller';
+  // Quick add only offers what the role can actually reach, and routes into
+  // that role's own workspace instead of a hardcoded sales-consultant path.
+  const quickAddItems = (
+    [
+      { slug: 'my-leads', label: 'Add lead', icon: UserRoundPlus },
+      { slug: 'test-drives', label: 'Book test drive', icon: CarFront },
+      { slug: 'quotations', label: 'Create quotation', icon: FileText },
+    ] as const
+  ).filter((item) => roleHasNavigationSlug(role, item.slug));
+  const canNavigateTasks =
+    roleHasNavigationSlug(role, 'tasks') &&
+    (previewMode || hasWorkspacePermission(workspaceSession, 'task.view'));
   const notifications = useQuery({
     queryKey: [
       ...headerNotificationsKey,
@@ -204,36 +212,35 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
               </span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button size="sm" className="hidden sm:inline-flex">
+                  <Button
+                    size="sm"
+                    className={quickAddItems.length ? 'hidden sm:inline-flex' : 'hidden'}
+                  >
                     <Plus className="size-3.5" /> Quick add
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-52">
-                  <DropdownMenuItem
-                    onSelect={() => router.push('/sales-consultant/my-leads?action=create')}
-                  >
-                    <UserRoundPlus className="size-4" /> Add lead
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => router.push('/sales-consultant/test-drives?action=create')}
-                  >
-                    <CarFront className="size-4" /> Book test drive
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => router.push('/sales-consultant/quotations?action=create')}
-                  >
-                    <FileText className="size-4" /> Create quotation
-                  </DropdownMenuItem>
+                  {quickAddItems.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <DropdownMenuItem
+                        key={item.slug}
+                        onSelect={() => router.push(`/${role}/${item.slug}?action=create`)}
+                      >
+                        <Icon className="size-4" /> {item.label}
+                      </DropdownMenuItem>
+                    );
+                  })}
                 </DropdownMenuContent>
               </DropdownMenu>
             </>
           )}
-          {canOpenTaskCenter ? (
+          {canNavigateTasks ? (
             <Button
               variant="ghost"
               size="sm"
               className="hidden xl:inline-flex"
-              onClick={() => setTaskCenterOpen(true)}
+              onClick={() => router.push(`/${role}/tasks`)}
             >
               <ClipboardList className="size-4" /> Tasks
             </Button>
@@ -428,7 +435,6 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
           }}
         />
       ) : null}
-      <TaskCenterSheet open={taskCenterOpen} onOpenChange={setTaskCenterOpen} role={role} />
       <NotificationCenterSheet
         open={notificationCenterOpen}
         onOpenChange={setNotificationCenterOpen}

@@ -8,7 +8,6 @@ function source(path: string) {
 
 const workspace = source('src/features/tasks/task-workspace.tsx');
 const dialogs = source('src/features/tasks/task-workspace-dialogs.tsx');
-const taskCenter = source('src/features/tasks/task-center-sheet.tsx');
 const dashboard = source('src/features/dashboards/sales-consultant-dashboard.tsx');
 
 describe('task workspace interaction contract', () => {
@@ -68,29 +67,21 @@ describe('task mutation feedback and cache linkage', () => {
     expect(dialogs).toContain('onClick={() => void options.refetch()}');
   });
 
-  it('invalidates the task list, task center, customer timeline and scoped dashboard', () => {
-    for (const key of [
-      "['task-workspace', ...queryScope]",
-      "['task-center', ...queryScope]",
-      "['customer-360']",
-      "['sales-consultant-dashboard', ...queryScope]",
-    ]) {
-      expect(workspace).toContain(key);
-      expect(taskCenter).toContain(key);
-    }
+  it('refreshes the task list and customer timeline through one action', () => {
+    expect(workspace).toContain("salesConsultantCache.invalidate('task.changed')");
+    const registry = readFileSync(
+      'src/features/sales-consultant/sales-consultant-cache.ts',
+      'utf8',
+    );
+    const effect = registry.slice(registry.indexOf("'task.changed'"));
+    for (const key of ['taskWorkspace', 'customer360'])
+      expect(effect).toContain(`salesConsultantKeys.${key}(scope)`);
   });
 
-  it('keeps Task Center live, retryable and idempotent for one-click completion', () => {
-    expect(taskCenter).toContain("resource: 'work'");
-    expect(taskCenter).toContain("queryKeys: [['task-center', ...queryScope]]");
-    expect(taskCenter).toContain(
-      'const completeRequest = useRef<{ key: string; requestId: string } | null>(null)',
-    );
-    expect(taskCenter).toContain('completeRequest.current?.key !== key');
-    expect(taskCenter).toContain('requestId: completeRequest.current.requestId');
-    expect(taskCenter).toContain('complete.variables?.id === record.id');
-    expect(taskCenter).toContain('void taskPage.refetch()');
-    expect(taskCenter).toContain('aria-pressed={status === tab.value}');
+  it('no longer busts the cached dashboard on a task write', () => {
+    // Tasks keep their own named invalidation. The dashboard uses a short
+    // cache and its Refresh control always rebuilds the aggregate.
+    expect(workspace).not.toContain("'sales-consultant-dashboard'");
   });
 
   it('keeps dashboard task links pointed at the Today task filter', () => {

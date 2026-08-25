@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
@@ -57,6 +57,10 @@ import type { PageSpec } from '@/lib/domain';
 import { toWhatsAppClickToChatUrl } from '@/lib/phone';
 import { ManualDashboardRefreshLimitError } from '@/lib/query/cached-dashboard-api';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
+import {
+  DASHBOARD_QUERY_GC_TIME_MS,
+  DASHBOARD_QUERY_STALE_TIME_MS,
+} from '@/lib/query/cache-policy';
 import { cn } from '@/lib/utils';
 import {
   fetchSalesConsultantDashboard,
@@ -316,6 +320,10 @@ function statusVariant(status: string) {
 }
 
 function scheduleItemHref(item: SalesConsultantDashboardResult['schedule'][number]) {
+  if (item.kind.startsWith('APPOINTMENT_')) {
+    return `/sales-consultant/appointments?appointment=${encodeURIComponent(item.id)}`;
+  }
+
   if (item.lead_id) return `/sales-consultant/my-leads?q=${encodeURIComponent(item.lead_id)}`;
 
   const phone =
@@ -420,9 +428,11 @@ function TodaySchedule({
                     <Link
                       href={href}
                       aria-label={
-                        item.lead_id
-                          ? `Open ${item.customer_name} in My Leads`
-                          : `Open ${definition.label} for ${item.customer_name}`
+                        item.kind.startsWith('APPOINTMENT_')
+                          ? `Open ${definition.label} for ${item.customer_name} in Appointments`
+                          : item.lead_id
+                            ? `Open ${item.customer_name} in My Leads`
+                            : `Open ${definition.label} for ${item.customer_name}`
                       }
                       className="ml-2 rounded-lg border bg-white p-2.5 transition-colors hover:border-blue-200 hover:bg-blue-50/30"
                     >
@@ -801,10 +811,26 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
     queryKey: dashboardQueryKey,
     queryFn: ({ signal }) =>
       fetchSalesConsultantDashboard(signal, { manualRefresh: manualRefreshRequest.current }),
+    // Keep the dashboard in memory while navigating. The Refresh control below
+    // explicitly replaces its Redis entry with a fresh database bundle.
+    staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
+    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
   });
   const [refreshMessage, setRefreshMessage] = useState<string>();
   const [manualRefreshRemaining, setManualRefreshRemaining] = useState(3);
   const data = dashboard.data;
+
+  useEffect(() => {
+    const budget = data?.refresh_budget;
+    if (!budget?.enforced || budget.remaining === null) return;
+    setManualRefreshRemaining(budget.remaining);
+    if (budget.remaining !== 0 || !budget.retry_after_ms) return;
+    const refreshAt = formatTime(
+      new Date(Date.now() + budget.retry_after_ms).toISOString(),
+      data?.timezone ?? 'Asia/Kolkata',
+    );
+    setRefreshMessage(`Refresh limit reached. Available again at ${refreshAt}.`);
+  }, [data?.refresh_budget, data?.timezone]);
   const realtimeSubscriptions = useMemo(
     () =>
       data
@@ -823,17 +849,31 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
     return first > 0 ? (last / first) * 100 : 0;
   }, [data]);
 
-  async function refresh() {
+  async function refresh(manual = true) {
     setRefreshMessage(undefined);
-    manualRefreshRequest.current = true;
+    manualRefreshRequest.current = manual;
     const result = await dashboard.refetch();
     manualRefreshRequest.current = false;
-    if (result.error instanceof ManualDashboardRefreshLimitError) {
+    if (manual && result.error instanceof ManualDashboardRefreshLimitError) {
       setManualRefreshRemaining(0);
-      setRefreshMessage('Refresh limit reached. Try again after the one-minute window.');
+      const refreshAt = result.error.retryAfterMs
+        ? formatTime(
+            new Date(Date.now() + result.error.retryAfterMs).toISOString(),
+            data?.timezone ?? 'Asia/Kolkata',
+          )
+        : null;
+      setRefreshMessage(
+        refreshAt
+          ? `Refresh limit reached. Available again at ${refreshAt}.`
+          : 'Refresh limit reached. Try again after the 30-minute window.',
+      );
       return;
     }
-    if (!result.error) {
+    if (result.error) {
+      setRefreshMessage('Could not refresh right now. Showing the last synced dashboard.');
+      return;
+    }
+    if (manual) {
       const budget = result.data?.refresh_budget;
       if (budget?.enforced && budget.remaining !== null)
         setManualRefreshRemaining(budget.remaining);
@@ -842,7 +882,10 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
   }
 
   if (dashboard.isPending) return <SalesConsultantDashboardSkeleton />;
-  if (dashboard.isError || !data)
+  // A rejected Refresh (such as the 3-per-30-minute quota) must not replace a
+  // rendered dashboard with a blank error page. Only the initial load has no
+  // previous data to keep visible.
+  if (!data)
     return (
       <div className="mx-auto max-w-[1800px]">
         <Card className="border-rose-100 shadow-none">
@@ -860,7 +903,7 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
             <Button
               className="mt-5"
               variant="outline"
-              onClick={() => void refresh()}
+              onClick={() => void refresh(false)}
               disabled={dashboard.isFetching}
             >
               <RefreshCw className={cn('size-4', dashboard.isFetching && 'animate-spin')} />
@@ -885,12 +928,15 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
             variant="ghost"
             size="sm"
             onClick={() => void refresh()}
-            disabled={dashboard.isFetching}
+            disabled={dashboard.isFetching || manualRefreshRemaining === 0}
           >
             <RefreshCw className={cn('size-3.5', dashboard.isFetching && 'animate-spin')} />
-            Last updated {formatTime(data.generated_at, data.timezone)}
+            Last synced {formatTime(data.cache.synced_at ?? data.generated_at, data.timezone)}
           </Button>
           <span>{manualRefreshRemaining}/3 manual refreshes left</span>
+          {data.cache.status === 'HIT' && (
+            <span className="text-muted-foreground">Cached &middot; refresh for the latest</span>
+          )}
           {refreshMessage && <span className="text-rose-600">{refreshMessage}</span>}
         </div>
       </div>

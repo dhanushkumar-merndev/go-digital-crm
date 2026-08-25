@@ -12,7 +12,7 @@ import {
   Tags,
   Wrench,
 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -136,18 +136,20 @@ function initialValidity(record?: QuotationRecord | null) {
 
 export function QuotationCreateView({
   record,
+  initialLeadId,
   onBack,
   onSaved,
 }: {
   record?: QuotationRecord | null;
+  initialLeadId?: string | null;
   onBack: () => void;
   onSaved: () => void;
 }) {
   const workspaceSession = useWorkspaceSession();
   const queryScope = workspaceQueryScope(workspaceSession);
   const vehicle = initialVehicle(record);
-  const [search, setSearch] = useState('');
-  const [leadId, setLeadId] = useState(record?.lead_id ?? '');
+  const [search, setSearch] = useState(initialLeadId ?? '');
+  const [leadId, setLeadId] = useState(record?.lead_id ?? initialLeadId ?? '');
   const [model, setModel] = useState(vehicle.model || record?.interested_model || '');
   const [variant, setVariant] = useState(vehicle.variant);
   const [colour, setColour] = useState(vehicle.colour);
@@ -266,6 +268,14 @@ export function QuotationCreateView({
     setColour('');
     requestId.current = null;
   };
+
+  // A row-level Create quotation action carries its lead id in the URL.  Once
+  // its one scoped option arrives, apply the same defaults as a manual choice.
+  useEffect(() => {
+    if (!record && initialLeadId && selected?.interested_model && !model) {
+      setModel(selected.interested_model);
+    }
+  }, [initialLeadId, model, record, selected?.interested_model]);
 
   return (
     <div className="space-y-5">

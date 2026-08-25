@@ -4,7 +4,8 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
@@ -425,7 +426,6 @@ function DealershipTable({
 }
 
 export function DealershipWorkspace({ spec }: { spec: PageSpec }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -449,12 +449,11 @@ export function DealershipWorkspace({ spec }: { spec: PageSpec }) {
     (next: Partial<DealershipQuery>) => {
       setQuery((current) => {
         const updated = { ...current, ...next };
-        const queryString = toDealershipQueryString(updated);
-        router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+        replaceQueryString(pathname, toDealershipQueryString(updated));
         return updated;
       });
     },
-    [pathname, router],
+    [pathname],
   );
 
   if (dealerships.isPending) return <DealershipWorkspaceSkeleton />;

@@ -1,6 +1,6 @@
 'use client';
 
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   CalendarCheck2,
@@ -19,11 +19,13 @@ import {
   X,
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { TasksSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
@@ -453,10 +455,9 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
         canCancel: hasWorkspacePermission(workspaceSession, 'task.cancel'),
       }
     : undefined;
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
+  const salesConsultantCache = useSalesConsultantCache();
   const [query, setQuery] = useState<TaskQuery>(() => {
     const parsed = parseTaskQuery(searchParams);
     if (!searchParams.has('status') && !searchParams.has('q'))
@@ -482,8 +483,8 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
   useEffect(() => {
     const queryString = toTaskQueryString(requestQuery);
     if (queryString === searchParams.toString()) return;
-    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
-  }, [pathname, requestQuery, router, searchParams]);
+    replaceQueryString(pathname, queryString);
+  }, [pathname, requestQuery, searchParams]);
   const legacyPermissions = useQuery({
     queryKey: ['task-workspace-permissions', ...queryScope, role],
     queryFn: fetchTaskPermissions,
@@ -512,17 +513,8 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
     setQuery((current) => (current.page === 1 ? current : { ...current, page: 1 }));
   };
   const invalidate = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: ['task-workspace', ...queryScope],
-    });
-    void queryClient.invalidateQueries({ queryKey: ['customer-360'] });
-    void queryClient.invalidateQueries({
-      queryKey: ['task-center', ...queryScope],
-    });
-    void queryClient.invalidateQueries({
-      queryKey: ['sales-consultant-dashboard', ...queryScope],
-    });
-  }, [queryClient, queryScope]);
+    salesConsultantCache.invalidate('task.changed');
+  }, [salesConsultantCache]);
 
   if (
     (!useWorkspaceBootstrap && legacyPermissions.isPending) ||

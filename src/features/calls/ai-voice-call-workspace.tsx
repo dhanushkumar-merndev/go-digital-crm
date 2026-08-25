@@ -13,7 +13,8 @@ import {
   Search,
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { AiVoiceCallsSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
@@ -73,7 +74,6 @@ function initialQuery(params: URLSearchParams) {
 }
 
 export function AiVoiceCallWorkspace() {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState(() => initialQuery(searchParams));
@@ -94,7 +94,7 @@ export function AiVoiceCallWorkspace() {
     if (value.pageSize !== 25) params.set('pageSize', String(value.pageSize));
     if (value.search) params.set('q', value.search);
     if (value.status !== 'ALL') params.set('status', value.status);
-    router.replace(`${pathname}${params.size ? `?${params.toString()}` : ''}`, { scroll: false });
+    replaceQueryString(pathname, params.toString());
   };
 
   const metrics = useMemo<Metric[]>(() => {

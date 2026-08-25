@@ -71,16 +71,20 @@ function saveErrorMessage(error: unknown) {
 }
 
 export function TestDriveCreateView({
+  initialLeadId,
+  initialLeadSearch,
   onCancel,
   onSaved,
 }: {
+  initialLeadId?: string;
+  initialLeadSearch?: string;
   onCancel: () => void;
   onSaved: () => void;
 }) {
   const workspaceSession = useWorkspaceSession();
   const queryScope = workspaceQueryScope(workspaceSession);
-  const [leadSearch, setLeadSearch] = useState('');
-  const [leadId, setLeadId] = useState('');
+  const [leadSearch, setLeadSearch] = useState(() => initialLeadSearch?.slice(0, 160) ?? '');
+  const [leadId, setLeadId] = useState(() => initialLeadId ?? '');
   const [branchId, setBranchId] = useState('');
   const [vehicleSearch, setVehicleSearch] = useState('');
   const [stockUnitId, setStockUnitId] = useState('');
@@ -98,13 +102,20 @@ export function TestDriveCreateView({
     queryFn: ({ signal }) => fetchTestDriveLeadOptions(debouncedLeadSearch, signal),
     staleTime: 60_000,
   });
+  const selectedLead = leads.data?.find((item) => item.lead_id === leadId);
+  const resolvedBranchId = branchId || selectedLead?.branch_id || '';
   const vehicles = useQuery({
-    queryKey: ['test-drive-vehicle-options', ...queryScope, branchId, debouncedVehicleSearch],
-    queryFn: ({ signal }) => fetchTestDriveVehicleOptions(branchId, debouncedVehicleSearch, signal),
-    enabled: Boolean(branchId),
+    queryKey: [
+      'test-drive-vehicle-options',
+      ...queryScope,
+      resolvedBranchId,
+      debouncedVehicleSearch,
+    ],
+    queryFn: ({ signal }) =>
+      fetchTestDriveVehicleOptions(resolvedBranchId, debouncedVehicleSearch, signal),
+    enabled: Boolean(resolvedBranchId),
     staleTime: 60_000,
   });
-  const selectedLead = leads.data?.find((item) => item.lead_id === leadId);
   const selectedVehicle = vehicles.data?.find((item) => item.stock_unit_id === stockUnitId);
   useEffect(() => {
     if (!stockUnitId) return;
@@ -233,15 +244,17 @@ export function TestDriveCreateView({
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Available test-drive vehicle">
                 <Input
-                  disabled={!branchId}
+                  disabled={!resolvedBranchId}
                   value={vehicleSearch}
                   placeholder={
-                    branchId ? 'Search model, variant, VIN or chassis' : 'Select customer first'
+                    resolvedBranchId
+                      ? 'Search model, variant, VIN or chassis'
+                      : 'Select customer first'
                   }
                   onChange={(e) => setVehicleSearch(e.target.value)}
                 />
                 <Select
-                  disabled={!branchId}
+                  disabled={!resolvedBranchId}
                   value={stockUnitId}
                   onValueChange={(value) => {
                     requestId.current = null;

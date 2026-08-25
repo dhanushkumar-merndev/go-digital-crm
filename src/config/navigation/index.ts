@@ -20,7 +20,6 @@ export const roleNavigation: Record<RoleKey, RoleNavigation> = {
     group: 'Sales',
     items: items([
       ['Dashboard', 'dashboard', 'LayoutDashboard'],
-      ['New Leads', 'new-leads', 'Sparkles'],
       ['My Leads', 'my-leads', 'Users'],
       ['Follow-ups', 'follow-ups', 'CalendarClock'],
       ['Tasks', 'tasks', 'ListTodo'],

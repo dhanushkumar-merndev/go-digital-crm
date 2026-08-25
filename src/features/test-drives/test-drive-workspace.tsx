@@ -1,6 +1,6 @@
 'use client';
 
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   CheckCircle2,
@@ -20,7 +20,8 @@ import {
   X,
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import {
   hasWorkspacePermission,
@@ -30,6 +31,7 @@ import {
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { TestDrivesSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
@@ -548,14 +550,15 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
           canProgressOwn: workspaceSession!.roleKey === 'sales-consultant',
         }
       : undefined;
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
+  const salesConsultantCache = useSalesConsultantCache();
   const [query, setQuery] = useState(() => parseTestDriveQuery(searchParams));
   const [screen, setScreen] = useState<'list' | 'create' | 'detail'>(() =>
     searchParams.get('action') === 'create' ? 'create' : 'list',
   );
+  const initialLeadId = searchParams.get('lead') ?? undefined;
+  const initialLeadSearch = searchParams.get('q') ?? undefined;
   const [selectedRecord, setSelectedRecord] = useState<TestDriveRecord | null>(null);
   const [actionState, setActionState] = useState<TestDriveActionState | null>(null);
   const debouncedSearch = useDebouncedValue(query.search, 300);
@@ -590,21 +593,11 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
   const onQueryChange = (next: Partial<TestDriveQuery>) => {
     const updated = { ...query, ...next };
     setQuery(updated);
-    const queryString = toTestDriveQueryString(updated);
-    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    replaceQueryString(pathname, toTestDriveQueryString(updated));
   };
   const invalidate = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: ['test-drive-workspace', ...queryScope],
-    });
-    void queryClient.invalidateQueries({
-      queryKey: ['test-drive-lead-options', ...queryScope],
-    });
-    void queryClient.invalidateQueries({
-      queryKey: ['test-drive-vehicle-options', ...queryScope],
-    });
-    void queryClient.invalidateQueries({ queryKey: ['customer-360'] });
-  }, [queryClient, queryScope]);
+    salesConsultantCache.invalidate('testdrive.changed');
+  }, [salesConsultantCache]);
 
   if (!useWorkspaceBootstrap && legacyPermissions.isPending) return <TestDrivesSkeleton />;
   if (
@@ -640,9 +633,15 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
   if (screen === 'create' && permissions.canManage)
     return (
       <TestDriveCreateView
-        onCancel={() => setScreen('list')}
+        initialLeadId={initialLeadId}
+        initialLeadSearch={initialLeadSearch}
+        onCancel={() => {
+          replaceQueryString(pathname);
+          setScreen('list');
+        }}
         onSaved={() => {
           invalidate();
+          replaceQueryString(pathname);
           setScreen('list');
         }}
       />

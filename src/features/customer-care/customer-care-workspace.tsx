@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Plus, Search, TriangleAlert } from 'lucide-react';
@@ -339,7 +340,6 @@ export function CustomerCareWorkspace({
   slug: string;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const workspaceSession = useWorkspaceSession();
@@ -399,10 +399,9 @@ export function CustomerCareWorkspace({
   const replaceQuery = useCallback(
     (next: Partial<CustomerCareQuery>) => {
       const merged = { ...routeQuery, ...next };
-      const value = toCustomerCareQueryString(merged, initialView);
-      router.replace(value ? `${pathname}?${value}` : pathname, { scroll: false });
+      replaceQueryString(pathname, toCustomerCareQueryString(merged, initialView));
     },
-    [initialView, pathname, routeQuery, router],
+    [initialView, pathname, routeQuery],
   );
 
   const createMutation = useMutation({

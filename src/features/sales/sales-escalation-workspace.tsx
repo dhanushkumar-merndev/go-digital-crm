@@ -3,7 +3,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Check, Search, TriangleAlert } from 'lucide-react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import {
   hasWorkspacePermission,
@@ -231,7 +232,6 @@ export function SalesEscalationWorkspace({ role }: { role: RoleKey }) {
         }
       : undefined;
   const pathname = usePathname();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const query = useMemo(() => parseSalesEscalationQuery(searchParams), [searchParams]);
@@ -262,10 +262,9 @@ export function SalesEscalationWorkspace({ role }: { role: RoleKey }) {
   const updateQuery = useCallback(
     (next: Partial<SalesEscalationQuery>) => {
       const updated = { ...query, ...next };
-      const nextSearch = toSalesEscalationQueryString(updated);
-      router.replace(nextSearch ? `${pathname}?${nextSearch}` : pathname, { scroll: false });
+      replaceQueryString(pathname, toSalesEscalationQueryString(updated));
     },
-    [pathname, query, router],
+    [pathname, query],
   );
   const columns = useMemo<ColumnDef<SalesEscalationRecord>[]>(
     () => [

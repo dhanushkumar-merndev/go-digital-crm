@@ -121,6 +121,14 @@ async function insert(table, rows) {
   });
 }
 
+async function patch(table, query, row) {
+  return request(restUrl(table, query), {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify(row),
+  });
+}
+
 async function first(table, query, errorMessage) {
   const rows = await select(table, { ...query, limit: '1' });
   if (rows.length !== 1) throw new Error(errorMessage);
@@ -257,6 +265,37 @@ async function resolveTarget() {
 
 async function main() {
   const target = await resolveTarget();
+  const [existingBranchAccess] = await select('user_branch_access', {
+    select: 'active',
+    organization_id: `eq.${target.organizationId}`,
+    user_id: `eq.${target.salesConsultantId}`,
+    branch_id: `eq.${target.branchId}`,
+  });
+  let branchAccessGranted = false;
+  if (!existingBranchAccess) {
+    await insert('user_branch_access', [
+      {
+        organization_id: target.organizationId,
+        user_id: target.salesConsultantId,
+        branch_id: target.branchId,
+        granted_by: target.clientAdminId,
+        active: true,
+      },
+    ]);
+    branchAccessGranted = true;
+  } else if (!existingBranchAccess.active) {
+    await patch(
+      'user_branch_access',
+      {
+        organization_id: `eq.${target.organizationId}`,
+        user_id: `eq.${target.salesConsultantId}`,
+        branch_id: `eq.${target.branchId}`,
+      },
+      { active: true, revoked_at: null, revoked_by: null },
+    );
+    branchAccessGranted = true;
+  }
+
   const fixtures = Array.from({ length: targetCount }, (_, index) => leadFixture(index + 1));
   const emails = fixtures.map((fixture) => fixture.email);
   const externalLeadIds = fixtures.map((fixture) => fixture.externalLeadId);
@@ -294,7 +333,8 @@ async function main() {
   for (const customer of createdCustomers) customerByEmail.set(customer.primary_email, customer);
 
   const existingLeads = await select('leads', {
-    select: 'id,external_lead_id,customer_id,branch_id,team_id,assigned_user_id,deleted_at',
+    select:
+      'id,external_lead_id,customer_id,branch_id,team_id,assigned_user_id,lifecycle_status,deleted_at',
     organization_id: `eq.${target.organizationId}`,
     connection_id: 'is.null',
     external_lead_id: inFilter(externalLeadIds),
@@ -376,6 +416,36 @@ async function main() {
   });
   const leadIds = allLeads.map((lead) => lead.id);
 
+  // Sales Consultants receive qualified handoffs, never raw intake leads.  The
+  // list RPC enforces that history, so volume fixtures must model the same
+  // journey instead of bypassing it with a plain `assigned_user_id` update.
+  const existingHandoffs = await select('lead_stage_history', {
+    select: 'lead_id',
+    organization_id: `eq.${target.organizationId}`,
+    lead_id: inFilter(leadIds),
+    to_status: 'eq.Transferred to Sales',
+  });
+  const handoffLeadIds = new Set(existingHandoffs.map((history) => history.lead_id));
+  const handoffRows = allLeads
+    .filter((lead) => !handoffLeadIds.has(lead.id))
+    .map((lead) => ({
+      organization_id: target.organizationId,
+      lead_id: lead.id,
+      from_status: lead.lifecycle_status,
+      to_status: 'Transferred to Sales',
+      changed_by: target.clientAdminId,
+      reason: 'Demo qualified lead handoff to Sales Consultant',
+    }));
+  await insert('lead_stage_history', handoffRows);
+  for (const lead of allLeads) {
+    if (lead.lifecycle_status === 'Transferred to Sales') continue;
+    await patch(
+      'leads',
+      { id: `eq.${lead.id}`, organization_id: `eq.${target.organizationId}` },
+      { lifecycle_status: 'Transferred to Sales' },
+    );
+  }
+
   const activeAssignments = await select('lead_assignments', {
     select: 'lead_id,assigned_user_id',
     organization_id: `eq.${target.organizationId}`,
@@ -432,22 +502,42 @@ async function main() {
   await insert('lead_assignment_history', historyRows);
 
   const existingActivities = await select('activities', {
-    select: 'lead_id',
+    select: 'lead_id,activity_type',
     organization_id: `eq.${target.organizationId}`,
     lead_id: inFilter(leadIds),
-    activity_type: `eq.${ACTIVITY_TYPE}`,
+    activity_type: inFilter([
+      ACTIVITY_TYPE,
+      'LEAD_RECEIVED',
+      'FIRST_CONTACTED',
+      'LEAD_QUALIFIED',
+      'LEAD_TRANSFERRED_TO_SALES',
+    ]),
   });
-  const activityLeadIds = new Set(existingActivities.map((entry) => entry.lead_id));
-  const activityRows = allLeads
-    .filter((lead) => !activityLeadIds.has(lead.id))
-    .map((lead) => ({
-      organization_id: target.organizationId,
-      customer_id: lead.customer_id,
-      lead_id: lead.id,
-      activity_type: ACTIVITY_TYPE,
-      actor_id: target.clientAdminId,
-      metadata: { fixture: FIXTURE_PREFIX, dummy: true },
-    }));
+  const activityKeys = new Set(
+    existingActivities.map((entry) => `${entry.lead_id}:${entry.activity_type}`),
+  );
+  const activityRows = allLeads.flatMap((lead) => {
+    const sequence = fixtures.find((fixture) => fixture.externalLeadId === lead.external_lead_id);
+    const createdAt = sequence?.createdAt ?? new Date().toISOString();
+    const events = [
+      ['LEAD_RECEIVED', 'Lead received from the source'],
+      ['FIRST_CONTACTED', 'First customer contact recorded'],
+      ['LEAD_QUALIFIED', 'Lead qualified for Sales'],
+      ['LEAD_TRANSFERRED_TO_SALES', 'Qualified lead transferred to Sales Consultant'],
+      [ACTIVITY_TYPE, 'Demo Sales Consultant volume fixture ready'],
+    ];
+    return events
+      .filter(([activityType]) => !activityKeys.has(`${lead.id}:${activityType}`))
+      .map(([activityType, title], index) => ({
+        organization_id: target.organizationId,
+        customer_id: lead.customer_id,
+        lead_id: lead.id,
+        activity_type: activityType,
+        actor_id: target.clientAdminId,
+        occurred_at: new Date(new Date(createdAt).getTime() + index * 30 * 60_000).toISOString(),
+        metadata: { fixture: FIXTURE_PREFIX, title, dummy: true },
+      }));
+  });
   await insert('activities', activityRows);
 
   const verifiedLeads = await select('leads', {
@@ -478,6 +568,8 @@ async function main() {
         requested_fixture_leads: targetCount,
         created_customers: createdCustomers.length,
         created_leads: createdLeads.length,
+        branch_access_granted: branchAccessGranted,
+        created_sales_handoff_history: handoffRows.length,
         created_assignment_records: assignmentRows.length,
         created_assignment_history_records: historyRows.length,
         total_active_fixture_leads: verifiedLeads.length,

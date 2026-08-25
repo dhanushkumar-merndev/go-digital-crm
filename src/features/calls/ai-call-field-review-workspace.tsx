@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { AiCallFieldReviewSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -97,7 +97,7 @@ export function AiCallFieldReviewWorkspace({ callId, role }: { callId: string; r
     }),
     [fields],
   );
-  if (workspace.isPending) return <PageSkeleton />;
+  if (workspace.isPending) return <AiCallFieldReviewSkeleton />;
   if (workspace.isError || !workspace.data)
     return (
       <div className="p-6 text-sm text-destructive">

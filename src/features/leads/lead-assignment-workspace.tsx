@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
   ChevronLeft,
@@ -16,6 +16,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { LeadAssignmentSkeleton } from '@/components/skeletons';
+import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -130,7 +131,7 @@ export function LeadAssignmentWorkspace({
   audience?: LeadAssignmentAudience;
 }) {
   const session = useWorkspaceSession();
-  const queryClient = useQueryClient();
+  const salesConsultantCache = useSalesConsultantCache();
   const queryScope = workspaceQueryScope(session);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -139,7 +140,7 @@ export function LeadAssignmentWorkspace({
   const [selectedConsultantId, setSelectedConsultantId] = useState<string | null>(null);
   const debouncedSearch = useDebouncedValue(search, 300);
   const query = useQuery({
-    queryKey: ['lead-assignment', audience, ...queryScope, debouncedSearch, page, pageSize],
+    queryKey: ['lead-assignment', ...queryScope, audience, debouncedSearch, page, pageSize],
     queryFn: ({ signal }) =>
       fetchLeadAssignmentWorkspace({ search: debouncedSearch, page, pageSize }, audience, signal),
     staleTime: 30_000,
@@ -179,8 +180,7 @@ export function LeadAssignmentWorkspace({
     onSuccess: async () => {
       setSelectedId(null);
       setSelectedConsultantId(null);
-      await queryClient.invalidateQueries({ queryKey: ['lead-assignment'] });
-      await queryClient.invalidateQueries({ queryKey: ['lead-workspace'] });
+      await salesConsultantCache.settle('lead.assigned', { leadId: selectedId ?? undefined });
       toast.add({
         type: 'success',
         title: 'Lead assigned',

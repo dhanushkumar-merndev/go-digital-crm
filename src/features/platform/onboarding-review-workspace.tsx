@@ -3,7 +3,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Download, Search } from 'lucide-react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
@@ -488,7 +489,6 @@ function ReviewTable({
 }
 
 export function OnboardingReviewWorkspace({ spec }: { spec: PageSpec }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -514,12 +514,11 @@ export function OnboardingReviewWorkspace({ spec }: { spec: PageSpec }) {
     (next: Partial<OnboardingReviewQuery>) => {
       setQuery((current) => {
         const updated = { ...current, ...next };
-        const queryString = toOnboardingReviewQueryString(updated);
-        router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+        replaceQueryString(pathname, toOnboardingReviewQueryString(updated));
         return updated;
       });
     },
-    [pathname, router],
+    [pathname],
   );
 
   if (reviews.isPending) return <OnboardingReviewSkeleton />;

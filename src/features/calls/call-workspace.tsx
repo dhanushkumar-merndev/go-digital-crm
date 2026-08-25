@@ -1,6 +1,6 @@
 'use client';
 
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   ChevronDown,
@@ -28,7 +28,8 @@ import {
   RadioTower,
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
 import { CallsSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -38,6 +39,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1557,7 +1559,6 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
         canDownload: hasWorkspacePermission(workspaceSession, 'document.download'),
       }
     : undefined;
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState<CallQuery>(() => parseCallQuery(searchParams));
@@ -1571,7 +1572,7 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
     () => ({ ...query, search: debouncedSearch }),
     [debouncedSearch, query],
   );
-  const queryClient = useQueryClient();
+  const salesConsultantCache = useSalesConsultantCache();
   const legacyPermissions = useQuery({
     queryKey: ['call-workspace-permissions', ...queryScope, role],
     queryFn: fetchCallWorkspacePermissions,
@@ -1595,16 +1596,13 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
   const onQueryChange = (next: Partial<CallQuery>) => {
     const updated = { ...query, ...next };
     setQuery(updated);
-    const queryString = toCallQueryString(updated);
-    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    replaceQueryString(pathname, toCallQueryString(updated));
   };
   const invalidate = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ['call-workspace', ...queryScope] });
-    if (selectedCallId)
-      void queryClient.invalidateQueries({
-        queryKey: ['call-detail', selectedCallId, ...queryScope],
-      });
-  }, [queryClient, queryScope, selectedCallId]);
+    // A logged call also moves the lead's last-activity column, which the plain
+    // call-workspace key never refreshed.
+    salesConsultantCache.invalidate('call.logged', { callId: selectedCallId ?? undefined });
+  }, [salesConsultantCache, selectedCallId]);
   const openCall = (call: CallRecord) => {
     setDetailEndedAt(dateTimeLocal(new Date()));
     setSelectedCallId(call.id);

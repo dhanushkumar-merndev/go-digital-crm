@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Plus, RotateCcw, Search, TriangleAlert } from 'lucide-react';
@@ -9,6 +10,7 @@ import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { OperationalCaseWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -331,7 +333,6 @@ export function OperationalCaseWorkspace({
 }) {
   const route = operationalCaseRoute(role, slug);
   if (!route) throw new Error('INVALID_OPERATIONAL_CASE_ROUTE');
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -428,7 +429,7 @@ export function OperationalCaseWorkspace({
       queryClient.invalidateQueries({
         queryKey: ['operational-case-booking-options', ...queryScope, route.department],
       }),
-      queryClient.invalidateQueries({ queryKey: ['customer-360'] }),
+      queryClient.invalidateQueries({ queryKey: salesConsultantKeys.customer360(queryScope) }),
     ]);
   }, [queryClient, queryScope, route.department]);
 
@@ -473,10 +474,9 @@ export function OperationalCaseWorkspace({
     (next: Partial<OperationalCaseQuery>) => {
       const updated = { ...query, ...next };
       setQuery(updated);
-      const nextQuery = toOperationalCaseQueryString(updated, route.initialStatus);
-      router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+      replaceQueryString(pathname, toOperationalCaseQueryString(updated, route.initialStatus));
     },
-    [pathname, query, route.initialStatus, router],
+    [pathname, query, route.initialStatus],
   );
 
   if (permissions.isPending || (workspace.isPending && permissions.data))

@@ -31,10 +31,14 @@ function SelectTrigger({
 
 function SelectContent({
   className,
+  viewportClassName,
   children,
   position = 'popper',
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Content>) {
+}: React.ComponentProps<typeof SelectPrimitive.Content> & {
+  /** Bound the list to a fixed number of rows and let it scroll natively. */
+  viewportClassName?: string;
+}) {
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
@@ -49,7 +53,9 @@ function SelectContent({
         <SelectPrimitive.ScrollUpButton className="flex h-7 items-center justify-center">
           <ChevronUp className="size-4" />
         </SelectPrimitive.ScrollUpButton>
-        <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
+        <SelectPrimitive.Viewport className={cn('p-1', viewportClassName)}>
+          {children}
+        </SelectPrimitive.Viewport>
         <SelectPrimitive.ScrollDownButton className="flex h-7 items-center justify-center">
           <ChevronDown className="size-4" />
         </SelectPrimitive.ScrollDownButton>

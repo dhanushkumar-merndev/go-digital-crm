@@ -46,6 +46,9 @@ export type LeadKpis = {
   test_drive: number;
   quotation: number;
   booking: number;
+  sales_new_today: number;
+  sales_pending: number;
+  sales_contacted: number;
 };
 
 export type LeadWorkspaceResult = {
@@ -60,6 +63,9 @@ export type LeadWorkspacePermissions = {
   canCreate: boolean;
   canAssign: boolean;
   canUpdate: boolean;
+  canCreateFollowup: boolean;
+  canCreateAppointment: boolean;
+  canManageTestDrive: boolean;
   canCreateCustomer: boolean;
   canLinkCustomer: boolean;
 };
@@ -95,6 +101,9 @@ const emptyKpis: LeadKpis = {
   test_drive: 0,
   quotation: 0,
   booking: 0,
+  sales_new_today: 0,
+  sales_pending: 0,
+  sales_contacted: 0,
 };
 
 function normalizeKpis(row: KpiRow | null): LeadKpis {
@@ -107,8 +116,33 @@ function normalizeKpis(row: KpiRow | null): LeadKpis {
   ) as LeadKpis;
 }
 
-export async function fetchLeadWorkspace(
+/**
+ * The counters and filter options depend only on the filter set, never on the
+ * offset, so they are fetched once per filter set and reused across pages.
+ * Splitting them keeps a page change to one indexed limit/offset instead of
+ * seventeen aggregates over every lead in scope.
+ */
+export type LeadWorkspaceMeta = Pick<LeadWorkspaceResult, 'total' | 'kpis' | 'filters'>;
+export type LeadWorkspaceRecords = Pick<LeadWorkspaceResult, 'records'>;
+
+export type LeadMetaQuery = Omit<LeadQuery, 'page' | 'pageSize' | 'sort'>;
+
+export function toLeadMetaQuery(query: LeadQuery): LeadMetaQuery {
+  return {
+    search: query.search,
+    status: query.status,
+    model: query.model,
+    source: query.source,
+    stage: query.stage,
+    temperature: query.temperature,
+    followupFrom: query.followupFrom,
+    followupTo: query.followupTo,
+  };
+}
+
+async function callLeadWorkspace(
   query: LeadQuery,
+  parts: { records: boolean; kpis: boolean },
   signal?: AbortSignal,
 ): Promise<LeadWorkspaceResult> {
   const supabase = createClient();
@@ -124,6 +158,8 @@ export async function fetchLeadWorkspace(
     target_temperature: query.temperature,
     target_followup_from: query.followupFrom || null,
     target_followup_to: query.followupTo || null,
+    target_include_records: parts.records,
+    target_include_kpis: parts.kpis,
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
@@ -147,6 +183,28 @@ export async function fetchLeadWorkspace(
   };
 }
 
+export async function fetchLeadWorkspaceRecords(
+  query: LeadQuery,
+  signal?: AbortSignal,
+): Promise<LeadWorkspaceRecords> {
+  const { records } = await callLeadWorkspace(query, { records: true, kpis: false }, signal);
+  return { records };
+}
+
+export async function fetchLeadWorkspaceMeta(
+  query: LeadMetaQuery,
+  signal?: AbortSignal,
+): Promise<LeadWorkspaceMeta> {
+  // Page and sort are fixed here: they cannot change a counter, and pinning
+  // them keeps this request identical while the user pages around.
+  const { total, kpis, filters } = await callLeadWorkspace(
+    { ...query, page: 1, pageSize: 25, sort: 'updated:desc' },
+    { records: false, kpis: true },
+    signal,
+  );
+  return { total, kpis, filters };
+}
+
 export async function fetchLeadWorkspacePermissions(): Promise<LeadWorkspacePermissions> {
   const supabase = createClient();
   const contextResponse = await supabase.rpc('get_access_context');
@@ -157,13 +215,21 @@ export async function fetchLeadWorkspacePermissions(): Promise<LeadWorkspacePerm
 
   const organizationId = context.organization_id;
   const permissionResults = await Promise.all(
-    ['lead.create', 'lead.assign', 'lead.update', 'customer.create', 'customer.link'].map(
-      (target_permission) =>
-        supabase.rpc('authorize_action', {
-          target_organization_id: organizationId,
-          target_permission,
-          target_branch_id: null,
-        }),
+    [
+      'lead.create',
+      'lead.assign',
+      'lead.update',
+      'followup.create',
+      'appointment.create',
+      'test_drive.manage',
+      'customer.create',
+      'customer.link',
+    ].map((target_permission) =>
+      supabase.rpc('authorize_action', {
+        target_organization_id: organizationId,
+        target_permission,
+        target_branch_id: null,
+      }),
     ),
   );
   const failed = permissionResults.find((response) => response.error);
@@ -173,8 +239,11 @@ export async function fetchLeadWorkspacePermissions(): Promise<LeadWorkspacePerm
     canCreate: Boolean(permissionResults[0]?.data),
     canAssign: Boolean(permissionResults[1]?.data),
     canUpdate: Boolean(permissionResults[2]?.data),
-    canCreateCustomer: Boolean(permissionResults[3]?.data),
-    canLinkCustomer: Boolean(permissionResults[4]?.data),
+    canCreateFollowup: Boolean(permissionResults[3]?.data),
+    canCreateAppointment: Boolean(permissionResults[4]?.data),
+    canManageTestDrive: Boolean(permissionResults[5]?.data),
+    canCreateCustomer: Boolean(permissionResults[6]?.data),
+    canLinkCustomer: Boolean(permissionResults[7]?.data),
   };
 }
 
@@ -217,6 +286,18 @@ export async function setPersonalLeadPreference(input: {
     starred: result.starred,
     pinnedAt: result.pinned_at ?? null,
   };
+}
+
+export async function recordSalesLeadContact(input: {
+  leadId: string;
+  channel: 'CALL' | 'WHATSAPP';
+}): Promise<{ lead_id: string; contacted_at: string }> {
+  const { data, error } = await createClient().rpc('record_sales_lead_contact', {
+    target_lead_id: input.leadId,
+    contact_channel: input.channel,
+  });
+  if (error) throw error;
+  return data as { lead_id: string; contacted_at: string };
 }
 
 export type LeadCreateInput = {
@@ -314,19 +395,11 @@ export async function fetchLeadCreateOptions(signal?: AbortSignal): Promise<Lead
   };
 }
 
-export async function fetchAssignableUsers(search = '', signal?: AbortSignal) {
-  const normalizedSearch = search.normalize('NFKC').trim().slice(0, 160);
-  const escapedSearch = normalizedSearch
-    .replaceAll('\\', '\\\\')
-    .replaceAll('%', '\\%')
-    .replaceAll('_', '\\_');
-  let request = createClient()
-    .from('profiles')
-    .select('id,full_name')
-    .eq('active', true)
-    .order('full_name')
-    .limit(25);
-  if (escapedSearch) request = request.ilike('full_name', `%${escapedSearch}%`);
+export async function fetchAssignableUsers(leadId: string, search = '', signal?: AbortSignal) {
+  const request = createClient().rpc('get_lead_assignment_candidates', {
+    target_lead_id: leadId,
+    target_search: search.normalize('NFKC').trim().slice(0, 160),
+  });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return data as ProfileRow[];

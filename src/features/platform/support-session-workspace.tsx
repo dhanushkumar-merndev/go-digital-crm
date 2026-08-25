@@ -3,7 +3,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Clock3, Plus, Search, ShieldCheck } from 'lucide-react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
@@ -787,7 +788,6 @@ export function SupportSessionWorkspace({
   spec: PageSpec;
   role: SupportWorkspaceRole;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParameters = useSearchParams();
   const queryClient = useQueryClient();
@@ -812,12 +812,11 @@ export function SupportSessionWorkspace({
     (next: Partial<SupportWorkspaceQuery>) => {
       setQuery((current) => {
         const updated = { ...current, ...next };
-        const queryString = toSupportWorkspaceQueryString(updated);
-        router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+        replaceQueryString(pathname, toSupportWorkspaceQueryString(updated));
         return updated;
       });
     },
-    [pathname, router],
+    [pathname],
   );
   const refresh = useCallback(
     (message: string) => {

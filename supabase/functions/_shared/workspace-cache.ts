@@ -4,7 +4,13 @@ const COALESCED_WAIT_MS = 500;
 const COALESCED_POLL_MS = 100;
 const REDIS_COMMAND_TIMEOUT_MS = 500;
 const MANUAL_REFRESH_LIMIT = 3;
-const MANUAL_REFRESH_WINDOW_MS = 60_000;
+// Dashboard rebuilds are deliberately limited to three per 30 minutes, per
+// user and resource. Normal reads remain inexpensive Redis reads.
+const MANUAL_REFRESH_WINDOW_MS = 30 * 60_000;
+export const MANUAL_REFRESH_POLICY = {
+  limit: MANUAL_REFRESH_LIMIT,
+  window_ms: MANUAL_REFRESH_WINDOW_MS,
+} as const;
 
 export type WorkspaceCacheResource =
   'tenant-dashboard' | 'inventory-dashboard' | 'platform-dashboard';
@@ -17,6 +23,9 @@ export type CacheDiagnostic = {
   resource: EdgeCacheResource;
   version: number;
   age_seconds: number | null;
+  // When the cached payload was actually built. The client shows this as the
+  // last sync time, so a day-old dashboard never reads as live.
+  synced_at: string | null;
 };
 
 type CacheEntry<T> = { value: T; created_at: string };
@@ -80,6 +89,10 @@ class UpstashRest {
 
   async set(key: string, value: unknown, ttlSeconds: number) {
     await this.command(['SET', key, JSON.stringify(value), 'EX', ttlSeconds]);
+  }
+
+  async delete(key: string) {
+    await this.command(['DEL', key]);
   }
 
   async setNx(key: string, value: string, ttlMs: number) {
@@ -150,6 +163,27 @@ export async function enforceManualRefresh(userId: string, resource: ManualRefre
   }
 }
 
+/** Read the current refresh quota without consuming one of its attempts. */
+export async function getManualRefreshStatus(userId: string, resource: ManualRefreshResource) {
+  const config = configuration();
+  if (!config.enabled || !config.url || !config.token)
+    return { enabled: false, allowed: true, remaining: null, retry_after_ms: null };
+
+  const redis = new UpstashRest(config.url, config.token);
+  const fingerprint = await cacheFingerprint({ userId, resource });
+  const key = `${config.prefix}:workspace-refresh:v1:${fingerprint}`;
+  try {
+    const rawCount = await redis.command<unknown>(['GET', key]);
+    const used = Math.max(0, Number(rawCount ?? 0));
+    const remaining = Math.max(0, MANUAL_REFRESH_LIMIT - used);
+    const retryAfterMs =
+      remaining === 0 ? Math.max(0, Number(await redis.command<unknown>(['PTTL', key]))) : null;
+    return { enabled: true, allowed: remaining > 0, remaining, retry_after_ms: retryAfterMs };
+  } catch {
+    return { enabled: false, allowed: true, remaining: null, retry_after_ms: null };
+  }
+}
+
 export async function readWorkspaceCache<T>(input: {
   resource: EdgeCacheResource;
   fingerprintInput: unknown;
@@ -166,7 +200,8 @@ export async function readWorkspaceCache<T>(input: {
         status,
         resource: input.resource,
         version: input.version,
-        age_seconds: null,
+        age_seconds: 0,
+        synced_at: new Date().toISOString(),
       } satisfies CacheDiagnostic,
     };
   };
@@ -196,8 +231,21 @@ export async function readWorkspaceCache<T>(input: {
         resource: input.resource,
         version: input.version,
         age_seconds: entryAgeSeconds(existing),
+        synced_at: existing.created_at,
       },
     };
+  }
+
+  // A user-triggered Refresh is intentionally stronger than a cache bypass:
+  // remove the old Redis value before rebuilding so no later read can be
+  // handed the stale dashboard while the database load is in progress.
+  if (input.forceRefresh && existing) {
+    try {
+      await redis.delete(key);
+    } catch {
+      // Continue with the database rebuild. Redis is never allowed to turn a
+      // refresh into an unavailable dashboard.
+    }
   }
 
   const lockKey = `${key}:lock`;
@@ -222,8 +270,9 @@ export async function readWorkspaceCache<T>(input: {
     }
 
     let cacheStored = true;
+    const createdAt = new Date().toISOString();
     try {
-      await redis.set(key, { value, created_at: new Date().toISOString() }, ttlSeconds);
+      await redis.set(key, { value, created_at: createdAt }, ttlSeconds);
     } catch {
       // Do not repeat an expensive successful load just because Redis could not store it.
       cacheStored = false;
@@ -240,7 +289,8 @@ export async function readWorkspaceCache<T>(input: {
         status: cacheStored ? 'MISS' : 'FALLBACK',
         resource: input.resource,
         version: input.version,
-        age_seconds: cacheStored ? 0 : null,
+        age_seconds: 0,
+        synced_at: createdAt,
       },
     };
   }
@@ -268,6 +318,7 @@ export async function readWorkspaceCache<T>(input: {
           resource: input.resource,
           version: input.version,
           age_seconds: entryAgeSeconds(rebuilt),
+          synced_at: rebuilt.created_at,
         },
       };
     }

@@ -12,7 +12,8 @@ import {
   UserCheck,
   UserX,
 } from 'lucide-react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
@@ -858,7 +859,6 @@ function UserTable({
 
 export function UserWorkspace({ spec, mode }: { spec: PageSpec; mode: UserAdministrationMode }) {
   const session = useWorkspaceSession();
-  const router = useRouter();
   const pathname = usePathname();
   const searchParameters = useSearchParams();
   const queryClient = useQueryClient();
@@ -886,12 +886,11 @@ export function UserWorkspace({ spec, mode }: { spec: PageSpec; mode: UserAdmini
     (next: Partial<UserWorkspaceQuery>) => {
       setQuery((current) => {
         const updated = { ...current, ...next };
-        const queryString = toUserWorkspaceQueryString(updated);
-        router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+        replaceQueryString(pathname, toUserWorkspaceQueryString(updated));
         return updated;
       });
     },
-    [pathname, router],
+    [pathname],
   );
   const refresh = useCallback(
     (nextMessage: string) => {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState, type SetStateAction } from 'react';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import {
   CarFront,
   Check,
@@ -27,6 +27,7 @@ import {
 import { SalesExchangeSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -205,7 +206,7 @@ export function SalesExchangeWorkspace() {
         canDownload: hasWorkspacePermission(workspaceSession, 'document.download'),
       }
     : undefined;
-  const queryClient = useQueryClient();
+  const salesConsultantCache = useSalesConsultantCache();
   const [bookingSearch, setBookingSearch] = useState('');
   const debouncedBookingSearch = useDebouncedValue(bookingSearch, 300);
   const [selectedBookingId, setSelectedBookingId] = useState('');
@@ -263,11 +264,7 @@ export function SalesExchangeWorkspace() {
 
   const invalidate = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['sales-exchange-options', ...queryScope] }),
-      queryClient.invalidateQueries({
-        queryKey: ['operational-cases', permissions?.organizationId],
-      }),
-      queryClient.invalidateQueries({ queryKey: ['customer-360'] }),
+      salesConsultantCache.settle('exchange.changed'),
     ]);
   };
 

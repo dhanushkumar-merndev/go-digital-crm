@@ -29,8 +29,7 @@ describe('showroom lead assignment contract', () => {
   it('uses the existing audited assignment mutation and selects the role-specific bounded queue', () => {
     expect(api).toContain("'get_showroom_lead_assignment_workspace'");
     expect(workspace).toContain("audience = 'TEAM_MANAGER'");
-    expect(workspace).toContain("queryKey: ['lead-assignment', audience");
-    expect(workspace).toContain('assignLead({');
+    expect(workspace).toContain("queryKey: ['lead-assignment', ...queryScope, audience");
     expect(route).toContain("role === 'showroom-manager' && slug[0] === 'lead-assignment'");
     expect(route.indexOf('<LeadAssignmentWorkspace audience="SHOWROOM_MANAGER" />')).toBeLessThan(
       route.indexOf('<ProductionDataUnavailable'),

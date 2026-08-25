@@ -3,7 +3,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Plus, Search, ShieldCheck } from 'lucide-react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
@@ -557,7 +558,6 @@ function RoleTable({
 
 export function RoleWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
-  const router = useRouter();
   const pathname = usePathname();
   const searchParameters = useSearchParams();
   const queryClient = useQueryClient();
@@ -581,12 +581,11 @@ export function RoleWorkspace({ spec }: { spec: PageSpec }) {
     (next: Partial<RoleWorkspaceQuery>) => {
       setQuery((current) => {
         const updated = { ...current, ...next };
-        const queryString = toRoleWorkspaceQueryString(updated);
-        router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+        replaceQueryString(pathname, toRoleWorkspaceQueryString(updated));
         return updated;
       });
     },
-    [pathname, router],
+    [pathname],
   );
   const refresh = useCallback(() => {
     setSavedMessage('Custom role saved');

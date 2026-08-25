@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Download, FileDown, Search } from 'lucide-react';
@@ -86,7 +87,6 @@ export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
       }
     : undefined;
   const pathname = usePathname();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [searchInput, setSearchInput] = useState(() => parseReportExportQuery(searchParams).search);
@@ -98,10 +98,9 @@ export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
   const setQuery = useCallback(
     (next: Partial<ReportExportQuery>) => {
       const result = { ...parseReportExportQuery(new URLSearchParams(searchParams)), ...next };
-      const serialized = toReportExportQueryString(result);
-      router.replace(serialized ? `${pathname}?${serialized}` : pathname, { scroll: false });
+      replaceQueryString(pathname, toReportExportQueryString(result));
     },
-    [pathname, router, searchParams],
+    [pathname, searchParams],
   );
   const page = useQuery({
     queryKey: [...exportsKey, ...queryScope, query],

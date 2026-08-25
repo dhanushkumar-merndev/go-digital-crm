@@ -28,6 +28,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Customer360Skeleton } from '@/components/skeletons';
 import {
   Select,
   SelectContent,
@@ -383,6 +384,21 @@ function Overview({ data }: { data: Customer360 }) {
 
 function Timeline({ data }: { data: Customer360 }) {
   if (!data.timeline.length) return <EmptySection label="Timeline activity" />;
+  const labelByType: Record<string, string> = {
+    LEAD_RECEIVED: 'Lead received',
+    FIRST_CONTACTED: 'First contact completed',
+    LEAD_QUALIFIED: 'Lead qualified',
+    LEAD_TRANSFERRED_TO_SALES: 'Lead transferred to Sales',
+    FOLLOWUP_SCHEDULED: 'Follow-up scheduled',
+    FOLLOWUP_COMPLETED: 'Follow-up completed',
+    APPOINTMENT_SCHEDULED: 'Appointment scheduled',
+    APPOINTMENT_UPDATED: 'Appointment updated',
+    APPOINTMENT_COMPLETED: 'Appointment completed',
+    TEST_DRIVE_SCHEDULED: 'Test drive scheduled',
+    TEST_DRIVE_COMPLETED: 'Test drive completed',
+    QUOTATION_CREATED: 'Quotation created',
+    BOOKING_CREATED: 'Booking confirmed',
+  };
   const iconByType = (type: string) => {
     if (type.includes('CALL')) return Phone;
     if (type.includes('MESSAGE')) return MessageSquareText;
@@ -407,7 +423,9 @@ function Timeline({ data }: { data: Customer360 }) {
                 <Icon className="size-4" />
               </div>
               <div className="pt-0.5">
-                <p className="text-sm font-semibold">{item.activity_type.replaceAll('_', ' ')}</p>
+                <p className="text-sm font-semibold">
+                  {labelByType[item.activity_type] ?? item.activity_type.replaceAll('_', ' ')}
+                </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {item.actor_name ?? 'System'} · {formatDate(item.occurred_at)}
                 </p>
@@ -901,16 +919,7 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
     (!useWorkspaceBootstrap && legacyPermissions.isPending) ||
     (customerIsPending && permissions?.canView)
   )
-    return (
-      <div className="mx-auto max-w-[1800px] space-y-6">
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-10 w-full" />
-        <div className="grid gap-6 xl:grid-cols-[1.4fr_.8fr]">
-          <Skeleton className="h-80" />
-          <Skeleton className="h-80" />
-        </div>
-      </div>
-    );
+    return <Customer360Skeleton />;
   if (
     (!useWorkspaceBootstrap && legacyPermissions.isError) ||
     customerIsError ||

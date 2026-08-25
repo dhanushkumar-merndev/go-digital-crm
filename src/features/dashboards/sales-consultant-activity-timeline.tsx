@@ -380,7 +380,7 @@ export function SalesConsultantActivityTimeline({
 
   const data = timeline.data;
   return (
-    <div className="mx-auto max-w-[1680px]">
+    <div className="mx-auto max-w-[1800px]">
       <div className="mb-4">
         <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
           <Link href={`${rolePath}/dashboard`} className="text-blue-600 hover:underline">

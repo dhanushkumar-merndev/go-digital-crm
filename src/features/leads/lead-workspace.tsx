@@ -6,9 +6,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  Link2,
   MoreVertical,
-  Pencil,
   Pin,
   Phone,
   RefreshCw,
@@ -21,8 +19,10 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import { LeadWorkspaceSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
+import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import {
   hasWorkspacePermission,
@@ -43,6 +43,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -66,23 +67,35 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { roleHasNavigationSlug } from '@/config/navigation';
 import type { PageSpec } from '@/lib/domain';
 import { toWhatsAppClickToChatUrl } from '@/lib/phone';
+import { cn } from '@/lib/utils';
 import {
   CustomerMatchDialog,
   type MatchableLead,
 } from '@/features/customers/customer-match-dialog';
 import {
+  WorkCreateDialog,
+  appointmentTypes,
+  followupReasons,
+  type AppointmentType,
+  type FollowupReason,
+} from '@/features/work/workspace-dialogs';
+import {
   assignLead,
   createLead,
   fetchAssignableUsers,
   fetchLeadCreateOptions,
-  fetchLeadWorkspace,
+  fetchLeadWorkspaceMeta,
+  fetchLeadWorkspaceRecords,
+  toLeadMetaQuery,
   fetchLeadWorkspacePermissions,
   fetchPersonalLeadFlags,
+  recordSalesLeadContact,
   setPersonalLeadPreference,
   updateLead,
   type PersonalLeadFlag,
   type PersonalLeadFlags,
   type LeadRecord,
+  type LeadWorkspaceResult,
   type LeadWorkspacePermissions,
 } from './lead-workspace-api';
 import {
@@ -121,9 +134,42 @@ const lifecycleOptions = [
 
 const temperatureOptions = ['COLD', 'WARM', 'HOT'] as const;
 
+function lifecycleOptionsForRole(role: string, currentStatus: string) {
+  const allowed =
+    role === 'sales-consultant'
+      ? ['Appointment Scheduled', 'Lost']
+      : role === 'telecaller'
+        ? ['New', 'Contacted', 'Qualified', 'Lost']
+        : [...lifecycleOptions];
+
+  // A consultant can see the automatic handoff state as the current value,
+  // but cannot select it. It is written only by the qualified-lead handoff.
+  return Array.from(new Set([currentStatus, ...allowed]));
+}
+
 type PersonalLeadToggle = 'pinned' | 'starred';
 
 type PersonalLeadView = 'all' | 'starred';
+
+type LeadEditPreset = {
+  lifecycleStatus?: string;
+  temperature?: 'COLD' | 'WARM' | 'HOT';
+};
+
+type LeadEditRequest = {
+  lead: LeadRecord;
+  preset?: LeadEditPreset;
+};
+
+type FollowupShortcut = {
+  lead: LeadRecord;
+  reason: FollowupReason;
+};
+
+type AppointmentShortcut = {
+  lead: LeadRecord;
+  type: AppointmentType;
+};
 
 // Shared frozen fallback: a fresh `{}` per render would re-run every memo keyed
 // on the personal flag map.
@@ -190,19 +236,21 @@ function TemperatureBadge({ value }: { value: LeadRecord['temperature'] }) {
 function LeadStatusTabs({
   data,
   query,
+  role,
   personalFlags,
   personalView,
   onStatusChange,
   onPersonalViewChange,
 }: {
-  data: Awaited<ReturnType<typeof fetchLeadWorkspace>>;
+  data: LeadWorkspaceResult;
   query: LeadQuery;
+  role: string;
   personalFlags: PersonalLeadFlags;
   personalView: PersonalLeadView;
   onStatusChange: (status: LeadStatusFilter) => void;
   onPersonalViewChange: (view: PersonalLeadView) => void;
 }) {
-  const tabs: Array<{ label: string; value: LeadStatusFilter; count: number }> = [
+  const generalTabs: Array<{ label: string; value: LeadStatusFilter; count: number }> = [
     { label: 'All', value: 'all', count: data.kpis.total },
     { label: 'New', value: 'new', count: data.kpis.new_count },
     { label: 'Contacted', value: 'contacted', count: data.kpis.contacted_count },
@@ -212,6 +260,23 @@ function LeadStatusTabs({
     { label: 'Cold', value: 'cold', count: data.kpis.cold },
     { label: 'Lost', value: 'lost', count: data.kpis.lost_count },
   ];
+  const salesConsultantTabs: Array<{ label: string; value: LeadStatusFilter; count: number }> = [
+    { label: 'Leads', value: 'all', count: data.kpis.total },
+    { label: 'New', value: 'sales-new', count: data.kpis.sales_new_today },
+    { label: 'Pending', value: 'sales-pending', count: data.kpis.sales_pending },
+    { label: 'Contacted', value: 'sales-contacted', count: data.kpis.sales_contacted },
+    { label: 'Follow-up', value: 'follow-up', count: data.kpis.follow_up },
+    {
+      label: 'Appointments',
+      value: 'appointment-scheduled',
+      count: data.kpis.appointment_scheduled_count,
+    },
+    { label: 'Test Drive', value: 'test-drive', count: data.kpis.test_drive },
+    { label: 'Quotation', value: 'quotation', count: data.kpis.quotation },
+    { label: 'Booking', value: 'booking', count: data.kpis.booking },
+    { label: 'Lost', value: 'lost', count: data.kpis.lost_count },
+  ];
+  const tabs = role === 'sales-consultant' ? salesConsultantTabs : generalTabs;
   const starredCount = Object.values(personalFlags).filter((flag) => flag.starred).length;
 
   return (
@@ -468,9 +533,9 @@ function LeadAssignmentDialog({
   const [userSearch, setUserSearch] = useState('');
   const debouncedUserSearch = useDebouncedValue(userSearch, 300);
   const users = useQuery({
-    queryKey: ['lead-assignable-users', ...queryScope, debouncedUserSearch],
-    queryFn: ({ signal }) => fetchAssignableUsers(debouncedUserSearch, signal),
-    enabled: open,
+    queryKey: ['lead-assignment-candidates', ...queryScope, lead?.id, debouncedUserSearch],
+    queryFn: ({ signal }) => fetchAssignableUsers(lead?.id ?? '', debouncedUserSearch, signal),
+    enabled: open && Boolean(lead),
     placeholderData: keepPreviousData,
   });
   const [userId, setUserId] = useState(() => lead?.assigned_user_id ?? '');
@@ -486,10 +551,16 @@ function LeadAssignmentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{lead?.assigned_user_id ? 'Reassign lead' : 'Assign lead'}</DialogTitle>
+          <DialogTitle>
+            {lead?.lifecycle_status === 'Qualified'
+              ? 'Hand over to Sales Consultant'
+              : 'Assign lead to Telecaller'}
+          </DialogTitle>
           <DialogDescription>
             {lead
-              ? `${lead.customer_name} · ${shortId(lead.id)}`
+              ? lead.lifecycle_status === 'Qualified'
+                ? `${lead.customer_name} · Qualified leads are transferred automatically when handed to Sales.`
+                : `${lead.customer_name} · New intake is assigned to a Telecaller.`
               : 'Choose an eligible team member.'}
           </DialogDescription>
         </DialogHeader>
@@ -507,14 +578,18 @@ function LeadAssignmentDialog({
           }}
         >
           <div className="grid gap-1.5 text-sm font-medium">
-            Assignee
+            {lead?.lifecycle_status === 'Qualified' ? 'Sales Consultant' : 'Telecaller'}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={userSearch}
                 onChange={(event) => setUserSearch(event.target.value)}
                 className="pl-9"
-                placeholder="Search team member"
+                placeholder={
+                  lead?.lifecycle_status === 'Qualified'
+                    ? 'Search Sales Consultant'
+                    : 'Search Telecaller'
+                }
                 maxLength={160}
               />
             </div>
@@ -552,8 +627,8 @@ function LeadAssignmentDialog({
           )}
           {mutation.isError && (
             <p className="text-sm text-destructive">
-              The assignment could not be completed. The selected user must be active and eligible
-              for this lead’s team.
+              This lead could not be assigned. The selected user must be active, eligible for this
+              team, and match the required handoff role.
             </p>
           )}
           <div className="flex justify-end gap-2 pt-2">
@@ -563,9 +638,9 @@ function LeadAssignmentDialog({
             <Button type="submit" disabled={!userId || mutation.isPending}>
               {mutation.isPending
                 ? 'Saving…'
-                : lead?.assigned_user_id
-                  ? 'Reassign lead'
-                  : 'Assign lead'}
+                : lead?.lifecycle_status === 'Qualified'
+                  ? 'Hand over to Sales'
+                  : 'Assign to Telecaller'}
             </Button>
           </div>
         </form>
@@ -576,17 +651,25 @@ function LeadAssignmentDialog({
 
 function LeadEditDialog({
   lead,
+  role,
+  preset,
   open,
   onOpenChange,
   onUpdated,
 }: {
   lead: LeadRecord | null;
+  role: string;
+  preset?: LeadEditPreset;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUpdated: () => Promise<void>;
 }) {
-  const [lifecycleStatus, setLifecycleStatus] = useState(() => lead?.lifecycle_status ?? 'New');
-  const [temperature, setTemperature] = useState(() => lead?.temperature ?? 'none');
+  const [lifecycleStatus, setLifecycleStatus] = useState(
+    () => preset?.lifecycleStatus ?? lead?.lifecycle_status ?? 'New',
+  );
+  const [temperature, setTemperature] = useState(
+    () => preset?.temperature ?? lead?.temperature ?? 'none',
+  );
   const [lostReason, setLostReason] = useState(() => lead?.lost_reason ?? '');
   const [reason, setReason] = useState('');
   const [versionConflict, setVersionConflict] = useState(false);
@@ -603,6 +686,9 @@ function LeadEditDialog({
     },
   });
   if (!lead) return null;
+  const availableLifecycleOptions = lifecycleOptionsForRole(role, lead.lifecycle_status);
+  const lifecycleShortcut = preset?.lifecycleStatus;
+  const temperatureShortcut = preset?.temperature;
   const lifecycleChanged = lifecycleStatus !== lead.lifecycle_status;
   const temperatureChanged = temperature !== (lead.temperature ?? 'none');
   const hasChanges = lifecycleChanged || temperatureChanged;
@@ -612,10 +698,15 @@ function LeadEditDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Update lead</DialogTitle>
+          <DialogTitle>
+            {lifecycleShortcut
+              ? `Mark lead as ${lifecycleShortcut}`
+              : temperatureShortcut
+                ? `Set lead temperature to ${temperatureShortcut}`
+                : 'Update lead'}
+          </DialogTitle>
           <DialogDescription>
-            {lead.customer_name} · {shortId(lead.id)}. Lifecycle and temperature changes are
-            recorded in lead history.
+            {lead.customer_name} · {shortId(lead.id)}. This change is recorded in lead history.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -637,37 +728,57 @@ function LeadEditDialog({
             });
           }}
         >
-          <div className="grid gap-1.5 text-sm font-medium">
-            Lifecycle
-            <Select value={lifecycleStatus} onValueChange={setLifecycleStatus}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {lifecycleOptions.map((option) => (
-                  <SelectItem key={option} value={option}>
-                    {option}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1.5 text-sm font-medium">
-            Temperature
-            <Select value={temperature} onValueChange={setTemperature}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {lead.temperature === null && <SelectItem value="none">Not set</SelectItem>}
-                {temperatureOptions.map((option) => (
-                  <SelectItem key={option} value={option}>
-                    {option}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!temperatureShortcut && (
+            <div className="grid gap-1.5 text-sm font-medium">
+              Lifecycle
+              {lifecycleShortcut ? (
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-normal">
+                  {lifecycleStatus}
+                </div>
+              ) : (
+                <Select value={lifecycleStatus} onValueChange={setLifecycleStatus}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableLifecycleOptions.map((option) => (
+                      <SelectItem
+                        key={option}
+                        value={option}
+                        disabled={role === 'sales-consultant' && option === 'Transferred to Sales'}
+                      >
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          )}
+          {!lifecycleShortcut && (
+            <div className="grid gap-1.5 text-sm font-medium">
+              Temperature
+              {temperatureShortcut ? (
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-normal">
+                  {temperature}
+                </div>
+              ) : (
+                <Select value={temperature} onValueChange={setTemperature}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {lead.temperature === null && <SelectItem value="none">Not set</SelectItem>}
+                    {temperatureOptions.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          )}
           {isLost && (
             <label className="grid gap-1.5 text-sm font-medium">
               Lost reason
@@ -709,7 +820,13 @@ function LeadEditDialog({
                 mutation.isPending
               }
             >
-              {mutation.isPending ? 'Saving…' : 'Save changes'}
+              {mutation.isPending
+                ? 'Saving…'
+                : lifecycleShortcut
+                  ? `Mark as ${lifecycleShortcut}`
+                  : temperatureShortcut
+                    ? `Set ${temperatureShortcut}`
+                    : 'Save changes'}
             </Button>
           </div>
         </form>
@@ -729,14 +846,20 @@ function LeadTable({
   onPersonalFlagChange,
   canAssign,
   canUpdate,
+  canScheduleFollowups,
+  canScheduleAppointments,
+  canScheduleTestDrives,
   canLinkCustomer,
   isFetching,
   onAssign,
   onEdit,
+  onScheduleFollowup,
+  onScheduleAppointment,
   onMatchCustomer,
+  onSalesContact,
 }: {
   role: string;
-  data: Awaited<ReturnType<typeof fetchLeadWorkspace>>;
+  data: LeadWorkspaceResult;
   query: LeadQuery;
   personalFlags: PersonalLeadFlags;
   personalView: PersonalLeadView;
@@ -745,13 +868,32 @@ function LeadTable({
   onPersonalFlagChange: (leadId: string, flag: PersonalLeadToggle, active: boolean) => void;
   canAssign: boolean;
   canUpdate: boolean;
+  canScheduleFollowups: boolean;
+  canScheduleAppointments: boolean;
+  canScheduleTestDrives: boolean;
   canLinkCustomer: boolean;
   isFetching: boolean;
   onAssign: (lead: LeadRecord) => void;
-  onEdit: (lead: LeadRecord) => void;
+  onEdit: (lead: LeadRecord, preset?: LeadEditPreset) => void;
+  onScheduleFollowup: (lead: LeadRecord, reason: FollowupReason) => void;
+  onScheduleAppointment: (lead: LeadRecord, type: AppointmentType) => void;
   onMatchCustomer: (lead: LeadRecord) => void;
+  onSalesContact: (lead: LeadRecord, channel: 'CALL' | 'WHATSAPP') => void;
 }) {
   const isManagerView = ['team-manager', 'showroom-manager', 'gm-sales'].includes(role);
+  const showLeadStageFilter = role !== 'sales-consultant';
+  const leadStageOptions =
+    role === 'sales-consultant'
+      ? [
+          'all',
+          'Transferred to Sales',
+          'Appointment Scheduled',
+          'Test Drive',
+          'Quotation',
+          'Booking',
+          'Lost',
+        ]
+      : ['all', ...lifecycleOptions, 'Test Drive', 'Quotation', 'Booking'];
   const canOpenFollowups = roleHasNavigationSlug(role, 'follow-ups');
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
   const [draftFollowupFrom, setDraftFollowupFrom] = useState('');
@@ -848,7 +990,35 @@ function LeadTable({
       {
         accessorKey: 'temperature',
         header: 'Temperature',
-        cell: ({ row }) => <TemperatureBadge value={row.original.temperature} />,
+        cell: ({ row }) =>
+          canUpdate ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-6 px-0 hover:bg-transparent"
+                  aria-label={`Change temperature for ${row.original.customer_name}`}
+                >
+                  <TemperatureBadge value={row.original.temperature} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-36">
+                <DropdownMenuLabel className="text-xs">Set temperature</DropdownMenuLabel>
+                {temperatureOptions.map((temperature) => (
+                  <DropdownMenuItem
+                    key={temperature}
+                    disabled={temperature === row.original.temperature}
+                    onSelect={() => onEdit(row.original, { temperature })}
+                  >
+                    <TemperatureBadge value={temperature} />
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <TemperatureBadge value={row.original.temperature} />
+          ),
       },
       {
         accessorKey: 'updated_at',
@@ -874,6 +1044,9 @@ function LeadTable({
               <a
                 href={`tel:${row.original.phone}`}
                 aria-label={`Call ${row.original.customer_name}`}
+                onClick={() => {
+                  if (role === 'sales-consultant') onSalesContact(row.original, 'CALL');
+                }}
               >
                 <Phone className="size-3.5" />
               </a>
@@ -885,11 +1058,40 @@ function LeadTable({
                 rel="noreferrer"
                 aria-label={`WhatsApp ${row.original.customer_name}`}
                 title={`WhatsApp ${row.original.customer_name}`}
+                onClick={() => {
+                  if (role === 'sales-consultant') onSalesContact(row.original, 'WHATSAPP');
+                }}
               >
                 <WhatsAppIcon className="size-4" />
               </a>
             </Button>
-            {canOpenFollowups ? (
+            {canScheduleFollowups ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 text-blue-600"
+                    aria-label={`Schedule a follow-up for ${row.original.customer_name}`}
+                    title={`Schedule a follow-up for ${row.original.customer_name}`}
+                  >
+                    <CalendarDays className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-60">
+                  <DropdownMenuLabel className="text-xs">Schedule follow-up</DropdownMenuLabel>
+                  {followupReasons.map((reason) => (
+                    <DropdownMenuItem
+                      key={reason}
+                      onSelect={() => onScheduleFollowup(row.original, reason)}
+                    >
+                      <CalendarDays className="size-4" /> {reason}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : canOpenFollowups ? (
               <Button asChild variant="ghost" size="icon" className="size-7 text-blue-600">
                 <Link
                   href={`/${role}/follow-ups?q=${encodeURIComponent(row.original.phone)}`}
@@ -959,29 +1161,74 @@ function LeadTable({
                   <MoreVertical className="size-3.5" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {row.original.customer_id ? (
-                  <DropdownMenuItem asChild>
-                    <Link href={`/${role}/customers/${row.original.customer_id}`}>
-                      <Link2 className="size-4" /> Customer 360
-                    </Link>
-                  </DropdownMenuItem>
-                ) : canLinkCustomer ? (
-                  <DropdownMenuItem onSelect={() => onMatchCustomer(row.original)}>
-                    <Link2 className="size-4" /> Review customer
-                  </DropdownMenuItem>
-                ) : null}
-                {(canUpdate || canAssign) && <DropdownMenuSeparator />}
+              <DropdownMenuContent align="end" className="min-w-60">
                 {canUpdate && (
-                  <DropdownMenuItem onSelect={() => onEdit(row.original)}>
-                    <Pencil className="size-4" /> Update lead
-                  </DropdownMenuItem>
+                  <>
+                    <DropdownMenuItem
+                      disabled={row.original.lifecycle_status === 'Lost'}
+                      onSelect={() => onEdit(row.original, { lifecycleStatus: 'Lost' })}
+                    >
+                      Mark as lost
+                    </DropdownMenuItem>
+                  </>
                 )}
-                {canAssign && (
-                  <DropdownMenuItem onSelect={() => onAssign(row.original)}>
-                    <UserRoundCheck className="size-4" />
-                    {row.original.assigned_user_id ? 'Reassign lead' : 'Assign lead'}
-                  </DropdownMenuItem>
+                {row.original.customer_id && canScheduleAppointments && (
+                  <>
+                    {canUpdate && <DropdownMenuSeparator />}
+                    <DropdownMenuLabel className="px-2 py-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+                      Schedule appointment
+                    </DropdownMenuLabel>
+                    {appointmentTypes
+                      .filter((type) => type !== 'Test Drive')
+                      .map((type) => (
+                        <DropdownMenuItem
+                          key={type}
+                          onSelect={() => onScheduleAppointment(row.original, type)}
+                        >
+                          <CalendarDays className="size-4" /> {type}
+                        </DropdownMenuItem>
+                      ))}
+                  </>
+                )}
+                {row.original.customer_id && canScheduleTestDrives && (
+                  <>
+                    {(canUpdate || canScheduleAppointments) && <DropdownMenuSeparator />}
+                    <DropdownMenuItem asChild>
+                      <Link
+                        href={`/${role}/test-drives?action=create&lead=${encodeURIComponent(row.original.id)}&q=${encodeURIComponent(row.original.phone)}`}
+                      >
+                        <CalendarDays className="size-4" /> Schedule test drive
+                      </Link>
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {roleHasNavigationSlug(role, 'quotations') && (
+                  <>
+                    {(canUpdate ||
+                      (row.original.customer_id && canScheduleAppointments) ||
+                      (row.original.customer_id && canScheduleTestDrives)) && (
+                      <DropdownMenuSeparator />
+                    )}
+                    <DropdownMenuItem asChild>
+                      <Link
+                        href={`/${role}/quotations?action=create&lead=${encodeURIComponent(row.original.id)}`}
+                      >
+                        Create quotation
+                      </Link>
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {roleHasNavigationSlug(role, 'bookings') && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link
+                        href={`/${role}/bookings?action=create&lead=${encodeURIComponent(row.original.id)}`}
+                      >
+                        Create booking
+                      </Link>
+                    </DropdownMenuItem>
+                  </>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -991,13 +1238,16 @@ function LeadTable({
     ],
     [
       canAssign,
-      canLinkCustomer,
       canOpenFollowups,
+      canScheduleFollowups,
+      canScheduleAppointments,
+      canScheduleTestDrives,
       canUpdate,
       isManagerView,
-      onAssign,
       onEdit,
-      onMatchCustomer,
+      onScheduleFollowup,
+      onScheduleAppointment,
+      onSalesContact,
       onPersonalFlagChange,
       personalFlagsPending,
       role,
@@ -1035,7 +1285,14 @@ function LeadTable({
     <Card className="overflow-hidden border-slate-200 shadow-none">
       <CardHeader className="space-y-0 p-0">
         <div className="overflow-x-auto bg-white px-3 py-3 sm:px-4">
-          <div className="grid min-w-[1100px] grid-cols-[1.45fr_.85fr_.8fr_.95fr_.9fr_1.25fr_108px] items-end gap-2.5">
+          <div
+            className={cn(
+              'grid items-end gap-2.5',
+              showLeadStageFilter
+                ? 'min-w-[1100px] grid-cols-[1.45fr_.85fr_.8fr_.95fr_.9fr_1.25fr_108px]'
+                : 'min-w-[980px] grid-cols-[1.45fr_.9fr_.85fr_.95fr_1.25fr_108px]',
+            )}
+          >
             <div className="relative min-w-0">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -1087,28 +1344,28 @@ function LeadTable({
                 </SelectContent>
               </Select>
             </label>
-            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
-              Lead stage
-              <Select
-                value={query.stage}
-                onValueChange={(stage) =>
-                  onQueryChange({ stage: stage as LeadStageFilter, page: 1 })
-                }
-              >
-                <SelectTrigger className="h-8 bg-white text-[10px]">
-                  <SelectValue placeholder="All lead stages" />
-                </SelectTrigger>
-                <SelectContent>
-                  {['all', ...lifecycleOptions, 'Test Drive', 'Quotation', 'Booking'].map(
-                    (stage) => (
+            {showLeadStageFilter && (
+              <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+                Lead stage
+                <Select
+                  value={query.stage}
+                  onValueChange={(stage) =>
+                    onQueryChange({ stage: stage as LeadStageFilter, page: 1 })
+                  }
+                >
+                  <SelectTrigger className="h-8 bg-white text-[10px]">
+                    <SelectValue placeholder="All lead stages" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {leadStageOptions.map((stage) => (
                       <SelectItem key={stage} value={stage}>
                         {stage === 'all' ? 'All lead stages' : stage}
                       </SelectItem>
-                    ),
-                  )}
-                </SelectContent>
-              </Select>
-            </label>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
+            )}
             <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
               Temperature
               <Select
@@ -1379,6 +1636,9 @@ export function LeadWorkspace({
         canCreate: hasWorkspacePermission(workspaceSession, 'lead.create'),
         canAssign: hasWorkspacePermission(workspaceSession, 'lead.assign'),
         canUpdate: hasWorkspacePermission(workspaceSession, 'lead.update'),
+        canCreateFollowup: hasWorkspacePermission(workspaceSession, 'followup.create'),
+        canCreateAppointment: hasWorkspacePermission(workspaceSession, 'appointment.create'),
+        canManageTestDrive: hasWorkspacePermission(workspaceSession, 'test_drive.manage'),
         canCreateCustomer: hasWorkspacePermission(workspaceSession, 'customer.create'),
         canLinkCustomer: hasWorkspacePermission(workspaceSession, 'customer.link'),
       }
@@ -1401,7 +1661,9 @@ export function LeadWorkspace({
   );
   const [createOpen, setCreateOpen] = useState(() => searchParams.get('action') === 'create');
   const [assignmentLead, setAssignmentLead] = useState<LeadRecord | null>(null);
-  const [editingLead, setEditingLead] = useState<LeadRecord | null>(null);
+  const [editingLead, setEditingLead] = useState<LeadEditRequest | null>(null);
+  const [followupShortcut, setFollowupShortcut] = useState<FollowupShortcut | null>(null);
+  const [appointmentShortcut, setAppointmentShortcut] = useState<AppointmentShortcut | null>(null);
   const [matchingLead, setMatchingLead] = useState<LeadRecord | null>(null);
   const debouncedSearch = useDebouncedValue(query.search, 300);
   const requestQuery = useMemo(
@@ -1409,6 +1671,7 @@ export function LeadWorkspace({
     [debouncedSearch, query],
   );
   const queryClient = useQueryClient();
+  const salesConsultantCache = useSalesConsultantCache();
   const personalPreferenceKey = [
     'personal-lead-preferences',
     workspaceSession?.organizationId,
@@ -1486,14 +1749,28 @@ export function LeadWorkspace({
       );
       // Pins float to the top of the whole result set server-side, so the page
       // that is currently rendered has to be refetched to pull them forward.
-      void queryClient.invalidateQueries({ queryKey: ['lead-workspace', ...queryScope] });
+      salesConsultantCache.invalidate('lead.preference.changed');
     },
   });
-  const workspace = useQuery({
+  const metaQuery = useMemo(() => toLeadMetaQuery(requestQuery), [requestQuery]);
+  const records = useQuery({
     queryKey: ['lead-workspace', ...queryScope, requestQuery],
-    queryFn: ({ signal }) => fetchLeadWorkspace(requestQuery, signal),
+    queryFn: ({ signal }) => fetchLeadWorkspaceRecords(requestQuery, signal),
     placeholderData: keepPreviousData,
   });
+  // Keyed without page, pageSize or sort, so paging reuses this entry outright.
+  const meta = useQuery({
+    queryKey: ['lead-workspace-meta', ...queryScope, metaQuery],
+    queryFn: ({ signal }) => fetchLeadWorkspaceMeta(metaQuery, signal),
+    placeholderData: keepPreviousData,
+  });
+  const workspace = {
+    data: records.data && meta.data ? { ...records.data, ...meta.data } : undefined,
+    isPending: records.isPending || meta.isPending,
+    isError: records.isError || meta.isError,
+    isFetching: records.isFetching || meta.isFetching,
+    refetch: () => Promise.all([records.refetch(), meta.refetch()]),
+  };
   const legacyPermissions = useQuery({
     queryKey: ['lead-workspace-permissions', ...queryScope, role],
     queryFn: fetchLeadWorkspacePermissions,
@@ -1505,8 +1782,7 @@ export function LeadWorkspace({
   const replaceLeadWorkspaceUrl = (nextQuery: LeadQuery, nextPersonalView = personalView) => {
     const params = new URLSearchParams(toLeadQueryString(nextQuery));
     if (nextPersonalView !== 'all') params.set('personal', nextPersonalView);
-    const queryString = params.toString();
-    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    replaceQueryString(pathname, params.toString());
   };
   const onQueryChange = (next: Partial<LeadQuery>) => {
     const updated = { ...query, ...next };
@@ -1533,6 +1809,12 @@ export function LeadWorkspace({
     () => queryClient.invalidateQueries({ queryKey: ['lead-workspace', ...queryScope] }),
     [queryClient, queryScope],
   );
+  const salesContactMutation = useMutation({
+    mutationFn: recordSalesLeadContact,
+    onSuccess: (_result, input) => {
+      salesConsultantCache.invalidate('lead.updated', { leadId: input.leadId });
+    },
+  });
 
   if (workspace.isPending) return <LeadWorkspaceSkeleton />;
   if (workspace.isError || (!useWorkspaceBootstrap && legacyPermissions.isError))
@@ -1606,6 +1888,7 @@ export function LeadWorkspace({
       <LeadStatusTabs
         data={workspace.data}
         query={query}
+        role={role}
         personalFlags={personalFlags}
         personalView={personalView}
         onStatusChange={onStatusChange}
@@ -1620,13 +1903,25 @@ export function LeadWorkspace({
         personalFlagsPending={personalLeadFlagMutation.isPending}
         onQueryChange={onQueryChange}
         onPersonalFlagChange={onPersonalFlagChange}
-        canAssign={!spec.readOnly && Boolean(permissions?.canAssign)}
+        canAssign={!spec.readOnly && role === 'team-manager' && Boolean(permissions?.canAssign)}
         canUpdate={!spec.readOnly && Boolean(permissions?.canUpdate)}
+        canScheduleFollowups={!spec.readOnly && Boolean(permissions?.canCreateFollowup)}
+        canScheduleAppointments={!spec.readOnly && Boolean(permissions?.canCreateAppointment)}
+        canScheduleTestDrives={
+          !spec.readOnly &&
+          Boolean(permissions?.canManageTestDrive) &&
+          roleHasNavigationSlug(role, 'test-drives')
+        }
         canLinkCustomer={!spec.readOnly && Boolean(permissions?.canLinkCustomer)}
         isFetching={workspace.isFetching}
         onAssign={setAssignmentLead}
-        onEdit={setEditingLead}
+        onEdit={(lead, preset) => setEditingLead({ lead, preset })}
+        onScheduleFollowup={(lead, reason) => setFollowupShortcut({ lead, reason })}
+        onScheduleAppointment={(lead, type) => setAppointmentShortcut({ lead, type })}
         onMatchCustomer={setMatchingLead}
+        onSalesContact={(lead, channel) =>
+          salesContactMutation.mutate({ leadId: lead.id, channel })
+        }
       />
       {permissions?.canCreate && (
         <LeadCreateDialog
@@ -1644,11 +1939,65 @@ export function LeadWorkspace({
         onAssigned={invalidate}
       />
       <LeadEditDialog
-        key={`edit-${editingLead?.id ?? 'none'}`}
-        lead={editingLead}
+        key={`edit-${editingLead?.lead.id ?? 'none'}-${editingLead?.preset?.lifecycleStatus ?? 'none'}-${editingLead?.preset?.temperature ?? 'none'}`}
+        lead={editingLead?.lead ?? null}
+        role={role}
+        preset={editingLead?.preset}
         open={Boolean(editingLead)}
         onOpenChange={(open) => !open && setEditingLead(null)}
         onUpdated={invalidate}
+      />
+      <WorkCreateDialog
+        key={`lead-followup-${followupShortcut?.lead.id ?? 'none'}-${followupShortcut?.reason ?? 'none'}`}
+        kind="followups"
+        open={Boolean(followupShortcut)}
+        onOpenChange={(open) => !open && setFollowupShortcut(null)}
+        initialFollowupReason={followupShortcut?.reason}
+        lockInitialEntity
+        initialEntity={
+          followupShortcut
+            ? {
+                leadId: followupShortcut.lead.id,
+                customerId: followupShortcut.lead.customer_id,
+                branchId: followupShortcut.lead.branch_id,
+                teamId: followupShortcut.lead.team_id,
+                assignedUserId: followupShortcut.lead.assigned_user_id,
+                assignedUserName: followupShortcut.lead.assigned_user_name,
+                customerName: followupShortcut.lead.customer_name,
+                phone: followupShortcut.lead.phone,
+                interestedModel: followupShortcut.lead.interested_model,
+                search: followupShortcut.lead.phone,
+                label: `${followupShortcut.lead.customer_name} · ${followupShortcut.lead.phone}`,
+              }
+            : undefined
+        }
+        onCreated={invalidate}
+      />
+      <WorkCreateDialog
+        key={`lead-appointment-${appointmentShortcut?.lead.id ?? 'none'}-${appointmentShortcut?.type ?? 'none'}`}
+        kind="appointments"
+        open={Boolean(appointmentShortcut)}
+        onOpenChange={(open) => !open && setAppointmentShortcut(null)}
+        initialAppointmentType={appointmentShortcut?.type}
+        lockInitialEntity
+        initialEntity={
+          appointmentShortcut
+            ? {
+                leadId: appointmentShortcut.lead.id,
+                customerId: appointmentShortcut.lead.customer_id,
+                branchId: appointmentShortcut.lead.branch_id,
+                teamId: appointmentShortcut.lead.team_id,
+                assignedUserId: appointmentShortcut.lead.assigned_user_id,
+                assignedUserName: appointmentShortcut.lead.assigned_user_name,
+                customerName: appointmentShortcut.lead.customer_name,
+                phone: appointmentShortcut.lead.phone,
+                interestedModel: appointmentShortcut.lead.interested_model,
+                search: appointmentShortcut.lead.phone,
+                label: `${appointmentShortcut.lead.customer_name} · ${appointmentShortcut.lead.phone}`,
+              }
+            : undefined
+        }
+        onCreated={invalidate}
       />
       <CustomerMatchDialog
         key={`customer-match-${matchingLead?.id ?? 'none'}`}

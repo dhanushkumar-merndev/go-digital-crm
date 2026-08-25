@@ -14,7 +14,8 @@ import {
   TriangleAlert,
   UserRoundCog,
 } from 'lucide-react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import {
   hasWorkspacePermission,
@@ -666,7 +667,6 @@ export function BranchTeamWorkspace({
         canManageUsers: hasWorkspacePermission(session, 'user.manage'),
       }
     : undefined;
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState(() => parseAdministrationQuery(searchParams, kind));
@@ -715,10 +715,9 @@ export function BranchTeamWorkspace({
     (next: Partial<AdministrationQuery>) => {
       const updated = { ...query, ...next };
       setQuery(updated);
-      const queryString = toAdministrationQueryString(updated);
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+      replaceQueryString(pathname, toAdministrationQueryString(updated));
     },
-    [pathname, query, router],
+    [pathname, query],
   );
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({

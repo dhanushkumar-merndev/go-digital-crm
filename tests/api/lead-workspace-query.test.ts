@@ -57,7 +57,8 @@ describe('lead workspace query boundary', () => {
       column: 'lifecycle_status',
       value: 'Qualified',
     });
-    expect(getDefaultLeadStatus('new-leads')).toBe('new');
+    // new-leads was removed: it was my-leads pre-filtered to the New tab.
+    expect(getDefaultLeadStatus('new-leads')).toBe('all');
     expect(getDefaultLeadStatus('lost-leads')).toBe('lost');
   });
 

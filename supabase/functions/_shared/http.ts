@@ -7,9 +7,18 @@ export const jsonHeaders = {
   'access-control-allow-methods': 'GET, POST, OPTIONS',
 };
 
+// Without this the browser re-runs the preflight for practically every call
+// (Chrome caches an unmarked decision for five seconds), and each OPTIONS is a
+// full round trip into the function isolate. It caches only the CORS decision,
+// never authorization: every real request is still authenticated on arrival.
+const PREFLIGHT_MAX_AGE_SECONDS = '7200';
+
 export function preflight(request: Request) {
   if (request.method !== 'OPTIONS') return null;
-  return new Response(null, { status: 204, headers: jsonHeaders });
+  return new Response(null, {
+    status: 204,
+    headers: { ...jsonHeaders, 'access-control-max-age': PREFLIGHT_MAX_AGE_SECONDS },
+  });
 }
 
 export function requestId(request: Request) {
@@ -27,9 +36,20 @@ export function success<T>(data: T, requestId: string, status = 200) {
   });
 }
 
-export function failure(code: string, message: string, requestId: string, status: number) {
+export function failure(
+  code: string,
+  message: string,
+  requestId: string,
+  status: number,
+  details?: Record<string, unknown>,
+) {
   return new Response(
-    JSON.stringify({ ok: false, data: null, error: { code, message }, request_id: requestId }),
+    JSON.stringify({
+      ok: false,
+      data: null,
+      error: { code, message, ...(details ? { details } : {}) },
+      request_id: requestId,
+    }),
     { status, headers: jsonHeaders },
   );
 }

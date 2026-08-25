@@ -14,6 +14,7 @@ describe('work workspace query boundary', () => {
       page: 1,
       pageSize: 25,
       search: 'Ravi',
+      appointmentId: '',
       status: 'all',
       priority: 'all',
       appointmentType: 'all',
@@ -40,6 +41,21 @@ describe('work workspace query boundary', () => {
     ).toBe('Video Call');
   });
 
+  it('keeps a dashboard appointment link exact without exposing its database UUID as search text', () => {
+    const appointmentId = '323e4567-e89b-42d3-a456-426614174002';
+    const parsed = parseWorkQuery(
+      new URLSearchParams(`appointment=${appointmentId}`),
+      'appointments',
+    );
+    expect(parsed.search).toBe('');
+    expect(parsed.appointmentId).toBe(appointmentId);
+    expect(toWorkQueryString(parsed)).toContain(`appointment=${appointmentId}`);
+    expect(
+      parseWorkQuery(new URLSearchParams(`appointment=${appointmentId}`), 'followups')
+        .appointmentId,
+    ).toBe('');
+  });
+
   it('preserves meaningful page-local URL state', () => {
     const branchId = '123e4567-e89b-42d3-a456-426614174000';
     const ownerId = '223e4567-e89b-42d3-a456-426614174001';
@@ -48,6 +64,7 @@ describe('work workspace query boundary', () => {
         page: 3,
         pageSize: 50,
         search: '9876543210',
+        appointmentId: '',
         status: 'today',
         priority: 'HIGH',
         appointmentType: 'all',

@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useMemo } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Search, TriangleAlert } from 'lucide-react';
@@ -301,7 +302,6 @@ function MarketingTable({
 
 export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: string }) {
   const pathname = usePathname();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const initialView = marketingInitialView(slug) ?? 'SOURCES';
   const routeQuery = useMemo(
@@ -325,10 +325,9 @@ export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: strin
   ]);
   const replaceQuery = useCallback(
     (next: Partial<MarketingQuery>) => {
-      const value = toMarketingQueryString({ ...routeQuery, ...next }, initialView);
-      router.replace(value ? `${pathname}?${value}` : pathname, { scroll: false });
+      replaceQueryString(pathname, toMarketingQueryString({ ...routeQuery, ...next }, initialView));
     },
-    [initialView, pathname, routeQuery, router],
+    [initialView, pathname, routeQuery],
   );
 
   if (workspace.isPending) return <MarketingWorkspaceSkeleton />;

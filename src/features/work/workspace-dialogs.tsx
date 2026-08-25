@@ -41,7 +41,7 @@ import {
 } from './workspace-api';
 import { isWorkVersionConflict, type WorkKind } from './workspace-query';
 
-const followupReasons = [
+export const followupReasons = [
   'Customer Callback',
   'Test Drive Confirmation',
   'Quotation Discussion',
@@ -52,9 +52,15 @@ const followupReasons = [
   'Document Reminder',
   'General Follow-up',
 ] as const;
+export type FollowupReason = (typeof followupReasons)[number];
 
-const appointmentTypes = ['Showroom Visit', 'Video Call', 'Test Drive', 'Consultant Call'] as const;
-type AppointmentType = (typeof appointmentTypes)[number];
+export const appointmentTypes = [
+  'Showroom Visit',
+  'Video Call',
+  'Test Drive',
+  'Consultant Call',
+] as const;
+export type AppointmentType = (typeof appointmentTypes)[number];
 
 function safeMutationMessage(error: unknown) {
   if (isWorkVersionConflict(error))
@@ -112,6 +118,9 @@ export function WorkCreateDialog({
   onOpenChange,
   onCreated,
   initialEntity,
+  initialFollowupReason,
+  initialAppointmentType,
+  lockInitialEntity = false,
 }: {
   kind: WorkKind;
   open: boolean;
@@ -121,55 +130,114 @@ export function WorkCreateDialog({
     leadId: string | null;
     customerId: string | null;
     branchId: string;
+    teamId?: string | null;
     assignedUserId: string | null;
+    assignedUserName?: string | null;
+    customerName?: string;
+    phone?: string | null;
+    interestedModel?: string | null;
+    search?: string;
+    label?: string;
   };
+  initialFollowupReason?: FollowupReason;
+  initialAppointmentType?: AppointmentType;
+  lockInitialEntity?: boolean;
 }) {
   const workspaceSession = useWorkspaceSession();
   const queryScope = workspaceQueryScope(workspaceSession);
-  const [search, setSearch] = useState('');
+  const isSalesConsultant = workspaceSession?.roleKey === 'sales-consultant';
+  const [search, setSearch] = useState(() => initialEntity?.search ?? '');
   const debouncedSearch = useDebouncedValue(search, 300);
+  const hasSearchTerm = debouncedSearch.trim().length >= 2;
   const [selectedEntityKey, setSelectedEntityKey] = useState('');
   const [assignedUserId, setAssignedUserId] = useState('');
   const [scheduledAt, setScheduledAt] = useState(defaultLocalDateTime);
-  const [reason, setReason] = useState<(typeof followupReasons)[number]>('Customer Callback');
+  const [reason, setReason] = useState<FollowupReason>(
+    () => initialFollowupReason ?? 'Customer Callback',
+  );
   const [priority, setPriority] = useState<'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'>('NORMAL');
-  const [appointmentType, setAppointmentType] = useState<AppointmentType>('Showroom Visit');
+  const [appointmentType, setAppointmentType] = useState<AppointmentType>(
+    () => initialAppointmentType ?? 'Showroom Visit',
+  );
   const [notes, setNotes] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
   const options = useQuery({
-    queryKey: ['work-create-options', kind, ...queryScope, debouncedSearch],
+    queryKey: ['work-create-options', ...queryScope, kind, debouncedSearch],
     queryFn: ({ signal }) => fetchWorkCreateOptions(kind, debouncedSearch, signal),
-    enabled: open,
+    enabled: open && !lockInitialEntity && hasSearchTerm,
     staleTime: 60_000,
   });
+  const lockedEntity = useMemo<WorkEntityOption | undefined>(() => {
+    if (!open || !lockInitialEntity || !initialEntity) return undefined;
+    return {
+      lead_id: initialEntity.leadId,
+      customer_id: initialEntity.customerId,
+      customer_name: initialEntity.customerName ?? 'Selected customer',
+      phone: initialEntity.phone ?? null,
+      interested_model: initialEntity.interestedModel ?? null,
+      branch_id: initialEntity.branchId,
+      branch_name: 'Selected branch',
+      team_id: initialEntity.teamId ?? null,
+      team_name: null,
+      default_assigned_user_id: initialEntity.assignedUserId,
+    };
+  }, [initialEntity, lockInitialEntity, open]);
   const initialEntityOption = useMemo(() => {
-    if (!open || !initialEntity) return undefined;
+    if (!open || lockInitialEntity || !initialEntity) return undefined;
     return options.data?.entities.find(
       (candidate) =>
         candidate.lead_id === initialEntity.leadId &&
         candidate.customer_id === initialEntity.customerId &&
         candidate.branch_id === initialEntity.branchId,
     );
-  }, [initialEntity, open, options.data?.entities]);
+  }, [initialEntity, lockInitialEntity, open, options.data?.entities]);
   const resolvedEntityKey =
     selectedEntityKey || (initialEntityOption ? entityKey(initialEntityOption) : '');
-  const selectedEntity = options.data?.entities.find(
-    (entity) => entityKey(entity) === resolvedEntityKey,
-  );
+  const selectedEntity =
+    lockedEntity ??
+    options.data?.entities.find((entity) => entityKey(entity) === resolvedEntityKey);
   const resolvedAssignedUserId =
     (assignedUserId ||
-      (initialEntityOption === selectedEntity
+      (lockedEntity === selectedEntity || initialEntityOption === selectedEntity
         ? initialEntity?.assignedUserId || selectedEntity?.default_assigned_user_id
         : selectedEntity?.default_assigned_user_id)) ??
     '';
-  const availableUsers = useMemo(
-    () => usersForEntity(options.data?.users ?? [], selectedEntity),
-    [options.data?.users, selectedEntity],
-  );
+  const effectiveAssignedUserId = isSalesConsultant
+    ? (workspaceSession?.userId ?? resolvedAssignedUserId)
+    : resolvedAssignedUserId;
+  const availableUsers = useMemo(() => {
+    const users = usersForEntity(options.data?.users ?? [], selectedEntity);
+    if (
+      !selectedEntity ||
+      !resolvedAssignedUserId ||
+      users.some((user) => user.id === resolvedAssignedUserId)
+    )
+      return users;
+
+    // A locked lead shortcut should always show its existing owner. The mutation
+    // still enforces assignment scope server-side; this only prevents the select
+    // from rendering blank while the candidate list is scoped or still refreshing.
+    return [
+      {
+        id: resolvedAssignedUserId,
+        name:
+          initialEntity?.assignedUserName ?? workspaceSession?.displayName ?? 'Assigned consultant',
+        branch_id: selectedEntity.branch_id,
+        team_id: selectedEntity.team_id,
+      },
+      ...users,
+    ];
+  }, [
+    initialEntity?.assignedUserName,
+    options.data?.users,
+    resolvedAssignedUserId,
+    selectedEntity,
+    workspaceSession?.displayName,
+  ]);
   const mutation = useMutation({
     mutationFn: async () => {
       if (!selectedEntity) throw new Error('ENTITY_REQUIRED');
-      const assignee = resolvedAssignedUserId || selectedEntity.default_assigned_user_id;
+      const assignee = effectiveAssignedUserId || selectedEntity.default_assigned_user_id;
       if (!assignee) throw new Error('ASSIGNEE_REQUIRED');
       if (!scheduledAt) throw new Error('SCHEDULE_REQUIRED');
       const scheduledIso = new Date(scheduledAt).toISOString();
@@ -223,49 +291,81 @@ export function WorkCreateDialog({
             {kind === 'followups' ? 'Schedule follow-up' : 'Schedule appointment'}
           </DialogTitle>
           <DialogDescription>
-            The branch and team come from the selected authorized customer context.
+            {lockInitialEntity
+              ? isSalesConsultant
+                ? `The selected lead is fixed. Choose the ${
+                    kind === 'followups' ? 'due time and follow-up details' : 'time'
+                  }. This will be assigned to you.`
+                : `The selected lead is fixed. Choose the ${
+                    kind === 'followups'
+                      ? 'due time, assignee and follow-up details'
+                      : 'time and assignee'
+                  }.`
+              : 'The branch and team come from the selected authorized customer context.'}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor={`${kind}-entity-search`}>Find customer</Label>
-            <Input
-              id={`${kind}-entity-search`}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Customer name or phone"
-              maxLength={160}
-            />
-          </div>
-          <div className="space-y-2 sm:col-span-2">
-            <Label>Customer / lead</Label>
-            <Select
-              value={resolvedEntityKey}
-              onValueChange={(value) => {
-                setSelectedEntityKey(value);
-                const entity = options.data?.entities.find((item) => entityKey(item) === value);
-                setAssignedUserId(entity?.default_assigned_user_id ?? '');
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={options.isFetching ? 'Loading authorized records…' : 'Select record'}
+          {lockInitialEntity ? (
+            <div className="space-y-2 sm:col-span-2">
+              <Label>Customer / lead</Label>
+              <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-foreground">
+                {selectedEntity
+                  ? entityLabel(selectedEntity)
+                  : (initialEntity?.label ?? 'Loading selected lead…')}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor={`${kind}-entity-search`}>Find customer</Label>
+                <Input
+                  id={`${kind}-entity-search`}
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Type at least 2 letters or phone digits"
+                  maxLength={160}
                 />
-              </SelectTrigger>
-              <SelectContent>
-                {(options.data?.entities ?? []).map((entity) => (
-                  <SelectItem key={entityKey(entity)} value={entityKey(entity)}>
-                    {entityLabel(entity)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {options.isError && (
-              <p className="text-xs text-destructive">
-                Authorized customer options are unavailable. Reference: GDM-WORK-OPTIONS.
-              </p>
-            )}
-          </div>
+                <p className="text-xs text-muted-foreground">
+                  Matching authorized leads appear after you pause typing.
+                </p>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Customer / lead</Label>
+                <Select
+                  value={resolvedEntityKey}
+                  onValueChange={(value) => {
+                    setSelectedEntityKey(value);
+                    const entity = options.data?.entities.find((item) => entityKey(item) === value);
+                    setAssignedUserId(entity?.default_assigned_user_id ?? '');
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        !hasSearchTerm
+                          ? 'Type at least 2 characters above'
+                          : options.isFetching
+                            ? 'Loading authorized records…'
+                            : 'Select record'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(options.data?.entities ?? []).map((entity) => (
+                      <SelectItem key={entityKey(entity)} value={entityKey(entity)}>
+                        {entityLabel(entity)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          )}
+          {options.isError && (
+            <p className="text-xs text-destructive sm:col-span-2">
+              Authorized customer options are unavailable. Reference: GDM-WORK-OPTIONS.
+            </p>
+          )}
           <div className="space-y-2">
             <Label htmlFor={`${kind}-scheduled-at`}>
               {kind === 'followups' ? 'Due at' : 'Scheduled at'}
@@ -278,32 +378,34 @@ export function WorkCreateDialog({
               required
             />
           </div>
-          <div className="space-y-2">
-            <Label>Assigned user</Label>
-            <Select
-              value={resolvedAssignedUserId}
-              onValueChange={setAssignedUserId}
-              disabled={!selectedEntity || availableUsers.length === 0}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select user" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableUsers.map((user) => (
-                  <SelectItem key={user.id} value={user.id}>
-                    {user.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!isSalesConsultant && (
+            <div className="space-y-2">
+              <Label>Assigned user</Label>
+              <Select
+                value={resolvedAssignedUserId}
+                onValueChange={setAssignedUserId}
+                disabled={!selectedEntity || availableUsers.length <= 1}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select user" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableUsers.map((user) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {kind === 'followups' ? (
             <>
               <div className="space-y-2">
                 <Label>Reason</Label>
                 <Select
                   value={reason}
-                  onValueChange={(value) => setReason(value as (typeof followupReasons)[number])}
+                  onValueChange={(value) => setReason(value as FollowupReason)}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -342,21 +444,27 @@ export function WorkCreateDialog({
             <>
               <div className="space-y-2">
                 <Label>Appointment type</Label>
-                <Select
-                  value={appointmentType}
-                  onValueChange={(value) => setAppointmentType(value as AppointmentType)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {appointmentTypes.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {initialAppointmentType ? (
+                  <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-foreground">
+                    {appointmentType}
+                  </div>
+                ) : (
+                  <Select
+                    value={appointmentType}
+                    onValueChange={(value) => setAppointmentType(value as AppointmentType)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {appointmentTypes.map((type) => (
+                        <SelectItem key={type} value={type}>
+                          {type}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="appointment-notes">Notes</Label>
@@ -380,7 +488,12 @@ export function WorkCreateDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={mutation.isPending || options.isFetching}>
+          <Button
+            onClick={submit}
+            disabled={
+              mutation.isPending || options.isFetching || (lockInitialEntity && !selectedEntity)
+            }
+          >
             {mutation.isPending ? 'Saving…' : 'Save'}
           </Button>
         </div>
@@ -404,6 +517,7 @@ export function WorkEditDialog({
 }) {
   const workspaceSession = useWorkspaceSession();
   const queryScope = workspaceQueryScope(workspaceSession);
+  const isSalesConsultant = workspaceSession?.roleKey === 'sales-consultant';
   const isFollowup = kind === 'followups' && 'due_at' in record;
   const followup = isFollowup ? (record as FollowupRecord) : null;
   const appointment = !isFollowup ? (record as AppointmentRecord) : null;
@@ -420,7 +534,7 @@ export function WorkEditDialog({
   const [attendance, setAttendance] = useState(appointment?.attendance_status ?? 'NOT_ARRIVED');
   const [assignedUserId, setAssignedUserId] = useState(record.assigned_user_id);
   const options = useQuery({
-    queryKey: ['work-edit-options', kind, ...queryScope, record.id],
+    queryKey: ['work-edit-options', ...queryScope, kind, record.id],
     queryFn: ({ signal }) => fetchWorkCreateOptions(kind, '', signal),
     enabled: open,
     staleTime: 60_000,
@@ -456,7 +570,8 @@ export function WorkEditDialog({
         if (new Date(nextIso).getTime() !== new Date(followup.due_at).getTime())
           patch.due_at = nextIso;
         if (priority !== followup.priority) patch.priority = priority;
-        if (assignedUserId !== followup.assigned_user_id) patch.assigned_user_id = assignedUserId;
+        if (!isSalesConsultant && assignedUserId !== followup.assigned_user_id)
+          patch.assigned_user_id = assignedUserId;
         if (!Object.keys(patch).length) throw new Error('NO_CHANGES');
         return updateFollowup({
           id: followup.id,
@@ -472,7 +587,8 @@ export function WorkEditDialog({
       if (new Date(nextIso).getTime() !== new Date(appointment.scheduled_at).getTime())
         patch.scheduled_at = nextIso;
       if (notes.trim() !== (appointment.notes ?? '')) patch.notes = notes;
-      if (assignedUserId !== appointment.assigned_user_id) patch.assigned_user_id = assignedUserId;
+      if (!isSalesConsultant && assignedUserId !== appointment.assigned_user_id)
+        patch.assigned_user_id = assignedUserId;
       if (status !== appointment.status)
         patch.status = status as 'SCHEDULED' | 'CONFIRMED' | 'RESCHEDULED' | 'NO_SHOW';
       if (attendance !== appointment.attendance_status)
@@ -516,21 +632,23 @@ export function WorkEditDialog({
               onChange={(event) => setScheduledAt(event.target.value)}
             />
           </div>
-          <div className="space-y-2">
-            <Label>Assigned user</Label>
-            <Select value={assignedUserId} onValueChange={setAssignedUserId}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {availableUsers.map((user) => (
-                  <SelectItem key={user.id} value={user.id}>
-                    {user.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!isSalesConsultant && (
+            <div className="space-y-2">
+              <Label>Assigned user</Label>
+              <Select value={assignedUserId} onValueChange={setAssignedUserId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableUsers.map((user) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {followup ? (
             <>
               <div className="space-y-2">

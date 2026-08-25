@@ -54,6 +54,9 @@ describe('Sales Consultant dummy lead seed safety', () => {
     expect(source).toContain('connection_id: null');
     expect(source).toContain("await insert('lead_assignments', assignmentRows)");
     expect(source).toContain("await insert('lead_assignment_history', historyRows)");
+    expect(source).toContain("await insert('lead_stage_history', handoffRows)");
+    expect(source).toContain("to_status: 'Transferred to Sales'");
+    expect(source).toContain("'LEAD_TRANSFERRED_TO_SALES'");
     expect(source).toContain('assigned_user_id: target.salesConsultantId');
     expect(source).toContain("deleted_at: 'is.null'");
     expect(source).not.toContain("method: 'DELETE'");

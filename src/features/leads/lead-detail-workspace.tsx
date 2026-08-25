@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
   CalendarClock,
@@ -30,13 +30,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Skeleton } from '@/components/ui/skeleton';
+import { LeadDetailSkeleton } from '@/components/skeletons';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { roleHasNavigationSlug, roleLeadListHref } from '@/config/navigation';
 import { toWhatsAppClickToChatUrl } from '@/lib/phone';
 import { WorkCreateDialog } from '@/features/work/workspace-dialogs';
+import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { updateLead } from './lead-workspace-api';
 import { fetchLeadDetail, type LeadDetail } from './lead-detail-api';
 
@@ -277,18 +278,10 @@ function Followups({ followups }: { followups: LeadDetail['followups'] }) {
   );
 }
 
-function LeadDetailSkeleton() {
-  return (
-    <div className="space-y-4">
-      {Array.from({ length: 4 }, (_, index) => (
-        <Skeleton key={index} className="h-32 w-full" />
-      ))}
-    </div>
-  );
-}
+
 
 export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: string }) {
-  const queryClient = useQueryClient();
+  const salesConsultantCache = useSalesConsultantCache();
   const canOpenAppointments = roleHasNavigationSlug(role, 'appointments');
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [lostOpen, setLostOpen] = useState(false);
@@ -311,8 +304,7 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
     onSuccess: async () => {
       setLostOpen(false);
       setLostReason('');
-      await queryClient.invalidateQueries({ queryKey: ['lead-detail', leadId] });
-      await queryClient.invalidateQueries({ queryKey: ['lead-workspace'] });
+      await salesConsultantCache.settle('lead.updated', { leadId });
       toast.add({
         type: 'success',
         title: 'Lead marked as lost',
@@ -557,8 +549,7 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
           assignedUserId: lead.assigned_user_id,
         }}
         onCreated={() => {
-          queryClient.invalidateQueries({ queryKey: ['lead-detail', leadId] });
-          queryClient.invalidateQueries({ queryKey: ['lead-workspace'] });
+          salesConsultantCache.invalidate('lead.updated', { leadId });
         }}
       />
       <Dialog open={lostOpen} onOpenChange={setLostOpen}>

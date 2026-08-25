@@ -77,6 +77,10 @@ import {
   MarketingWorkspaceSkeleton,
   MarketingAutomationSkeleton,
   AiImageCreationSkeleton,
+  CustomerWorkspaceSkeleton,
+  Customer360Skeleton,
+  LeadDetailSkeleton,
+  AiCallFieldReviewSkeleton,
 } from './operations-skeletons';
 
 import { TenantDashboardSkeleton } from './dashboard-skeletons';
@@ -94,6 +98,15 @@ export * from './dashboard-skeletons';
 // UNIVERSAL ROUTE & ROLE AWARE DISPATCHER
 // ==========================================
 export function getRoleSkeleton(role: string, slug: string = 'dashboard') {
+  // Global / shared routes
+  if (slug === 'customers') return <CustomerWorkspaceSkeleton />;
+  if (slug === 'customer-360') return <Customer360Skeleton />;
+  if (slug === 'lead-detail') return <LeadDetailSkeleton />;
+  if (slug === 'ai-call-field-review' || slug === 'ai-review')
+    return <AiCallFieldReviewSkeleton />;
+  if (slug === 'automation-rule-detail') return <AutomationRuleDetailSkeleton />;
+  if (slug === 'dealership-detail') return <DealershipDetailSkeleton />;
+
   // 1. Sales Consultant & Telecaller
   if (role === 'sales-consultant' || role === 'telecaller') {
     switch (slug) {
@@ -103,7 +116,6 @@ export function getRoleSkeleton(role: string, slug: string = 'dashboard') {
         ) : (
           <TenantDashboardSkeleton role="telecaller" />
         );
-      case 'new-leads':
       case 'my-leads':
         return <LeadWorkspaceSkeleton />;
       case 'follow-ups':

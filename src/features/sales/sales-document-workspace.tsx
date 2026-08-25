@@ -1,6 +1,6 @@
 'use client';
 
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   CalendarClock,
@@ -21,7 +21,8 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import {
   hasWorkspacePermission,
@@ -35,6 +36,7 @@ import {
   BookingsSkeleton,
 } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
@@ -532,10 +534,9 @@ export function SalesDocumentWorkspace({
           kind === 'quotations' && hasWorkspacePermission(workspaceSession, 'approval.decide'),
       }
     : undefined;
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
+  const salesConsultantCache = useSalesConsultantCache();
   const [query, setQuery] = useState(() => parseSalesDocumentQuery(searchParams, kind));
   const [createOpen, setCreateOpen] = useState(() => searchParams.get('action') === 'create');
   const [quotationScreen, setQuotationScreen] = useState<'list' | 'create'>(() =>
@@ -583,18 +584,11 @@ export function SalesDocumentWorkspace({
   const onQueryChange = (next: Partial<SalesDocumentQuery>) => {
     const updated = { ...query, ...next };
     setQuery(updated);
-    const queryString = toSalesDocumentQueryString(updated, kind);
-    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    replaceQueryString(pathname, toSalesDocumentQueryString(updated, kind));
   };
   const invalidate = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: ['sales-document-workspace', kind, ...queryScope],
-    });
-    void queryClient.invalidateQueries({ queryKey: ['customer-360'] });
-    void queryClient.invalidateQueries({
-      queryKey: ['booking-quotation-options', ...queryScope],
-    });
-  }, [kind, queryClient, queryScope]);
+    salesConsultantCache.invalidate('quotation.changed');
+  }, [salesConsultantCache]);
 
   const quotationColumns = useMemo<ColumnDef<QuotationRecord>[]>(
     () => [
@@ -933,6 +927,7 @@ export function SalesDocumentWorkspace({
     return (
       <QuotationCreateView
         record={editingQuotation}
+        initialLeadId={searchParams.get('lead')}
         onBack={() => {
           setEditingQuotation(null);
           setQuotationScreen('list');

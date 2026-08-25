@@ -13,6 +13,10 @@ const envelopeSchema = z.object({
       resource: z.enum(['tenant-dashboard', 'inventory-dashboard', 'platform-dashboard']),
       version: z.coerce.number().int().positive(),
       age_seconds: z.coerce.number().int().nonnegative().nullable(),
+      // nullish, not nullable: an edge function deployed before this field
+      // existed omits it entirely, and a client that hard-fails on that turns
+      // a routine deploy skew into a blank dashboard.
+      synced_at: z.string().nullish(),
     }),
     manual_refresh: z
       .object({
@@ -27,7 +31,7 @@ const envelopeSchema = z.object({
 });
 
 export class ManualDashboardRefreshLimitError extends Error {
-  constructor() {
+  constructor(readonly retryAfterMs: number | null = null) {
     super('MANUAL_REFRESH_LIMITED');
   }
 }

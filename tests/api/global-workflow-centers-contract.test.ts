@@ -7,7 +7,6 @@ const source = (path: string) => readFileSync(join(process.cwd(), path), 'utf8')
 const migration = source('supabase/migrations/202608220034_global_customer_lookup.sql');
 const customerSearchApi = source('src/features/customers/global-customer-search-api.ts');
 const customerSearch = source('src/components/shared/global-customer-search.tsx');
-const taskCenter = source('src/features/tasks/task-center-sheet.tsx');
 const notificationCenter = source('src/features/notifications/notification-center-sheet.tsx');
 const appHeader = source('src/components/shared/app-header.tsx');
 
@@ -37,14 +36,6 @@ describe('global workflow centers contract', () => {
     expect(customerSearch).toContain('router.push(`/${role}/customers/${customerId}`)');
   });
 
-  it('provides a server-backed task center with permission-aware completion', () => {
-    expect(taskCenter).toContain('fetchTaskWorkspace(query, timezone, signal)');
-    expect(taskCenter).toContain('fetchTaskPermissions');
-    expect(taskCenter).toContain('completeTask({');
-    expect(taskCenter).toContain("hasWorkspacePermission(workspaceSession, 'task.complete')");
-    expect(taskCenter).toContain("queryKey: ['task-center'");
-  });
-
   it('provides a paginated notification center sharing the private read mutation', () => {
     expect(notificationCenter).toContain(
       'fetchNotificationPage({ page, pageSize: 25, search, status, signal })',
@@ -55,9 +46,10 @@ describe('global workflow centers contract', () => {
     expect(notificationCenter).toContain('headerNotificationsKey');
   });
 
-  it('integrates all three centers in the shared authenticated header', () => {
+  it('keeps customer search and notifications in the header, and routes Tasks to its page', () => {
     expect(appHeader).toContain('<GlobalCustomerSearch role={role} />');
-    expect(appHeader).toContain('<TaskCenterSheet open={taskCenterOpen}');
+    expect(appHeader).toContain('onClick={() => router.push(`/${role}/tasks`)}');
+    expect(appHeader).not.toContain('<TaskCenterSheet');
     expect(appHeader).toContain('<NotificationCenterSheet');
     expect(appHeader).toContain('View notification center');
   });

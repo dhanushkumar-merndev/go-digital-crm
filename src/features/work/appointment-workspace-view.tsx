@@ -380,7 +380,9 @@ export function AppointmentWorkspaceView({
           <Input
             className="pl-9"
             value={query.search}
-            onChange={(event) => onQueryChange({ search: event.target.value, page: 1 })}
+            onChange={(event) =>
+              onQueryChange({ search: event.target.value, appointmentId: '', page: 1 })
+            }
             placeholder="Search customer or mobile…"
           />
         </div>
@@ -438,7 +440,13 @@ export function AppointmentWorkspaceView({
           variant="ghost"
           className="justify-self-start text-blue-700"
           onClick={() =>
-            onQueryChange({ search: '', appointmentType: 'all', status: 'all', page: 1 })
+            onQueryChange({
+              search: '',
+              appointmentId: '',
+              appointmentType: 'all',
+              status: 'all',
+              page: 1,
+            })
           }
         >
           Clear filters

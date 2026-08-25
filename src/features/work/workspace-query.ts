@@ -45,6 +45,8 @@ export type WorkQuery = {
   page: number;
   pageSize: WorkPageSize;
   search: string;
+  /** Exact appointment selected from a dashboard card; intentionally not shown as search text. */
+  appointmentId: string;
   status: WorkStatusFilter;
   priority: WorkPriorityFilter;
   appointmentType: AppointmentTypeFilter;
@@ -58,6 +60,7 @@ export const defaultWorkQuery: WorkQuery = {
   page: 1,
   pageSize: 25,
   search: '',
+  appointmentId: '',
   status: 'all',
   priority: 'all',
   appointmentType: 'all',
@@ -79,11 +82,13 @@ export function parseWorkQuery(params: URLSearchParams, kind: WorkKind): WorkQue
   const filters = allowedFilters(kind);
   const priority = params.get('priority');
   const appointmentType = params.get('type');
+  const appointmentId = params.get('appointment') ?? '';
 
   return {
     page: Number.isSafeInteger(page) && page > 0 ? page : 1,
     pageSize: workPageSizes.includes(pageSize as WorkPageSize) ? (pageSize as WorkPageSize) : 25,
     search: (params.get('q') ?? '').trim().slice(0, 160),
+    appointmentId: kind === 'appointments' && isUuid(appointmentId) ? appointmentId : '',
     status: filters.includes(status as never) ? (status as WorkStatusFilter) : 'all',
     priority: ['LOW', 'NORMAL', 'HIGH', 'URGENT'].includes(priority ?? '')
       ? (priority as WorkPriorityFilter)
@@ -105,6 +110,7 @@ export function toWorkQueryString(query: WorkQuery) {
   if (query.page > 1) params.set('page', String(query.page));
   if (query.pageSize !== 25) params.set('pageSize', String(query.pageSize));
   if (query.search) params.set('q', query.search);
+  if (query.appointmentId) params.set('appointment', query.appointmentId);
   if (query.status !== 'all') params.set('status', query.status);
   if (query.priority && query.priority !== 'all') params.set('priority', query.priority);
   if (query.appointmentType && query.appointmentType !== 'all')

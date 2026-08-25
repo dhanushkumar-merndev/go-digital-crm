@@ -125,10 +125,14 @@ const taskLeadOptionSchema = z.object({
 });
 export type TaskLeadOption = z.infer<typeof taskLeadOptionSchema>;
 
+export const TASK_LEAD_OPTION_LIMIT = 10;
+
 export async function fetchTaskLeadOptions(search: string, signal?: AbortSignal) {
   const request = createClient().rpc('get_task_lead_options', {
     target_search: search.trim().slice(0, 160),
-    target_limit: 25,
+    // The picker is a search box, not a browsable list: ten rows is enough to
+    // confirm a match, and narrowing beats paging through a long dropdown.
+    target_limit: TASK_LEAD_OPTION_LIMIT,
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;

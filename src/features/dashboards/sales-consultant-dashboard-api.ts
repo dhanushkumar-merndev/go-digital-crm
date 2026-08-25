@@ -110,6 +110,10 @@ const cacheDiagnosticSchema = z.object({
   resource: z.literal('sales-consultant-dashboard'),
   version: z.coerce.number().int().positive(),
   age_seconds: z.coerce.number().int().nonnegative().nullable(),
+  // nullish, not nullable: an edge function deployed before this field
+  // existed omits it entirely, and a client that hard-fails on that turns
+  // a routine deploy skew into a blank dashboard.
+  synced_at: z.string().nullish(),
 });
 
 const envelopeSchema = z.object({
@@ -142,14 +146,20 @@ export type SalesConsultantDashboardResult = z.infer<typeof dashboardSchema> & {
 
 export const salesConsultantDashboardKey = ['sales-consultant-dashboard'] as const;
 
-async function edgeErrorCode(error: unknown) {
+async function edgeErrorDetails(error: unknown) {
   const response = (error as { context?: unknown } | null)?.context;
-  if (!(response instanceof Response)) return null;
+  if (!(response instanceof Response)) return { code: null, retryAfterMs: null };
   try {
-    const payload = (await response.clone().json()) as { error?: { code?: string } };
-    return payload.error?.code ?? null;
+    const payload = (await response.clone().json()) as {
+      error?: { code?: string; details?: { retry_after_ms?: unknown } };
+    };
+    const retryAfterMs = Number(payload.error?.details?.retry_after_ms);
+    return {
+      code: payload.error?.code ?? null,
+      retryAfterMs: Number.isFinite(retryAfterMs) && retryAfterMs >= 0 ? retryAfterMs : null,
+    };
   } catch {
-    return null;
+    return { code: null, retryAfterMs: null };
   }
 }
 
@@ -162,8 +172,9 @@ export async function fetchSalesConsultantDashboard(
     signal,
   });
   if (error) {
-    if ((await edgeErrorCode(error)) === 'MANUAL_REFRESH_LIMITED')
-      throw new ManualDashboardRefreshLimitError();
+    const details = await edgeErrorDetails(error);
+    if (details.code === 'MANUAL_REFRESH_LIMITED')
+      throw new ManualDashboardRefreshLimitError(details.retryAfterMs);
     throw error;
   }
   const envelope = envelopeSchema.parse(data);

@@ -12,6 +12,10 @@ const schema = z.object({
   manual_refresh: z.boolean().optional().default(false),
 });
 
+// Rebuilt by an explicit manual refresh rather than by expiry, so a reopened
+// browser paints from Redis instead of replaying the aggregation.
+const DASHBOARD_CACHE_TTL_SECONDS = 24 * 60 * 60;
+
 const cacheContextSchema = z.object({
   resource: z.enum(['tenant-dashboard', 'inventory-dashboard', 'platform-dashboard']),
   scope_key: z.string().min(1),
@@ -55,13 +59,21 @@ Deno.serve(async (request) => {
       return failure('INVALID_PAYLOAD', 'The dashboard cache request is invalid.', requestId, 422);
 
     const client = authenticatedClient(request);
-    const { data: auth, error: authError } = await client.auth.getUser();
-    if (authError || !auth.user)
+    const accessToken = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
+    if (!accessToken)
       return failure('UNAUTHENTICATED', 'Authentication is required.', requestId, 401);
+    // Verified locally against the project JWKS, so the read path costs no Auth
+    // round trip. A revoked or deleted user is still refused by
+    // get_workspace_cache_context below, which runs under RLS as this subject.
+    const { data: claimsData, error: claimsError } = await client.auth.getClaims(accessToken);
+    const subject = z.uuid().safeParse(claimsData?.claims?.sub);
+    if (claimsError || !subject.success)
+      return failure('UNAUTHENTICATED', 'Authentication is required.', requestId, 401);
+    const userId = subject.data;
 
     let manualRefreshBudget: Awaited<ReturnType<typeof enforceManualRefresh>> | null = null;
     if (parsed.data.manual_refresh) {
-      manualRefreshBudget = await enforceManualRefresh(auth.user.id, parsed.data.resource);
+      manualRefreshBudget = await enforceManualRefresh(userId, parsed.data.resource);
       if (!manualRefreshBudget.allowed)
         return failure(
           'MANUAL_REFRESH_LIMITED',
@@ -83,6 +95,7 @@ Deno.serve(async (request) => {
     const result = await readWorkspaceCache({
       resource: parsed.data.resource,
       version: context.version,
+      ttlSeconds: DASHBOARD_CACHE_TTL_SECONDS,
       fingerprintInput: {
         resource: context.resource,
         scope_key: context.scope_key,

@@ -12,7 +12,8 @@ import {
   Search,
   Settings2,
 } from 'lucide-react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
@@ -1380,7 +1381,6 @@ function IntegrationTable({
 }
 
 export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: string }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -1440,12 +1440,11 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
     (next: Partial<IntegrationQuery>) => {
       setQuery((current) => {
         const updated = { ...current, ...next };
-        const queryString = toIntegrationQueryString(updated);
-        router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+        replaceQueryString(pathname, toIntegrationQueryString(updated));
         return updated;
       });
     },
-    [pathname, router],
+    [pathname],
   );
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['integration-workspace'] });

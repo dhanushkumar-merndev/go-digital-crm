@@ -28,7 +28,6 @@ const todayScheduleMigration = readFileSync(
 const api = readFileSync('src/features/dashboards/sales-consultant-dashboard-api.ts', 'utf8');
 const workspace = readFileSync('src/features/dashboards/sales-consultant-dashboard.tsx', 'utf8');
 const taskWorkspace = readFileSync('src/features/tasks/task-workspace.tsx', 'utf8');
-const taskCenter = readFileSync('src/features/tasks/task-center-sheet.tsx', 'utf8');
 const dashboardHandler = readFileSync(
   'supabase/functions/sales-consultant-dashboard/index.ts',
   'utf8',
@@ -82,7 +81,7 @@ describe('sales consultant dashboard contract', () => {
     expect(workspace).toContain('models.slice(0, 5)');
   });
 
-  it('caches the bounded, scoped dashboard bundle and only rebuilds it on manual refresh', () => {
+  it('caches a bounded, scoped dashboard bundle and lets manual refresh rebuild it', () => {
     const summaryFunction = hotPathMigration.slice(
       hotPathMigration.indexOf(
         'create or replace function public.get_sales_consultant_dashboard_summary',
@@ -118,7 +117,7 @@ describe('sales consultant dashboard contract', () => {
     expect(dashboardHandler.indexOf('const cachedDashboard')).toBeLessThan(
       dashboardHandler.indexOf('const result = await attachInventoryImages'),
     );
-    expect(dashboardHandler).toContain('const SALES_DASHBOARD_CACHE_TTL_SECONDS = 15 * 60');
+    expect(dashboardHandler).toContain('const SALES_DASHBOARD_CACHE_TTL_SECONDS = 24 * 60 * 60');
     expect(dashboardHandler).toContain('forceRefresh: parsed.data.manual_refresh');
   });
 
@@ -166,7 +165,10 @@ describe('sales consultant dashboard contract', () => {
     expect(api).toContain("'APPOINTMENT_VIDEO_CALL'");
     expect(api).toContain("'APPOINTMENT_CONSULTANT_CALL'");
     expect(workspace).toContain('function scheduleItemHref');
-    expect(workspace).toContain('/sales-consultant/my-leads?q=${encodeURIComponent(item.lead_id)}');
+    expect(workspace).toContain("item.kind.startsWith('APPOINTMENT_')");
+    expect(workspace).toContain(
+      '/sales-consultant/appointments?appointment=${encodeURIComponent(item.id)}',
+    );
     expect(workspace).toContain('const scheduleItems = [...data.schedule].sort');
     expect(workspace).not.toContain('const scheduleGroups');
     expect(workspace).toContain('APPOINTMENT_VIDEO_CALL:');
@@ -194,8 +196,9 @@ describe('sales consultant dashboard contract', () => {
     expect(api).toContain("'TASKS_DUE'");
     expect(api).toContain('response_version: 2');
     expect(workspace).toContain("label: 'Tasks due today'");
-    expect(taskWorkspace).toContain("queryKey: ['sales-consultant-dashboard', ...queryScope]");
-    expect(taskCenter).toContain("queryKey: ['sales-consultant-dashboard', ...queryScope]");
+    // Task writes have their own workspace invalidation; the dashboard cache is
+    // explicitly replaced only by its user-triggered Refresh control.
+    expect(taskWorkspace).toContain("salesConsultantCache.invalidate('task.changed')");
   });
 
   it('keeps a two-line AI-summary preview and only generates through the cached API on demand', () => {

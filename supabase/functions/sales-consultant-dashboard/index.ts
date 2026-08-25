@@ -3,10 +3,16 @@ import { getSignedUrl } from 'npm:@aws-sdk/s3-request-presigner@3.1110.0';
 import { z } from 'npm:zod@4';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
-import { enforceManualRefresh, readWorkspaceCache } from '../_shared/workspace-cache.ts';
+import {
+  enforceManualRefresh,
+  getManualRefreshStatus,
+  readWorkspaceCache,
+} from '../_shared/workspace-cache.ts';
 import { tigrisClient } from '../_shared/tigris.ts';
 
-const SALES_DASHBOARD_CACHE_TTL_SECONDS = 15 * 60;
+// Held for 24 hours. Manual Refresh removes this entry and rebuilds it from
+// PostgreSQL before writing the replacement value back to Redis.
+const SALES_DASHBOARD_CACHE_TTL_SECONDS = 24 * 60 * 60;
 const SALES_DASHBOARD_CACHE_SCHEMA_VERSION = 2;
 const SALES_DASHBOARD_RESPONSE_VERSION = 2;
 const SALES_DASHBOARD_TIMEZONE = 'Asia/Kolkata';
@@ -196,17 +202,23 @@ Deno.serve(async (request) => {
       return failure('UNAUTHENTICATED', 'Authentication is required.', requestId, 401);
     const userId = subject.data;
 
-    let manualRefreshBudget: Awaited<ReturnType<typeof enforceManualRefresh>> | null = null;
+    let manualRefreshBudget: {
+      enabled: boolean;
+      allowed: boolean;
+      remaining: number | null;
+      retry_after_ms: number | null;
+    } | null = null;
     if (parsed.data.manual_refresh) {
       manualRefreshBudget = await enforceManualRefresh(userId, 'sales-consultant-dashboard');
       if (!manualRefreshBudget.allowed)
         return failure(
           'MANUAL_REFRESH_LIMITED',
-          'Refresh limit reached. Try again after the current one-minute window.',
+          'Refresh limit reached for this dashboard.',
           requestId,
           429,
+          { retry_after_ms: manualRefreshBudget.retry_after_ms },
         );
-    }
+    } else manualRefreshBudget = await getManualRefreshStatus(userId, 'sales-consultant-dashboard');
 
     const useTaskAlerts = parsed.data.response_version === SALES_DASHBOARD_RESPONSE_VERSION;
     const contextResponse = await client.rpc('get_workspace_bootstrap');
@@ -224,8 +236,8 @@ Deno.serve(async (request) => {
 
     // The cache is isolated by authenticated user plus exact tenant/scope identity. It includes
     // only the bounded dashboard view, while presigned vehicle-image URLs are always generated
-    // after the cache read and are never stored in Redis. A browser reload therefore reads Redis;
-    // only the user-facing Refresh button forces the database bundle to be rebuilt.
+    // after the cache read and are never stored in Redis. Manual Refresh invalidates this entry
+    // and always rebuilds the database bundle before storing its replacement.
     const cachedDashboard = await readWorkspaceCache({
       resource: 'sales-consultant-dashboard',
       version: SALES_DASHBOARD_CACHE_SCHEMA_VERSION,
@@ -273,13 +285,11 @@ Deno.serve(async (request) => {
       {
         result,
         cache: cachedDashboard.diagnostic,
-        manual_refresh: parsed.data.manual_refresh
-          ? {
-              enforced: manualRefreshBudget?.enabled ?? false,
-              remaining: manualRefreshBudget?.remaining ?? null,
-              retry_after_ms: manualRefreshBudget?.retry_after_ms ?? null,
-            }
-          : null,
+        manual_refresh: {
+          enforced: manualRefreshBudget?.enabled ?? false,
+          remaining: manualRefreshBudget?.remaining ?? null,
+          retry_after_ms: manualRefreshBudget?.retry_after_ms ?? null,
+        },
       },
       requestId,
     );

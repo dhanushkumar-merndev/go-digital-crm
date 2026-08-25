@@ -1,6 +1,6 @@
 'use client';
 
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   Building2,
@@ -19,10 +19,13 @@ import {
   RotateCcw,
   Search,
   TriangleAlert,
+  XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
+import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import {
   FollowupsSkeleton,
@@ -313,69 +316,79 @@ function WorkTable({
           header: 'Actions',
           cell: ({ row }) => {
             const followup = row.original as FollowupRecord;
-            const terminal = followup.status !== 'OPEN';
+            const closed = followup.status === 'COMPLETED' || followup.status === 'CANCELLED';
+            if (closed) {
+              const completed = followup.status === 'COMPLETED';
+              return (
+                <Badge
+                  variant={completed ? 'success' : 'destructive'}
+                  className="pointer-events-none w-full select-none justify-center gap-1 rounded-md px-2 py-1 text-[11px]"
+                >
+                  {completed ? (
+                    <CheckCircle2 className="size-3.5" />
+                  ) : (
+                    <XCircle className="size-3.5" />
+                  )}
+                  {completed ? 'Completed' : 'Cancelled'}
+                </Badge>
+              );
+            }
             const canComplete =
               permissions.canComplete &&
               (followup.assigned_user_id === permissions.userId || permissions.canOverrideComplete);
             return (
-              <div className="flex items-center gap-0.5">
+              <div className="flex items-center gap-1">
                 {followup.phone && (
-                  <Button variant="ghost" size="icon" className="size-7 text-blue-600" asChild>
+                  <Button variant="ghost" size="icon" className="size-8 text-blue-600" asChild>
                     <a href={`tel:${followup.phone}`} aria-label={`Call ${followup.customer_name}`}>
-                      <Phone className="size-3.5" />
+                      <Phone className="size-4" />
                     </a>
                   </Button>
                 )}
                 {followup.phone && (
-                  <Button variant="ghost" size="icon" className="size-7 text-emerald-600" asChild>
+                  <Button variant="ghost" size="icon" className="size-8 text-emerald-600" asChild>
                     <a
                       href={toWhatsAppClickToChatUrl(followup.phone)}
                       target="_blank"
                       rel="noreferrer"
                       aria-label={`WhatsApp ${followup.customer_name}`}
                     >
-                      <WhatsAppIcon className="size-3.5" />
+                      <WhatsAppIcon className="size-5" />
                     </a>
                   </Button>
                 )}
-                {!terminal && canComplete && (
+                {permissions.canUpdate && (
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="size-7 text-emerald-600"
-                    onClick={() => onAction('complete', followup)}
-                    aria-label="Mark follow-up complete"
-                  >
-                    <CheckCircle2 className="size-4" />
-                  </Button>
-                )}
-                {!terminal && permissions.canUpdate && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-violet-600"
+                    className="size-8 text-violet-600"
                     onClick={() => onEdit(followup)}
                     aria-label="Reschedule follow-up"
                   >
-                    <CalendarDays className="size-3.5" />
+                    <CalendarDays className="size-4" />
                   </Button>
                 )}
-                {!terminal && permissions.canCancel && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="size-7">
-                        <MoreHorizontal className="size-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onSelect={() => onAction('cancel', followup)}
-                      >
-                        Cancel follow-up
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                {canComplete && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1 whitespace-nowrap border-emerald-200 px-2 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                    onClick={() => onAction('complete', followup)}
+                  >
+                    <CheckCircle2 className="size-3.5" />
+                    Complete
+                  </Button>
+                )}
+                {permissions.canCancel && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1 whitespace-nowrap border-destructive/30 px-2 text-[11px] font-semibold text-destructive hover:bg-destructive/10"
+                    onClick={() => onAction('cancel', followup)}
+                  >
+                    <XCircle className="size-3.5" />
+                    Cancel
+                  </Button>
                 )}
               </div>
             );
@@ -868,7 +881,6 @@ export function WorkWorkspace({
             : hasWorkspacePermission(workspaceSession, 'appointment.complete'),
       }
     : undefined;
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState<WorkQuery>(() => {
@@ -893,9 +905,9 @@ export function WorkWorkspace({
     () => ({ ...query, search: debouncedSearch }),
     [debouncedSearch, query],
   );
-  const queryClient = useQueryClient();
+  const salesConsultantCache = useSalesConsultantCache();
   const legacyPermissions = useQuery({
-    queryKey: ['work-workspace-permissions', kind, ...queryScope, role],
+    queryKey: ['work-workspace-permissions', ...queryScope, kind, role],
     queryFn: () => fetchWorkWorkspacePermissions(kind),
     enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
@@ -908,36 +920,30 @@ export function WorkWorkspace({
     },
   ]);
   const workspace = useQuery({
-    queryKey: ['work-workspace', kind, ...queryScope, timezone, requestQuery],
+    queryKey: ['work-workspace', ...queryScope, kind, timezone, requestQuery],
     queryFn: ({ signal }) => fetchWorkWorkspace(kind, requestQuery, timezone, signal),
     enabled: Boolean(permissions),
     placeholderData: keepPreviousData,
   });
   const onQueryChange = (next: Partial<WorkQuery>) => {
-    const updated = { ...query, ...next };
+    const changesFilter = [
+      'search',
+      'status',
+      'priority',
+      'appointmentType',
+      'branchId',
+      'teamId',
+      'ownerId',
+    ].some((key) => key in next);
+    const updated = { ...query, ...next, appointmentId: changesFilter ? '' : query.appointmentId };
     setQuery(updated);
-    const queryString = toWorkQueryString(updated);
-    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    replaceQueryString(pathname, toWorkQueryString(updated));
   };
   const invalidate = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: ['work-workspace', kind, ...queryScope],
-    });
-    void queryClient.invalidateQueries({ queryKey: ['lead-workspace', ...queryScope] });
-    void queryClient.invalidateQueries({ queryKey: ['customer-360'] });
-    const calendarScope = [permissions?.organizationId, permissions?.userId, permissions?.scopeKey];
-    void queryClient.invalidateQueries({ queryKey: ['followup-calendar', ...calendarScope] });
-    void queryClient.invalidateQueries({
-      queryKey: ['followup-calendar-day', ...calendarScope],
-    });
-    void queryClient.invalidateQueries({ queryKey: ['appointment-calendar', ...calendarScope] });
-    void queryClient.invalidateQueries({
-      queryKey: ['appointment-calendar-day', ...calendarScope],
-    });
-    void queryClient.invalidateQueries({
-      queryKey: ['appointment-type-summary', ...calendarScope],
-    });
-  }, [kind, permissions, queryClient, queryScope]);
+    salesConsultantCache.invalidate(
+      kind === 'appointments' ? 'appointment.changed' : 'followup.changed',
+    );
+  }, [kind, salesConsultantCache]);
 
   if (
     (!useWorkspaceBootstrap && legacyPermissions.isPending) ||

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   ChevronLeft,
   LoaderCircle,
@@ -18,6 +18,7 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
+import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -119,7 +120,7 @@ function InboxEmpty({ label }: { label: string }) {
 
 export function InboxWorkspace({ role }: { role: string }) {
   const session = useWorkspaceSession();
-  const queryClient = useQueryClient();
+  const salesConsultantCache = useSalesConsultantCache();
   const queryScope = workspaceQueryScope(session);
   const [search, setSearch] = useState('');
   const [channel, setChannel] = useState('all');
@@ -163,8 +164,7 @@ export function InboxWorkspace({ role }: { role: string }) {
     },
     onSuccess: async () => {
       setDraft('');
-      await queryClient.invalidateQueries({ queryKey: ['shared-inbox-messages'] });
-      await queryClient.invalidateQueries({ queryKey: ['shared-inbox'] });
+      await salesConsultantCache.settle('inbox.message.sent');
       toast.add({
         type: 'success',
         title: 'Message sent',

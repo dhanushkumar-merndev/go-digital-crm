@@ -11,7 +11,8 @@ import {
   UsersRound,
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useMemo, useState } from 'react';
 import {
   hasWorkspacePermission,
@@ -19,7 +20,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageSkeleton } from '@/components/shared/page-skeleton';
+import { CustomerWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -345,7 +346,6 @@ export function CustomerWorkspace({ role }: { role: string }) {
         canCreateCall: hasWorkspacePermission(workspaceSession, 'call.create'),
       }
     : undefined;
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState<CustomerQuery>(() => parseCustomerQuery(searchParams));
@@ -370,15 +370,14 @@ export function CustomerWorkspace({ role }: { role: string }) {
   const onQueryChange = (next: Partial<CustomerQuery>) => {
     const updated = { ...query, ...next };
     setQuery(updated);
-    const queryString = toCustomerQueryString(updated);
-    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    replaceQueryString(pathname, toCustomerQueryString(updated));
   };
 
   if (
     (!useWorkspaceBootstrap && legacyPermissions.isPending) ||
     (workspace.isPending && permissions?.canView)
   )
-    return <PageSkeleton />;
+    return <CustomerWorkspaceSkeleton />;
   if (
     (!useWorkspaceBootstrap && legacyPermissions.isError) ||
     workspace.isError ||

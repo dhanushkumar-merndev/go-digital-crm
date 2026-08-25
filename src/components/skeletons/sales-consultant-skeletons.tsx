@@ -1556,7 +1556,6 @@ export function getSalesConsultantSkeleton(slug: string = 'dashboard') {
     case 'dashboard':
       return <SalesConsultantDashboardSkeleton />;
     case 'my-leads':
-    case 'new-leads':
     case 'team-leads':
     case 'showroom-leads':
     case 'sales-leads':

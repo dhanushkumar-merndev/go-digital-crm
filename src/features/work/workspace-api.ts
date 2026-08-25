@@ -223,7 +223,8 @@ export async function fetchWorkWorkspace(
   const functionName =
     kind === 'followups' ? 'get_followup_workspace_page' : 'get_appointment_workspace_page';
   const parameters: Record<string, string | number | null> = {
-    target_search: query.search,
+    target_search:
+      kind === 'appointments' && query.appointmentId ? query.appointmentId : query.search,
     target_status: query.status,
     target_branch_id: nullableFilter(query.branchId),
     target_team_id: nullableFilter(query.teamId),
@@ -280,7 +281,7 @@ export async function fetchAppointmentCalendar(
   const request = createClient().rpc('get_appointment_calendar', {
     target_month: input.month,
     target_day: input.day ?? null,
-    target_search: input.query.search,
+    target_search: input.query.appointmentId || input.query.search,
     target_status: input.query.status,
     target_appointment_type: input.query.appointmentType,
     target_branch_id: nullableFilter(input.query.branchId),

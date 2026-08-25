@@ -21,6 +21,9 @@ export const leadStatusFilters = [
   'new-today',
   'pending',
   'sla-risk',
+  'sales-new',
+  'sales-pending',
+  'sales-contacted',
 ] as const;
 export type LeadStatusFilter = (typeof leadStatusFilters)[number];
 
@@ -144,7 +147,6 @@ export function parseLeadQuery(
 }
 
 export function getDefaultLeadStatus(slug: string): LeadStatusFilter {
-  if (slug === 'new-leads') return 'new';
   if (slug === 'lost-leads') return 'lost';
   return 'all';
 }

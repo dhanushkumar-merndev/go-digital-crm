@@ -21,6 +21,10 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
+import {
+  DASHBOARD_QUERY_GC_TIME_MS,
+  DASHBOARD_QUERY_STALE_TIME_MS,
+} from '@/lib/query/cache-policy';
 import { TenantDashboardSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -304,15 +308,20 @@ function PriorityCard({
   href?: string;
 }) {
   const content = (
-    <div className="flex h-full flex-col items-center p-5 text-center">
+    <div className="flex h-full flex-col items-center p-4 text-center">
       <span className={`grid size-10 place-items-center rounded-xl ${tone}`}>
         <Icon className="size-5" />
       </span>
-      <p className="mt-3 text-sm font-semibold text-[#17233d]">{label}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+      {/* The label and description wrap to different line counts per card, so
+          they share one growing block. Without it the numbers below sat at a
+          different height in every card and the row read as ragged. */}
+      <div className="mt-3 flex flex-1 flex-col items-center">
+        <p className="text-sm font-semibold text-[#17233d]">{label}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+      </div>
       <p className="mt-3 text-2xl font-bold tracking-tight text-[#17233d]">{value}</p>
       {href && (
-        <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-blue-600">
+        <span className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-600">
           View list <ArrowRight className="size-3.5" />
         </span>
       )}
@@ -346,7 +355,7 @@ function LeadPreviewTable({
   };
   return (
     <Card className="overflow-hidden shadow-none">
-      <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-5 py-4">
+      <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
         <div>
           <CardTitle className="text-base">{title}</CardTitle>
           <CardDescription className="mt-1">
@@ -446,7 +455,7 @@ function OperationalQueueOverview({
   ] as const;
   return (
     <Card className="overflow-hidden shadow-none">
-      <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-5 py-4">
+      <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
         <div>
           <CardTitle className="text-base">Operational case overview</CardTitle>
           <CardDescription>
@@ -461,7 +470,7 @@ function OperationalQueueOverview({
           </Button>
         )}
       </CardHeader>
-      <CardContent className="grid gap-3 p-4 sm:grid-cols-2">
+      <CardContent className="grid gap-2.5 p-3 sm:grid-cols-2">
         {items.map(([label, value, description]) => (
           <div key={label} className="rounded-lg border bg-white p-4">
             <p className="text-xs font-medium text-muted-foreground">{label}</p>
@@ -489,6 +498,10 @@ export function TenantDashboard({
     queryKey: [...tenantDashboardKey, ...workspaceQueryScope(session)],
     queryFn: ({ signal }) =>
       fetchTenantDashboard(signal, { manualRefresh: manualRefreshRequest.current }),
+    // Matches the consultant dashboard: an in-session revisit is served from
+    // memory, a cold start reads Redis, and only Refresh rebuilds from Postgres.
+    staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
+    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
   });
   const realtimeSubscriptions = useMemo(() => subscriptions(dashboard.data), [dashboard.data]);
   useTenantRealtimeInvalidation(dashboard.data?.organization_id, realtimeSubscriptions);
@@ -503,7 +516,7 @@ export function TenantDashboard({
     if (result.error instanceof ManualDashboardRefreshLimitError) {
       setManualRefreshRemaining(0);
       setManualRefreshMessage(
-        'Refresh limit reached. Try again after the current one-minute window.',
+        'Refresh limit reached. Try again after the 30-minute window.',
       );
       return;
     }
@@ -520,7 +533,7 @@ export function TenantDashboard({
   if (dashboard.isPending) return <TenantDashboardSkeleton role={role} />;
   if (dashboard.isError || !dashboard.data)
     return (
-      <div className="mx-auto max-w-[1600px] space-y-6">
+      <div className="mx-auto max-w-[1800px] space-y-4">
         <DashboardHeader
           spec={spec}
           role={role}
@@ -635,7 +648,7 @@ export function TenantDashboard({
     {
       label: 'Follow-ups today',
       value: data.kpis.followups_due_today,
-      helper: 'Due customer commitments',
+      helper: 'Due today',
       icon: CalendarClock,
       tone: 'bg-amber-50 text-amber-600',
     },
@@ -647,9 +660,9 @@ export function TenantDashboard({
       tone: 'bg-rose-50 text-rose-600',
     },
     {
-      label: 'Appointments created',
+      label: 'Appointments',
       value: data.kpis.appointments_today,
-      helper: 'Scheduled today',
+      helper: 'Created today',
       icon: CalendarCheck2,
       tone: 'bg-cyan-50 text-cyan-600',
     },
@@ -659,7 +672,7 @@ export function TenantDashboard({
   const workloadMaximum = Math.max(...workload.map((item) => item.value), 1);
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5">
+    <div className="mx-auto max-w-[1800px] space-y-4">
       <DashboardHeader
         spec={spec}
         role={role}
@@ -671,7 +684,7 @@ export function TenantDashboard({
         manualRefreshMessage={manualRefreshMessage}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
+      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
         {visibleKpis.map((metric) => {
           const Icon = metric.icon;
           return (
@@ -702,7 +715,7 @@ export function TenantDashboard({
         })}
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-12">
+      <div className="grid gap-4 xl:grid-cols-12">
         <Card className="shadow-none xl:col-span-5">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Today&apos;s priority</CardTitle>
@@ -710,7 +723,7 @@ export function TenantDashboard({
           </CardHeader>
           <CardContent
             className={cn(
-              'grid gap-3 sm:grid-cols-2',
+              'grid gap-2.5 sm:grid-cols-2',
               isTelecaller ? 'xl:grid-cols-4' : 'xl:grid-cols-2',
             )}
           >
@@ -752,7 +765,7 @@ export function TenantDashboard({
         </Card>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-12">
+      <div className="grid gap-4 xl:grid-cols-12">
         <div className="xl:col-span-8">
           {data.capabilities.leads ? (
             <LeadPreviewTable

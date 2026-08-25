@@ -25,7 +25,6 @@ describe('workspace bootstrap permission reuse', () => {
     'src/features/customers/customer-360-workspace.tsx',
     'src/features/work/workspace.tsx',
     'src/features/tasks/task-workspace.tsx',
-    'src/features/tasks/task-center-sheet.tsx',
     'src/features/test-drives/test-drive-workspace.tsx',
     'src/features/inventory/inventory-workspace.tsx',
   ])('uses the verified role bootstrap instead of a second permission waterfall: %s', (file) => {

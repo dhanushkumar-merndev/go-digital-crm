@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import {
   useWorkspaceSession,
@@ -31,6 +31,7 @@ import {
   completeTask,
   createTask,
   fetchTaskLeadOptions,
+  TASK_LEAD_OPTION_LIMIT,
   updateTask,
   type TaskRecord,
 } from './task-workspace-api';
@@ -70,7 +71,12 @@ export function TaskFormDialog({
     queryFn: ({ signal }) => fetchTaskLeadOptions(debouncedSearch, signal),
     enabled: open && !record,
     staleTime: 60_000,
+    // Each debounced keystroke is a new key, so without this the list emptied
+    // and the trigger fell back to "Loading…" on every search. Holding the
+    // previous rows keeps the dropdown usable while the next page arrives.
+    placeholderData: keepPreviousData,
   });
+  const leadOptions = options.data ?? [];
   const mutation = useMutation({
     mutationFn: async () => {
       requestId.current ??= globalThis.crypto.randomUUID();
@@ -147,6 +153,13 @@ export function TaskFormDialog({
                   placeholder="Search customer, phone, model or lead ID"
                   onChange={(event) => setLeadSearch(event.target.value)}
                 />
+                <p className="text-xs text-muted-foreground" aria-live="polite">
+                  {options.isFetching
+                    ? 'Searching…'
+                    : leadOptions.length === TASK_LEAD_OPTION_LIMIT
+                      ? `Showing first ${TASK_LEAD_OPTION_LIMIT} matches — keep typing to narrow`
+                      : `${leadOptions.length} match${leadOptions.length === 1 ? '' : 'es'}`}
+                </p>
                 <Select
                   value={leadId}
                   onValueChange={(value) => {
@@ -161,12 +174,16 @@ export function TaskFormDialog({
                           ? 'Loading…'
                           : options.isError
                             ? 'Opportunities unavailable'
-                            : 'Select opportunity'
+                            : leadOptions.length
+                              ? 'Select opportunity'
+                              : 'No matching opportunity'
                       }
                     />
                   </SelectTrigger>
-                  <SelectContent>
-                    {(options.data ?? []).map((option) => (
+                  {/* Three rows tall, scrolled rather than grown, so the list
+                      never pushes the rest of the form off screen. */}
+                  <SelectContent viewportClassName="max-h-[6.75rem] overflow-y-auto">
+                    {leadOptions.map((option) => (
                       <SelectItem key={option.lead_id} value={option.lead_id}>
                         {option.customer_name} · {option.interested_model ?? 'Vehicle TBD'} ·{' '}
                         {option.branch_name}

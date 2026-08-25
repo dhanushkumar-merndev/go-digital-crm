@@ -17,7 +17,8 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import {
   hasWorkspacePermission,
@@ -1244,7 +1245,6 @@ export function InventoryWorkspace({
         canAllocate: hasWorkspacePermission(workspaceSession, 'inventory.allocate'),
       }
     : undefined;
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedView = view ?? 'units';
@@ -1288,8 +1288,7 @@ export function InventoryWorkspace({
   const onQueryChange = (next: Partial<InventoryQuery>) => {
     const updated = { ...query, ...next };
     setQuery(updated);
-    const queryString = toInventoryQueryString(updated, selectedView);
-    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    replaceQueryString(pathname, toInventoryQueryString(updated, selectedView));
   };
   const openUnit = (stockUnitId: string) => setSelectedStockUnitId(stockUnitId);
   const invalidate = useCallback(() => {
