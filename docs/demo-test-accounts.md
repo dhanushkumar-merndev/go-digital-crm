@@ -2,6 +2,10 @@
 
 `pnpm seed:demo:remote` creates an isolated tenant named **Go Digital Demo Motors (Test Only)**. All accounts use the password stored in the ignored local `.env` variable `DEMO_TEST_PASSWORD`. The command also requires `DEMO_ALLOW_REMOTE_SEED=true` and an exact `DEMO_ALLOWED_SUPABASE_PROJECT_REF` match, preventing accidental writes to another project.
 
+To add or reconcile 100 clearly marked, customer-linked dummy leads for the primary Sales Consultant only, run `pnpm seed:demo:sales-consultant-leads`. The command is idempotent and is protected by the same isolated-demo-project guard.
+
+To add today’s early India-time schedule fixtures for that same consultant, run `pnpm seed:demo:sales-consultant-schedule` after the lead-volume seed. It creates clearly marked Showroom Visit, Video Call, Consultant Call and Test Drive appointments plus two dedicated test-drive records, and is idempotent per India calendar day.
+
 | Role                          | Test email                                              |
 | ----------------------------- | ------------------------------------------------------- |
 | Super Admin                   | `super-admin@demo.go-digital.invalid`                   |

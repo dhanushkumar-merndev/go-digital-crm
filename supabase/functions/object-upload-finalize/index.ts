@@ -48,17 +48,21 @@ Deno.serve(async (request) => {
       context.organization_id !== intent.organization_id
     )
       return failure('ACCESS_NOT_READY', 'CRM access is not available.', requestId, 403);
-    const { data: authorized, error: authorizationError } = await client.rpc(
-      'authorize_object_action',
-      {
-        target_organization_id: intent.organization_id,
-        target_branch_id: intent.branch_id,
-        target_resource_type: intent.resource_type,
-        target_resource_id: intent.resource_id,
-        target_action: 'UPLOAD',
-      },
-    );
-    if (authorizationError || !authorized)
+    const authorization =
+      intent.resource_type === 'profile'
+        ? await client.rpc('authorize_profile_avatar_action', {
+            target_organization_id: intent.organization_id,
+            target_profile_id: intent.resource_id,
+            target_action: 'UPLOAD',
+          })
+        : await client.rpc('authorize_object_action', {
+            target_organization_id: intent.organization_id,
+            target_branch_id: intent.branch_id,
+            target_resource_type: intent.resource_type,
+            target_resource_id: intent.resource_id,
+            target_action: 'UPLOAD',
+          });
+    if (authorization.error || !authorization.data)
       return failure('PERMISSION_DENIED', 'You cannot finalize this upload.', requestId, 403);
 
     const head = await tigrisClient().send(

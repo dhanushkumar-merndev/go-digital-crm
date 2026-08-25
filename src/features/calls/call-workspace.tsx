@@ -1561,7 +1561,7 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState<CallQuery>(() => parseCallQuery(searchParams));
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(() => searchParams.get('action') === 'create');
   const [manualTimes, setManualTimes] = useState({ startedAt: '', endedAt: '' });
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
   const [detailEndedAt, setDetailEndedAt] = useState('');

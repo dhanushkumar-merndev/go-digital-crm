@@ -64,6 +64,16 @@ export type LeadWorkspacePermissions = {
   canLinkCustomer: boolean;
 };
 
+export type PersonalLeadFlag = {
+  pinned: boolean;
+  starred: boolean;
+  // ISO timestamp of the moment the row was pinned. Newer pins outrank older
+  // ones so the most recently pinned lead lands at the very top.
+  pinnedAt: string | null;
+};
+
+export type PersonalLeadFlags = Record<string, PersonalLeadFlag>;
+
 type ProfileRow = { id: string; full_name: string };
 type KpiRow = Partial<Record<keyof LeadKpis, number | string | null>>;
 
@@ -165,6 +175,47 @@ export async function fetchLeadWorkspacePermissions(): Promise<LeadWorkspacePerm
     canUpdate: Boolean(permissionResults[2]?.data),
     canCreateCustomer: Boolean(permissionResults[3]?.data),
     canLinkCustomer: Boolean(permissionResults[4]?.data),
+  };
+}
+
+type PersonalLeadPreferenceRow = {
+  lead_id: string;
+  pinned: boolean;
+  starred: boolean;
+  pinned_at: string | null;
+};
+
+export async function fetchPersonalLeadFlags(signal?: AbortSignal): Promise<PersonalLeadFlags> {
+  const request = createClient().rpc('get_my_lead_preferences');
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+
+  return Object.fromEntries(
+    ((data ?? []) as PersonalLeadPreferenceRow[]).map((row) => [
+      row.lead_id,
+      { pinned: row.pinned, starred: row.starred, pinnedAt: row.pinned_at ?? null },
+    ]),
+  );
+}
+
+export async function setPersonalLeadPreference(input: {
+  leadId: string;
+  pinned: boolean;
+  starred: boolean;
+}): Promise<{ leadId: string } & PersonalLeadFlag> {
+  const { data, error } = await createClient().rpc('set_my_lead_preference', {
+    target_lead_id: input.leadId,
+    target_pinned: input.pinned,
+    target_starred: input.starred,
+  });
+  if (error) throw error;
+  const result = (data as PersonalLeadPreferenceRow[] | null)?.[0];
+  if (!result) throw new Error('LEAD_PREFERENCE_WRITE_FAILED');
+  return {
+    leadId: result.lead_id,
+    pinned: result.pinned,
+    starred: result.starred,
+    pinnedAt: result.pinned_at ?? null,
   };
 }
 

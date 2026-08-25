@@ -10,8 +10,17 @@ const metricSchema = z.object({
 
 const scheduleItemSchema = z.object({
   id: z.uuid(),
-  kind: z.enum(['FOLLOW_UP', 'SHOWROOM_VISIT', 'TEST_DRIVE', 'DELIVERY']),
+  kind: z.enum([
+    'FOLLOW_UP',
+    'SHOWROOM_VISIT',
+    'APPOINTMENT_VIDEO_CALL',
+    'APPOINTMENT_TEST_DRIVE',
+    'APPOINTMENT_CONSULTANT_CALL',
+    'TEST_DRIVE',
+    'DELIVERY',
+  ]),
   scheduled_at: z.string(),
+  lead_id: z.uuid().nullable().optional(),
   customer_name: z.string(),
   detail: z.string().nullable(),
   status: z.string(),
@@ -114,6 +123,18 @@ const envelopeSchema = z.object({
   request_id: z.uuid(),
 });
 
+const aiSummaryEnvelopeSchema = z.object({
+  ok: z.literal(true),
+  data: z.object({
+    summary: z.string().min(1).max(2_000),
+    generated_at: z.string(),
+    provider: z.enum(['RULE_BASED', 'AI']),
+    cache: cacheDiagnosticSchema.extend({ resource: z.literal('sales-consultant-ai-summary') }),
+  }),
+  error: z.null(),
+  request_id: z.uuid(),
+});
+
 export type SalesConsultantDashboardResult = z.infer<typeof dashboardSchema> & {
   cache: z.infer<typeof cacheDiagnosticSchema>;
   refresh_budget?: z.infer<typeof refreshBudgetSchema> | null;
@@ -151,4 +172,16 @@ export async function fetchSalesConsultantDashboard(
     cache: envelope.data.cache,
     refresh_budget: envelope.data.manual_refresh,
   } satisfies SalesConsultantDashboardResult;
+}
+
+export async function generateSalesConsultantAiSummary(
+  forceRefresh: boolean,
+  signal?: AbortSignal,
+) {
+  const { data, error } = await createClient().functions.invoke('sales-consultant-ai-summary', {
+    body: { force_refresh: forceRefresh },
+    signal,
+  });
+  if (error) throw error;
+  return aiSummaryEnvelopeSchema.parse(data).data;
 }

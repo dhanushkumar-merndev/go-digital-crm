@@ -25,6 +25,8 @@
     "env:check:all": "node scripts/validate-env.mjs --target all --mode production",
     "env:check:deployment": "node scripts/validate-env.mjs --target deployment --mode production",
     "seed:demo:remote": "node scripts/seed-demo-tenant.mjs --apply",
+    "seed:demo:sales-consultant-leads": "node scripts/seed-demo-sales-consultant-leads.mjs --apply --count=100",
+    "seed:demo:sales-consultant-schedule": "node scripts/seed-demo-sales-consultant-today-schedule.mjs --apply",
     "test:demo:flow": "node scripts/test-demo-business-flow.mjs",
     "test:demo:roles": "node scripts/test-demo-role-access.mjs",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm typecheck:mobile && pnpm mobile:doctor && pnpm test:api && pnpm check:supabase-config && pnpm check:edge && pnpm build:webpack",

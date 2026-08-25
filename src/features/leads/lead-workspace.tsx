@@ -9,11 +9,13 @@ import {
   Link2,
   MoreVertical,
   Pencil,
+  Pin,
   Phone,
   RefreshCw,
   RotateCcw,
   Search,
   SlidersHorizontal,
+  Star,
   TriangleAlert,
   UserRoundCheck,
 } from 'lucide-react';
@@ -75,7 +77,11 @@ import {
   fetchLeadCreateOptions,
   fetchLeadWorkspace,
   fetchLeadWorkspacePermissions,
+  fetchPersonalLeadFlags,
+  setPersonalLeadPreference,
   updateLead,
+  type PersonalLeadFlag,
+  type PersonalLeadFlags,
   type LeadRecord,
   type LeadWorkspacePermissions,
 } from './lead-workspace-api';
@@ -114,6 +120,19 @@ const lifecycleOptions = [
 ] as const;
 
 const temperatureOptions = ['COLD', 'WARM', 'HOT'] as const;
+
+type PersonalLeadToggle = 'pinned' | 'starred';
+
+type PersonalLeadView = 'all' | 'starred';
+
+// Shared frozen fallback: a fresh `{}` per render would re-run every memo keyed
+// on the personal flag map.
+const emptyPersonalLeadFlags: PersonalLeadFlags = Object.freeze({});
+
+function parsePersonalLeadView(params: URLSearchParams): PersonalLeadView {
+  const view = params.get('personal');
+  return view === 'starred' ? view : 'all';
+}
 
 function shortId(value: string) {
   return value.slice(0, 8).toUpperCase();
@@ -171,11 +190,17 @@ function TemperatureBadge({ value }: { value: LeadRecord['temperature'] }) {
 function LeadStatusTabs({
   data,
   query,
-  onQueryChange,
+  personalFlags,
+  personalView,
+  onStatusChange,
+  onPersonalViewChange,
 }: {
   data: Awaited<ReturnType<typeof fetchLeadWorkspace>>;
   query: LeadQuery;
-  onQueryChange: (next: Partial<LeadQuery>) => void;
+  personalFlags: PersonalLeadFlags;
+  personalView: PersonalLeadView;
+  onStatusChange: (status: LeadStatusFilter) => void;
+  onPersonalViewChange: (view: PersonalLeadView) => void;
 }) {
   const tabs: Array<{ label: string; value: LeadStatusFilter; count: number }> = [
     { label: 'All', value: 'all', count: data.kpis.total },
@@ -187,6 +212,7 @@ function LeadStatusTabs({
     { label: 'Cold', value: 'cold', count: data.kpis.cold },
     { label: 'Lost', value: 'lost', count: data.kpis.lost_count },
   ];
+  const starredCount = Object.values(personalFlags).filter((flag) => flag.starred).length;
 
   return (
     <div
@@ -195,19 +221,48 @@ function LeadStatusTabs({
       className="flex h-10 gap-2 overflow-x-auto border-b"
     >
       {tabs.map((tab) => {
-        const active = query.status === tab.value;
+        const active = personalView === 'all' && query.status === tab.value;
         return (
           <button
             key={tab.value}
             type="button"
             role="tab"
             aria-selected={active}
-            onClick={() => onQueryChange({ status: tab.value, page: 1 })}
+            onClick={() => onStatusChange(tab.value)}
             style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
             className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
               active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
             }`}
           >
+            <span>{tab.label}</span>
+            <span
+              className={`grid min-w-5 place-items-center rounded px-1 py-0.5 text-[10px] leading-none ${
+                active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+              }`}
+            >
+              {tab.count}
+            </span>
+          </button>
+        );
+      })}
+      {(
+        [{ label: 'Starred', value: 'starred' as const, count: starredCount, icon: Star }] as const
+      ).map((tab) => {
+        const active = personalView === tab.value;
+        const Icon = tab.icon;
+        return (
+          <button
+            key={tab.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onPersonalViewChange(tab.value)}
+            style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
+            className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
+              active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
+            }`}
+          >
+            <Icon className={`size-3.5 ${active ? 'fill-current' : ''}`} />
             <span>{tab.label}</span>
             <span
               className={`grid min-w-5 place-items-center rounded px-1 py-0.5 text-[10px] leading-none ${
@@ -667,7 +722,11 @@ function LeadTable({
   role,
   data,
   query,
+  personalFlags,
+  personalView,
+  personalFlagsPending,
   onQueryChange,
+  onPersonalFlagChange,
   canAssign,
   canUpdate,
   canLinkCustomer,
@@ -679,7 +738,11 @@ function LeadTable({
   role: string;
   data: Awaited<ReturnType<typeof fetchLeadWorkspace>>;
   query: LeadQuery;
+  personalFlags: PersonalLeadFlags;
+  personalView: PersonalLeadView;
+  personalFlagsPending: boolean;
   onQueryChange: (next: Partial<LeadQuery>) => void;
+  onPersonalFlagChange: (leadId: string, flag: PersonalLeadToggle, active: boolean) => void;
   canAssign: boolean;
   canUpdate: boolean;
   canLinkCustomer: boolean;
@@ -693,6 +756,30 @@ function LeadTable({
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
   const [draftFollowupFrom, setDraftFollowupFrom] = useState('');
   const [draftFollowupTo, setDraftFollowupTo] = useState('');
+  const visibleRecords = useMemo(() => {
+    const matchingRecords =
+      personalView === 'all'
+        ? data.records
+        : data.records.filter((lead) => personalFlags[lead.id]?.starred === true);
+
+    // An unpinned row has no flag entry at all, so compare pin rank explicitly:
+    // Number(undefined) is NaN, and a NaN comparator result is read as 0, which
+    // would leave every pinned row exactly where it started.
+    const pinRank = (leadId: string) => {
+      const flag = personalFlags[leadId];
+      return flag?.pinned ? (flag.pinnedAt ?? '') : null;
+    };
+
+    return [...matchingRecords].sort((left, right) => {
+      const leftPin = pinRank(left.id);
+      const rightPin = pinRank(right.id);
+      if (leftPin === null && rightPin === null) return 0;
+      if (leftPin === null) return 1;
+      if (rightPin === null) return -1;
+      // Newest pin wins, so the lead pinned last sits above earlier pins.
+      return rightPin.localeCompare(leftPin);
+    });
+  }, [data.records, personalFlags, personalView]);
   const followupDateLabel =
     query.followupFrom && query.followupTo
       ? `${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupFrom}T00:00:00`))} – ${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupTo}T00:00:00`))}`
@@ -813,6 +900,54 @@ function LeadTable({
                 </Link>
               </Button>
             ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={`size-7 ${
+                personalFlags[row.original.id]?.pinned
+                  ? 'text-blue-700 hover:text-blue-800'
+                  : 'text-muted-foreground hover:text-blue-700'
+              }`}
+              aria-label={`${personalFlags[row.original.id]?.pinned ? 'Unpin' : 'Pin'} ${row.original.customer_name}`}
+              title={`${personalFlags[row.original.id]?.pinned ? 'Unpin' : 'Pin'} to the top for me`}
+              disabled={personalFlagsPending}
+              onClick={() =>
+                onPersonalFlagChange(
+                  row.original.id,
+                  'pinned',
+                  !personalFlags[row.original.id]?.pinned,
+                )
+              }
+            >
+              <Pin
+                className={`size-3.5 ${personalFlags[row.original.id]?.pinned ? 'fill-current' : ''}`}
+              />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={`size-7 ${
+                personalFlags[row.original.id]?.starred
+                  ? 'text-amber-500 hover:text-amber-600'
+                  : 'text-muted-foreground hover:text-amber-500'
+              }`}
+              aria-label={`${personalFlags[row.original.id]?.starred ? 'Remove star from' : 'Star'} ${row.original.customer_name}`}
+              title={`${personalFlags[row.original.id]?.starred ? 'Remove star' : 'Star'} for me`}
+              disabled={personalFlagsPending}
+              onClick={() =>
+                onPersonalFlagChange(
+                  row.original.id,
+                  'starred',
+                  !personalFlags[row.original.id]?.starred,
+                )
+              }
+            >
+              <Star
+                className={`size-3.5 ${personalFlags[row.original.id]?.starred ? 'fill-current' : ''}`}
+              />
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -863,20 +998,26 @@ function LeadTable({
       onAssign,
       onEdit,
       onMatchCustomer,
+      onPersonalFlagChange,
+      personalFlagsPending,
       role,
+      personalFlags,
     ],
   );
   // TanStack Table returns an imperative model; React Compiler intentionally skips this hook.
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data: data.records,
+    data: visibleRecords,
     columns,
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
     manualSorting: true,
-    rowCount: data.total,
+    rowCount: personalView === 'all' ? data.total : visibleRecords.length,
   });
-  const pages = Math.max(1, Math.ceil(data.total / query.pageSize));
+  const pages = Math.max(
+    1,
+    Math.ceil((personalView === 'all' ? data.total : visibleRecords.length) / query.pageSize),
+  );
   const pageNumbers = Array.from({ length: Math.min(5, pages) }, (_, index) =>
     Math.min(Math.max(query.page - 2, 1) + index, pages),
   ).filter((value, index, values) => index === 0 || value > values[index - 1]!);
@@ -1088,8 +1229,17 @@ function LeadTable({
         </div>
         <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm lg:flex-row lg:items-center lg:justify-between">
           <p className="text-xs text-[#526079]">
-            Showing {data.total ? (query.page - 1) * query.pageSize + 1 : 0} to{' '}
-            {Math.min(query.page * query.pageSize, data.total)} of {data.total} leads
+            {personalView === 'all' ? (
+              <>
+                Showing {data.total ? (query.page - 1) * query.pageSize + 1 : 0} to{' '}
+                {Math.min(query.page * query.pageSize, data.total)} of {data.total} leads
+              </>
+            ) : (
+              <>
+                Showing {visibleRecords.length} {personalView} lead
+                {visibleRecords.length === 1 ? '' : 's'} on this page
+              </>
+            )}
           </p>
           <div className="flex items-center gap-1.5">
             <Button
@@ -1246,6 +1396,9 @@ export function LeadWorkspace({
           ? 'Sales Leads'
           : 'My Leads';
   const [query, setQuery] = useState<LeadQuery>(() => parseLeadQuery(searchParams, fallbackStatus));
+  const [personalView, setPersonalView] = useState<PersonalLeadView>(() =>
+    parsePersonalLeadView(searchParams),
+  );
   const [createOpen, setCreateOpen] = useState(() => searchParams.get('action') === 'create');
   const [assignmentLead, setAssignmentLead] = useState<LeadRecord | null>(null);
   const [editingLead, setEditingLead] = useState<LeadRecord | null>(null);
@@ -1256,6 +1409,86 @@ export function LeadWorkspace({
     [debouncedSearch, query],
   );
   const queryClient = useQueryClient();
+  const personalPreferenceKey = [
+    'personal-lead-preferences',
+    workspaceSession?.organizationId,
+    workspaceSession?.userId,
+  ] as const;
+  const personalLeadPreferences = useQuery({
+    queryKey: personalPreferenceKey,
+    queryFn: ({ signal }) => fetchPersonalLeadFlags(signal),
+    enabled: Boolean(workspaceSession?.organizationId && workspaceSession.userId),
+    staleTime: 60_000,
+  });
+  const personalFlags = personalLeadPreferences.data ?? emptyPersonalLeadFlags;
+  const applyPersonalFlag = (
+    current: PersonalLeadFlags,
+    leadId: string,
+    next: PersonalLeadFlag,
+  ): PersonalLeadFlags => {
+    if (!next.pinned && !next.starred) {
+      const remaining = { ...current };
+      delete remaining[leadId];
+      return remaining;
+    }
+    return { ...current, [leadId]: next };
+  };
+
+  const personalLeadFlagMutation = useMutation({
+    mutationFn: ({
+      leadId,
+      flag,
+      active,
+    }: {
+      leadId: string;
+      flag: PersonalLeadToggle;
+      active: boolean;
+    }) => {
+      const current = personalFlags[leadId] ?? { pinned: false, starred: false, pinnedAt: null };
+      return setPersonalLeadPreference({
+        leadId,
+        pinned: flag === 'pinned' ? active : current.pinned,
+        starred: flag === 'starred' ? active : current.starred,
+      });
+    },
+    // Reorder on click rather than after the round trip; the server reply below
+    // replaces this with the authoritative pinned_at.
+    onMutate: async ({ leadId, flag, active }) => {
+      await queryClient.cancelQueries({ queryKey: personalPreferenceKey });
+      const snapshot = queryClient.getQueryData<PersonalLeadFlags>(personalPreferenceKey);
+      const current = snapshot?.[leadId] ?? { pinned: false, starred: false, pinnedAt: null };
+      const pinned = flag === 'pinned' ? active : current.pinned;
+      queryClient.setQueryData<PersonalLeadFlags>(personalPreferenceKey, (existing = {}) =>
+        applyPersonalFlag(existing, leadId, {
+          pinned,
+          starred: flag === 'starred' ? active : current.starred,
+          pinnedAt: pinned
+            ? flag === 'pinned' && active
+              ? new Date().toISOString()
+              : current.pinnedAt
+            : null,
+        }),
+      );
+      return { snapshot };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.snapshot) {
+        queryClient.setQueryData<PersonalLeadFlags>(personalPreferenceKey, context.snapshot);
+      }
+    },
+    onSuccess: (nextFlags) => {
+      queryClient.setQueryData<PersonalLeadFlags>(personalPreferenceKey, (current = {}) =>
+        applyPersonalFlag(current, nextFlags.leadId, {
+          pinned: nextFlags.pinned,
+          starred: nextFlags.starred,
+          pinnedAt: nextFlags.pinnedAt,
+        }),
+      );
+      // Pins float to the top of the whole result set server-side, so the page
+      // that is currently rendered has to be refetched to pull them forward.
+      void queryClient.invalidateQueries({ queryKey: ['lead-workspace', ...queryScope] });
+    },
+  });
   const workspace = useQuery({
     queryKey: ['lead-workspace', ...queryScope, requestQuery],
     queryFn: ({ signal }) => fetchLeadWorkspace(requestQuery, signal),
@@ -1269,11 +1502,32 @@ export function LeadWorkspace({
   });
   const permissions = bootstrapPermissions ?? legacyPermissions.data;
 
+  const replaceLeadWorkspaceUrl = (nextQuery: LeadQuery, nextPersonalView = personalView) => {
+    const params = new URLSearchParams(toLeadQueryString(nextQuery));
+    if (nextPersonalView !== 'all') params.set('personal', nextPersonalView);
+    const queryString = params.toString();
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+  };
   const onQueryChange = (next: Partial<LeadQuery>) => {
     const updated = { ...query, ...next };
     setQuery(updated);
-    const queryString = toLeadQueryString(updated);
-    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    replaceLeadWorkspaceUrl(updated);
+  };
+  const onStatusChange = (status: LeadStatusFilter) => {
+    const updated = { ...query, status, page: 1 };
+    setQuery(updated);
+    setPersonalView('all');
+    replaceLeadWorkspaceUrl(updated, 'all');
+  };
+  const onPersonalViewChange = (view: PersonalLeadView) => {
+    const updated = view === 'all' ? query : { ...query, status: 'all' as const, page: 1 };
+    if (view !== 'all') setQuery(updated);
+    setPersonalView(view);
+    replaceLeadWorkspaceUrl(updated, view);
+  };
+  const onPersonalFlagChange = (leadId: string, flag: PersonalLeadToggle, active: boolean) => {
+    if (!workspaceSession?.organizationId || !workspaceSession.userId) return;
+    personalLeadFlagMutation.mutate({ leadId, flag, active });
   };
   const invalidate = useCallback(
     () => queryClient.invalidateQueries({ queryKey: ['lead-workspace', ...queryScope] }),
@@ -1339,12 +1593,33 @@ export function LeadWorkspace({
           Refresh
         </Button>
       </div>
-      <LeadStatusTabs data={workspace.data} query={query} onQueryChange={onQueryChange} />
+      {(personalLeadFlagMutation.isError || personalLeadPreferences.isError) && (
+        <p
+          role="alert"
+          className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+        >
+          <TriangleAlert className="size-4 shrink-0" />
+          Could not save your pin and star list. They are personal to you and no lead data was
+          changed. Refresh and try again.
+        </p>
+      )}
+      <LeadStatusTabs
+        data={workspace.data}
+        query={query}
+        personalFlags={personalFlags}
+        personalView={personalView}
+        onStatusChange={onStatusChange}
+        onPersonalViewChange={onPersonalViewChange}
+      />
       <LeadTable
         role={role}
         data={workspace.data}
         query={query}
+        personalFlags={personalFlags}
+        personalView={personalView}
+        personalFlagsPending={personalLeadFlagMutation.isPending}
         onQueryChange={onQueryChange}
+        onPersonalFlagChange={onPersonalFlagChange}
         canAssign={!spec.readOnly && Boolean(permissions?.canAssign)}
         canUpdate={!spec.readOnly && Boolean(permissions?.canUpdate)}
         canLinkCustomer={!spec.readOnly && Boolean(permissions?.canLinkCustomer)}

@@ -68,6 +68,7 @@ const rolePresets = [
 // been applied to the linked project.
 const corePermissionCatalog = [
   ['customer.view', 'customers', 'View customers in authorized context'],
+  ['customer.update', 'customers', 'Update an authorized customer profile and identifiers'],
   ['customer.create', 'customers', 'Create a customer after reviewing possible matches'],
   ['customer.link', 'customers', 'Link a reviewed possible customer match'],
   ['lead.view', 'leads', 'View leads within data scope'],
@@ -1803,6 +1804,7 @@ async function main() {
   ]);
   const telecallerPermissionKeys = new Set([
     'customer.view',
+    'customer.update',
     'customer.create',
     'customer.link',
     'lead.view',

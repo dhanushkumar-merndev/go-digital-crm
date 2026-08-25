@@ -22,7 +22,8 @@ describe('private object-storage workflow contract', () => {
 
   it('authorizes the concrete resource before creating either signed URL', () => {
     expect(upload).toContain("target_action: 'UPLOAD'");
-    expect(upload).toContain("client.rpc(\n      'authorize_object_action'");
+    expect(upload).toContain("'authorize_object_action'");
+    expect(upload).toContain("'authorize_profile_avatar_action'");
     expect(download).toContain("target_action: 'DOWNLOAD'");
     expect(download).toContain("client.rpc('authorize_object_action'");
     expect(download).toContain("client.rpc('authorize_report_export_download'");

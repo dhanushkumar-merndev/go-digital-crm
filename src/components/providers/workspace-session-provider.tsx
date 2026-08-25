@@ -12,6 +12,8 @@ export type WorkspaceSession = {
   permissions: readonly string[];
   displayName: string;
   email: string | null;
+  avatarObjectFileId: string | null;
+  profileVersion: number;
   organizationName: string | null;
   workspaceName: string | null;
 };

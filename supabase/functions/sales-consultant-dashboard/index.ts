@@ -6,8 +6,8 @@ import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
 import { enforceManualRefresh, readWorkspaceCache } from '../_shared/workspace-cache.ts';
 import { tigrisClient } from '../_shared/tigris.ts';
 
-const SALES_DASHBOARD_CACHE_TTL_SECONDS = 60;
-const SALES_DASHBOARD_CACHE_SCHEMA_VERSION = 1;
+const SALES_DASHBOARD_CACHE_TTL_SECONDS = 15 * 60;
+const SALES_DASHBOARD_CACHE_SCHEMA_VERSION = 2;
 const SALES_DASHBOARD_RESPONSE_VERSION = 2;
 const SALES_DASHBOARD_TIMEZONE = 'Asia/Kolkata';
 
@@ -56,7 +56,7 @@ const dashboardLiveShape = z.object({
   generated_at: z.string(),
   local_date: z.string(),
   timezone: z.string(),
-  schedule: z.array(z.unknown()).max(8),
+  schedule: z.array(z.unknown()).max(50),
   recent_leads: z.array(z.unknown()).max(5),
 });
 const dashboardShape = dashboardSummaryShape.extend({
@@ -209,14 +209,8 @@ Deno.serve(async (request) => {
     }
 
     const useTaskAlerts = parsed.data.response_version === SALES_DASHBOARD_RESPONSE_VERSION;
-    const [contextResponse, liveResponse, taskDueCount] = await Promise.all([
-      client.rpc('get_workspace_bootstrap'),
-      client.rpc('get_sales_consultant_dashboard_live', {
-        target_timezone: SALES_DASHBOARD_TIMEZONE,
-      }),
-      useTaskAlerts ? loadTaskDueCount(client) : Promise.resolve(null),
-    ]);
-    if (contextResponse.error || liveResponse.error)
+    const contextResponse = await client.rpc('get_workspace_bootstrap');
+    if (contextResponse.error)
       return failure('PERMISSION_DENIED', 'Dashboard access is not available.', requestId, 403);
 
     const parsedContext = workspaceBootstrapShape.safeParse(contextResponse.data);
@@ -227,15 +221,12 @@ Deno.serve(async (request) => {
     )
       return failure('PERMISSION_DENIED', 'Dashboard access is not available.', requestId, 403);
     const context = parsedContext.data;
-    const live = dashboardLiveShape.parse(liveResponse.data);
-    if (live.organization_id !== context.organization_id)
-      return failure('PERMISSION_DENIED', 'Dashboard access is not available.', requestId, 403);
 
-    // Redis receives only the explicitly parsed, aggregate summary. The cache is isolated by
-    // authenticated user plus exact tenant/scope/permission identity and expires after 60 seconds.
-    // Bounded schedule/recent-lead PII stays on the live RPC path, and signed image URLs are added
-    // only after the cache read, so neither can ever be persisted in Redis.
-    const cachedSummary = await readWorkspaceCache({
+    // The cache is isolated by authenticated user plus exact tenant/scope identity. It includes
+    // only the bounded dashboard view, while presigned vehicle-image URLs are always generated
+    // after the cache read and are never stored in Redis. A browser reload therefore reads Redis;
+    // only the user-facing Refresh button forces the database bundle to be rebuilt.
+    const cachedDashboard = await readWorkspaceCache({
       resource: 'sales-consultant-dashboard',
       version: SALES_DASHBOARD_CACHE_SCHEMA_VERSION,
       ttlSeconds: SALES_DASHBOARD_CACHE_TTL_SECONDS,
@@ -250,25 +241,38 @@ Deno.serve(async (request) => {
         },
       },
       forceRefresh: parsed.data.manual_refresh,
-      load: () => loadDashboardSummary(client),
+      load: async () => {
+        const [summary, liveResponse, taskDueCount] = await Promise.all([
+          loadDashboardSummary(client),
+          client.rpc('get_sales_consultant_dashboard_live', {
+            target_timezone: SALES_DASHBOARD_TIMEZONE,
+          }),
+          useTaskAlerts ? loadTaskDueCount(client) : Promise.resolve(null),
+        ]);
+        if (liveResponse.error) throw new SalesDashboardAccessError();
+        const live = dashboardLiveShape.parse(liveResponse.data);
+        if (live.organization_id !== context.organization_id) throw new SalesDashboardAccessError();
+
+        return dashboardShape.parse({
+          ...summary,
+          generated_at: live.generated_at,
+          schedule: live.schedule,
+          recent_leads: live.recent_leads,
+          alerts: useTaskAlerts
+            ? [
+                { key: 'TASKS_DUE', value: taskDueCount },
+                ...summary.alerts.filter((item) => item.key !== 'FOLLOWUPS_DUE'),
+              ].slice(0, 5)
+            : summary.alerts,
+        });
+      },
     });
 
-    const result = await attachInventoryImages({
-      ...cachedSummary.value,
-      generated_at: live.generated_at,
-      schedule: live.schedule,
-      recent_leads: live.recent_leads,
-      alerts: useTaskAlerts
-        ? [
-            { key: 'TASKS_DUE', value: taskDueCount },
-            ...cachedSummary.value.alerts.filter((item) => item.key !== 'FOLLOWUPS_DUE'),
-          ].slice(0, 5)
-        : cachedSummary.value.alerts,
-    });
+    const result = await attachInventoryImages(cachedDashboard.value);
     return success(
       {
         result,
-        cache: cachedSummary.diagnostic,
+        cache: cachedDashboard.diagnostic,
         manual_refresh: parsed.data.manual_refresh
           ? {
               enforced: manualRefreshBudget?.enabled ?? false,

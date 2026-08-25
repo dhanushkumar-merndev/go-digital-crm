@@ -34,6 +34,10 @@ describe('work workspace query boundary', () => {
     expect(parseWorkQuery(new URLSearchParams('status=no-show'), 'appointments').status).toBe(
       'no-show',
     );
+    expect(
+      parseWorkQuery(new URLSearchParams('status=today&type=Video+Call'), 'appointments')
+        .appointmentType,
+    ).toBe('Video Call');
   });
 
   it('preserves meaningful page-local URL state', () => {

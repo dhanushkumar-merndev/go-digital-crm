@@ -21,6 +21,10 @@ const taskAlertMigration = readFileSync(
   'supabase/migrations/202608240013_sales_consultant_task_alert_count.sql',
   'utf8',
 );
+const todayScheduleMigration = readFileSync(
+  'supabase/migrations/202608250001_sales_consultant_today_schedule.sql',
+  'utf8',
+);
 const api = readFileSync('src/features/dashboards/sales-consultant-dashboard-api.ts', 'utf8');
 const workspace = readFileSync('src/features/dashboards/sales-consultant-dashboard.tsx', 'utf8');
 const taskWorkspace = readFileSync('src/features/tasks/task-workspace.tsx', 'utf8');
@@ -30,6 +34,10 @@ const dashboardHandler = readFileSync(
   'utf8',
 );
 const cache = readFileSync('supabase/functions/_shared/workspace-cache.ts', 'utf8');
+const aiSummaryHandler = readFileSync(
+  'supabase/functions/sales-consultant-ai-summary/index.ts',
+  'utf8',
+);
 const config = readFileSync('supabase/config.toml', 'utf8');
 
 describe('sales consultant dashboard contract', () => {
@@ -74,7 +82,7 @@ describe('sales consultant dashboard contract', () => {
     expect(workspace).toContain('models.slice(0, 5)');
   });
 
-  it('caches only the scoped aggregate summary for 60 seconds', () => {
+  it('caches the bounded, scoped dashboard bundle and only rebuilds it on manual refresh', () => {
     const summaryFunction = hotPathMigration.slice(
       hotPathMigration.indexOf(
         'create or replace function public.get_sales_consultant_dashboard_summary',
@@ -91,7 +99,7 @@ describe('sales consultant dashboard contract', () => {
     expect(dashboardHandler).toContain('enforceManualRefresh');
     expect(dashboardHandler).toContain("'MANUAL_REFRESH_LIMITED'");
     expect(dashboardHandler).toContain('readWorkspaceCache');
-    expect(dashboardHandler).toContain('cache: cachedSummary.diagnostic');
+    expect(dashboardHandler).toContain('cache: cachedDashboard.diagnostic');
     expect(api).toContain('cacheDiagnosticSchema');
     expect(api).toContain('cache: envelope.data.cache');
     expect(dashboardHandler).toContain('ttlSeconds: SALES_DASHBOARD_CACHE_TTL_SECONDS');
@@ -107,9 +115,11 @@ describe('sales consultant dashboard contract', () => {
     expect(summaryFunction).not.toContain("'recent_leads'");
     expect(summaryFunction).not.toContain('customer_name');
     expect(summaryFunction).not.toContain('lead_row.phone');
-    expect(dashboardHandler.indexOf('const cachedSummary')).toBeLessThan(
+    expect(dashboardHandler.indexOf('const cachedDashboard')).toBeLessThan(
       dashboardHandler.indexOf('const result = await attachInventoryImages'),
     );
+    expect(dashboardHandler).toContain('const SALES_DASHBOARD_CACHE_TTL_SECONDS = 15 * 60');
+    expect(dashboardHandler).toContain('forceRefresh: parsed.data.manual_refresh');
   });
 
   it('keeps dashboard actions connected to the existing CRM workspaces', () => {
@@ -127,6 +137,44 @@ describe('sales consultant dashboard contract', () => {
     }
   });
 
+  it('orders today’s sales-consultant schedule chronologically across all event types', () => {
+    expect(todayScheduleMigration).toContain('get_sales_consultant_dashboard_live');
+    expect(todayScheduleMigration).toContain("'Consultant Call'");
+    expect(todayScheduleMigration).toContain("when 'Video Call' then 'APPOINTMENT_VIDEO_CALL'");
+    expect(todayScheduleMigration).toContain("when 'Test Drive' then 'APPOINTMENT_TEST_DRIVE'");
+    expect(todayScheduleMigration).toContain(
+      "when 'Consultant Call' then 'APPOINTMENT_CONSULTANT_CALL'",
+    );
+    expect(todayScheduleMigration).toContain(
+      'order by\n        schedule_row.scheduled_at,\n        schedule_row.id)',
+    );
+    expect(todayScheduleMigration).toContain(
+      'order by\n        source_row.scheduled_at,\n        source_row.id\n      limit schedule_item_limit',
+    );
+    expect(todayScheduleMigration).not.toContain('case schedule_row.kind');
+    expect(todayScheduleMigration).not.toContain('case source_row.kind');
+    expect(todayScheduleMigration).toContain('schedule_item_limit constant integer := 50');
+    expect(todayScheduleMigration).toContain('limit schedule_item_limit');
+    expect(todayScheduleMigration).toContain('appointment_row.assigned_user_id = current_user_id');
+    expect(todayScheduleMigration).toContain('followup_row.assigned_user_id = current_user_id');
+    expect(todayScheduleMigration).toContain('source_row.lead_id');
+    expect(todayScheduleMigration).toContain('followup_row.lead_id');
+    expect(todayScheduleMigration).toContain('appointment_row.lead_id');
+    expect(todayScheduleMigration).toContain('drive_row.lead_id');
+    expect(dashboardHandler).toContain('schedule: z.array(z.unknown()).max(50)');
+    expect(api).toContain('lead_id: z.uuid().nullable().optional()');
+    expect(api).toContain("'APPOINTMENT_VIDEO_CALL'");
+    expect(api).toContain("'APPOINTMENT_CONSULTANT_CALL'");
+    expect(workspace).toContain('function scheduleItemHref');
+    expect(workspace).toContain('/sales-consultant/my-leads?q=${encodeURIComponent(item.lead_id)}');
+    expect(workspace).toContain('const scheduleItems = [...data.schedule].sort');
+    expect(workspace).not.toContain('const scheduleGroups');
+    expect(workspace).toContain('APPOINTMENT_VIDEO_CALL:');
+    expect(workspace).toContain("label: 'Video call'");
+    expect(workspace).toContain('APPOINTMENT_CONSULTANT_CALL:');
+    expect(workspace).toContain("label: 'Consultant call'");
+  });
+
   it('shows the indexed, permission-bound due-task count instead of a follow-up count', () => {
     expect(taskAlertMigration).toContain('get_sales_consultant_task_due_count');
     expect(taskAlertMigration).toContain("role_row.role_key = 'sales_consultant'");
@@ -141,12 +189,29 @@ describe('sales consultant dashboard contract', () => {
     expect(dashboardHandler).toContain("client.rpc('get_task_workspace_page'");
     expect(dashboardHandler).toContain("target_status: 'TODAY'");
     expect(dashboardHandler).toContain('response_version: z.literal');
-    expect(dashboardHandler).toContain(': cachedSummary.value.alerts');
+    expect(dashboardHandler).toContain(': summary.alerts');
     expect(dashboardHandler).toContain("{ key: 'TASKS_DUE', value: taskDueCount }");
     expect(api).toContain("'TASKS_DUE'");
     expect(api).toContain('response_version: 2');
     expect(workspace).toContain("label: 'Tasks due today'");
     expect(taskWorkspace).toContain("queryKey: ['sales-consultant-dashboard', ...queryScope]");
     expect(taskCenter).toContain("queryKey: ['sales-consultant-dashboard', ...queryScope]");
+  });
+
+  it('keeps a two-line AI-summary preview and only generates through the cached API on demand', () => {
+    expect(workspace).toContain('function AiPipelineSummary');
+    expect(workspace).toContain('AI sales summary');
+    expect(workspace).toContain('line-clamp-2');
+    expect(workspace).toContain('Generate summary');
+    expect(workspace).toContain('Regenerate summary');
+    expect(workspace).toContain('generateSalesConsultantAiSummary');
+    expect(api).toContain("functions.invoke('sales-consultant-ai-summary'");
+    expect(aiSummaryHandler).toContain("resource: 'sales-consultant-ai-summary'");
+    expect(aiSummaryHandler).toContain('forceRefresh: parsed.data.force_refresh');
+    expect(aiSummaryHandler).toContain('ttlSeconds: CACHE_TTL_SECONDS');
+    expect(workspace).toContain(
+      '<AiPipelineSummary data={data} conversionRate={conversionRate} />',
+    );
+    expect(workspace).toContain("item.key === 'OVERDUE_FOLLOWUPS'");
   });
 });

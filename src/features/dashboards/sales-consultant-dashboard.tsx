@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
   BellRing,
@@ -19,10 +19,12 @@ import {
   PhoneCall,
   Plus,
   RefreshCw,
+  Sparkles,
   Target,
   TrendingDown,
   TrendingUp,
   UserRoundPlus,
+  Video,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
@@ -35,6 +37,14 @@ import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Table,
   TableBody,
@@ -50,6 +60,7 @@ import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-inval
 import { cn } from '@/lib/utils';
 import {
   fetchSalesConsultantDashboard,
+  generateSalesConsultantAiSummary,
   salesConsultantDashboardKey,
   type SalesConsultantDashboardResult,
 } from './sales-consultant-dashboard-api';
@@ -244,7 +255,25 @@ const scheduleDefinitions: Record<
     label: 'Showroom visit',
     icon: CalendarDays,
     tone: 'orange',
-    href: '/sales-consultant/appointments?status=today',
+    href: '/sales-consultant/appointments?status=today&type=Showroom%20Visit',
+  },
+  APPOINTMENT_VIDEO_CALL: {
+    label: 'Video call',
+    icon: Video,
+    tone: 'blue',
+    href: '/sales-consultant/appointments?status=today&type=Video%20Call',
+  },
+  APPOINTMENT_TEST_DRIVE: {
+    label: 'Test drive',
+    icon: CarFront,
+    tone: 'blue',
+    href: '/sales-consultant/appointments?status=today&type=Test%20Drive',
+  },
+  APPOINTMENT_CONSULTANT_CALL: {
+    label: 'Consultant call',
+    icon: Phone,
+    tone: 'emerald',
+    href: '/sales-consultant/appointments?status=today&type=Consultant%20Call',
   },
   TEST_DRIVE: {
     label: 'Test drive',
@@ -284,6 +313,18 @@ function statusVariant(status: string) {
   if (['OVERDUE', 'CANCELLED', 'Lost'].includes(status)) return 'destructive' as const;
   if (['ACTIVE', 'CONFIRMED', 'SENT'].includes(status)) return 'warning' as const;
   return 'info' as const;
+}
+
+function scheduleItemHref(item: SalesConsultantDashboardResult['schedule'][number]) {
+  if (item.lead_id) return `/sales-consultant/my-leads?q=${encodeURIComponent(item.lead_id)}`;
+
+  const phone =
+    item.kind === 'FOLLOW_UP' && item.detail?.trim().match(/^\+?[0-9][0-9 -]{6,}$/)
+      ? item.detail
+      : null;
+  if (phone) return `/sales-consultant/my-leads?q=${encodeURIComponent(phone)}`;
+
+  return scheduleDefinitions[item.kind].href;
 }
 
 function MetricCard({
@@ -337,70 +378,91 @@ function MetricCard({
   );
 }
 
-function TodaySchedule({ data }: { data: SalesConsultantDashboardResult }) {
+function TodaySchedule({
+  data,
+  className,
+}: {
+  data: SalesConsultantDashboardResult;
+  className?: string;
+}) {
+  const scheduleItems = [...data.schedule].sort((left, right) => {
+    const timeDifference =
+      new Date(left.scheduled_at).getTime() - new Date(right.scheduled_at).getTime();
+    if (timeDifference) return timeDifference;
+    return left.id.localeCompare(right.id);
+  });
+
   return (
-    <Card className="flex h-full flex-col overflow-hidden shadow-none">
+    <Card className={cn('flex h-[22rem] min-h-0 flex-col overflow-hidden shadow-none', className)}>
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3.5">
         <CardTitle className="text-sm">Today&apos;s schedule</CardTitle>
         <Button asChild variant="link" size="sm" className="h-auto px-0 text-[11px] text-blue-600">
           <Link href="/sales-consultant/appointments?status=today">View calendar</Link>
         </Button>
       </CardHeader>
-      <CardContent className="flex flex-1 flex-col p-3">
+      <CardContent className="flex min-h-0 flex-1 flex-col p-3">
         {data.schedule.length ? (
-          <div className="relative space-y-2 before:absolute before:bottom-5 before:left-[52px] before:top-5 before:w-px before:bg-slate-200">
-            {data.schedule.map((item) => {
-              const definition = scheduleDefinitions[item.kind];
-              const Icon = definition.icon;
-              return (
-                <div
-                  key={`${item.kind}:${item.id}`}
-                  className="relative grid grid-cols-[48px_1fr] gap-3"
-                >
-                  <p className="pt-3 text-[10px] font-medium text-muted-foreground">
-                    {formatTime(item.scheduled_at, data.timezone)}
-                  </p>
-                  <span className="absolute left-[49px] top-4 z-10 size-2 rounded-full border-2 border-white bg-blue-600" />
-                  <Link
-                    href={definition.href}
-                    className="ml-2 rounded-lg border bg-white p-2.5 transition-colors hover:border-blue-200 hover:bg-blue-50/30"
+          <ScrollArea type="always" className="min-h-0 flex-1 pr-1" aria-label="Today’s schedule">
+            <div className="relative space-y-2 pr-2 before:absolute before:bottom-5 before:left-[52px] before:top-5 before:w-px before:bg-slate-200">
+              {scheduleItems.map((item) => {
+                const definition = scheduleDefinitions[item.kind];
+                const Icon = definition.icon;
+                const href = scheduleItemHref(item);
+                return (
+                  <div
+                    key={`${item.kind}:${item.id}`}
+                    className="relative grid grid-cols-[48px_1fr] gap-3"
                   >
-                    <div className="flex items-start gap-2.5">
-                      <span
-                        className={cn(
-                          'grid size-7 shrink-0 place-items-center rounded-md',
-                          toneStyles[definition.tone].icon,
-                        )}
-                      >
-                        <Icon className="size-3.5" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-[10px] font-medium text-muted-foreground">
-                            {definition.label}
+                    <p className="pt-3 text-[10px] font-medium text-muted-foreground">
+                      {formatTime(item.scheduled_at, data.timezone)}
+                    </p>
+                    <span className="absolute left-[49px] top-4 z-10 size-2 rounded-full border-2 border-white bg-blue-600" />
+                    <Link
+                      href={href}
+                      aria-label={
+                        item.lead_id
+                          ? `Open ${item.customer_name} in My Leads`
+                          : `Open ${definition.label} for ${item.customer_name}`
+                      }
+                      className="ml-2 rounded-lg border bg-white p-2.5 transition-colors hover:border-blue-200 hover:bg-blue-50/30"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <span
+                          className={cn(
+                            'grid size-7 shrink-0 place-items-center rounded-md',
+                            toneStyles[definition.tone].icon,
+                          )}
+                        >
+                          <Icon className="size-3.5" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[10px] font-medium text-muted-foreground">
+                              {definition.label}
+                            </p>
+                            <Badge
+                              variant={statusVariant(item.status)}
+                              className="px-1.5 py-0 text-[9px] normal-case"
+                            >
+                              {item.status.replaceAll('_', ' ').toLocaleLowerCase()}
+                            </Badge>
+                          </div>
+                          <p className="mt-0.5 truncate text-xs font-semibold text-[#17233d]">
+                            {item.customer_name}
                           </p>
-                          <Badge
-                            variant={statusVariant(item.status)}
-                            className="px-1.5 py-0 text-[9px] normal-case"
-                          >
-                            {item.status.replaceAll('_', ' ').toLocaleLowerCase()}
-                          </Badge>
+                          {item.detail && (
+                            <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                              {item.detail}
+                            </p>
+                          )}
                         </div>
-                        <p className="mt-0.5 truncate text-xs font-semibold text-[#17233d]">
-                          {item.customer_name}
-                        </p>
-                        {item.detail && (
-                          <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
-                            {item.detail}
-                          </p>
-                        )}
                       </div>
-                    </div>
-                  </Link>
-                </div>
-              );
-            })}
-          </div>
+                    </Link>
+                  </div>
+                );
+              })}
+            </div>
+          </ScrollArea>
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center text-center">
             <span className="grid size-10 place-items-center rounded-full bg-blue-50 text-blue-600">
@@ -422,18 +484,6 @@ function TodaySchedule({ data }: { data: SalesConsultantDashboardResult }) {
             </Button>
           </div>
         )}
-        {data.schedule.length ? (
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="mt-3 w-full border-blue-200 text-blue-700"
-          >
-            <Link href="/sales-consultant/appointments?status=today">
-              View full schedule <ArrowRight className="size-3.5" />
-            </Link>
-          </Button>
-        ) : null}
       </CardContent>
     </Card>
   );
@@ -650,6 +700,96 @@ function RecentLeads({
   );
 }
 
+function AiPipelineSummary({
+  data,
+  conversionRate,
+}: {
+  data: SalesConsultantDashboardResult;
+  conversionRate: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const hotLeads = data.metrics.hot_leads.value;
+  const followupsToday = data.metrics.followups_today.value;
+  const overdueFollowups =
+    data.attention.find((item) => item.key === 'OVERDUE_FOLLOWUPS')?.value ?? 0;
+  const nextStage = data.pipeline[1]?.name ?? 'qualified opportunities';
+  const firstStage = data.pipeline[0]?.value ?? 0;
+  const nextStageValue = data.pipeline[1]?.value ?? 0;
+  const nextStageRate = firstStage > 0 ? (nextStageValue / firstStage) * 100 : 0;
+  const defaultSummary = `Prioritize ${hotLeads} hot lead${hotLeads === 1 ? '' : 's'} and ${followupsToday} follow-up${followupsToday === 1 ? '' : 's'} today. ${nextStageRate.toFixed(1)}% of starting leads have reached ${nextStage}; overall conversion is ${conversionRate.toFixed(1)}%. ${overdueFollowups ? `Clear ${overdueFollowups} overdue follow-up${overdueFollowups === 1 ? '' : 's'} first.` : 'No overdue follow-ups are waiting.'}`;
+  const summary = useMutation({
+    mutationFn: (forceRefresh: boolean) => generateSalesConsultantAiSummary(forceRefresh),
+  });
+  const summaryText = summary.data?.summary ?? defaultSummary;
+
+  return (
+    <div className="mt-auto border-t border-dashed pt-3">
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="w-full rounded-lg border border-violet-100 bg-violet-50/50 p-3 text-left transition-colors hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+        aria-label="Open AI sales summary"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="grid size-7 place-items-center rounded-md bg-violet-100 text-violet-700">
+              <Sparkles className="size-3.5" />
+            </span>
+            <div>
+              <p className="text-xs font-semibold text-[#263550]">AI sales summary</p>
+              <p className="text-[10px] text-muted-foreground">Open for the full summary</p>
+            </div>
+          </div>
+          <Badge variant="info" className="text-[9px]">
+            {summary.data
+              ? summary.data.provider === 'AI'
+                ? 'AI cached'
+                : 'Signal cached'
+              : 'AI ready'}
+          </Badge>
+        </div>
+        <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-[#334155]">{summaryText}</p>
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>AI sales summary</DialogTitle>
+            <DialogDescription>
+              Generated from your current dashboard signals. It remains cached until you regenerate
+              it.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="rounded-lg bg-slate-50 p-3 text-sm leading-6 text-[#263550]">
+            {summaryText}
+          </p>
+          {summary.isError && (
+            <p className="text-sm text-rose-600">The summary could not be generated. Try again.</p>
+          )}
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-muted-foreground">
+              {summary.data
+                ? `Generated ${formatTime(summary.data.generated_at, data.timezone)}`
+                : 'No generated summary yet'}
+            </span>
+            <Button
+              type="button"
+              onClick={() => summary.mutate(Boolean(summary.data))}
+              disabled={summary.isPending}
+            >
+              <Sparkles className="size-4" />
+              {summary.isPending
+                ? 'Generating…'
+                : summary.data
+                  ? 'Regenerate summary'
+                  : 'Generate summary'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
   const workspaceSession = useWorkspaceSession();
   const dashboardQueryKey = useMemo(
@@ -810,11 +950,11 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
           </Card>
 
           <div className="grid gap-4 lg:grid-cols-12">
-            <Card className="overflow-hidden shadow-none lg:col-span-7">
+            <Card className="flex h-full flex-col overflow-hidden shadow-none lg:col-span-7">
               <CardHeader className="border-b px-4 py-3">
                 <CardTitle className="text-sm">Sales pipeline funnel</CardTitle>
               </CardHeader>
-              <CardContent className="p-3">
+              <CardContent className="flex flex-1 flex-col p-3">
                 <div className="flex gap-3">
                   <EChart
                     kind="funnel"
@@ -864,6 +1004,7 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
                     Live
                   </span>
                 </div>
+                <AiPipelineSummary data={data} conversionRate={conversionRate} />
               </CardContent>
             </Card>
             <div className="space-y-4 lg:col-span-5">
@@ -912,57 +1053,52 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
               </Card>
             </div>
           </div>
-        </div>
-        <div className="xl:col-span-4">
-          <TodaySchedule data={data} />
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-12">
-        <div className="xl:col-span-8">
           <RecentLeads leads={data.recent_leads} timezone={data.timezone} />
         </div>
-        <Card className="overflow-hidden shadow-none xl:col-span-4">
-          <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
-            <CardTitle className="text-sm">Tasks & alerts</CardTitle>
-            <Button
-              asChild
-              variant="link"
-              size="sm"
-              className="h-auto px-0 text-[11px] text-blue-600"
-            >
-              <Link href="/sales-consultant/tasks">
-                View all <ArrowRight className="size-3" />
-              </Link>
-            </Button>
-          </CardHeader>
-          <CardContent className="divide-y p-0">
-            {data.alerts.map((item) => {
-              const definition = alertDefinitions[item.key];
-              const Icon = definition.icon;
-              return (
-                <Link
-                  key={item.key}
-                  href={definition.href}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50"
-                >
-                  <span
-                    className={cn(
-                      'grid size-7 place-items-center rounded-md',
-                      toneStyles[definition.tone].icon,
-                    )}
-                  >
-                    <Icon className="size-3.5" />
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-[#263550]">
-                    {definition.label}
-                  </span>
-                  <span className="text-xs font-bold text-[#17233d]">{item.value}</span>
+        <div className="space-y-4 xl:col-span-4">
+          <TodaySchedule data={data} className="xl:h-[690px]" />
+          <Card className="overflow-hidden shadow-none">
+            <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
+              <CardTitle className="text-sm">Tasks & alerts</CardTitle>
+              <Button
+                asChild
+                variant="link"
+                size="sm"
+                className="h-auto px-0 text-[11px] text-blue-600"
+              >
+                <Link href="/sales-consultant/tasks">
+                  View all <ArrowRight className="size-3" />
                 </Link>
-              );
-            })}
-          </CardContent>
-        </Card>
+              </Button>
+            </CardHeader>
+            <CardContent className="divide-y p-0">
+              {data.alerts.map((item) => {
+                const definition = alertDefinitions[item.key];
+                const Icon = definition.icon;
+                return (
+                  <Link
+                    key={item.key}
+                    href={definition.href}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50"
+                  >
+                    <span
+                      className={cn(
+                        'grid size-7 place-items-center rounded-md',
+                        toneStyles[definition.tone].icon,
+                      )}
+                    >
+                      <Icon className="size-3.5" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-[#263550]">
+                      {definition.label}
+                    </span>
+                    <span className="text-xs font-bold text-[#17233d]">{item.value}</span>
+                  </Link>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

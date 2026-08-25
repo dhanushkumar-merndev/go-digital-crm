@@ -77,7 +77,13 @@ verify_jwt = true
 [functions.presign-download]
 verify_jwt = true
 
+[functions.profile-avatar-url]
+verify_jwt = true
+
 [functions.sales-consultant-dashboard]
+verify_jwt = true
+
+[functions.sales-consultant-ai-summary]
 verify_jwt = true
 
 [functions.presign-upload]

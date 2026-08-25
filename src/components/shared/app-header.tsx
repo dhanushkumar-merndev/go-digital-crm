@@ -14,6 +14,7 @@ import {
   Menu,
   Plus,
   QrCode,
+  UserRoundPen,
   UserRoundPlus,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -21,7 +22,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { roleNavigation } from '@/config/navigation';
 import type { RoleKey } from '@/config/navigation/types';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -33,6 +34,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useUiStore } from '@/stores/ui-store';
 import { MobileLinkDialog } from '@/features/auth/mobile-link-dialog';
+import {
+  fetchProfileAvatarUrl,
+  profileAvatarUrlKey,
+  type SavedProfile,
+} from '@/features/auth/profile-settings-api';
+import { ProfileSettingsDialog } from '@/features/auth/profile-settings-dialog';
 import { GlobalCustomerSearch } from '@/components/shared/global-customer-search';
 import { canLinkMobileApp } from '@/lib/auth/mobile-link-policy';
 import { getSafeAuthErrorMessage } from '@/lib/auth/safe-errors';
@@ -77,15 +84,23 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
   const workspaceSession = useWorkspaceSession();
   const openMobileNavigation = useUiStore((state) => state.setMobileNavigationOpen);
   const [mobileLinkOpen, setMobileLinkOpen] = useState(false);
+  const [profileSettingsOpen, setProfileSettingsOpen] = useState(false);
+  const [profileOverride, setProfileOverride] = useState<SavedProfile>();
   const [signingOut, setSigningOut] = useState(false);
   const [menuError, setMenuError] = useState<string>();
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const [taskCenterOpen, setTaskCenterOpen] = useState(false);
   const queryClient = useQueryClient();
-  const profile = {
+  const sessionProfile = {
     displayName: previewMode ? 'Local Preview' : (workspaceSession?.displayName ?? 'Account'),
     email: workspaceSession?.email ?? undefined,
+    avatarObjectFileId: previewMode ? null : (workspaceSession?.avatarObjectFileId ?? null),
+    version: previewMode ? 1 : (workspaceSession?.profileVersion ?? 1),
   };
+  const profile = profileOverride
+    ? { ...profileOverride, email: sessionProfile.email, displayName: profileOverride.fullName }
+    : sessionProfile;
+
   const eligibleForMobile = canLinkMobileApp(role);
   const salesWorkspace = role === 'sales-consultant';
   const canOpenTaskCenter =
@@ -101,6 +116,14 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
     queryFn: ({ signal }) => fetchHeaderNotifications(signal),
     enabled: !previewMode && hasSupabaseConfig(),
     staleTime: 60_000,
+  });
+  const profileAvatar = useQuery({
+    queryKey: profileAvatarUrlKey(profile.avatarObjectFileId),
+    queryFn: fetchProfileAvatarUrl,
+    enabled: !previewMode && Boolean(profile.avatarObjectFileId) && hasSupabaseConfig(),
+    staleTime: 4 * 60_000,
+    refetchInterval: 4 * 60_000,
+    retry: 0,
   });
   const markRead = useMutation({
     mutationFn: markHeaderNotificationRead,
@@ -315,6 +338,12 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
                 aria-label="Open profile menu"
               >
                 <Avatar>
+                  {profileAvatar.data?.avatar_url ? (
+                    <AvatarImage
+                      src={profileAvatar.data.avatar_url}
+                      alt={`${profile.displayName} profile photo`}
+                    />
+                  ) : null}
                   <AvatarFallback>{getInitials(profile.displayName)}</AvatarFallback>
                 </Avatar>
                 <span className="hidden min-w-0 leading-tight sm:block">
@@ -336,6 +365,12 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
                 </span>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              {!previewMode && workspaceSession ? (
+                <DropdownMenuItem onSelect={() => setProfileSettingsOpen(true)}>
+                  <UserRoundPen className="size-4" />
+                  My profile
+                </DropdownMenuItem>
+              ) : null}
               {eligibleForMobile && (
                 <DropdownMenuItem onSelect={() => setMobileLinkOpen(true)}>
                   <QrCode className="size-4" />
@@ -372,6 +407,27 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
       {eligibleForMobile && (
         <MobileLinkDialog open={mobileLinkOpen} onOpenChange={setMobileLinkOpen} />
       )}
+      {!previewMode && workspaceSession && profileSettingsOpen ? (
+        <ProfileSettingsDialog
+          open={profileSettingsOpen}
+          onOpenChange={setProfileSettingsOpen}
+          profile={{
+            fullName: profile.displayName,
+            avatarObjectFileId: profile.avatarObjectFileId,
+            version: profile.version,
+          }}
+          organizationId={workspaceSession.organizationId}
+          userId={workspaceSession.userId}
+          currentAvatarUrl={profileAvatar.data?.avatar_url}
+          onSaved={(saved) => {
+            setProfileOverride(saved);
+            void queryClient.invalidateQueries({
+              queryKey: profileAvatarUrlKey(saved.avatarObjectFileId),
+            });
+            router.refresh();
+          }}
+        />
+      ) : null}
       <TaskCenterSheet open={taskCenterOpen} onOpenChange={setTaskCenterOpen} role={role} />
       <NotificationCenterSheet
         open={notificationCenterOpen}

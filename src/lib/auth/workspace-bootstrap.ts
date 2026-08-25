@@ -13,6 +13,8 @@ export const workspaceBootstrapSchema = z.object({
   permissions: z.array(z.string()).optional(),
   display_name: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
+  avatar_object_file_id: z.uuid().nullable().optional(),
+  profile_version: z.coerce.number().int().positive().optional(),
   organization_name: z.string().nullable().optional(),
   workspace_name: z.string().nullable().optional(),
 });
@@ -44,6 +46,8 @@ export function toWorkspaceSession(context: WorkspaceBootstrap): WorkspaceSessio
     permissions: context.permissions ?? [],
     displayName: context.display_name?.trim() || 'Account',
     email: context.email ?? null,
+    avatarObjectFileId: context.avatar_object_file_id ?? null,
+    profileVersion: context.profile_version ?? 1,
     organizationName: context.organization_name ?? null,
     workspaceName: context.workspace_name ?? context.organization_name ?? null,
   };

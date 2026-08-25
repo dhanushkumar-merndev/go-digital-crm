@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { createClient } from '@/lib/supabase/client';
+import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
 import type { CustomerQuery } from './customer-workspace-query';
 
 const nullableString = z.string().nullable();
@@ -42,6 +42,8 @@ export type CustomerWorkspacePermissions = {
   canView: boolean;
   canCreate: boolean;
   canLink: boolean;
+  canUpdate: boolean;
+  canCreateCall: boolean;
 };
 
 export async function fetchCustomerWorkspacePermissions(): Promise<CustomerWorkspacePermissions> {
@@ -58,12 +60,13 @@ export async function fetchCustomerWorkspacePermissions(): Promise<CustomerWorks
     throw new Error('CRM_ACCESS_CONTEXT_UNAVAILABLE');
   const organizationId = context.organization_id;
   const permissionResults = await Promise.all(
-    ['customer.view', 'customer.create', 'customer.link'].map((target_permission) =>
-      supabase.rpc('authorize_action', {
-        target_organization_id: organizationId,
-        target_permission,
-        target_branch_id: null,
-      }),
+    ['customer.view', 'customer.create', 'customer.link', 'customer.update', 'call.create'].map(
+      (target_permission) =>
+        supabase.rpc('authorize_action', {
+          target_organization_id: organizationId,
+          target_permission,
+          target_branch_id: null,
+        }),
     ),
   );
   const failed = permissionResults.find((response) => response.error);
@@ -74,6 +77,8 @@ export async function fetchCustomerWorkspacePermissions(): Promise<CustomerWorks
     canView: Boolean(permissionResults[0]?.data),
     canCreate: Boolean(permissionResults[1]?.data),
     canLink: Boolean(permissionResults[2]?.data),
+    canUpdate: Boolean(permissionResults[3]?.data),
+    canCreateCall: Boolean(permissionResults[4]?.data),
   };
   if (!result.canView) throw new Error('CUSTOMER_VIEW_PERMISSION_REQUIRED');
   return result;
@@ -308,6 +313,92 @@ const customer360Schema = z.object({
 
 export type Customer360 = z.infer<typeof customer360Schema>;
 
+const customer360EditDataSchema = customer360Schema.pick({
+  customer: true,
+  contacts: true,
+  addresses: true,
+  vehicles: true,
+  custom_fields: true,
+});
+
+export type Customer360EditData = z.infer<typeof customer360EditDataSchema>;
+
+export async function fetchCustomer360EditData(customerId: string, signal?: AbortSignal) {
+  const request = createClient().rpc('get_customer_360_edit_data', {
+    target_customer_id: customerId,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return customer360EditDataSchema.parse(data);
+}
+
+const customer360UpdateResultSchema = z.object({
+  customer_id: z.uuid(),
+  updated_at: z.string(),
+  replayed: z.boolean(),
+});
+
+export type UpdateCustomer360Input = {
+  customerId: string;
+  expectedUpdatedAt: string;
+  requestId: string;
+  payload: {
+    full_name: string;
+    primary_phone: string | null;
+    primary_email: string | null;
+    contacts: Array<{ id?: string; type: 'PHONE' | 'EMAIL'; value: string; is_primary: boolean }>;
+    addresses: Array<{
+      id?: string;
+      address_type: string;
+      address: Record<string, string>;
+    }>;
+    vehicles: Array<{
+      id?: string;
+      registration: string | null;
+      brand: string | null;
+      model: string | null;
+      variant: string | null;
+      model_year: number | null;
+    }>;
+    custom_fields: Array<{ definition_id: string; value: unknown }>;
+  };
+};
+
+export async function updateCustomer360(input: UpdateCustomer360Input) {
+  const { data, error } = await createClient().rpc('update_customer_360', {
+    target_customer_id: input.customerId,
+    expected_customer_updated_at: input.expectedUpdatedAt,
+    target_payload: input.payload,
+    target_request_id: input.requestId,
+  });
+  if (error) throw error;
+  return customer360UpdateResultSchema.parse(data);
+}
+
+const customerAiCallOptionsSchema = z.object({
+  lead_id: z.uuid().nullable(),
+  branch_name: z.string().nullable(),
+  connections: z.array(
+    z.object({
+      id: z.uuid(),
+      display_name: z.string(),
+      caller_id_label: nullableString,
+      scope_mode: z.enum(['ONE_BRANCH', 'SELECTED_BRANCHES', 'ALL_BRANCHES']),
+    }),
+  ),
+});
+
+export type CustomerAiCallOptions = z.infer<typeof customerAiCallOptionsSchema>;
+
+export async function fetchCustomerAiCallOptions(customerId: string, signal?: AbortSignal) {
+  const request = createClient().rpc('get_customer_ai_call_options', {
+    target_customer_id: customerId,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return customerAiCallOptionsSchema.parse(data);
+}
+
 const customer360CoreSchema = customer360Schema.pick({
   customer: true,
   current_opportunity: true,
@@ -479,6 +570,64 @@ type DownloadEnvelope = {
   } | null;
   error: { code: string; message: string } | null;
 };
+
+type UploadEnvelope<T> = {
+  ok: boolean;
+  data: T | null;
+  error: { code: string; message: string } | null;
+};
+
+function sha256Base64(buffer: ArrayBuffer) {
+  return crypto.subtle.digest('SHA-256', buffer).then((digest) => {
+    const bytes = new Uint8Array(digest);
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  });
+}
+
+export async function uploadCustomerDocument(input: {
+  organizationId: string;
+  customerId: string;
+  file: File;
+}) {
+  if (!hasSupabaseConfig()) throw new Error('SUPABASE_NOT_CONFIGURED');
+  const checksum = await sha256Base64(await input.file.arrayBuffer());
+  const supabase = createClient();
+  const presignResponse = await supabase.functions.invoke<
+    UploadEnvelope<{
+      upload_intent_id: string;
+      upload_url: string;
+      required_headers: Record<string, string>;
+    }>
+  >('presign-upload', {
+    body: {
+      organization_id: input.organizationId,
+      branch_id: null,
+      resource_type: 'customer',
+      resource_id: input.customerId,
+      file_name: input.file.name,
+      mime_type: input.file.type,
+      size_bytes: input.file.size,
+      checksum_sha256: checksum,
+    },
+  });
+  if (presignResponse.error || !presignResponse.data?.ok || !presignResponse.data.data)
+    throw presignResponse.error ?? new Error('CUSTOMER_DOCUMENT_PRESIGN_FAILED');
+  const presign = presignResponse.data.data;
+  const upload = await fetch(presign.upload_url, {
+    method: 'PUT',
+    headers: presign.required_headers,
+    body: input.file,
+  });
+  if (!upload.ok) throw new Error('CUSTOMER_DOCUMENT_UPLOAD_FAILED');
+  const finalizeResponse = await supabase.functions.invoke<
+    UploadEnvelope<{ object_file_id: string }>
+  >('object-upload-finalize', { body: { upload_intent_id: presign.upload_intent_id } });
+  if (finalizeResponse.error || !finalizeResponse.data?.ok || !finalizeResponse.data.data)
+    throw finalizeResponse.error ?? new Error('CUSTOMER_DOCUMENT_FINALIZE_FAILED');
+  return z.uuid().parse(finalizeResponse.data.data.object_file_id);
+}
 
 export async function createCustomerDocumentDownload(objectFileId: string) {
   const { data, error } = await createClient().functions.invoke<DownloadEnvelope>(

@@ -25,6 +25,12 @@ const allowedMimeSizes = new Map<string, number>([
   ['text/plain', 5 * 1024 * 1024],
 ]);
 
+const profileAvatarMimeSizes = new Map<string, number>([
+  ['image/jpeg', 5 * 1024 * 1024],
+  ['image/png', 5 * 1024 * 1024],
+  ['image/webp', 5 * 1024 * 1024],
+]);
+
 const schema = z.object({
   organization_id: z.uuid(),
   branch_id: z.uuid().nullable().optional(),
@@ -43,6 +49,7 @@ const schema = z.object({
     'insurance_case',
     'rto_case',
     'delivery_case',
+    'profile',
   ]),
   resource_id: z.uuid(),
   file_name: z
@@ -71,11 +78,21 @@ Deno.serve(async (request) => {
     if (!parsed.success)
       return failure('INVALID_PAYLOAD', 'The upload request is invalid.', requestId, 422);
     const input = parsed.data;
-    const maximumBytes = allowedMimeSizes.get(input.mime_type);
+    const profileAvatar = input.resource_type === 'profile';
+    const maximumBytes = (profileAvatar ? profileAvatarMimeSizes : allowedMimeSizes).get(
+      input.mime_type,
+    );
     if (!maximumBytes || input.size_bytes > maximumBytes)
       return failure(
         'FILE_TYPE_OR_SIZE_NOT_ALLOWED',
         'The selected file type or size is not allowed.',
+        requestId,
+        422,
+      );
+    if (profileAvatar && input.branch_id)
+      return failure(
+        'PROFILE_AVATAR_BRANCH_NOT_ALLOWED',
+        'Profile images cannot be attached to a branch.',
         requestId,
         422,
       );
@@ -91,17 +108,20 @@ Deno.serve(async (request) => {
       context.organization_id !== input.organization_id
     )
       return failure('ACCESS_NOT_READY', 'CRM access is not available.', requestId, 403);
-    const { data: authorized, error: authorizationError } = await client.rpc(
-      'authorize_object_action',
-      {
-        target_organization_id: input.organization_id,
-        target_branch_id: input.branch_id ?? null,
-        target_resource_type: input.resource_type,
-        target_resource_id: input.resource_id,
-        target_action: 'UPLOAD',
-      },
-    );
-    if (authorizationError || !authorized)
+    const authorization = profileAvatar
+      ? await client.rpc('authorize_profile_avatar_action', {
+          target_organization_id: input.organization_id,
+          target_profile_id: input.resource_id,
+          target_action: 'UPLOAD',
+        })
+      : await client.rpc('authorize_object_action', {
+          target_organization_id: input.organization_id,
+          target_branch_id: input.branch_id ?? null,
+          target_resource_type: input.resource_type,
+          target_resource_id: input.resource_id,
+          target_action: 'UPLOAD',
+        });
+    if (authorization.error || !authorization.data)
       return failure('PERMISSION_DENIED', 'You cannot upload to this record.', requestId, 403);
 
     const intentId = crypto.randomUUID();

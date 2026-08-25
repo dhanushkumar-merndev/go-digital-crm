@@ -3,17 +3,20 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
+  Bot,
   CalendarClock,
   CarFront,
   Download,
   FileText,
   MessageSquareText,
+  Pencil,
   Phone,
+  Plus,
   RotateCcw,
   TriangleAlert,
   UserRound,
 } from 'lucide-react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useMemo, useState, type ReactNode } from 'react';
 import {
   hasWorkspacePermission,
@@ -55,6 +58,11 @@ import {
   type Customer360TimelineCursor,
   type CustomerWorkspacePermissions,
 } from './customer-workspace-api';
+import {
+  CustomerAiCallDialog,
+  CustomerDocumentUploadDialog,
+  CustomerEditDialog,
+} from './customer-360-actions';
 
 const customer360Tabs = [
   'overview',
@@ -72,6 +80,21 @@ const customer360Tabs = [
 ] as const;
 
 type Customer360Tab = (typeof customer360Tabs)[number];
+
+const customerTabCreateLabel: Record<Customer360Tab, string> = {
+  overview: 'Edit customer',
+  leads: 'Add lead',
+  calls: 'Add call',
+  conversations: 'Message customer',
+  followups: 'Add follow-up',
+  appointments: 'Add appointment',
+  'test-drives': 'Schedule test drive',
+  quotations: 'Create quotation',
+  bookings: 'Create booking',
+  vehicles: 'Add vehicle',
+  documents: 'Upload document',
+  timeline: 'Add follow-up',
+};
 
 const lazySectionByTab: Record<Exclude<Customer360Tab, 'overview'>, Customer360LazySection> = {
   leads: 'leads',
@@ -415,11 +438,13 @@ function Customer360Content({
   data,
   activeTab: controlledActiveTab,
   onTabChange,
+  onCreateForTab,
   lazyState,
 }: {
   data: Customer360;
   activeTab?: Customer360Tab;
   onTabChange?: (tab: Customer360Tab) => void;
+  onCreateForTab?: (tab: Customer360Tab) => void;
   lazyState?: Customer360LazyState;
 }) {
   const [localActiveTab, setLocalActiveTab] = useState<Customer360Tab>('overview');
@@ -443,29 +468,40 @@ function Customer360Content({
         onTabChange?.(value);
       }}
     >
-      <div className="overflow-x-auto pb-1">
-        <TabsList className="h-auto min-w-max justify-start">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          {data.section_access.leads && <TabsTrigger value="leads">Leads</TabsTrigger>}
-          {data.section_access.calls && <TabsTrigger value="calls">Calls</TabsTrigger>}
-          {data.section_access.conversations && (
-            <TabsTrigger value="conversations">Conversations</TabsTrigger>
-          )}
-          {data.section_access.followups && <TabsTrigger value="followups">Follow-ups</TabsTrigger>}
-          {data.section_access.appointments && (
-            <TabsTrigger value="appointments">Appointments</TabsTrigger>
-          )}
-          {data.section_access.test_drives && (
-            <TabsTrigger value="test-drives">Test Drives</TabsTrigger>
-          )}
-          {data.section_access.quotations && (
-            <TabsTrigger value="quotations">Quotations</TabsTrigger>
-          )}
-          {data.section_access.bookings && <TabsTrigger value="bookings">Bookings</TabsTrigger>}
-          {data.section_access.vehicles && <TabsTrigger value="vehicles">Vehicles</TabsTrigger>}
-          {data.section_access.documents && <TabsTrigger value="documents">Documents</TabsTrigger>}
-          {data.section_access.timeline && <TabsTrigger value="timeline">Timeline</TabsTrigger>}
-        </TabsList>
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+        <div className="overflow-x-auto pb-1">
+          <TabsList className="h-auto min-w-max justify-start">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            {data.section_access.leads && <TabsTrigger value="leads">Leads</TabsTrigger>}
+            {data.section_access.calls && <TabsTrigger value="calls">Calls</TabsTrigger>}
+            {data.section_access.conversations && (
+              <TabsTrigger value="conversations">Conversations</TabsTrigger>
+            )}
+            {data.section_access.followups && (
+              <TabsTrigger value="followups">Follow-ups</TabsTrigger>
+            )}
+            {data.section_access.appointments && (
+              <TabsTrigger value="appointments">Appointments</TabsTrigger>
+            )}
+            {data.section_access.test_drives && (
+              <TabsTrigger value="test-drives">Test Drives</TabsTrigger>
+            )}
+            {data.section_access.quotations && (
+              <TabsTrigger value="quotations">Quotations</TabsTrigger>
+            )}
+            {data.section_access.bookings && <TabsTrigger value="bookings">Bookings</TabsTrigger>}
+            {data.section_access.vehicles && <TabsTrigger value="vehicles">Vehicles</TabsTrigger>}
+            {data.section_access.documents && (
+              <TabsTrigger value="documents">Documents</TabsTrigger>
+            )}
+            {data.section_access.timeline && <TabsTrigger value="timeline">Timeline</TabsTrigger>}
+          </TabsList>
+        </div>
+        {onCreateForTab ? (
+          <Button size="sm" className="shrink-0" onClick={() => onCreateForTab(activeTab)}>
+            <Plus className="size-4" /> {customerTabCreateLabel[activeTab]}
+          </Button>
+        ) : null}
       </div>
       {showLazyStatus?.isPending ? (
         <div className="mt-6 space-y-3">
@@ -767,7 +803,11 @@ function Customer360Content({
 }
 
 export function Customer360Workspace({ role, customerId }: { role: string; customerId: string }) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Customer360Tab>('overview');
+  const [editOpen, setEditOpen] = useState(false);
+  const [aiCallOpen, setAiCallOpen] = useState(false);
+  const [documentUploadOpen, setDocumentUploadOpen] = useState(false);
   const [sectionPage, setSectionPage] = useState(1);
   const [sectionPageSize, setSectionPageSize] = useState<Customer360SectionPageSize>(25);
   const [timelineCursors, setTimelineCursors] = useState<
@@ -791,6 +831,8 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
         canView: hasWorkspacePermission(workspaceSession, 'customer.view'),
         canCreate: hasWorkspacePermission(workspaceSession, 'customer.create'),
         canLink: hasWorkspacePermission(workspaceSession, 'customer.link'),
+        canUpdate: hasWorkspacePermission(workspaceSession, 'customer.update'),
+        canCreateCall: hasWorkspacePermission(workspaceSession, 'call.create'),
       }
     : undefined;
   const legacyPermissions = useQuery({
@@ -847,6 +889,13 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
 
   const customerIsPending = useSalesHotPath ? salesCore.isPending : legacyCustomer.isPending;
   const customerIsError = useSalesHotPath ? salesCore.isError : legacyCustomer.isError;
+  const returnToPreviousPage = () => {
+    if (window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.replace(`/${role}/customers`);
+  };
 
   if (
     (!useWorkspaceBootstrap && legacyPermissions.isPending) ||
@@ -879,10 +928,8 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
             required customer workspace migration is not active. Reference: GDM-CUSTOMER-360.
           </p>
           <div className="mt-5 flex gap-2">
-            <Button variant="outline" asChild>
-              <Link href={`/${role}/customers`}>
-                <ArrowLeft className="size-4" /> Customers
-              </Link>
+            <Button variant="outline" onClick={returnToPreviousPage}>
+              <ArrowLeft className="size-4" /> Back
             </Button>
             <Button
               variant="outline"
@@ -940,13 +987,47 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
     setTimelineCursors({ 1: null });
   }
 
+  function createCustomerTabData(tab: Customer360Tab) {
+    switch (tab) {
+      case 'overview':
+      case 'vehicles':
+        setEditOpen(true);
+        return;
+      case 'documents':
+        setDocumentUploadOpen(true);
+        return;
+      case 'leads':
+        router.push(`/${role}/my-leads?action=create`);
+        return;
+      case 'calls':
+        router.push(`/${role}/calls?action=create`);
+        return;
+      case 'conversations':
+        router.push(`/${role}/inbox`);
+        return;
+      case 'followups':
+      case 'timeline':
+        router.push(`/${role}/follow-ups?action=create`);
+        return;
+      case 'appointments':
+        router.push(`/${role}/appointments?action=create`);
+        return;
+      case 'test-drives':
+        router.push(`/${role}/test-drives?action=create`);
+        return;
+      case 'quotations':
+        router.push(`/${role}/quotations?action=create`);
+        return;
+      case 'bookings':
+        router.push(`/${role}/bookings?action=create`);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-[1800px] space-y-6">
       <div>
-        <Button variant="ghost" size="sm" asChild className="-ml-3 mb-3">
-          <Link href={`/${role}/customers`}>
-            <ArrowLeft className="size-4" /> Authorized customers
-          </Link>
+        <Button variant="ghost" size="sm" className="-ml-3 mb-3" onClick={returnToPreviousPage}>
+          <ArrowLeft className="size-4" /> Back
         </Button>
         <Card className="overflow-hidden shadow-none">
           <CardContent className="p-0">
@@ -1004,6 +1085,16 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
                   </a>
                 </Button>
               )}
+              {permissions.canCreateCall && data.customer.primary_phone ? (
+                <Button size="sm" variant="outline" onClick={() => setAiCallOpen(true)}>
+                  <Bot className="size-3.5 text-violet-600" /> Call AI
+                </Button>
+              ) : null}
+              {permissions.canUpdate ? (
+                <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+                  <Pencil className="size-3.5 text-blue-600" /> Edit customer
+                </Button>
+              ) : null}
               {data.section_access.conversations ? (
                 <Button
                   type="button"
@@ -1062,8 +1153,47 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
         data={data}
         activeTab={activeTab}
         onTabChange={selectCustomerTab}
+        onCreateForTab={createCustomerTabData}
         lazyState={lazyState}
       />
+      {permissions.canUpdate && editOpen ? (
+        <CustomerEditDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          customerId={data.customer.id}
+          onSaved={() => {
+            if (useSalesHotPath) void salesCore.refetch();
+            else void legacyCustomer.refetch();
+          }}
+        />
+      ) : null}
+      {permissions.canCreateCall && aiCallOpen ? (
+        <CustomerAiCallDialog
+          open={aiCallOpen}
+          onOpenChange={setAiCallOpen}
+          customerId={data.customer.id}
+          organizationId={permissions.organizationId}
+          customerName={data.customer.full_name}
+          customerPhone={data.customer.primary_phone}
+          onStarted={() => {
+            selectCustomerTab('calls');
+            if (useSalesHotPath) void salesSection.refetch();
+            else void legacyCustomer.refetch();
+          }}
+        />
+      ) : null}
+      {documentUploadOpen ? (
+        <CustomerDocumentUploadDialog
+          open={documentUploadOpen}
+          onOpenChange={setDocumentUploadOpen}
+          organizationId={permissions.organizationId}
+          customerId={data.customer.id}
+          onUploaded={() => {
+            if (useSalesHotPath) void salesSection.refetch();
+            else void legacyCustomer.refetch();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

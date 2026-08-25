@@ -878,7 +878,7 @@ export function WorkWorkspace({
     return parsed;
   });
   const [view, setView] = useState<'table' | 'calendar'>('table');
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(() => searchParams.get('action') === 'create');
   const [editingRecord, setEditingRecord] = useState<WorkRecord | null>(null);
   const [actionState, setActionState] = useState<{
     action: 'complete' | 'cancel';

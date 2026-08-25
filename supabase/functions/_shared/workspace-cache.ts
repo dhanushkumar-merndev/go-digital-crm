@@ -8,7 +8,8 @@ const MANUAL_REFRESH_WINDOW_MS = 60_000;
 
 export type WorkspaceCacheResource =
   'tenant-dashboard' | 'inventory-dashboard' | 'platform-dashboard';
-export type EdgeCacheResource = WorkspaceCacheResource | 'sales-consultant-dashboard';
+export type EdgeCacheResource =
+  WorkspaceCacheResource | 'sales-consultant-dashboard' | 'sales-consultant-ai-summary';
 export type ManualRefreshResource = EdgeCacheResource;
 
 export type CacheDiagnostic = {

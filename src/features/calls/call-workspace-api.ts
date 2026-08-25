@@ -212,6 +212,7 @@ export async function startProviderCall(input: {
   connectionId: string;
   leadId: string;
   requestId: string;
+  aiMode?: boolean;
 }) {
   const { data, error } = await createClient().functions.invoke<
     EdgeEnvelope<{
@@ -225,6 +226,7 @@ export async function startProviderCall(input: {
       connection_id: input.connectionId,
       lead_id: input.leadId,
       request_id: input.requestId,
+      ai_mode: input.aiMode ?? false,
     },
   });
   if (error || !data?.ok || !data.data)

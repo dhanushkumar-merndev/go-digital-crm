@@ -13,6 +13,7 @@ const schema = z.object({
   connection_id: z.uuid(),
   lead_id: z.uuid(),
   request_id: z.uuid(),
+  ai_mode: z.boolean().default(false),
 });
 
 function xmlAttribute(value: string) {
@@ -39,7 +40,7 @@ Deno.serve(async (request) => {
     if (!auth.user)
       return failure('UNAUTHENTICATED', 'Authentication is required.', requestId, 401);
     const { data: context, error: contextError } = await client.rpc(
-      'create_provider_call_request',
+      parsed.data.ai_mode ? 'create_ai_provider_call_request' : 'create_provider_call_request',
       {
         target_connection_id: parsed.data.connection_id,
         target_lead_id: parsed.data.lead_id,

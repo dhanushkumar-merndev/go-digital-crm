@@ -341,6 +341,8 @@ export function CustomerWorkspace({ role }: { role: string }) {
         canView: hasWorkspacePermission(workspaceSession, 'customer.view'),
         canCreate: hasWorkspacePermission(workspaceSession, 'customer.create'),
         canLink: hasWorkspacePermission(workspaceSession, 'customer.link'),
+        canUpdate: hasWorkspacePermission(workspaceSession, 'customer.update'),
+        canCreateCall: hasWorkspacePermission(workspaceSession, 'call.create'),
       }
     : undefined;
   const router = useRouter();
