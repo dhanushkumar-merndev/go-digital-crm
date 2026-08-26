@@ -515,9 +515,7 @@ export function TenantDashboard({
     manualRefreshRequest.current = false;
     if (result.error instanceof ManualDashboardRefreshLimitError) {
       setManualRefreshRemaining(0);
-      setManualRefreshMessage(
-        'Refresh limit reached. Try again after the 30-minute window.',
-      );
+      setManualRefreshMessage('Refresh limit reached. Try again after the 30-minute window.');
       return;
     }
     if (!result.error) {

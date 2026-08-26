@@ -16,8 +16,10 @@ import {
   TriangleAlert,
   UserRound,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, type ReactNode } from 'react';
+import { CustomerDripPanel } from './customer-drip-panel';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
@@ -77,6 +79,7 @@ const customer360Tabs = [
   'bookings',
   'vehicles',
   'documents',
+  'drip',
   'timeline',
 ] as const;
 
@@ -94,10 +97,13 @@ const customerTabCreateLabel: Record<Customer360Tab, string> = {
   bookings: 'Create booking',
   vehicles: 'Add vehicle',
   documents: 'Upload document',
+  drip: 'Start a drip',
   timeline: 'Add follow-up',
 };
 
-const lazySectionByTab: Record<Exclude<Customer360Tab, 'overview'>, Customer360LazySection> = {
+const lazySectionByTab: Partial<
+  Record<Exclude<Customer360Tab, 'overview'>, Customer360LazySection>
+> = {
   leads: 'leads',
   calls: 'calls',
   conversations: 'conversations',
@@ -184,11 +190,15 @@ function DetailTable({
   headers,
   rows,
   emptyLabel,
+  rowHref,
 }: {
   headers: string[];
   rows: ReactNode[][];
   emptyLabel: string;
+  /** When given, the whole row navigates. Used where a row has its own page. */
+  rowHref?: (rowIndex: number) => string;
 }) {
+  const router = useRouter();
   if (!rows.length) return <EmptySection label={emptyLabel} />;
   return (
     <Card className="overflow-hidden shadow-none">
@@ -204,15 +214,35 @@ function DetailTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((row, rowIndex) => (
-              <TableRow key={rowIndex}>
-                {row.map((cell, cellIndex) => (
-                  <TableCell key={cellIndex} className="whitespace-nowrap">
-                    {cell}
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))}
+            {rows.map((row, rowIndex) => {
+              const href = rowHref?.(rowIndex);
+              return (
+                <TableRow
+                  key={rowIndex}
+                  className={href ? 'cursor-pointer hover:bg-muted/50' : undefined}
+                  onClick={href ? () => router.push(href) : undefined}
+                >
+                  {row.map((cell, cellIndex) => (
+                    <TableCell key={cellIndex} className="whitespace-nowrap">
+                      {/* The first cell is a real link as well as the row being
+                          clickable, so the row is reachable by keyboard and can
+                          be opened in a new tab. */}
+                      {cellIndex === 0 && href ? (
+                        <Link
+                          href={href}
+                          className="font-semibold text-primary hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {cell}
+                        </Link>
+                      ) : (
+                        cell
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </CardContent>
@@ -454,12 +484,14 @@ type Customer360LazyState = {
 
 function Customer360Content({
   data,
+  role,
   activeTab: controlledActiveTab,
   onTabChange,
   onCreateForTab,
   lazyState,
 }: {
   data: Customer360;
+  role: string;
   activeTab?: Customer360Tab;
   onTabChange?: (tab: Customer360Tab) => void;
   onCreateForTab?: (tab: Customer360Tab) => void;
@@ -467,6 +499,10 @@ function Customer360Content({
 }) {
   const [localActiveTab, setLocalActiveTab] = useState<Customer360Tab>('overview');
   const activeTab = controlledActiveTab ?? localActiveTab;
+  // Drip is gated on the permission rather than on `section_access`, which is
+  // built by the Customer 360 RPC and would need that RPC changed to carry a
+  // key the panel does not otherwise use.
+  const canViewDrip = hasWorkspacePermission(useWorkspaceSession(), 'customer.drip.view');
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const download = useMutation({
     mutationFn: createCustomerDocumentDownload,
@@ -512,6 +548,7 @@ function Customer360Content({
             {data.section_access.documents && (
               <TabsTrigger value="documents">Documents</TabsTrigger>
             )}
+            {canViewDrip && <TabsTrigger value="drip">Drip</TabsTrigger>}
             {data.section_access.timeline && <TabsTrigger value="timeline">Timeline</TabsTrigger>}
           </TabsList>
         </div>
@@ -554,10 +591,9 @@ function Customer360Content({
                   'Last activity',
                 ]}
                 emptyLabel="Leads"
+                rowHref={(rowIndex) => `/${role}/leads/${data.leads[rowIndex]?.id ?? ''}`}
                 rows={data.leads.map((lead) => [
-                  <span key="id" className="font-semibold">
-                    {shortId(lead.id)}
-                  </span>,
+                  <span key="id">{shortId(lead.id)}</span>,
                   lead.source,
                   lead.interested_model ?? '—',
                   <StatusBadge key="status" value={lead.lifecycle_status} />,
@@ -764,6 +800,11 @@ function Customer360Content({
               )}
             </TabsContent>
           )}
+          {canViewDrip && (
+            <TabsContent value="drip">
+              <CustomerDripPanel customerId={data.customer.id} leadId={data.leads[0]?.id ?? null} />
+            </TabsContent>
+          )}
           {data.section_access.timeline && (
             <TabsContent value="timeline">
               <Timeline data={data} />
@@ -870,7 +911,9 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
     queryFn: ({ signal }) => fetchSalesCustomer360Core(customerId, signal),
     enabled: useSalesHotPath && Boolean(permissions?.canView),
   });
-  const lazySection = activeTab === 'overview' ? null : lazySectionByTab[activeTab];
+  // Drip is deliberately absent from the map: it fetches its own panel, so it
+  // must not drive the shared section pager or its loading and error states.
+  const lazySection = activeTab === 'overview' ? null : (lazySectionByTab[activeTab] ?? null);
   const activeCursor = lazySection === 'timeline' ? (timelineCursors[sectionPage] ?? null) : null;
   const sectionFilters = {
     pageSize: sectionPageSize,
@@ -1160,6 +1203,7 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
       </div>
       <Customer360Content
         data={data}
+        role={role}
         activeTab={activeTab}
         onTabChange={selectCustomerTab}
         onCreateForTab={createCustomerTabData}

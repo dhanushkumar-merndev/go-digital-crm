@@ -92,3 +92,51 @@ export async function setCustomFieldActive(input: {
   if (error) throw error;
   return mutationResultSchema.parse(data);
 }
+
+/**
+ * Ready-made packs of customer fields. The keys, labels and types are fixed
+ * server-side so the same field cannot end up as `dob` TEXT in one organization
+ * and `birthday` DATE in another, which is what makes a birthday greeting
+ * impossible to build later.
+ */
+export const customerFieldTemplates = [
+  {
+    key: 'CUSTOMER_PERSONAL',
+    name: 'Personal details',
+    summary: 'Date of birth, anniversary, spouse, occupation, language, best time to call',
+    fieldCount: 6,
+  },
+  {
+    key: 'CUSTOMER_FAMILY',
+    name: 'Family & usage',
+    summary: 'Family size, children, vehicles in household, primary use',
+    fieldCount: 4,
+  },
+  {
+    key: 'CUSTOMER_FINANCE',
+    name: 'Finance',
+    summary: 'Income band, preferred bank, existing loan, GST number',
+    fieldCount: 4,
+  },
+] as const;
+
+export type CustomerFieldTemplateKey = (typeof customerFieldTemplates)[number]['key'];
+
+const templateResultSchema = z.object({
+  template: z.string(),
+  created: z.array(z.string()),
+  skipped: z.array(z.string()),
+  replayed: z.boolean(),
+});
+
+export async function applyCustomerFieldTemplate(input: {
+  templateKey: CustomerFieldTemplateKey;
+  requestId: string;
+}) {
+  const { data, error } = await createClient().rpc('apply_customer_field_template', {
+    target_template_key: input.templateKey,
+    target_request_id: input.requestId,
+  });
+  if (error) throw error;
+  return templateResultSchema.parse(data);
+}

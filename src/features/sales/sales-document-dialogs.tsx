@@ -25,8 +25,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchSelect } from '@/components/ui/search-select';
 import { Textarea } from '@/components/ui/textarea';
+import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { optionQueryOptions } from '@/lib/query/option-query';
 import {
   createBooking,
   decideQuotationApproval,
@@ -35,6 +38,7 @@ import {
   saveQuotation,
   transitionBooking,
   transitionQuotation,
+  type BookingQuotationOption,
   type BookingRecord,
   type QuotationItem,
   type QuotationRecord,
@@ -79,12 +83,20 @@ export function QuotationDialog({
   );
   const requestId = useRef<string | null>(null);
   const debouncedLeadSearch = useDebouncedValue(leadSearch, 300);
-  const options = useQuery({
-    queryKey: ['quotation-lead-options', ...queryScope, debouncedLeadSearch],
-    queryFn: ({ signal }) => fetchQuotationLeadOptions(debouncedLeadSearch, signal),
-    enabled: open && !record,
-    staleTime: 60_000,
-  });
+  const options = useQuery(
+    optionQueryOptions({
+      queryKey: ['quotation-lead-options', ...queryScope, debouncedLeadSearch],
+      queryFn: ({ signal }) => fetchQuotationLeadOptions(debouncedLeadSearch, signal),
+      enabled: open && !record,
+    }),
+  );
+  const leadOptions = options.data?.map((option) => ({
+    value: option.lead_id,
+    label: option.customer_name,
+    description: [option.interested_model ?? 'Vehicle TBD', option.branch_name]
+      .filter(Boolean)
+      .join(' · '),
+  }));
   const mutation = useMutation({
     mutationFn: saveQuotation,
     onSuccess: () => {
@@ -137,36 +149,23 @@ export function QuotationDialog({
               </div>
             ) : (
               <div className="space-y-2">
-                <Input
-                  value={leadSearch}
-                  maxLength={160}
-                  placeholder="Search customer, phone, model or lead ID"
-                  onChange={(event) => setLeadSearch(event.target.value)}
-                />
-                <Select
+                <SearchSelect
                   value={leadId}
+                  search={leadSearch}
+                  onSearchChange={setLeadSearch}
+                  options={leadOptions}
+                  isPending={options.isPending}
+                  isFetching={options.isFetching}
+                  isError={options.isError}
+                  placeholder="Select opportunity"
+                  searchPlaceholder="Search customer, phone, model or lead ID"
+                  emptyMessage="No opportunity you can quote matches this search."
+                  aria-label="Customer opportunity"
                   onValueChange={(value) => {
                     requestId.current = null;
                     setLeadId(value);
                   }}
-                  required
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        options.isPending ? 'Loading opportunities…' : 'Select opportunity'
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(options.data ?? []).map((option) => (
-                      <SelectItem key={option.lead_id} value={option.lead_id}>
-                        {option.customer_name} · {option.interested_model ?? 'Vehicle TBD'} ·{' '}
-                        {option.branch_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </div>
             )}
           </div>
@@ -336,13 +335,34 @@ export function BookingCreateDialog({
   const [exchangeRequired, setExchangeRequired] = useState(false);
   const requestId = useRef<string | null>(null);
   const debouncedQuotationSearch = useDebouncedValue(quotationSearch, 300);
-  const options = useQuery({
-    queryKey: ['booking-quotation-options', ...queryScope, debouncedQuotationSearch],
-    queryFn: ({ signal }) => fetchBookingQuotationOptions(debouncedQuotationSearch, signal),
-    enabled: open,
-    staleTime: 60_000,
-  });
-  const selected = options.data?.find((option) => option.quotation_id === quotationId);
+  const options = useQuery(
+    optionQueryOptions({
+      queryKey: [
+        ...salesConsultantKeys.bookingQuotationOptions(queryScope),
+        debouncedQuotationSearch,
+      ],
+      queryFn: ({ signal }) => fetchBookingQuotationOptions(debouncedQuotationSearch, signal),
+      enabled: open,
+    }),
+  );
+  // Held rather than derived: submit reads `selected.version` for the optimistic
+  // lock, so letting a later search drop the row turned Create booking into a
+  // button that quietly did nothing.
+  const [picked, setPicked] = useState<BookingQuotationOption | null>(null);
+  const selected =
+    options.data?.find((option) => option.quotation_id === quotationId) ??
+    (picked?.quotation_id === quotationId ? picked : null);
+  const quotationOptions = options.data?.map((option) => ({
+    value: option.quotation_id,
+    label: `${option.quotation_number} · ${option.customer_name}`,
+    description: [
+      currency(option.total_amount),
+      option.interested_model ?? 'Vehicle TBD',
+      option.branch_name,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  }));
   const mutation = useMutation({
     mutationFn: createBooking,
     onSuccess: () => {
@@ -379,35 +399,29 @@ export function BookingCreateDialog({
         >
           <div className="grid gap-2">
             <Label>Accepted quotation</Label>
-            <Input
-              value={quotationSearch}
-              maxLength={160}
-              placeholder="Search quotation, customer or phone"
-              onChange={(event) => setQuotationSearch(event.target.value)}
-            />
-            <Select
+            <SearchSelect
               value={quotationId}
+              search={quotationSearch}
+              onSearchChange={setQuotationSearch}
+              options={quotationOptions}
+              isPending={options.isPending}
+              isFetching={options.isFetching}
+              isError={options.isError}
+              placeholder="Select quotation"
+              searchPlaceholder="Search quotation, customer or phone"
+              emptyMessage="No accepted quotation is available to book."
+              aria-label="Accepted quotation"
               onValueChange={(value) => {
                 requestId.current = null;
+                const option =
+                  options.data?.find((candidate) => candidate.quotation_id === value) ?? null;
+                setPicked(option);
                 setQuotationId(value);
-                const option = options.data?.find((candidate) => candidate.quotation_id === value);
                 setAmount(
                   option ? String(Math.min(option.total_amount, option.total_amount * 0.1)) : '',
                 );
               }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={options.isPending ? 'Loading…' : 'Select quotation'} />
-              </SelectTrigger>
-              <SelectContent>
-                {(options.data ?? []).map((option) => (
-                  <SelectItem key={option.quotation_id} value={option.quotation_id}>
-                    {option.quotation_number} · {option.customer_name} ·{' '}
-                    {currency(option.total_amount)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            />
           </div>
           {selected && (
             <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">

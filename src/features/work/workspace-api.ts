@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
-import { WorkVersionConflictError, type WorkKind, type WorkQuery } from './workspace-query';
+import {
+  WorkVersionConflictError,
+  type SchedulableAppointmentType,
+  type WorkKind,
+  type WorkQuery,
+} from './workspace-query';
 
 const nullableString = z.string().nullable();
 
@@ -51,6 +56,9 @@ export const appointmentRecordSchema = z.object({
   customer_name: z.string(),
   phone: nullableString,
   interested_model: nullableString,
+  // 'Test Drive' stays readable here and only here: the type can no longer be
+  // chosen, but appointments booked with it before the split still exist and
+  // must keep rendering rather than failing the whole page on a parse error.
   appointment_type: z.enum(['Showroom Visit', 'Video Call', 'Test Drive', 'Consultant Call']),
   scheduled_at: z.string(),
   status: z.enum(['SCHEDULED', 'CONFIRMED', 'RESCHEDULED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),
@@ -396,7 +404,7 @@ export async function createFollowup(input: {
 export async function createAppointment(input: {
   entity: WorkEntityOption;
   assignedUserId: string;
-  appointmentType: 'Showroom Visit' | 'Video Call' | 'Test Drive' | 'Consultant Call';
+  appointmentType: SchedulableAppointmentType;
   scheduledAt: string;
   notes: string;
   requestId: string;
@@ -441,7 +449,7 @@ export async function updateAppointment(input: {
   id: string;
   expectedVersion: number;
   patch: {
-    appointment_type?: 'Showroom Visit' | 'Video Call' | 'Test Drive' | 'Consultant Call';
+    appointment_type?: SchedulableAppointmentType;
     scheduled_at?: string;
     notes?: string;
     assigned_user_id?: string;

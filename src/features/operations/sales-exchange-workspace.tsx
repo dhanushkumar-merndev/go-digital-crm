@@ -263,9 +263,7 @@ export function SalesExchangeWorkspace() {
   };
 
   const invalidate = async () => {
-    await Promise.all([
-      salesConsultantCache.settle('exchange.changed'),
-    ]);
+    await Promise.all([salesConsultantCache.settle('exchange.changed')]);
   };
 
   const saveMutation = useMutation({

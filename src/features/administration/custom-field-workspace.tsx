@@ -42,12 +42,15 @@ import { toast } from '@/components/ui/toast';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { PageSpec } from '@/lib/domain';
 import {
+  applyCustomerFieldTemplate,
   createCustomField,
+  customerFieldTemplates,
   customFieldPageSizes,
   customFieldStatuses,
   customFieldTypes,
   fetchCustomFieldPage,
   setCustomFieldActive,
+  type CustomerFieldTemplateKey,
   type CustomFieldPageSize,
   type CustomFieldStatus,
   type CustomFieldType,
@@ -232,6 +235,76 @@ function CreateFieldDialog({
   );
 }
 
+/**
+ * The one-press path. Creating personal fields by hand works, but every
+ * dealership needs the same handful and typing them one at a time is where the
+ * naming drifts. Applying a pack is additive and safe to repeat: a key that
+ * already exists is reported as skipped, never overwritten or reactivated.
+ */
+function TemplateCard() {
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState<CustomerFieldTemplateKey | null>(null);
+  const mutation = useMutation({
+    mutationFn: (templateKey: CustomerFieldTemplateKey) =>
+      applyCustomerFieldTemplate({ templateKey, requestId: requestId() }),
+    onSuccess: (result) => {
+      setPending(null);
+      void queryClient.invalidateQueries({ queryKey: ['custom-field-administration'] });
+      toast.add({
+        type: result.created.length ? 'success' : 'info',
+        title: result.created.length
+          ? `Added ${result.created.length} field${result.created.length === 1 ? '' : 's'}`
+          : 'Every field in this set already exists',
+        description: result.skipped.length
+          ? `Kept as they were: ${result.skipped.join(', ')}`
+          : 'Consultants can fill these in from Edit customer.',
+      });
+    },
+    onError: () => {
+      setPending(null);
+      toast.add({
+        type: 'error',
+        title: 'Could not add the field set',
+        description: 'Organization-wide administration access is required.',
+      });
+    },
+  });
+  return (
+    <Card className="shadow-none">
+      <CardHeader className="border-b">
+        <CardTitle className="text-base">Start from a field set</CardTitle>
+        <CardDescription>
+          Adds a ready-made group of customer fields with consistent keys and types. Fields you
+          already have are left untouched.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3 p-4 md:grid-cols-3">
+        {customerFieldTemplates.map((template) => (
+          <div key={template.key} className="flex flex-col gap-2 rounded-lg border p-4">
+            <p className="text-sm font-semibold">{template.name}</p>
+            <p className="flex-1 text-xs leading-5 text-muted-foreground">{template.summary}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-1 self-start"
+              disabled={mutation.isPending}
+              onClick={() => {
+                setPending(template.key);
+                mutation.mutate(template.key);
+              }}
+            >
+              <Plus className="size-4" />
+              {pending === template.key && mutation.isPending
+                ? 'Adding…'
+                : `Add ${template.fieldCount} fields`}
+            </Button>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
   const [searchInput, setSearchInput] = useState('');
@@ -320,6 +393,7 @@ export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
           },
         ]}
       />
+      <TemplateCard />
       <Card className="shadow-none">
         <CardContent className="flex flex-col gap-3 p-4 md:flex-row">
           <div className="relative flex-1">

@@ -27,6 +27,7 @@
     "seed:demo:remote": "node scripts/seed-demo-tenant.mjs --apply",
     "seed:demo:sales-consultant-leads": "node scripts/seed-demo-sales-consultant-leads.mjs --apply --count=100",
     "seed:demo:sales-consultant-schedule": "node scripts/seed-demo-sales-consultant-today-schedule.mjs --apply",
+    "seed:demo:customer-personalisation": "node scripts/seed-demo-customer-personalisation.mjs --apply",
     "test:demo:flow": "node scripts/test-demo-business-flow.mjs",
     "test:demo:roles": "node scripts/test-demo-role-access.mjs",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm typecheck:mobile && pnpm mobile:doctor && pnpm test:api && pnpm check:supabase-config && pnpm check:edge && pnpm build:webpack",

@@ -49,10 +49,15 @@ import {
   type WorkRecord,
   type WorkWorkspacePermissions,
 } from './workspace-api';
-import { appointmentFilters, type WorkQuery, type WorkStatusFilter } from './workspace-query';
+import {
+  appointmentFilters,
+  schedulableAppointmentTypes,
+  type WorkQuery,
+  type WorkStatusFilter,
+} from './workspace-query';
 
 const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const appointmentTypes = ['Showroom Visit', 'Video Call', 'Test Drive', 'Consultant Call'] as const;
+const appointmentTypes = schedulableAppointmentTypes;
 
 function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -346,10 +351,11 @@ export function AppointmentWorkspaceView({
     test_drive: 0,
     consultant_call: 0,
   };
+  // No test-drive card: that count belongs to the Test Drives module, and
+  // showing it here is what made the two modules look like one feature.
   const cards = [
     { type: 'Showroom Visit' as const, value: typeCounts.showroom_visit },
     { type: 'Video Call' as const, value: typeCounts.video_call },
-    { type: 'Test Drive' as const, value: typeCounts.test_drive },
     { type: 'Consultant Call' as const, value: typeCounts.consultant_call },
   ];
   const moveMonth = (delta: number) =>

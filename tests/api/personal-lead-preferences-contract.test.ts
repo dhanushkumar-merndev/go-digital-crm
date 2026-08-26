@@ -7,10 +7,7 @@ const migration = readFileSync(
   'supabase/migrations/202608250004_personal_lead_preferences.sql',
   'utf8',
 );
-const pinOrdering = readFileSync(
-  'supabase/migrations/202608250005_lead_pin_ordering.sql',
-  'utf8',
-);
+const pinOrdering = readFileSync('supabase/migrations/202608250005_lead_pin_ordering.sql', 'utf8');
 
 describe('personal lead pin and star contract', () => {
   it('syncs personal flags through a user-private, scope-checked API', () => {
@@ -49,7 +46,9 @@ describe('personal lead pin and star contract', () => {
   });
 
   it('orders pins ahead of the whole filtered set so they reach page one', () => {
-    expect(pinOrdering).toContain('left join pinned_leads pin_row on pin_row.lead_id = lead_row.id');
+    expect(pinOrdering).toContain(
+      'left join pinned_leads pin_row on pin_row.lead_id = lead_row.id',
+    );
     expect(pinOrdering).toContain('pin_row.pin_rank asc nulls last,');
     expect(pinOrdering).toContain(
       'create index if not exists user_lead_preferences_pinned_rank_idx',
@@ -59,8 +58,12 @@ describe('personal lead pin and star contract', () => {
   it('reorders optimistically and rolls back a rejected write', () => {
     expect(workspace).toContain('onMutate: async ({ leadId, flag, active }) => {');
     expect(workspace).toContain('queryClient.cancelQueries({ queryKey: personalPreferenceKey })');
-    expect(workspace).toContain('queryClient.setQueryData<PersonalLeadFlags>(personalPreferenceKey, context.snapshot)');
-    expect(workspace).toContain("invalidateQueries({ queryKey: ['lead-workspace', ...queryScope] })");
+    expect(workspace).toContain(
+      'queryClient.setQueryData<PersonalLeadFlags>(personalPreferenceKey, context.snapshot)',
+    );
+    expect(workspace).toContain(
+      "invalidateQueries({ queryKey: ['lead-workspace', ...queryScope] })",
+    );
   });
 
   it('makes the row controls personal-only toggles, without mutating lead data', () => {

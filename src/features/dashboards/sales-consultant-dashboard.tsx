@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
@@ -820,17 +820,26 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
   const [manualRefreshRemaining, setManualRefreshRemaining] = useState(3);
   const data = dashboard.data;
 
-  useEffect(() => {
-    const budget = data?.refresh_budget;
-    if (!budget?.enforced || budget.remaining === null) return;
-    setManualRefreshRemaining(budget.remaining);
-    if (budget.remaining !== 0 || !budget.retry_after_ms) return;
-    const refreshAt = formatTime(
-      new Date(Date.now() + budget.retry_after_ms).toISOString(),
-      data?.timezone ?? 'Asia/Kolkata',
-    );
-    setRefreshMessage(`Refresh limit reached. Available again at ${refreshAt}.`);
-  }, [data?.refresh_budget, data?.timezone]);
+  // The server's refresh budget is mirrored into local state as a render-phase
+  // adjustment rather than an effect: `refresh()` below also writes both values
+  // on a rejected manual refresh, so they cannot simply be derived, and an
+  // effect made every dashboard payload cost an extra render pass.
+  const budget = data?.refresh_budget;
+  const [syncedBudget, setSyncedBudget] = useState(budget);
+  if (budget !== syncedBudget) {
+    setSyncedBudget(budget);
+    if (budget?.enforced && budget.remaining !== null) {
+      setManualRefreshRemaining(budget.remaining);
+      setRefreshMessage(
+        budget.remaining === 0 && budget.retry_at
+          ? `Refresh limit reached. Available again at ${formatTime(
+              budget.retry_at,
+              data?.timezone ?? 'Asia/Kolkata',
+            )}.`
+          : undefined,
+      );
+    }
+  }
   const realtimeSubscriptions = useMemo(
     () =>
       data

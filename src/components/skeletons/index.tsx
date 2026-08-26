@@ -102,8 +102,7 @@ export function getRoleSkeleton(role: string, slug: string = 'dashboard') {
   if (slug === 'customers') return <CustomerWorkspaceSkeleton />;
   if (slug === 'customer-360') return <Customer360Skeleton />;
   if (slug === 'lead-detail') return <LeadDetailSkeleton />;
-  if (slug === 'ai-call-field-review' || slug === 'ai-review')
-    return <AiCallFieldReviewSkeleton />;
+  if (slug === 'ai-call-field-review' || slug === 'ai-review') return <AiCallFieldReviewSkeleton />;
   if (slug === 'automation-rule-detail') return <AutomationRuleDetailSkeleton />;
   if (slug === 'dealership-detail') return <DealershipDetailSkeleton />;
 

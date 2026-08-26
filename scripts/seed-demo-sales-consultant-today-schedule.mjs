@@ -24,7 +24,9 @@ const genericAppointmentBlueprints = [
   { key: 'showroom-visit-1', type: 'Showroom Visit', hour: 8, minute: 30, leadIndex: 0 },
   { key: 'video-call-1', type: 'Video Call', hour: 9, minute: 0, leadIndex: 1 },
   { key: 'consultant-call-1', type: 'Consultant Call', hour: 9, minute: 30, leadIndex: 2 },
-  { key: 'appointment-test-drive-1', type: 'Test Drive', hour: 10, minute: 0, leadIndex: 3 },
+  // No 'Test Drive' appointment: that type is no longer bookable through
+  // Appointments, and seeding one would recreate the exact confusion the
+  // module split removed. The dedicated blueprints below are the real thing.
   { key: 'showroom-visit-2', type: 'Showroom Visit', hour: 10, minute: 30, leadIndex: 4 },
   { key: 'video-call-2', type: 'Video Call', hour: 10, minute: 45, leadIndex: 5 },
 ];

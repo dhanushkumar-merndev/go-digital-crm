@@ -54,7 +54,10 @@ describe('Sales Consultant today schedule seed safety', () => {
     expect(source).toContain("type: 'Showroom Visit', hour: 8, minute: 30");
     expect(source).toContain("type: 'Video Call', hour: 9, minute: 0");
     expect(source).toContain("type: 'Consultant Call', hour: 9, minute: 30");
-    expect(source).toContain("type: 'Test Drive', hour: 10, minute: 0");
+    // Test drives are seeded only through the dedicated tables below. An
+    // appointment typed 'Test Drive' is no longer bookable in the product, so
+    // seeding one would recreate the confusion the module split removed.
+    expect(source).not.toContain("type: 'Test Drive'");
     expect(source).toContain("{ key: 'dedicated-test-drive-1', hour: 8, minute: 45");
     expect(source).toContain("await insert(\n      'test_drive_appointments'");
     expect(source).toContain("await insert(\n    'test_drives'");

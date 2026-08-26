@@ -30,7 +30,10 @@ import {
   MarkerContent,
   MarkerLabel,
 } from '@/components/ui/map';
+import { SearchSelect } from '@/components/ui/search-select';
+import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { optionQueryOptions } from '@/lib/query/option-query';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -148,18 +151,25 @@ export function TestDriveScheduleDialog({
   const registrationInputRef = useRef<HTMLInputElement>(null);
   const debouncedLeadSearch = useDebouncedValue(leadSearch, 300);
   const debouncedVehicleSearch = useDebouncedValue(vehicleSearch, 300);
-  const leads = useQuery({
-    queryKey: ['test-drive-lead-options', ...queryScope, debouncedLeadSearch],
-    queryFn: ({ signal }) => fetchTestDriveLeadOptions(debouncedLeadSearch, signal),
-    enabled: open,
-    staleTime: 60_000,
-  });
-  const vehicles = useQuery({
-    queryKey: ['test-drive-vehicle-options', ...queryScope, branchId, debouncedVehicleSearch],
-    queryFn: ({ signal }) => fetchTestDriveVehicleOptions(branchId, debouncedVehicleSearch, signal),
-    enabled: open && Boolean(branchId),
-    staleTime: 60_000,
-  });
+  const leads = useQuery(
+    optionQueryOptions({
+      queryKey: [...salesConsultantKeys.testDriveLeadOptions(queryScope), debouncedLeadSearch],
+      queryFn: ({ signal }) => fetchTestDriveLeadOptions(debouncedLeadSearch, signal),
+      enabled: open,
+    }),
+  );
+  const vehicles = useQuery(
+    optionQueryOptions({
+      queryKey: [
+        ...salesConsultantKeys.testDriveVehicleOptions(queryScope),
+        branchId,
+        debouncedVehicleSearch,
+      ],
+      queryFn: ({ signal }) =>
+        fetchTestDriveVehicleOptions(branchId, debouncedVehicleSearch, signal),
+      enabled: open && Boolean(branchId),
+    }),
+  );
   useEffect(() => {
     if (!open || !stockUnitId) return;
     const frame = globalThis.requestAnimationFrame(() => {
@@ -214,75 +224,72 @@ export function TestDriveScheduleDialog({
           <div className="space-y-3">
             <div className="grid gap-2">
               <Label htmlFor="test-drive-lead-search">Customer opportunity</Label>
-              <Input
+              <SearchSelect
                 id="test-drive-lead-search"
-                value={leadSearch}
-                maxLength={160}
-                placeholder="Search customer, phone or interested model"
-                onChange={(event) => setLeadSearch(event.target.value)}
+                value={leadId}
+                search={leadSearch}
+                onSearchChange={setLeadSearch}
+                options={leads.data?.map((lead) => ({
+                  value: lead.lead_id,
+                  label: lead.customer_name,
+                  description: [
+                    lead.phone ?? 'No phone',
+                    lead.interested_model ?? 'Vehicle TBD',
+                    lead.branch_name,
+                  ]
+                    .filter(Boolean)
+                    .join(' · '),
+                }))}
+                isPending={leads.isPending}
+                isFetching={leads.isFetching}
+                isError={leads.isError}
+                placeholder="Select opportunity"
+                searchPlaceholder="Search customer, phone or interested model"
+                emptyMessage="No assigned customer or lead matches this search."
+                aria-label="Customer opportunity"
+                onValueChange={(value) => {
+                  requestId.current = null;
+                  setLeadId(value);
+                  setStockUnitId('');
+                  setVehicleSearch('');
+                  setRegistration('');
+                  setBranchId(leads.data?.find((lead) => lead.lead_id === value)?.branch_id ?? '');
+                }}
               />
             </div>
-            <Select
-              value={leadId}
-              onValueChange={(value) => {
-                requestId.current = null;
-                setLeadId(value);
-                setStockUnitId('');
-                setVehicleSearch('');
-                setRegistration('');
-                setBranchId(leads.data?.find((lead) => lead.lead_id === value)?.branch_id ?? '');
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={leads.isPending ? 'Loading…' : 'Select opportunity'} />
-              </SelectTrigger>
-              <SelectContent>
-                {(leads.data ?? []).map((lead) => (
-                  <SelectItem key={lead.lead_id} value={lead.lead_id}>
-                    {lead.customer_name} · {lead.interested_model ?? 'Vehicle TBD'} ·{' '}
-                    {lead.branch_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
 
           <div className="space-y-3">
             <div className="grid gap-2">
               <Label htmlFor="test-drive-vehicle-search">Test-drive vehicle</Label>
-              <Input
+              <SearchSelect
                 id="test-drive-vehicle-search"
-                value={vehicleSearch}
-                maxLength={120}
+                value={stockUnitId}
                 disabled={!branchId}
-                placeholder={
-                  branchId ? 'Search VIN, chassis, model or variant' : 'Select customer first'
-                }
-                onChange={(event) => setVehicleSearch(event.target.value)}
+                search={vehicleSearch}
+                onSearchChange={setVehicleSearch}
+                options={vehicles.data?.map((vehicle) => ({
+                  value: vehicle.stock_unit_id,
+                  label: `${vehicle.brand_name} ${vehicle.model_name} ${vehicle.variant_name}`,
+                  description: [vehicle.color ?? 'Colour N/A', vehicle.vin]
+                    .filter(Boolean)
+                    .join(' · '),
+                }))}
+                isPending={vehicles.isPending}
+                isFetching={vehicles.isFetching}
+                isError={vehicles.isError}
+                placeholder="Select available vehicle"
+                disabledMessage="Select customer first"
+                searchPlaceholder="Search VIN, chassis, model or variant"
+                emptyMessage="No test-drive vehicle is available in this branch right now."
+                aria-label="Test-drive vehicle"
+                onValueChange={(value) => {
+                  requestId.current = null;
+                  setStockUnitId(value);
+                  setRegistration('');
+                }}
               />
             </div>
-            <Select
-              value={stockUnitId}
-              disabled={!branchId}
-              onValueChange={(value) => {
-                requestId.current = null;
-                setStockUnitId(value);
-                setRegistration('');
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={vehicles.isPending ? 'Loading…' : 'Select available vehicle'}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {(vehicles.data ?? []).map((vehicle) => (
-                  <SelectItem key={vehicle.stock_unit_id} value={vehicle.stock_unit_id}>
-                    {vehicle.brand_name} {vehicle.model_name} {vehicle.variant_name} · {vehicle.vin}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">

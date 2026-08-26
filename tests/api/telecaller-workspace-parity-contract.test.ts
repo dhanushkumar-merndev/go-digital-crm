@@ -49,9 +49,7 @@ describe('telecaller workspace parity', () => {
       'src/features/dashboards/sales-consultant-activity-timeline.tsx',
       'src/features/dashboards/sales-consultant-performance.tsx',
     ];
-    const offenders = surface.filter(
-      (file) => !read(file).includes('mx-auto max-w-[1800px]'),
-    );
+    const offenders = surface.filter((file) => !read(file).includes('mx-auto max-w-[1800px]'));
     expect(offenders).toEqual([]);
   });
 

@@ -12,7 +12,7 @@ import {
   Tags,
   Wrench,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -29,12 +29,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchSelect } from '@/components/ui/search-select';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { optionQueryOptions } from '@/lib/query/option-query';
 import {
   fetchQuotationLeadOptions,
   fetchQuotationVehicleOptions,
   saveQuotation,
   type QuotationItem,
+  type QuotationLeadOption,
   type QuotationRecord,
 } from './sales-document-api';
 import { isSalesDocumentVersionConflict } from './sales-document-query';
@@ -157,20 +160,28 @@ export function QuotationCreateView({
   const [prices, setPrices] = useState<PriceState>(() => initialPricing(record));
   const requestId = useRef<string | null>(null);
   const debounced = useDebouncedValue(search, 300);
-  const leads = useQuery({
-    queryKey: ['quotation-lead-options', ...queryScope, debounced],
-    queryFn: ({ signal }) => fetchQuotationLeadOptions(debounced, signal),
-    enabled: !record,
-    staleTime: 60_000,
-  });
-  const selected = leads.data?.find((item) => item.lead_id === leadId);
+  const leads = useQuery(
+    optionQueryOptions({
+      queryKey: ['quotation-lead-options', ...queryScope, debounced],
+      queryFn: ({ signal }) => fetchQuotationLeadOptions(debounced, signal),
+      enabled: !record,
+    }),
+  );
+  // The chosen customer decides the branch, and the branch decides which
+  // vehicles can be quoted. Deriving it from the current search page meant a
+  // second search emptied the vehicle list under a customer already chosen.
+  const [pickedLead, setPickedLead] = useState<QuotationLeadOption | null>(null);
+  const selected =
+    leads.data?.find((item) => item.lead_id === leadId) ??
+    (pickedLead?.lead_id === leadId ? pickedLead : undefined);
   const branchId = selected?.branch_id ?? record?.branch_id ?? '';
-  const vehicleOptions = useQuery({
-    queryKey: ['quotation-vehicle-options', ...queryScope, branchId],
-    queryFn: ({ signal }) => fetchQuotationVehicleOptions(branchId, signal),
-    enabled: Boolean(branchId),
-    staleTime: 60_000,
-  });
+  const vehicleOptions = useQuery(
+    optionQueryOptions({
+      queryKey: ['quotation-vehicle-options', ...queryScope, branchId],
+      queryFn: ({ signal }) => fetchQuotationVehicleOptions(branchId, signal),
+      enabled: Boolean(branchId),
+    }),
+  );
   const mutation = useMutation({ mutationFn: saveQuotation, onSuccess: onSaved });
 
   const additions =
@@ -262,20 +273,25 @@ export function QuotationCreateView({
   };
   const chooseLead = (value: string) => {
     setLeadId(value);
-    const lead = leads.data?.find((item) => item.lead_id === value);
+    const lead = leads.data?.find((item) => item.lead_id === value) ?? null;
+    setPickedLead(lead);
     if (lead?.interested_model) setModel(lead.interested_model);
     setVariant('');
     setColour('');
     requestId.current = null;
   };
 
-  // A row-level Create quotation action carries its lead id in the URL.  Once
+  // A row-level Create quotation action carries its lead id in the URL. Once
   // its one scoped option arrives, apply the same defaults as a manual choice.
-  useEffect(() => {
-    if (!record && initialLeadId && selected?.interested_model && !model) {
-      setModel(selected.interested_model);
-    }
-  }, [initialLeadId, model, record, selected?.interested_model]);
+  // Done as a render-phase adjustment rather than an effect so the default is
+  // applied in the same commit the option lands in, with no flash of an empty
+  // model field and no cascading render.
+  const urlLeadModel = !record && initialLeadId ? (selected?.interested_model ?? '') : '';
+  const [appliedUrlLeadModel, setAppliedUrlLeadModel] = useState('');
+  if (urlLeadModel && urlLeadModel !== appliedUrlLeadModel) {
+    setAppliedUrlLeadModel(urlLeadModel);
+    if (!model) setModel(urlLeadModel);
+  }
 
   return (
     <div className="space-y-5">
@@ -326,25 +342,26 @@ export function QuotationCreateView({
                   </div>
                 ) : (
                   <>
-                    <Input
-                      value={search}
-                      placeholder="Search customer name, phone or lead ID"
-                      onChange={(event) => setSearch(event.target.value)}
+                    <SearchSelect
+                      value={leadId}
+                      search={search}
+                      onSearchChange={setSearch}
+                      options={leads.data?.map((item) => ({
+                        value: item.lead_id,
+                        label: item.customer_name,
+                        description: [item.phone ?? 'No phone', item.interested_model]
+                          .filter(Boolean)
+                          .join(' · '),
+                      }))}
+                      isPending={leads.isPending}
+                      isFetching={leads.isFetching}
+                      isError={leads.isError}
+                      placeholder="Select customer opportunity"
+                      searchPlaceholder="Search customer name, phone or lead ID"
+                      emptyMessage="No opportunity you can quote matches this search."
+                      aria-label="Customer opportunity"
+                      onValueChange={chooseLead}
                     />
-                    <Select value={leadId} onValueChange={chooseLead}>
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={leads.isPending ? 'Loading…' : 'Select customer opportunity'}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {leads.data?.map((item) => (
-                          <SelectItem key={item.lead_id} value={item.lead_id}>
-                            {item.customer_name} · {item.phone ?? 'No phone'}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
                   </>
                 )}
               </div>

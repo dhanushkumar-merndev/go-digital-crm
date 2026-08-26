@@ -168,7 +168,9 @@ describe('Sales Consultant Customer 360 client boundary', () => {
     expect(workspace).toContain('enabled: !useWorkspaceBootstrap');
     expect(workspace).toContain('fetchSalesCustomer360Core(customerId, signal)');
     expect(workspace).toContain('fetchSalesCustomer360Section(');
-    expect(workspace).toContain("activeTab === 'overview' ? null : lazySectionByTab[activeTab]");
+    expect(workspace).toContain(
+      "activeTab === 'overview' ? null : (lazySectionByTab[activeTab] ?? null)",
+    );
   });
 
   it('keys section queries by scope, customer, section, page, and filters', () => {

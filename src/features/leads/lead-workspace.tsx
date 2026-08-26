@@ -1178,16 +1178,14 @@ function LeadTable({
                     <DropdownMenuLabel className="px-2 py-1 text-[11px] uppercase tracking-wide text-muted-foreground">
                       Schedule appointment
                     </DropdownMenuLabel>
-                    {appointmentTypes
-                      .filter((type) => type !== 'Test Drive')
-                      .map((type) => (
-                        <DropdownMenuItem
-                          key={type}
-                          onSelect={() => onScheduleAppointment(row.original, type)}
-                        >
-                          <CalendarDays className="size-4" /> {type}
-                        </DropdownMenuItem>
-                      ))}
+                    {appointmentTypes.map((type) => (
+                      <DropdownMenuItem
+                        key={type}
+                        onSelect={() => onScheduleAppointment(row.original, type)}
+                      >
+                        <CalendarDays className="size-4" /> {type}
+                      </DropdownMenuItem>
+                    ))}
                   </>
                 )}
                 {row.original.customer_id && canScheduleTestDrives && (

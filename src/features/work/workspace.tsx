@@ -617,7 +617,8 @@ function WorkTable({
                 <SelectContent>
                   <SelectItem value="all">All appointment types</SelectItem>
                   <SelectItem value="Showroom Visit">Showroom visits</SelectItem>
-                  <SelectItem value="Test Drive">Test drives</SelectItem>
+                  <SelectItem value="Video Call">Video calls</SelectItem>
+                  <SelectItem value="Consultant Call">Consultant calls</SelectItem>
                 </SelectContent>
               </Select>
             )}

@@ -30,11 +30,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchSelect } from '@/components/ui/search-select';
+import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { optionQueryOptions } from '@/lib/query/option-query';
 import {
   createTestDrive,
   fetchTestDriveLeadOptions,
   fetchTestDriveVehicleOptions,
+  type TestDriveLeadOption,
+  type TestDriveVehicleOption,
 } from './test-drive-workspace-api';
 import {
   isValidTestDriveRegistration,
@@ -97,26 +102,49 @@ export function TestDriveCreateView({
   const registrationInputRef = useRef<HTMLInputElement>(null);
   const debouncedLeadSearch = useDebouncedValue(leadSearch, 300);
   const debouncedVehicleSearch = useDebouncedValue(vehicleSearch, 300);
-  const leads = useQuery({
-    queryKey: ['test-drive-lead-options', ...queryScope, debouncedLeadSearch],
-    queryFn: ({ signal }) => fetchTestDriveLeadOptions(debouncedLeadSearch, signal),
-    staleTime: 60_000,
-  });
-  const selectedLead = leads.data?.find((item) => item.lead_id === leadId);
+  const leads = useQuery(
+    optionQueryOptions({
+      queryKey: [...salesConsultantKeys.testDriveLeadOptions(queryScope), debouncedLeadSearch],
+      queryFn: ({ signal }) => fetchTestDriveLeadOptions(debouncedLeadSearch, signal),
+    }),
+  );
+  // The picked lead is held here rather than derived from `leads.data`. Typing a
+  // new search replaces that page, and deriving from it made an already-chosen
+  // customer read as "no longer available" without the user touching the field.
+  const [pickedLead, setPickedLead] = useState<TestDriveLeadOption | null>(null);
+  const selectedLead = leads.data?.find((item) => item.lead_id === leadId) ?? pickedLead;
   const resolvedBranchId = branchId || selectedLead?.branch_id || '';
-  const vehicles = useQuery({
-    queryKey: [
-      'test-drive-vehicle-options',
-      ...queryScope,
-      resolvedBranchId,
-      debouncedVehicleSearch,
-    ],
-    queryFn: ({ signal }) =>
-      fetchTestDriveVehicleOptions(resolvedBranchId, debouncedVehicleSearch, signal),
-    enabled: Boolean(resolvedBranchId),
-    staleTime: 60_000,
-  });
-  const selectedVehicle = vehicles.data?.find((item) => item.stock_unit_id === stockUnitId);
+  const vehicles = useQuery(
+    optionQueryOptions({
+      queryKey: [
+        ...salesConsultantKeys.testDriveVehicleOptions(queryScope),
+        resolvedBranchId,
+        debouncedVehicleSearch,
+      ],
+      queryFn: ({ signal }) =>
+        fetchTestDriveVehicleOptions(resolvedBranchId, debouncedVehicleSearch, signal),
+      enabled: Boolean(resolvedBranchId),
+    }),
+  );
+  const [pickedVehicle, setPickedVehicle] = useState<TestDriveVehicleOption | null>(null);
+  const selectedVehicle =
+    vehicles.data?.find((item) => item.stock_unit_id === stockUnitId) ?? pickedVehicle;
+  const leadOptions = leads.data?.map((item) => ({
+    value: item.lead_id,
+    label: item.customer_name,
+    description: [
+      item.phone ?? 'No phone',
+      item.interested_model ?? 'Vehicle TBD',
+      item.branch_name,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  }));
+  const vehicleOptions = vehicles.data?.map((item) => ({
+    value: item.stock_unit_id,
+    label: `${item.brand_name} ${item.model_name} ${item.variant_name}`,
+    description: [item.color ?? 'Colour N/A', item.vin].filter(Boolean).join(' · '),
+  }));
   useEffect(() => {
     if (!stockUnitId) return;
     const frame = globalThis.requestAnimationFrame(() => {
@@ -198,38 +226,30 @@ export function TestDriveCreateView({
           <Section icon={UserRound} title="1. Customer">
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Find assigned customer or lead">
-                <Input
-                  value={leadSearch}
-                  placeholder="Search customer, phone or interested model"
-                  onChange={(e) => setLeadSearch(e.target.value)}
-                />
-                <Select
+                <SearchSelect
                   value={leadId}
+                  search={leadSearch}
+                  onSearchChange={setLeadSearch}
+                  options={leadOptions}
+                  isPending={leads.isPending}
+                  isFetching={leads.isFetching}
+                  isError={leads.isError}
+                  placeholder="Select opportunity"
+                  searchPlaceholder="Search customer, phone or interested model"
+                  emptyMessage="No assigned customer or lead matches this search."
+                  aria-label="Find assigned customer or lead"
                   onValueChange={(value) => {
                     requestId.current = null;
+                    const option = leads.data?.find((item) => item.lead_id === value) ?? null;
+                    setPickedLead(option);
                     setLeadId(value);
                     setStockUnitId('');
+                    setPickedVehicle(null);
                     setVehicleSearch('');
                     setRegistration('');
-                    setBranchId(
-                      leads.data?.find((item) => item.lead_id === value)?.branch_id ?? '',
-                    );
+                    setBranchId(option?.branch_id ?? '');
                   }}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={leads.isPending ? 'Loading…' : 'Select opportunity'}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {leads.data?.map((item) => (
-                      <SelectItem key={item.lead_id} value={item.lead_id}>
-                        {item.customer_name} · {item.phone ?? 'No phone'} ·{' '}
-                        {item.interested_model ?? 'Vehicle TBD'}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </Field>
               <Field label="Mobile">
                 <Input
@@ -243,39 +263,29 @@ export function TestDriveCreateView({
           <Section icon={Car} title="2. Vehicle">
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Available test-drive vehicle">
-                <Input
-                  disabled={!resolvedBranchId}
-                  value={vehicleSearch}
-                  placeholder={
-                    resolvedBranchId
-                      ? 'Search model, variant, VIN or chassis'
-                      : 'Select customer first'
-                  }
-                  onChange={(e) => setVehicleSearch(e.target.value)}
-                />
-                <Select
+                <SearchSelect
                   disabled={!resolvedBranchId}
                   value={stockUnitId}
+                  search={vehicleSearch}
+                  onSearchChange={setVehicleSearch}
+                  options={vehicleOptions}
+                  isPending={vehicles.isPending}
+                  isFetching={vehicles.isFetching}
+                  isError={vehicles.isError}
+                  placeholder="Select available vehicle"
+                  disabledMessage="Select customer first"
+                  searchPlaceholder="Search model, variant, VIN or chassis"
+                  emptyMessage="No test-drive vehicle is available in this branch right now."
+                  aria-label="Available test-drive vehicle"
                   onValueChange={(value) => {
                     requestId.current = null;
+                    setPickedVehicle(
+                      vehicles.data?.find((item) => item.stock_unit_id === value) ?? null,
+                    );
                     setStockUnitId(value);
                     setRegistration('');
                   }}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={vehicles.isPending ? 'Loading…' : 'Select available vehicle'}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {vehicles.data?.map((item) => (
-                      <SelectItem key={item.stock_unit_id} value={item.stock_unit_id}>
-                        {item.brand_name} {item.model_name} {item.variant_name} ·{' '}
-                        {item.color ?? 'Colour N/A'} · {item.vin}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </Field>
               <div className="space-y-2">
                 <Label htmlFor="test-drive-registration-number">

@@ -141,7 +141,18 @@ const aiSummaryEnvelopeSchema = z.object({
 
 export type SalesConsultantDashboardResult = z.infer<typeof dashboardSchema> & {
   cache: z.infer<typeof cacheDiagnosticSchema>;
-  refresh_budget?: z.infer<typeof refreshBudgetSchema> | null;
+  refresh_budget?:
+    | (z.infer<typeof refreshBudgetSchema> & {
+        /**
+         * `retry_after_ms` is a duration, and turning it into a wall-clock time
+         * needs a clock read. Doing that here, once, where the response is
+         * received, keeps it out of render — a component that read the clock
+         * while rendering would show a countdown that silently drifts with
+         * every unrelated re-render.
+         */
+        retry_at: string | null;
+      })
+    | null;
 };
 
 export const salesConsultantDashboardKey = ['sales-consultant-dashboard'] as const;
@@ -178,10 +189,18 @@ export async function fetchSalesConsultantDashboard(
     throw error;
   }
   const envelope = envelopeSchema.parse(data);
+  const manualRefresh = envelope.data.manual_refresh;
   return {
     ...envelope.data.result,
     cache: envelope.data.cache,
-    refresh_budget: envelope.data.manual_refresh,
+    refresh_budget: manualRefresh
+      ? {
+          ...manualRefresh,
+          retry_at: manualRefresh.retry_after_ms
+            ? new Date(Date.now() + manualRefresh.retry_after_ms).toISOString()
+            : null,
+        }
+      : manualRefresh,
   } satisfies SalesConsultantDashboardResult;
 }
 

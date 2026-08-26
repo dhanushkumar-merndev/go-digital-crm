@@ -38,8 +38,26 @@ export const workSorts = [
 
 export type WorkSort = (typeof workSorts)[number];
 export type WorkPriorityFilter = 'all' | 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
-export type AppointmentTypeFilter =
-  'all' | 'Showroom Visit' | 'Video Call' | 'Test Drive' | 'Consultant Call';
+/**
+ * The appointment types a consultant can book from the Appointments module.
+ * Shared by the filter, the create/edit dialogs, and the mutation contracts so
+ * the three cannot drift apart again.
+ */
+export const schedulableAppointmentTypes = [
+  'Showroom Visit',
+  'Video Call',
+  'Consultant Call',
+] as const;
+export type SchedulableAppointmentType = (typeof schedulableAppointmentTypes)[number];
+
+/**
+ * Test drives are deliberately absent. They live in their own module, on their
+ * own `test_drive_appointments` table, and an appointment typed "Test Drive"
+ * was never connected to any of it: no vehicle, no registration, no route, no
+ * feedback, and invisible to the Test Drives page. Scheduling one through
+ * Appointments produced a record that looked booked and was not.
+ */
+export type AppointmentTypeFilter = 'all' | 'Showroom Visit' | 'Video Call' | 'Consultant Call';
 
 export type WorkQuery = {
   page: number;
@@ -93,7 +111,7 @@ export function parseWorkQuery(params: URLSearchParams, kind: WorkKind): WorkQue
     priority: ['LOW', 'NORMAL', 'HIGH', 'URGENT'].includes(priority ?? '')
       ? (priority as WorkPriorityFilter)
       : 'all',
-    appointmentType: ['Showroom Visit', 'Video Call', 'Test Drive', 'Consultant Call'].includes(
+    appointmentType: ['Showroom Visit', 'Video Call', 'Consultant Call'].includes(
       appointmentType ?? '',
     )
       ? (appointmentType as AppointmentTypeFilter)

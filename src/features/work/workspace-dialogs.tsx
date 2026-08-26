@@ -39,7 +39,15 @@ import {
   type WorkRecord,
   type WorkUserOption,
 } from './workspace-api';
-import { isWorkVersionConflict, type WorkKind } from './workspace-query';
+import { SearchSelect } from '@/components/ui/search-select';
+import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
+import { optionQueryOptions } from '@/lib/query/option-query';
+import {
+  isWorkVersionConflict,
+  schedulableAppointmentTypes,
+  type SchedulableAppointmentType,
+  type WorkKind,
+} from './workspace-query';
 
 export const followupReasons = [
   'Customer Callback',
@@ -54,13 +62,13 @@ export const followupReasons = [
 ] as const;
 export type FollowupReason = (typeof followupReasons)[number];
 
-export const appointmentTypes = [
-  'Showroom Visit',
-  'Video Call',
-  'Test Drive',
-  'Consultant Call',
-] as const;
-export type AppointmentType = (typeof appointmentTypes)[number];
+/**
+ * The types a consultant can actually book from Appointments. A test drive is
+ * scheduled in the Test Drives module instead, because only that path records
+ * the vehicle, registration, route and feedback the drive is made of.
+ */
+export const appointmentTypes = schedulableAppointmentTypes;
+export type AppointmentType = SchedulableAppointmentType;
 
 function safeMutationMessage(error: unknown) {
   if (isWorkVersionConflict(error))
@@ -161,12 +169,17 @@ export function WorkCreateDialog({
   );
   const [notes, setNotes] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
-  const options = useQuery({
-    queryKey: ['work-create-options', ...queryScope, kind, debouncedSearch],
-    queryFn: ({ signal }) => fetchWorkCreateOptions(kind, debouncedSearch, signal),
-    enabled: open && !lockInitialEntity && hasSearchTerm,
-    staleTime: 60_000,
-  });
+  const options = useQuery(
+    optionQueryOptions({
+      queryKey: [...salesConsultantKeys.workCreateOptions(queryScope), kind, debouncedSearch],
+      queryFn: ({ signal }) => fetchWorkCreateOptions(kind, debouncedSearch, signal),
+      enabled: open && !lockInitialEntity && hasSearchTerm,
+    }),
+  );
+  // Retained across searches: the assignee list, the branch and the submit
+  // payload all read from the picked entity, so losing it to the next search
+  // page silently reset the rest of the form.
+  const [pickedEntity, setPickedEntity] = useState<WorkEntityOption | null>(null);
   const lockedEntity = useMemo<WorkEntityOption | undefined>(() => {
     if (!open || !lockInitialEntity || !initialEntity) return undefined;
     return {
@@ -195,7 +208,8 @@ export function WorkCreateDialog({
     selectedEntityKey || (initialEntityOption ? entityKey(initialEntityOption) : '');
   const selectedEntity =
     lockedEntity ??
-    options.data?.entities.find((entity) => entityKey(entity) === resolvedEntityKey);
+    options.data?.entities.find((entity) => entityKey(entity) === resolvedEntityKey) ??
+    (pickedEntity && entityKey(pickedEntity) === resolvedEntityKey ? pickedEntity : undefined);
   const resolvedAssignedUserId =
     (assignedUserId ||
       (lockedEntity === selectedEntity || initialEntityOption === selectedEntity
@@ -205,6 +219,23 @@ export function WorkCreateDialog({
   const effectiveAssignedUserId = isSalesConsultant
     ? (workspaceSession?.userId ?? resolvedAssignedUserId)
     : resolvedAssignedUserId;
+  const entityOptions = useMemo(
+    () =>
+      hasSearchTerm
+        ? options.data?.entities.map((entity) => ({
+            value: entityKey(entity),
+            label: entity.customer_name,
+            description: [
+              entity.phone ?? 'No phone',
+              entity.interested_model ?? 'Vehicle TBD',
+              entity.branch_name,
+            ]
+              .filter(Boolean)
+              .join(' · '),
+          }))
+        : [],
+    [hasSearchTerm, options.data?.entities],
+  );
   const availableUsers = useMemo(() => {
     const users = usersForEntity(options.data?.users ?? [], selectedEntity);
     if (
@@ -317,47 +348,32 @@ export function WorkCreateDialog({
           ) : (
             <>
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor={`${kind}-entity-search`}>Find customer</Label>
-                <Input
+                <Label htmlFor={`${kind}-entity-search`}>Customer / lead</Label>
+                <SearchSelect
                   id={`${kind}-entity-search`}
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Type at least 2 letters or phone digits"
-                  maxLength={160}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Matching authorized leads appear after you pause typing.
-                </p>
-              </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label>Customer / lead</Label>
-                <Select
                   value={resolvedEntityKey}
+                  search={search}
+                  onSearchChange={setSearch}
+                  options={entityOptions}
+                  isPending={hasSearchTerm && options.isPending}
+                  isFetching={options.isFetching}
+                  isError={options.isError}
+                  placeholder="Select record"
+                  searchPlaceholder="Type at least 2 letters or phone digits"
+                  emptyMessage={
+                    hasSearchTerm
+                      ? 'No authorized customer or lead matches this search.'
+                      : 'Type at least 2 characters to search your authorized records.'
+                  }
+                  aria-label="Customer or lead"
                   onValueChange={(value) => {
                     setSelectedEntityKey(value);
-                    const entity = options.data?.entities.find((item) => entityKey(item) === value);
+                    const entity =
+                      options.data?.entities.find((item) => entityKey(item) === value) ?? null;
+                    setPickedEntity(entity);
                     setAssignedUserId(entity?.default_assigned_user_id ?? '');
                   }}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        !hasSearchTerm
-                          ? 'Type at least 2 characters above'
-                          : options.isFetching
-                            ? 'Loading authorized records…'
-                            : 'Select record'
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(options.data?.entities ?? []).map((entity) => (
-                      <SelectItem key={entityKey(entity)} value={entityKey(entity)}>
-                        {entityLabel(entity)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </div>
             </>
           )}
