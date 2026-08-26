@@ -68,6 +68,7 @@ import {
   salesConsultantDashboardKey,
   type SalesConsultantDashboardResult,
 } from './sales-consultant-dashboard-api';
+import { leadDetailHref } from '@/lib/navigation/record-links';
 
 type DashboardMetric =
   SalesConsultantDashboardResult['metrics'][keyof SalesConsultantDashboardResult['metrics']];
@@ -267,11 +268,13 @@ const scheduleDefinitions: Record<
     tone: 'blue',
     href: '/sales-consultant/appointments?status=today&type=Video%20Call',
   },
+  // Only legacy rows carry this type; it can no longer be booked, and the
+  // Appointments filter no longer accepts it as a value.
   APPOINTMENT_TEST_DRIVE: {
     label: 'Test drive',
     icon: CarFront,
     tone: 'blue',
-    href: '/sales-consultant/appointments?status=today&type=Test%20Drive',
+    href: '/sales-consultant/appointments?status=today',
   },
   APPOINTMENT_CONSULTANT_CALL: {
     label: 'Consultant call',
@@ -319,20 +322,48 @@ function statusVariant(status: string) {
   return 'info' as const;
 }
 
+/** Every link on this page is scoped to the consultant workspace. */
+const DASHBOARD_ROLE = 'sales-consultant';
+
+function followupStatusForSchedule(status: string) {
+  if (status === 'OVERDUE') return 'overdue';
+  if (status === 'COMPLETED') return 'completed';
+  if (status === 'CANCELLED') return 'cancelled';
+  return 'today';
+}
+
+function testDriveViewForSchedule(status: string) {
+  if (status === 'ACTIVE') return 'active';
+  if (status === 'COMPLETED') return 'completed';
+  if (status === 'CANCELLED') return 'cancelled';
+  return 'today';
+}
+
 function scheduleItemHref(item: SalesConsultantDashboardResult['schedule'][number]) {
   if (item.kind.startsWith('APPOINTMENT_')) {
     return `/sales-consultant/appointments?appointment=${encodeURIComponent(item.id)}`;
   }
 
-  if (item.lead_id) return `/sales-consultant/my-leads?q=${encodeURIComponent(item.lead_id)}`;
+  if (item.kind === 'FOLLOW_UP') {
+    return `/sales-consultant/follow-ups?status=${followupStatusForSchedule(item.status)}&q=${encodeURIComponent(item.id)}`;
+  }
 
-  const phone =
-    item.kind === 'FOLLOW_UP' && item.detail?.trim().match(/^\+?[0-9][0-9 -]{6,}$/)
-      ? item.detail
-      : null;
-  if (phone) return `/sales-consultant/my-leads?q=${encodeURIComponent(phone)}`;
+  if (item.kind === 'TEST_DRIVE') {
+    return `/sales-consultant/test-drives?view=${testDriveViewForSchedule(item.status)}&q=${encodeURIComponent(item.id)}`;
+  }
 
   return scheduleDefinitions[item.kind].href;
+}
+
+function scheduleItemAriaLabel(
+  item: SalesConsultantDashboardResult['schedule'][number],
+  definition: (typeof scheduleDefinitions)[SalesConsultantDashboardResult['schedule'][number]['kind']],
+) {
+  if (item.kind.startsWith('APPOINTMENT_'))
+    return `Open ${definition.label} for ${item.customer_name} in Appointments`;
+  if (item.kind === 'FOLLOW_UP') return `Open ${item.customer_name}'s follow-up`;
+  if (item.kind === 'TEST_DRIVE') return `Open ${item.customer_name}'s test drive`;
+  return `Open ${definition.label} for ${item.customer_name}`;
 }
 
 function MetricCard({
@@ -427,13 +458,7 @@ function TodaySchedule({
                     <span className="absolute left-[49px] top-4 z-10 size-2 rounded-full border-2 border-white bg-blue-600" />
                     <Link
                       href={href}
-                      aria-label={
-                        item.kind.startsWith('APPOINTMENT_')
-                          ? `Open ${definition.label} for ${item.customer_name} in Appointments`
-                          : item.lead_id
-                            ? `Open ${item.customer_name} in My Leads`
-                            : `Open ${definition.label} for ${item.customer_name}`
-                      }
+                      aria-label={scheduleItemAriaLabel(item, definition)}
                       className="ml-2 rounded-lg border bg-white p-2.5 transition-colors hover:border-blue-200 hover:bg-blue-50/30"
                     >
                       <div className="flex items-start gap-2.5">
@@ -619,9 +644,7 @@ function RecentLeads({
               {leads.map((lead) => (
                 <TableRow key={lead.id} className="text-[10px]">
                   <TableCell className="px-3 py-2 font-semibold text-blue-700">
-                    <Link href={`/sales-consultant/my-leads?q=${encodeURIComponent(lead.phone)}`}>
-                      {lead.reference}
-                    </Link>
+                    <Link href={leadDetailHref(DASHBOARD_ROLE, lead.id)}>{lead.reference}</Link>
                   </TableCell>
                   <TableCell className="whitespace-nowrap px-3 py-2 font-medium">
                     {lead.customer_name}
@@ -688,7 +711,7 @@ function RecentLeads({
                       </Button>
                       <Button asChild variant="ghost" size="icon" className="size-7 text-blue-600">
                         <Link
-                          href={`/sales-consultant/my-leads?q=${encodeURIComponent(lead.phone)}`}
+                          href={leadDetailHref(DASHBOARD_ROLE, lead.id)}
                           aria-label={`Open ${lead.customer_name}`}
                         >
                           <ArrowRight className="size-3.5" />

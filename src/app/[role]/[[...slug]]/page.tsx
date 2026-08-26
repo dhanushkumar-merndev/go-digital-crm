@@ -322,7 +322,7 @@ export default async function RolePage({ params }: Props) {
   )
     return <SalesEscalationWorkspace role={role} />;
   if (role === 'sales-consultant' && slug[0] === 'exchange' && !isLocalPreviewMode())
-    return <SalesExchangeWorkspace />;
+    return <SalesExchangeWorkspace role={role} />;
   if (role === 'business-owner' && slug[0] === 'sales-overview' && !isLocalPreviewMode())
     return <TenantDashboard spec={spec} role={role} heading="Sales Overview" />;
   if (role === 'business-owner' && slug[0] === 'targets-performance' && !isLocalPreviewMode())

@@ -55,6 +55,7 @@ import {
   type WorkQuery,
   type WorkStatusFilter,
 } from './workspace-query';
+import { recordDetailHref } from '@/lib/navigation/record-links';
 
 const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const appointmentTypes = schedulableAppointmentTypes;
@@ -536,7 +537,7 @@ export function AppointmentWorkspaceView({
                         <TableRow key={record.id}>
                           <TableCell>
                             <Link
-                              href={`/${role}/customers/${record.customer_id}`}
+                              href={recordDetailHref(role, record) ?? '#'}
                               className="font-semibold hover:text-blue-700 hover:underline"
                             >
                               {record.customer_name}

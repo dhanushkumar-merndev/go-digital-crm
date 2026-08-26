@@ -89,6 +89,7 @@ import {
   type WorkQuery,
   type WorkStatusFilter,
 } from './workspace-query';
+import { recordDetailHref } from '@/lib/navigation/record-links';
 
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat('en-IN', {
@@ -230,7 +231,7 @@ function WorkTable({
             const followup = row.original as FollowupRecord;
             return followup.customer_id ? (
               <Link
-                href={`/${role}/customers/${followup.customer_id}`}
+                href={recordDetailHref(role, followup) ?? '#'}
                 className="font-semibold hover:text-blue-700 hover:underline"
               >
                 {followup.customer_name}
@@ -404,7 +405,7 @@ function WorkTable({
           <div className="min-w-44">
             {row.original.customer_id ? (
               <Link
-                href={`/${role}/customers/${row.original.customer_id}`}
+                href={recordDetailHref(role, row.original) ?? '#'}
                 className="font-semibold hover:text-primary hover:underline"
               >
                 {row.original.customer_name}

@@ -122,9 +122,12 @@ create index customer_drip_messages_due_idx
   on public.customer_drip_messages (status, scheduled_for, id)
   where status = 'QUEUED';
 
+-- `delete_order` is unique and decides purge sequence, so the child table has to
+-- come before the parent it references. 510 and 511 are already taken by
+-- complaints and customer_review_requests.
 insert into app_private.retention_table_allowlist (table_name, disposition, delete_order) values
-  ('customer_drip_messages', 'DELETE', 509),
-  ('customer_drip_enrollments', 'DELETE', 510)
+  ('customer_drip_messages', 'DELETE', 512),
+  ('customer_drip_enrollments', 'DELETE', 513)
 on conflict (table_name) do update
   set disposition = excluded.disposition, delete_order = excluded.delete_order;
 

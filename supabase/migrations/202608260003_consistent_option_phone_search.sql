@@ -58,49 +58,49 @@ begin
         (
           'public.get_test_drive_lead_options(text,integer)',
           E'          app_private.normalize_phone_digits(normalized_search) <> ''''\n'
-          E'          and app_private.normalize_phone_digits(customer_row.normalized_phone)\n'
-          E'            = app_private.normalize_phone_digits(normalized_search)\n',
+          || E'          and app_private.normalize_phone_digits(customer_row.normalized_phone)\n'
+          || E'            = app_private.normalize_phone_digits(normalized_search)\n',
           E'          app_private.phone_search_key(normalized_search) <> ''''\n'
-          E'          and app_private.phone_search_key(customer_row.normalized_phone)\n'
-          E'            like app_private.phone_search_key(normalized_search) || ''%''\n'
+          || E'          and app_private.phone_search_key(customer_row.normalized_phone)\n'
+          || E'            like app_private.phone_search_key(normalized_search) || ''%''\n'
         ),
         (
           'public.get_quotation_lead_options(text,integer)',
           E'          app_private.normalize_phone_digits(normalized_search) <> ''''\n'
-          E'          and app_private.normalize_phone_digits(customer_row.primary_phone)\n'
-          E'            = app_private.normalize_phone_digits(normalized_search)\n',
+          || E'          and app_private.normalize_phone_digits(customer_row.primary_phone)\n'
+          || E'            = app_private.normalize_phone_digits(normalized_search)\n',
           E'          app_private.phone_search_key(normalized_search) <> ''''\n'
-          E'          and app_private.phone_search_key(customer_row.primary_phone)\n'
-          E'            like app_private.phone_search_key(normalized_search) || ''%''\n'
+          || E'          and app_private.phone_search_key(customer_row.primary_phone)\n'
+          || E'            like app_private.phone_search_key(normalized_search) || ''%''\n'
         ),
         (
           'public.get_booking_quotation_options(text,integer)',
           E'          app_private.normalize_phone_digits(normalized_search) <> ''''\n'
-          E'          and app_private.normalize_phone_digits(customer_row.primary_phone)\n'
-          E'            = app_private.normalize_phone_digits(normalized_search)\n',
+          || E'          and app_private.normalize_phone_digits(customer_row.primary_phone)\n'
+          || E'            = app_private.normalize_phone_digits(normalized_search)\n',
           E'          app_private.phone_search_key(normalized_search) <> ''''\n'
-          E'          and app_private.phone_search_key(customer_row.primary_phone)\n'
-          E'            like app_private.phone_search_key(normalized_search) || ''%''\n'
+          || E'          and app_private.phone_search_key(customer_row.primary_phone)\n'
+          || E'            like app_private.phone_search_key(normalized_search) || ''%''\n'
         ),
         (
           'public.get_task_lead_options(text,integer)',
           E'          app_private.normalize_phone_digits(normalized_search) <> ''''\n'
-          E'          and app_private.normalize_phone_digits(customer_row.primary_phone)\n'
-          E'            = app_private.normalize_phone_digits(normalized_search)\n',
+          || E'          and app_private.normalize_phone_digits(customer_row.primary_phone)\n'
+          || E'            = app_private.normalize_phone_digits(normalized_search)\n',
           E'          app_private.phone_search_key(normalized_search) <> ''''\n'
-          E'          and app_private.phone_search_key(customer_row.primary_phone)\n'
-          E'            like app_private.phone_search_key(normalized_search) || ''%''\n'
+          || E'          and app_private.phone_search_key(customer_row.primary_phone)\n'
+          || E'            like app_private.phone_search_key(normalized_search) || ''%''\n'
         ),
         (
           'public.get_work_create_options(text,text)',
           E'          search_phone_digits <> ''''\n'
-          E'          and app_private.normalize_phone_digits(\n'
-          E'            coalesce(customer_row.primary_phone, lead_row.phone)\n'
-          E'          ) like search_phone_digits || ''%''\n',
+          || E'          and app_private.normalize_phone_digits(\n'
+          || E'            coalesce(customer_row.primary_phone, lead_row.phone)\n'
+          || E'          ) like search_phone_digits || ''%''\n',
           E'          app_private.phone_search_key(normalized_search) <> ''''\n'
-          E'          and app_private.phone_search_key(\n'
-          E'            coalesce(customer_row.primary_phone, lead_row.phone)\n'
-          E'          ) like app_private.phone_search_key(normalized_search) || ''%''\n'
+          || E'          and app_private.phone_search_key(\n'
+          || E'            coalesce(customer_row.primary_phone, lead_row.phone)\n'
+          || E'          ) like app_private.phone_search_key(normalized_search) || ''%''\n'
         )
     ) as source(signature, old_predicate, new_predicate)
   loop

@@ -98,6 +98,7 @@ import {
   type CallStatusFilter,
   type CallWorkspaceView,
 } from './call-workspace-query';
+import { recordDetailHref } from '@/lib/navigation/record-links';
 
 const outcomeOptions: Array<{
   value: FinalizeManualCallInput['outcome'];
@@ -1208,7 +1209,7 @@ function CallTable({
             {row.original.customer_id ? (
               <Link
                 className="font-semibold hover:text-primary hover:underline"
-                href={`/${role}/customers/${row.original.customer_id}`}
+                href={recordDetailHref(role, row.original) ?? '#'}
               >
                 {row.original.customer_name ?? 'Restricted party'}
               </Link>

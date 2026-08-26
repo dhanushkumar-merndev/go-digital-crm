@@ -25,6 +25,10 @@ const todayScheduleMigration = readFileSync(
   'supabase/migrations/202608250001_sales_consultant_today_schedule.sql',
   'utf8',
 );
+const scheduleDeepLinksMigration = readFileSync(
+  'supabase/migrations/202608260007_schedule_module_deep_links.sql',
+  'utf8',
+);
 const api = readFileSync('src/features/dashboards/sales-consultant-dashboard-api.ts', 'utf8');
 const workspace = readFileSync('src/features/dashboards/sales-consultant-dashboard.tsx', 'utf8');
 const taskWorkspace = readFileSync('src/features/tasks/task-workspace.tsx', 'utf8');
@@ -169,6 +173,16 @@ describe('sales consultant dashboard contract', () => {
     expect(workspace).toContain(
       '/sales-consultant/appointments?appointment=${encodeURIComponent(item.id)}',
     );
+    expect(workspace).toContain('function followupStatusForSchedule');
+    expect(workspace).toContain('function testDriveViewForSchedule');
+    expect(workspace).toContain(
+      '/sales-consultant/follow-ups?status=${followupStatusForSchedule(item.status)}&q=${encodeURIComponent(item.id)}',
+    );
+    expect(workspace).toContain(
+      '/sales-consultant/test-drives?view=${testDriveViewForSchedule(item.status)}&q=${encodeURIComponent(item.id)}',
+    );
+    expect(scheduleDeepLinksMigration).toContain('or drive_row.appointment_id = search_uuid');
+    expect(scheduleDeepLinksMigration).toContain('or drive_row.lead_id = search_uuid');
     expect(workspace).toContain('const scheduleItems = [...data.schedule].sort');
     expect(workspace).not.toContain('const scheduleGroups');
     expect(workspace).toContain('APPOINTMENT_VIDEO_CALL:');

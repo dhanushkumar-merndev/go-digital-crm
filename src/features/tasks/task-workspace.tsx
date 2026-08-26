@@ -73,6 +73,7 @@ import {
   toTaskQueryString,
   type TaskQuery,
 } from './task-workspace-query';
+import { recordDetailHref } from '@/lib/navigation/record-links';
 
 function formatDate(value: string | null) {
   if (!value) return 'No due date';
@@ -171,7 +172,7 @@ function TaskTable({
           <div className="min-w-40">
             {row.original.customer_id ? (
               <Link
-                href={`/${role}/customers/${row.original.customer_id}`}
+                href={recordDetailHref(role, row.original) ?? '#'}
                 className="font-medium hover:text-primary hover:underline"
               >
                 {row.original.customer_name ?? 'Customer'}

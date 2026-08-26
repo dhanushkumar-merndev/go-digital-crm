@@ -54,6 +54,7 @@ import {
   type SalesExchangeOption,
   type SaveSalesExchangeInput,
 } from './sales-exchange-api';
+import { customerDetailHref } from '@/lib/navigation/record-links';
 
 type ExchangeForm = {
   vehicleId: string;
@@ -185,7 +186,7 @@ function Field({
   );
 }
 
-export function SalesExchangeWorkspace() {
+export function SalesExchangeWorkspace({ role }: { role: string }) {
   const workspaceSession = useWorkspaceSession();
   const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
   const queryScope = useMemo(
@@ -826,7 +827,7 @@ export function SalesExchangeWorkspace() {
                   </span>
                   <div>
                     <Link
-                      href={`/sales-consultant/customers/${selected.customer_id}`}
+                      href={customerDetailHref(role, selected.customer_id)}
                       className="font-semibold text-blue-700 hover:underline"
                     >
                       {selected.customer_name}

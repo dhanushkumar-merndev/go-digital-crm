@@ -82,6 +82,7 @@ import {
   toTestDriveQueryString,
   type TestDriveQuery,
 } from './test-drive-workspace-query';
+import { recordDetailHref } from '@/lib/navigation/record-links';
 
 function label(value: string) {
   return value
@@ -184,7 +185,7 @@ function TestDriveTable({
             </span>
             <div>
               <Link
-                href={`/${role}/customers/${row.original.customer_id}`}
+                href={recordDetailHref(role, row.original) ?? '#'}
                 className="font-semibold hover:text-primary hover:underline"
               >
                 {row.original.customer_name}

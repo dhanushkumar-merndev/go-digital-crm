@@ -4,6 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   MoreVertical,
@@ -108,6 +109,7 @@ import {
   type LeadStatusFilter,
   type LeadTemperatureFilter,
 } from './lead-workspace-query';
+import { customerDetailHref, leadDetailHref } from '@/lib/navigation/record-links';
 
 const leadSources = [
   'Facebook',
@@ -947,9 +949,16 @@ function LeadTable({
       {
         accessorKey: 'customer_name',
         header: 'Customer',
+        // The name opens the person, the Lead ID beside it opens the
+        // opportunity. Both cells pointing at the lead made Customer 360
+        // unreachable from the one list that names every customer.
         cell: ({ row }) => (
           <Link
-            href={`/${role}/leads/${row.original.id}`}
+            href={
+              row.original.customer_id
+                ? customerDetailHref(role, row.original.customer_id)
+                : leadDetailHref(role, row.original.id)
+            }
             className="font-semibold text-foreground hover:text-primary hover:underline"
           >
             {row.original.customer_name}
@@ -997,10 +1006,14 @@ function LeadTable({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-6 px-0 hover:bg-transparent"
+                  className="h-6 w-full justify-between px-0 hover:bg-transparent"
                   aria-label={`Change temperature for ${row.original.customer_name}`}
                 >
                   <TemperatureBadge value={row.original.temperature} />
+                  <ChevronDown
+                    aria-hidden="true"
+                    className="size-3 shrink-0 text-muted-foreground"
+                  />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-36">

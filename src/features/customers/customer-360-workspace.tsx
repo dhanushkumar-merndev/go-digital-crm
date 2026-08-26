@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { leadDetailHref } from '@/lib/navigation/record-links';
 import { useMemo, useState, type ReactNode } from 'react';
 import { CustomerDripPanel } from './customer-drip-panel';
 import {
@@ -274,7 +275,7 @@ function CustomerHeaderValue({ label, children }: { label: string; children: Rea
   );
 }
 
-function Overview({ data }: { data: Customer360 }) {
+function Overview({ data, role }: { data: Customer360; role: string }) {
   const primaryAddress =
     data.addresses.find((address) => address.address_type === 'HOME') ?? data.addresses[0];
   const addressText = primaryAddress
@@ -312,7 +313,18 @@ function Overview({ data }: { data: Customer360 }) {
             {data.current_opportunity ? (
               <InformationGrid
                 values={[
-                  ['Lead ID', shortId(data.current_opportunity.id)],
+                  [
+                    'Lead ID',
+                    // The opportunity has its own page; this is the shortest
+                    // route to it from the customer.
+                    <Link
+                      key="lead-id"
+                      href={leadDetailHref(role, data.current_opportunity.id)}
+                      className="font-semibold text-primary hover:underline"
+                    >
+                      {shortId(data.current_opportunity.id)}
+                    </Link>,
+                  ],
                   ['Interested model', data.current_opportunity.interested_model ?? '—'],
                   [
                     'Lifecycle',
@@ -576,7 +588,7 @@ function Customer360Content({
       ) : (
         <>
           <TabsContent value="overview">
-            <Overview data={data} />
+            <Overview data={data} role={role} />
           </TabsContent>
           {data.section_access.leads && (
             <TabsContent value="leads">

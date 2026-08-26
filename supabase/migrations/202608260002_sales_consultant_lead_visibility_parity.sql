@@ -25,23 +25,23 @@ declare
   updated_definition text;
   handoff_requirement constant text :=
     E'            and exists (\n'
-    E'              select 1\n'
-    E'              from public.lead_stage_history handoff_history\n'
-    E'              where handoff_history.organization_id = target_organization_id\n'
-    E'                and handoff_history.lead_id = lead_row.id\n'
-    E'                and handoff_history.to_status = ''Transferred to Sales''\n'
-    E'            )\n';
+    || E'              select 1\n'
+    || E'              from public.lead_stage_history handoff_history\n'
+    || E'              where handoff_history.organization_id = target_organization_id\n'
+    || E'                and handoff_history.lead_id = lead_row.id\n'
+    || E'                and handoff_history.to_status = ''Transferred to Sales''\n'
+    || E'            )\n';
   handoff_or_owned constant text :=
     E'            and (\n'
-    E'              lead_row.assigned_user_id = target_actor_id\n'
-    E'              or exists (\n'
-    E'                select 1\n'
-    E'                from public.lead_stage_history handoff_history\n'
-    E'                where handoff_history.organization_id = target_organization_id\n'
-    E'                  and handoff_history.lead_id = lead_row.id\n'
-    E'                  and handoff_history.to_status = ''Transferred to Sales''\n'
-    E'              )\n'
-    E'            )\n';
+    || E'              lead_row.assigned_user_id = target_actor_id\n'
+    || E'              or exists (\n'
+    || E'                select 1\n'
+    || E'                from public.lead_stage_history handoff_history\n'
+    || E'                where handoff_history.organization_id = target_organization_id\n'
+    || E'                  and handoff_history.lead_id = lead_row.id\n'
+    || E'                  and handoff_history.to_status = ''Transferred to Sales''\n'
+    || E'              )\n'
+    || E'            )\n';
 begin
   select pg_catalog.pg_get_functiondef(signature) into definition;
 

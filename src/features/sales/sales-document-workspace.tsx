@@ -91,6 +91,7 @@ import {
   type SalesDocumentKind,
   type SalesDocumentQuery,
 } from './sales-document-query';
+import { recordDetailHref } from '@/lib/navigation/record-links';
 
 function currency(value: number | null) {
   if (value === null) return '—';
@@ -598,7 +599,7 @@ export function SalesDocumentWorkspace({
         cell: ({ row }) => (
           <div className="min-w-40">
             <Link
-              href={`/${role}/customers/${row.original.customer_id}`}
+              href={recordDetailHref(role, row.original) ?? '#'}
               className="font-semibold hover:text-primary hover:underline"
             >
               {row.original.customer_name}
@@ -765,7 +766,7 @@ export function SalesDocumentWorkspace({
         cell: ({ row }) => (
           <div className="min-w-36">
             <Link
-              href={`/${role}/customers/${row.original.customer_id}`}
+              href={recordDetailHref(role, row.original) ?? '#'}
               className="font-semibold hover:text-primary hover:underline"
             >
               {row.original.customer_name}

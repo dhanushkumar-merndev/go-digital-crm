@@ -72,6 +72,15 @@ function DetailGrid({ values }: { values: Array<[string, React.ReactNode]> }) {
   );
 }
 
+function LeadHeaderValue({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <div className="mt-1.5 min-h-5 text-sm font-semibold">{children}</div>
+    </div>
+  );
+}
+
 function LeadOverview({ data, role }: { data: LeadDetail; role: string }) {
   const lead = data.lead;
   return (
@@ -278,8 +287,6 @@ function Followups({ followups }: { followups: LeadDetail['followups'] }) {
   );
 }
 
-
-
 export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: string }) {
   const salesConsultantCache = useSalesConsultantCache();
   const canOpenAppointments = roleHasNavigationSlug(role, 'appointments');
@@ -339,66 +346,75 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
   const data = detail.data;
   const lead = data.lead;
   return (
-    <div className="mx-auto max-w-[1600px] space-y-4">
-      <Button variant="ghost" size="sm" asChild className="-ml-2">
-        <Link href={roleLeadListHref(role)}>
-          <ArrowLeft className="size-4" /> Back to leads
-        </Link>
-      </Button>
-      <Card className="overflow-hidden shadow-none">
-        <CardContent className="p-5">
-          <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-center">
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5 xl:gap-8">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-xl font-bold">{lead.customer_name}</h1>
-                  <StatusBadge value={lead.lifecycle_status} />
+    <div className="mx-auto max-w-[1800px] space-y-6">
+      <div>
+        <Button variant="ghost" size="sm" asChild className="-ml-3 mb-3">
+          <Link href={roleLeadListHref(role)}>
+            <ArrowLeft className="size-4" /> Back to leads
+          </Link>
+        </Button>
+        <Card className="overflow-hidden shadow-none">
+          <CardContent className="p-0">
+            <div className="grid gap-5 p-5 sm:grid-cols-2 xl:grid-cols-[1.45fr_repeat(4,minmax(0,1fr))]">
+              <div className="min-w-0 xl:border-r xl:pr-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="truncate text-2xl font-bold tracking-tight">
+                    {lead.customer_name}
+                  </h1>
+                  {lead.work_state && <StatusBadge value={lead.work_state} />}
                 </div>
-                <a
-                  href={`tel:${lead.phone}`}
-                  className="mt-1.5 inline-flex items-center gap-1.5 text-sm font-semibold text-slate-700 hover:text-blue-700"
-                >
-                  <Phone className="size-4" /> {lead.phone}
-                </a>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                  <a
+                    href={`tel:${lead.phone}`}
+                    className="inline-flex items-center gap-1.5 font-medium text-foreground hover:text-primary"
+                  >
+                    <Phone className="size-4 text-emerald-600" /> {lead.phone}
+                  </a>
+                  {lead.email && <span>{lead.email}</span>}
+                </div>
               </div>
-              <div>
-                <p className="text-[11px] text-muted-foreground">Interested model</p>
-                <p className="mt-1 font-semibold">{lead.interested_model ?? 'Not captured'}</p>
-              </div>
-              <div>
-                <p className="text-[11px] text-muted-foreground">Lead source</p>
-                <p className="mt-1 font-semibold">{lead.source}</p>
-              </div>
-              <div>
-                <p className="text-[11px] text-muted-foreground">Temperature</p>
-                <p className="mt-1 font-semibold">{temperatureLabel(lead.temperature)}</p>
-              </div>
-              <div>
-                <p className="text-[11px] text-muted-foreground">Assigned to</p>
-                <p className="mt-1 font-semibold">{lead.assigned_user_name ?? 'Unassigned'}</p>
-              </div>
+              <LeadHeaderValue label="Interested model">
+                {lead.interested_model ?? 'Not recorded'}
+              </LeadHeaderValue>
+              <LeadHeaderValue label="Lead stage">
+                <StatusBadge value={lead.lifecycle_status} />
+              </LeadHeaderValue>
+              <LeadHeaderValue label="Temperature">
+                {lead.temperature ? <StatusBadge value={lead.temperature} /> : 'Not recorded'}
+              </LeadHeaderValue>
+              <LeadHeaderValue label="Sales owner">
+                {lead.assigned_user_name ?? 'Unassigned'}
+                <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                  {lead.branch_name}
+                </span>
+              </LeadHeaderValue>
             </div>
-            <div className="flex flex-wrap gap-2 xl:justify-end">
-              <Button asChild variant="outline" size="sm">
+            <div className="flex flex-wrap gap-2 border-t p-3">
+              <Button asChild size="sm" variant="outline">
                 <a href={`tel:${lead.phone}`}>
-                  <Phone className="size-4 text-emerald-600" /> Call
+                  <Phone className="size-3.5 text-emerald-600" /> Call
                 </a>
               </Button>
-              <Button asChild variant="outline" size="sm">
+              <Button asChild size="sm" variant="outline">
                 <a href={toWhatsAppClickToChatUrl(lead.phone)} target="_blank" rel="noreferrer">
-                  <WhatsAppIcon className="size-4 text-emerald-600" /> WhatsApp
+                  <WhatsAppIcon className="size-3.5 text-emerald-600" /> WhatsApp
                 </a>
               </Button>
               {lead.email && (
-                <Button asChild variant="outline" size="sm">
+                <Button asChild size="sm" variant="outline">
                   <a href={`mailto:${lead.email}`}>
-                    <Mail className="size-4 text-blue-600" /> Email
+                    <Mail className="size-3.5 text-blue-600" /> Email
                   </a>
                 </Button>
               )}
+              {lead.customer_id && (
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/${role}/customers/${lead.customer_id}`}>Open customer 360</Link>
+                </Button>
+              )}
               {data.access.can_followups && (
-                <Button size="sm" onClick={() => setScheduleOpen(true)}>
-                  <CalendarClock className="size-4" /> Schedule follow-up
+                <Button size="sm" className="sm:ml-auto" onClick={() => setScheduleOpen(true)}>
+                  <CalendarClock className="size-3.5" /> Schedule follow-up
                 </Button>
               )}
               {data.access.can_update && lead.lifecycle_status !== 'Lost' && (
@@ -408,89 +424,69 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
                   className="text-destructive hover:text-destructive"
                   onClick={() => setLostOpen(true)}
                 >
-                  <CircleAlert className="size-4" /> Mark lost
+                  <CircleAlert className="size-3.5" /> Mark lost
                 </Button>
               )}
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
       <Tabs defaultValue="overview">
-        <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-none border-b bg-transparent p-0">
-          <TabsTrigger
-            value="overview"
-            className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600"
-          >
-            Overview
-          </TabsTrigger>
-          <TabsTrigger
-            value="timeline"
-            className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600"
-          >
-            Timeline
-          </TabsTrigger>
-          {data.access.can_calls && (
-            <TabsTrigger
-              value="calls"
-              className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600"
-            >
-              Calls{' '}
-              <Badge variant="secondary" className="ml-1.5">
-                {data.counts.calls}
-              </Badge>
-            </TabsTrigger>
-          )}
-          {data.access.can_messages && (
-            <TabsTrigger
-              value="messages"
-              className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600"
-            >
-              Messages{' '}
-              <Badge variant="secondary" className="ml-1.5">
-                {data.counts.messages}
-              </Badge>
-            </TabsTrigger>
-          )}
-          {data.access.can_followups && (
-            <TabsTrigger
-              value="followups"
-              className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600"
-            >
-              Follow-ups{' '}
-              <Badge variant="secondary" className="ml-1.5">
-                {data.counts.followups}
-              </Badge>
-            </TabsTrigger>
-          )}
-          {data.access.can_appointments && (
-            <TabsTrigger
-              value="appointments"
-              className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600"
-            >
-              Appointments{' '}
-              <Badge variant="secondary" className="ml-1.5">
-                {data.counts.appointments}
-              </Badge>
-            </TabsTrigger>
-          )}
-        </TabsList>
-        <TabsContent value="overview" className="mt-4">
+        <div className="overflow-x-auto pb-1">
+          <TabsList className="h-auto min-w-max justify-start">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="timeline">Timeline</TabsTrigger>
+            {data.access.can_calls && (
+              <TabsTrigger value="calls">
+                Calls{' '}
+                <Badge variant="secondary" className="ml-1.5">
+                  {data.counts.calls}
+                </Badge>
+              </TabsTrigger>
+            )}
+            {data.access.can_messages && (
+              <TabsTrigger value="messages">
+                Messages{' '}
+                <Badge variant="secondary" className="ml-1.5">
+                  {data.counts.messages}
+                </Badge>
+              </TabsTrigger>
+            )}
+            {data.access.can_followups && (
+              <TabsTrigger value="followups">
+                Follow-ups{' '}
+                <Badge variant="secondary" className="ml-1.5">
+                  {data.counts.followups}
+                </Badge>
+              </TabsTrigger>
+            )}
+            {data.access.can_appointments && (
+              <TabsTrigger value="appointments">
+                Appointments{' '}
+                <Badge variant="secondary" className="ml-1.5">
+                  {data.counts.appointments}
+                </Badge>
+              </TabsTrigger>
+            )}
+          </TabsList>
+        </div>
+        <TabsContent value="overview">
           <LeadOverview data={data} role={role} />
         </TabsContent>
-        <TabsContent value="timeline" className="mt-4">
+        <TabsContent value="timeline">
           <Card className="shadow-none">
             <Timeline items={data.timeline} />
           </Card>
         </TabsContent>
         {data.access.can_calls && (
-          <TabsContent value="calls" className="mt-4">
+          <TabsContent value="calls">
             <Card className="shadow-none">
               <Calls calls={data.calls} />
             </Card>
           </TabsContent>
         )}
         {data.access.can_messages && (
-          <TabsContent value="messages" className="mt-4">
+          <TabsContent value="messages">
             <Card className="shadow-none">
               <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
                 <MessageCircle className="size-6 text-blue-600" />
@@ -508,14 +504,14 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
           </TabsContent>
         )}
         {data.access.can_followups && (
-          <TabsContent value="followups" className="mt-4">
+          <TabsContent value="followups">
             <Card className="shadow-none">
               <Followups followups={data.followups} />
             </Card>
           </TabsContent>
         )}
         {data.access.can_appointments && (
-          <TabsContent value="appointments" className="mt-4">
+          <TabsContent value="appointments">
             <Card className="shadow-none">
               <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
                 <Clock3 className="size-6 text-blue-600" />
