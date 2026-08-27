@@ -68,6 +68,19 @@ describe('lead workspace query boundary', () => {
 });
 
 describe('lead workspace aggregate boundary', () => {
+  it('keeps terminal Lost leads out of active sales queues', () => {
+    const migration = readFileSync(
+      new URL(
+        '../../supabase/migrations/202608260008_keep_lost_leads_out_of_active_views.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    expect(migration).toContain("when lead_row.lifecycle_status = ''Lost'' then null");
+    expect(migration).toContain("target_status = ''sales-pending''");
+    expect(migration).toContain("and lead_row.lifecycle_status <> ''Lost''");
+  });
+
   it('keeps KPI aggregation RLS-invoker and free of a caller-controlled tenant id', () => {
     const migration = readFileSync(
       new URL('../../supabase/migrations/202608150003_lead_workspace_kpis.sql', import.meta.url),

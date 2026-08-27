@@ -170,6 +170,7 @@ describe('sales consultant dashboard contract', () => {
     expect(api).toContain("'APPOINTMENT_CONSULTANT_CALL'");
     expect(workspace).toContain('function scheduleItemHref');
     expect(workspace).toContain("item.kind.startsWith('APPOINTMENT_')");
+    expect(workspace).toContain("item.kind === 'SHOWROOM_VISIT'");
     expect(workspace).toContain(
       '/sales-consultant/appointments?appointment=${encodeURIComponent(item.id)}',
     );

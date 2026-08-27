@@ -340,7 +340,7 @@ function testDriveViewForSchedule(status: string) {
 }
 
 function scheduleItemHref(item: SalesConsultantDashboardResult['schedule'][number]) {
-  if (item.kind.startsWith('APPOINTMENT_')) {
+  if (item.kind === 'SHOWROOM_VISIT' || item.kind.startsWith('APPOINTMENT_')) {
     return `/sales-consultant/appointments?appointment=${encodeURIComponent(item.id)}`;
   }
 
@@ -359,7 +359,7 @@ function scheduleItemAriaLabel(
   item: SalesConsultantDashboardResult['schedule'][number],
   definition: (typeof scheduleDefinitions)[SalesConsultantDashboardResult['schedule'][number]['kind']],
 ) {
-  if (item.kind.startsWith('APPOINTMENT_'))
+  if (item.kind === 'SHOWROOM_VISIT' || item.kind.startsWith('APPOINTMENT_'))
     return `Open ${definition.label} for ${item.customer_name} in Appointments`;
   if (item.kind === 'FOLLOW_UP') return `Open ${item.customer_name}'s follow-up`;
   if (item.kind === 'TEST_DRIVE') return `Open ${item.customer_name}'s test drive`;
