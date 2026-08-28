@@ -24,6 +24,7 @@ export const leadStatusFilters = [
   'sales-new',
   'sales-pending',
   'sales-contacted',
+  'starred',
 ] as const;
 export type LeadStatusFilter = (typeof leadStatusFilters)[number];
 

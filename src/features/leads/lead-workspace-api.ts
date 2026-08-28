@@ -49,6 +49,7 @@ export type LeadKpis = {
   sales_new_today: number;
   sales_pending: number;
   sales_contacted: number;
+  starred_count: number;
 };
 
 export type LeadWorkspaceResult = {
@@ -104,6 +105,7 @@ const emptyKpis: LeadKpis = {
   sales_new_today: 0,
   sales_pending: 0,
   sales_contacted: 0,
+  starred_count: 0,
 };
 
 function normalizeKpis(row: KpiRow | null): LeadKpis {
@@ -290,7 +292,7 @@ export async function setPersonalLeadPreference(input: {
 
 export async function recordSalesLeadContact(input: {
   leadId: string;
-  channel: 'CALL' | 'WHATSAPP';
+  channel: 'CALL' | 'WHATSAPP' | 'FOLLOWUP' | 'APPOINTMENT';
 }): Promise<{ lead_id: string; contacted_at: string }> {
   const { data, error } = await createClient().rpc('record_sales_lead_contact', {
     target_lead_id: input.leadId,

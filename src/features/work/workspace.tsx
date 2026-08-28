@@ -885,12 +885,7 @@ export function WorkWorkspace({
     : undefined;
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [query, setQuery] = useState<WorkQuery>(() => {
-    const parsed = parseWorkQuery(searchParams, kind);
-    if (kind === 'followups' && !searchParams.has('status') && !searchParams.has('q'))
-      return { ...parsed, status: 'today' };
-    return parsed;
-  });
+  const [query, setQuery] = useState<WorkQuery>(() => parseWorkQuery(searchParams, kind));
   const [view, setView] = useState<'table' | 'calendar'>('table');
   const [createOpen, setCreateOpen] = useState(() => searchParams.get('action') === 'create');
   const [editingRecord, setEditingRecord] = useState<WorkRecord | null>(null);
@@ -1036,6 +1031,7 @@ export function WorkWorkspace({
           <div className="flex h-10 gap-2 overflow-x-auto border-b">
             {(
               [
+                ['all', 'All'],
                 ['today', 'Today'],
                 ['upcoming', 'Upcoming'],
                 ['overdue', 'Overdue'],

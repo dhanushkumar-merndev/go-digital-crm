@@ -3,7 +3,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
-  Bot,
   CalendarClock,
   CarFront,
   Download,
@@ -62,17 +61,11 @@ import {
   type Customer360TimelineCursor,
   type CustomerWorkspacePermissions,
 } from './customer-workspace-api';
-import {
-  CustomerAiCallDialog,
-  CustomerDocumentUploadDialog,
-  CustomerEditDialog,
-} from './customer-360-actions';
+import { CustomerDocumentUploadDialog, CustomerEditDialog } from './customer-360-actions';
 
 const customer360Tabs = [
   'overview',
   'leads',
-  'calls',
-  'conversations',
   'followups',
   'appointments',
   'test-drives',
@@ -89,8 +82,6 @@ type Customer360Tab = (typeof customer360Tabs)[number];
 const customerTabCreateLabel: Record<Customer360Tab, string> = {
   overview: 'Edit customer',
   leads: 'Add lead',
-  calls: 'Add call',
-  conversations: 'Message customer',
   followups: 'Add follow-up',
   appointments: 'Add appointment',
   'test-drives': 'Schedule test drive',
@@ -106,8 +97,6 @@ const lazySectionByTab: Partial<
   Record<Exclude<Customer360Tab, 'overview'>, Customer360LazySection>
 > = {
   leads: 'leads',
-  calls: 'calls',
-  conversations: 'conversations',
   followups: 'followups',
   appointments: 'appointments',
   'test-drives': 'test_drives',
@@ -539,10 +528,6 @@ function Customer360Content({
           <TabsList className="h-auto min-w-max justify-start">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             {data.section_access.leads && <TabsTrigger value="leads">Leads</TabsTrigger>}
-            {data.section_access.calls && <TabsTrigger value="calls">Calls</TabsTrigger>}
-            {data.section_access.conversations && (
-              <TabsTrigger value="conversations">Conversations</TabsTrigger>
-            )}
             {data.section_access.followups && (
               <TabsTrigger value="followups">Follow-ups</TabsTrigger>
             )}
@@ -605,54 +590,19 @@ function Customer360Content({
                 emptyLabel="Leads"
                 rowHref={(rowIndex) => `/${role}/leads/${data.leads[rowIndex]?.id ?? ''}`}
                 rows={data.leads.map((lead) => [
-                  <span key="id">{shortId(lead.id)}</span>,
+                  <Link
+                    key="id"
+                    href={leadDetailHref(role, lead.id)}
+                    className="font-medium hover:text-primary hover:underline"
+                  >
+                    {shortId(lead.id)}
+                  </Link>,
                   lead.source,
                   lead.interested_model ?? '—',
                   <StatusBadge key="status" value={lead.lifecycle_status} />,
                   lead.branch_name,
                   lead.assigned_user_name ?? 'Unassigned',
                   formatDate(lead.updated_at),
-                ])}
-              />
-            </TabsContent>
-          )}
-          {data.section_access.calls && (
-            <TabsContent value="calls">
-              <DetailTable
-                headers={[
-                  'Started',
-                  'Direction',
-                  'Duration',
-                  'Outcome',
-                  'Agent',
-                  'Recording',
-                  'Transcript',
-                ]}
-                emptyLabel="Calls"
-                rows={data.calls.map((call) => [
-                  formatDate(call.started_at),
-                  <StatusBadge key="direction" value={call.direction} />,
-                  formatDuration(call.duration_seconds),
-                  call.outcome ?? '—',
-                  call.assigned_user_name ?? '—',
-                  call.recording_status ?? '—',
-                  call.transcript_status ?? '—',
-                ])}
-              />
-            </TabsContent>
-          )}
-          {data.section_access.conversations && (
-            <TabsContent value="conversations">
-              <DetailTable
-                headers={['Channel', 'Status', 'Owner', 'Messages', 'Latest message', 'Started']}
-                emptyLabel="Conversations"
-                rows={data.conversations.map((conversation) => [
-                  conversation.channel.replaceAll('_', ' '),
-                  <StatusBadge key="status" value={conversation.status} />,
-                  conversation.assigned_user_name ?? 'Unassigned',
-                  conversation.message_count.toLocaleString(),
-                  formatDate(conversation.latest_message_at),
-                  formatDate(conversation.created_at),
                 ])}
               />
             </TabsContent>
@@ -877,7 +827,6 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Customer360Tab>('overview');
   const [editOpen, setEditOpen] = useState(false);
-  const [aiCallOpen, setAiCallOpen] = useState(false);
   const [documentUploadOpen, setDocumentUploadOpen] = useState(false);
   const [sectionPage, setSectionPage] = useState(1);
   const [sectionPageSize, setSectionPageSize] = useState<Customer360SectionPageSize>(25);
@@ -1063,12 +1012,6 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
       case 'leads':
         router.push(`/${role}/my-leads?action=create`);
         return;
-      case 'calls':
-        router.push(`/${role}/calls?action=create`);
-        return;
-      case 'conversations':
-        router.push(`/${role}/inbox`);
-        return;
       case 'followups':
       case 'timeline':
         router.push(`/${role}/follow-ups?action=create`);
@@ -1149,24 +1092,9 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
                   </a>
                 </Button>
               )}
-              {permissions.canCreateCall && data.customer.primary_phone ? (
-                <Button size="sm" variant="outline" onClick={() => setAiCallOpen(true)}>
-                  <Bot className="size-3.5 text-violet-600" /> Call AI
-                </Button>
-              ) : null}
               {permissions.canUpdate ? (
                 <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
                   <Pencil className="size-3.5 text-blue-600" /> Edit customer
-                </Button>
-              ) : null}
-              {data.section_access.conversations ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => selectCustomerTab('conversations')}
-                >
-                  <MessageSquareText className="size-3.5 text-blue-600" /> Messages
                 </Button>
               ) : null}
               {data.section_access.followups ? (
@@ -1228,21 +1156,6 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
           customerId={data.customer.id}
           onSaved={() => {
             if (useSalesHotPath) void salesCore.refetch();
-            else void legacyCustomer.refetch();
-          }}
-        />
-      ) : null}
-      {permissions.canCreateCall && aiCallOpen ? (
-        <CustomerAiCallDialog
-          open={aiCallOpen}
-          onOpenChange={setAiCallOpen}
-          customerId={data.customer.id}
-          organizationId={permissions.organizationId}
-          customerName={data.customer.full_name}
-          customerPhone={data.customer.primary_phone}
-          onStarted={() => {
-            selectCustomerTab('calls');
-            if (useSalesHotPath) void salesSection.refetch();
             else void legacyCustomer.refetch();
           }}
         />

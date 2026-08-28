@@ -68,7 +68,7 @@ describe('Sales Consultant journey actions', () => {
       "''Transferred to Sales'', ''Appointment Scheduled'', ''Lost''",
     );
     for (const label of [
-      'Leads',
+      'All',
       'New',
       'Pending',
       'Contacted',

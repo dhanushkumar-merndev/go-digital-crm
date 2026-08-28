@@ -51,14 +51,60 @@ function sha256Base64(buffer: ArrayBuffer) {
   });
 }
 
-function throwEdgeError<T>(result: { data: EdgeEnvelope<T> | null; error: Error | null }) {
-  if (result.error || !result.data?.ok || !result.data.data) {
+/**
+ * `functions.invoke` reports any non-2xx as `error` with `data` left null, so
+ * the envelope this used to read was never populated on the failing path and
+ * every edge refusal collapsed into `PROFILE_REQUEST_FAILED`. The real code
+ * lives in the `FunctionsHttpError` response body, so read it from there.
+ */
+async function edgeEnvelopeError(error: Error) {
+  const response = (error as { context?: unknown }).context;
+  if (!(response instanceof Response)) return null;
+  try {
+    const body = (await response.clone().json()) as EdgeEnvelope<unknown> | null;
+    if (!body?.error?.code) return null;
+    return new ProfileSettingsError(body.error.code, body.error.message);
+  } catch {
+    return null;
+  }
+}
+
+async function throwEdgeError<T>(result: { data: EdgeEnvelope<T> | null; error: Error | null }) {
+  if (result.error) {
+    throw (
+      (await edgeEnvelopeError(result.error)) ??
+      new ProfileSettingsError('PROFILE_REQUEST_FAILED', result.error.message)
+    );
+  }
+  if (!result.data?.ok || !result.data.data) {
     throw new ProfileSettingsError(
       result.data?.error?.code ?? 'PROFILE_REQUEST_FAILED',
       result.data?.error?.message,
     );
   }
   return result.data.data;
+}
+
+async function invokeAuthenticatedEdge<T>(
+  supabase: ReturnType<typeof createClient>,
+  functionName: 'presign-upload' | 'object-upload-finalize' | 'profile-avatar-url',
+  body: Record<string, unknown>,
+) {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session?.access_token) {
+    throw new ProfileSettingsError(
+      'AUTHENTICATION_REQUIRED',
+      error?.message ?? 'Authentication is required.',
+    );
+  }
+
+  // Edge Functions require the signed-in user's JWT in Authorization. Passing
+  // it explicitly prevents a legacy anon JWT from becoming the Bearer fallback
+  // when the browser session is still initializing or has expired.
+  return supabase.functions.invoke<T>(functionName, {
+    body,
+    headers: { Authorization: `Bearer ${data.session.access_token}` },
+  });
 }
 
 export function validateProfileAvatar(file: File) {
@@ -77,24 +123,22 @@ export async function uploadProfileAvatar(input: {
 
   const supabase = createClient();
   const checksum = await sha256Base64(await input.file.arrayBuffer());
-  const presign = throwEdgeError(
-    await supabase.functions.invoke<
+  const presign = await throwEdgeError(
+    await invokeAuthenticatedEdge<
       EdgeEnvelope<{
         upload_intent_id: string;
         upload_url: string;
         required_headers: Record<string, string>;
       }>
-    >('presign-upload', {
-      body: {
-        organization_id: input.organizationId,
-        branch_id: null,
-        resource_type: 'profile',
-        resource_id: input.userId,
-        file_name: input.file.name,
-        mime_type: input.file.type,
-        size_bytes: input.file.size,
-        checksum_sha256: checksum,
-      },
+    >(supabase, 'presign-upload', {
+      organization_id: input.organizationId,
+      branch_id: null,
+      resource_type: 'profile',
+      resource_id: input.userId,
+      file_name: input.file.name,
+      mime_type: input.file.type,
+      size_bytes: input.file.size,
+      checksum_sha256: checksum,
     }),
   );
 
@@ -102,13 +146,23 @@ export async function uploadProfileAvatar(input: {
     method: 'PUT',
     headers: presign.required_headers,
     body: input.file,
+  }).catch((cause: unknown) => {
+    throw new ProfileSettingsError(
+      'PROFILE_AVATAR_NETWORK_BLOCKED',
+      cause instanceof Error ? cause.message : 'Storage upload request was blocked.',
+    );
   });
-  if (!upload.ok) throw new ProfileSettingsError('PROFILE_AVATAR_UPLOAD_FAILED');
+  if (!upload.ok)
+    throw new ProfileSettingsError(
+      'PROFILE_AVATAR_UPLOAD_FAILED',
+      `Storage rejected the upload with ${upload.status}.`,
+    );
 
-  const finalized = throwEdgeError(
-    await supabase.functions.invoke<EdgeEnvelope<{ object_file_id: string }>>(
+  const finalized = await throwEdgeError(
+    await invokeAuthenticatedEdge<EdgeEnvelope<{ object_file_id: string }>>(
+      supabase,
       'object-upload-finalize',
-      { body: { upload_intent_id: presign.upload_intent_id } },
+      { upload_intent_id: presign.upload_intent_id },
     ),
   );
   return z.uuid().parse(finalized.object_file_id);
@@ -158,7 +212,13 @@ export async function saveMyProfile(input: {
   });
   if (error) throw new ProfileSettingsError(postgrestErrorCode(error), error.message);
 
-  const saved = savedProfileSchema.parse(data);
+  const parsed = savedProfileSchema.safeParse(data);
+  if (!parsed.success)
+    throw new ProfileSettingsError(
+      'PROFILE_RESPONSE_UNEXPECTED',
+      `update_my_profile returned ${JSON.stringify(data)}`,
+    );
+  const saved = parsed.data;
   return {
     fullName: saved.full_name,
     avatarObjectFileId: saved.avatar_object_file_id,
@@ -168,17 +228,21 @@ export async function saveMyProfile(input: {
 
 export async function fetchProfileAvatarUrl() {
   if (!hasSupabaseConfig()) throw new ProfileSettingsError('SUPABASE_NOT_CONFIGURED');
-  const result = throwEdgeError(
-    await createClient().functions.invoke<EdgeEnvelope<z.infer<typeof avatarUrlSchema>>>(
+  const supabase = createClient();
+  const result = await throwEdgeError(
+    await invokeAuthenticatedEdge<EdgeEnvelope<z.infer<typeof avatarUrlSchema>>>(
+      supabase,
       'profile-avatar-url',
-      { body: {} },
+      {},
     ),
   );
   return avatarUrlSchema.parse(result);
 }
 
 export function getProfileSettingsErrorMessage(error: unknown) {
-  const code = error instanceof ProfileSettingsError ? error.code : '';
+  if (!(error instanceof ProfileSettingsError))
+    return 'Your profile could not be updated. Please try again. (UNEXPECTED_CLIENT_ERROR)';
+  const code = error.code;
   switch (code) {
     case 'PROFILE_AVATAR_INVALID':
     case 'FILE_TYPE_OR_SIZE_NOT_ALLOWED':
@@ -191,6 +255,7 @@ export function getProfileSettingsErrorMessage(error: unknown) {
     case 'INVALID_PROFILE_NAME':
       return 'Enter a display name between 2 and 160 characters.';
     case 'AUTHENTICATION_REQUIRED':
+    case 'UNAUTHENTICATED':
     case 'CRM_ACCESS_REQUIRED':
     case 'PROFILE_ACCESS_REQUIRED':
       return 'Your session is no longer signed in to this workspace. Sign in again and retry.';
@@ -199,11 +264,19 @@ export function getProfileSettingsErrorMessage(error: unknown) {
       return 'This profile form is out of date. Refresh the page and try again.';
     case 'PROFILE_AVATAR_UPLOAD_FAILED':
       return 'The photo could not be uploaded. Check your connection and try again.';
+    case 'PROFILE_AVATAR_NETWORK_BLOCKED':
+      return 'The photo upload was blocked before it reached storage. This is usually a storage CORS rule that does not allow a PUT from this site.';
+    case 'PGRST202':
+      return 'The profile update function is missing from the database. The self-service profile migration has not been applied to this project.';
+    case 'PROFILE_RESPONSE_UNEXPECTED':
+      return 'The profile was saved but the response could not be read. Refresh the page to see the current values.';
     case 'MFA_REQUIRED':
       return 'Complete multi-factor verification before updating your profile.';
     case 'SUPABASE_NOT_CONFIGURED':
       return 'Profile updates are unavailable until Supabase is configured.';
     default:
-      return 'Your profile could not be updated. Please try again.';
+      // An unnamed failure is the one a user cannot act on and support cannot
+      // reproduce, so the code travels with the message instead of being lost.
+      return `Your profile could not be updated. Please try again. (${code || 'UNKNOWN'})`;
   }
 }

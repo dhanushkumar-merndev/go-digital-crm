@@ -108,6 +108,8 @@ describe('private profile-avatar transport contract', () => {
     expect(profileApi).toContain("'object-upload-finalize'");
     expect(profileApi).toContain('checksum_sha256: checksum');
     expect(profileApi).toContain('headers: presign.required_headers');
+    expect(profileApi).toContain('supabase.auth.getSession()');
+    expect(profileApi).toContain('Authorization: `Bearer ${data.session.access_token}`');
   });
 
   it('returns a short-lived inline URL only for the caller current avatar', () => {

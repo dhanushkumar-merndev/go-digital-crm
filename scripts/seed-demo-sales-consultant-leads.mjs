@@ -45,6 +45,12 @@ function requestedLeadCount() {
 }
 
 const targetCount = requestedLeadCount();
+// --reset retires every lead in the demo organization that this fixture set does
+// not own, so hand-made rows carrying two or three states at once stop polluting
+// the queues. It is a soft delete: the list RPCs filter `deleted_at is null`, so
+// the rows leave every view while staying recoverable. Nothing is destroyed, and
+// no cascade runs across activities, follow-ups, assignments or stage history.
+const resetRequested = process.argv.includes('--reset');
 const env = readEnv();
 const projectUrl = env.get('SUPABASE_URL')?.replace(/\/$/, '');
 const serviceRoleKey = env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -135,26 +141,36 @@ async function first(table, query, errorMessage) {
   return rows[0];
 }
 
+const LEAD_STATES = ['NEW', 'PENDING', 'CONTACTED', 'FOLLOW_UP', 'APPOINTMENT', 'LOST'];
+
 function leadFixture(sequence) {
   const suffix = String(sequence).padStart(3, '0');
-  const lifecycleStatus = [
-    'New',
-    'New',
-    'Contacted',
-    'Qualified',
-    'Appointment Scheduled',
-    'Transferred to Sales',
-    'Lost',
-  ][(sequence - 1) % 7];
-  const ageHours = sequence % 5 === 0 ? 2 : 24 + ((sequence * 7) % 240);
-  const createdAt = new Date(Date.now() - ageHours * 3_600_000);
-  const nextFollowupAt = new Date(Date.now() + ((sequence % 9) - 4) * 3_600_000);
+  const state = LEAD_STATES[(sequence - 1) % LEAD_STATES.length];
+  // New is defined by the handoff landing inside today, Pending by it landing
+  // before today, so the handoff timestamp is the only thing separating them.
+  const handoffAt =
+    state === 'NEW'
+      ? new Date(Date.now() - 2 * 3_600_000)
+      : new Date(Date.now() - (24 + ((sequence * 7) % 216)) * 3_600_000);
+  const lifecycleStatus =
+    state === 'APPOINTMENT'
+      ? 'Appointment Scheduled'
+      : state === 'LOST'
+        ? 'Lost'
+        : 'Transferred to Sales';
+  const createdAt = new Date(handoffAt.getTime() - 3_600_000);
+  const nextFollowupAt = new Date(Date.now() + ((sequence % 9) + 2) * 3_600_000);
   const phone = `+919800${String(sequence).padStart(6, '0')}`;
   const email = `sales-volume-${suffix}@${DEMO_DOMAIN}`;
   const externalLeadId = `${FIXTURE_PREFIX}-${suffix}`;
 
   return {
     sequence,
+    state,
+    handoffAt: handoffAt.toISOString(),
+    // Only the follow-up cohort carries a pending follow-up. Every other state
+    // must be free of one, or it would sit in two queues at once.
+    contacted: state === 'CONTACTED' || state === 'FOLLOW_UP' || state === 'APPOINTMENT',
     externalLeadId,
     fullName: `Demo Volume Lead ${suffix}`,
     phone,
@@ -167,11 +183,12 @@ function leadFixture(sequence) {
     ],
     interestedModel: ['Nexon EV', 'Harrier', 'Punch EV', 'Safari', 'Curvv EV'][(sequence - 1) % 5],
     firstContactedAt:
-      lifecycleStatus === 'New' ? null : new Date(createdAt.getTime() + 60 * 60_000).toISOString(),
-    nextFollowupAt: lifecycleStatus === 'Lost' ? null : nextFollowupAt.toISOString(),
+      state === 'NEW' || state === 'PENDING'
+        ? null
+        : new Date(handoffAt.getTime() + 60 * 60_000).toISOString(),
+    nextFollowupAt: state === 'FOLLOW_UP' ? nextFollowupAt.toISOString() : null,
     slaDueAt: new Date(createdAt.getTime() + 24 * 3_600_000).toISOString(),
-    lostReason:
-      lifecycleStatus === 'Lost' ? 'Demo test fixture — customer deferred purchase' : null,
+    lostReason: state === 'LOST' ? 'Demo test fixture — customer deferred purchase' : null,
   };
 }
 
@@ -297,6 +314,87 @@ async function main() {
   }
 
   const fixtures = Array.from({ length: targetCount }, (_, index) => leadFixture(index + 1));
+
+  if (resetRequested) {
+    const fixtureExternalIds = new Set(fixtures.map((fixture) => fixture.externalLeadId));
+    const liveLeads = await select('leads', {
+      select: 'id,external_lead_id,customer_name',
+      organization_id: `eq.${target.organizationId}`,
+      deleted_at: 'is.null',
+    });
+    const strayLeads = liveLeads.filter(
+      (lead) => !fixtureExternalIds.has(lead.external_lead_id ?? ''),
+    );
+    const retiredAt = new Date().toISOString();
+
+    // Order matters. `followups` and `appointments` are validated against their
+    // lead, and that check reads the lead as live -- retiring the lead first
+    // makes every later cancel fail with WORK_LEAD_NOT_IN_ORGANIZATION. So the
+    // commitments are closed while their lead can still be resolved, and only
+    // then is the lead itself retired.
+    //
+    // Neither table has a `deleted_at`; their lifecycle is a status column, so
+    // the equivalent of retiring one is cancelling it. Left open, they would
+    // keep stale commitments in the Follow-ups and Appointments workspaces.
+    // A lead retired by an earlier run can no longer be resolved by the trigger,
+    // so its commitments are permanently un-editable. Restricting the cancel to
+    // leads that are still live keeps a partially completed previous run from
+    // failing every subsequent one.
+    const liveLeadIds = liveLeads.map((lead) => lead.id);
+    const openFollowups = liveLeadIds.length
+      ? await select('followups', {
+          select: 'id',
+          organization_id: `eq.${target.organizationId}`,
+          status: 'in.(OPEN,OVERDUE)',
+          lead_id: inFilter(liveLeadIds),
+        })
+      : [];
+    console.log(`Cancelling ${openFollowups.length} open follow-up(s).`);
+    for (const followup of openFollowups) {
+      await patch(
+        'followups',
+        { id: `eq.${followup.id}`, organization_id: `eq.${target.organizationId}` },
+        {
+          status: 'CANCELLED',
+          cancelled_at: retiredAt,
+          cancellation_reason: 'Demo fixture reset',
+          updated_at: retiredAt,
+        },
+      );
+    }
+
+    const openAppointments = liveLeadIds.length
+      ? await select('appointments', {
+          select: 'id',
+          organization_id: `eq.${target.organizationId}`,
+          status: 'eq.SCHEDULED',
+          lead_id: inFilter(liveLeadIds),
+        })
+      : [];
+    console.log(`Cancelling ${openAppointments.length} scheduled appointment(s).`);
+    for (const appointment of openAppointments) {
+      await patch(
+        'appointments',
+        { id: `eq.${appointment.id}`, organization_id: `eq.${target.organizationId}` },
+        {
+          status: 'CANCELLED',
+          cancelled_at: retiredAt,
+          cancellation_reason: 'Demo fixture reset',
+          updated_at: retiredAt,
+        },
+      );
+    }
+
+    console.log(`Retiring ${strayLeads.length} lead(s) outside the fixture set.`);
+    for (const lead of strayLeads) {
+      console.log(`  - ${lead.customer_name ?? lead.id}`);
+      await patch(
+        'leads',
+        { id: `eq.${lead.id}`, organization_id: `eq.${target.organizationId}` },
+        { deleted_at: retiredAt },
+      );
+    }
+  }
   const emails = fixtures.map((fixture) => fixture.email);
   const externalLeadIds = fixtures.map((fixture) => fixture.externalLeadId);
 
@@ -426,6 +524,7 @@ async function main() {
     to_status: 'eq.Transferred to Sales',
   });
   const handoffLeadIds = new Set(existingHandoffs.map((history) => history.lead_id));
+  const fixtureByExternalId = new Map(fixtures.map((fixture) => [fixture.externalLeadId, fixture]));
   const handoffRows = allLeads
     .filter((lead) => !handoffLeadIds.has(lead.id))
     .map((lead) => ({
@@ -435,14 +534,31 @@ async function main() {
       to_status: 'Transferred to Sales',
       changed_by: target.clientAdminId,
       reason: 'Demo qualified lead handoff to Sales Consultant',
+      created_at: fixtureByExternalId.get(lead.external_lead_id)?.handoffAt,
     }));
   await insert('lead_stage_history', handoffRows);
+  // Re-running has to RESET state, not just top it up. Patching only the
+  // lifecycle left an already-seeded lead holding its previous
+  // `next_followup_at`, which put it back into two queues at once -- the exact
+  // condition this fixture set exists to avoid.
   for (const lead of allLeads) {
-    if (lead.lifecycle_status === 'Transferred to Sales') continue;
+    const fixture = fixtureByExternalId.get(lead.external_lead_id);
+    if (!fixture) continue;
+    const intended =
+      fixture.state === 'APPOINTMENT'
+        ? 'Appointment Scheduled'
+        : fixture.state === 'LOST'
+          ? 'Lost'
+          : 'Transferred to Sales';
     await patch(
       'leads',
       { id: `eq.${lead.id}`, organization_id: `eq.${target.organizationId}` },
-      { lifecycle_status: 'Transferred to Sales' },
+      {
+        lifecycle_status: intended,
+        next_followup_at: fixture.nextFollowupAt,
+        first_contacted_at: fixture.firstContactedAt,
+        lost_reason: fixture.lostReason,
+      },
     );
   }
 
@@ -526,6 +642,8 @@ async function main() {
       ['LEAD_TRANSFERRED_TO_SALES', 'Qualified lead transferred to Sales Consultant'],
       [ACTIVITY_TYPE, 'Demo Sales Consultant volume fixture ready'],
     ];
+    if (sequence?.contacted)
+      events.push(['SALES_CONTACTED', 'Sales Consultant recorded customer contact']);
     return events
       .filter(([activityType]) => !activityKeys.has(`${lead.id}:${activityType}`))
       .map(([activityType, title], index) => ({

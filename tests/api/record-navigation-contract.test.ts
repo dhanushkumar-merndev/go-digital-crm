@@ -45,13 +45,14 @@ describe('record navigation', () => {
 
   it('keeps the two identifiers pointing at their own pages', () => {
     const leads = source('src/features/leads/lead-workspace.tsx');
-    // Lead ID opens the opportunity, the customer name opens the person.
-    expect(leads).toContain('customerDetailHref(role, row.original.customer_id)');
-    expect(leads).toContain('`/${role}/leads/${row.original.id}`');
+    // A Leads row represents one opportunity, so both visible identifiers
+    // resolve to its exact lead workspace. Customer 360 is available there.
+    expect(leads).toContain('leadDetailHref(role, row.original.id)');
+    expect(leads).not.toContain('customerDetailHref(role, row.original.customer_id)');
 
     const customer360 = source('src/features/customers/customer-360-workspace.tsx');
     expect(customer360).toContain('leadDetailHref(role, data.current_opportunity.id)');
-    expect(customer360).toContain("`/${role}/leads/${data.leads[rowIndex]?.id ?? ''}`");
+    expect(customer360).toContain('leadDetailHref(role, lead.id)');
   });
 
   it('opens a dashboard record by id rather than searching a filtered list', () => {

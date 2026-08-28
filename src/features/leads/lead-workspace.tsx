@@ -17,11 +17,12 @@ import {
   Star,
   TriangleAlert,
   UserRoundCheck,
+  X,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { LeadWorkspaceSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
@@ -31,12 +32,14 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { Badge } from '@/components/ui/badge';
+import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -109,7 +112,16 @@ import {
   type LeadStatusFilter,
   type LeadTemperatureFilter,
 } from './lead-workspace-query';
-import { customerDetailHref, leadDetailHref } from '@/lib/navigation/record-links';
+import { leadDetailHref } from '@/lib/navigation/record-links';
+import {
+  emptySavedLeadFilterValues,
+  loadSavedLeadFilters,
+  MAX_SAVED_LEAD_FILTERS,
+  saveSavedLeadFilters,
+  type SavedLeadFilter,
+  type SavedLeadFilterValues,
+  savedLeadFilterValues,
+} from './saved-lead-filters';
 
 const leadSources = [
   'Facebook',
@@ -208,7 +220,29 @@ function formatLeadAge(createdAt: string) {
   return days ? `${days}d ${hours % 24}h` : `${hours}h`;
 }
 
-function StageBadge({ value }: { value: string }) {
+const preFollowupStages = new Set([
+  'New',
+  'Contacted',
+  'Sales Contacted',
+  'Qualified',
+  'Transferred to Sales',
+]);
+
+function leadStageLabel(value: string, hasFollowup = false) {
+  return hasFollowup && preFollowupStages.has(value) ? 'Follow-up' : value;
+}
+
+function StageBadge({
+  value,
+  href,
+  actionLabel,
+  customerName,
+}: {
+  value: string;
+  href: string;
+  actionLabel: string;
+  customerName: string;
+}) {
   const variant =
     value === 'New'
       ? 'info'
@@ -220,9 +254,19 @@ function StageBadge({ value }: { value: string }) {
             ? 'default'
             : 'secondary';
   return (
-    <Badge variant={variant} className="rounded px-2 py-0 text-[10px]">
-      {value}
-    </Badge>
+    <Link
+      href={href}
+      className="inline-flex rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      aria-label={`${actionLabel} for ${customerName}`}
+      title={`${actionLabel} for ${customerName}`}
+    >
+      <Badge
+        variant={variant}
+        className="cursor-pointer rounded px-2 py-0 text-[10px] hover:opacity-80"
+      >
+        {value}
+      </Badge>
+    </Link>
   );
 }
 
@@ -239,7 +283,6 @@ function LeadStatusTabs({
   data,
   query,
   role,
-  personalFlags,
   personalView,
   onStatusChange,
   onPersonalViewChange,
@@ -247,7 +290,6 @@ function LeadStatusTabs({
   data: LeadWorkspaceResult;
   query: LeadQuery;
   role: string;
-  personalFlags: PersonalLeadFlags;
   personalView: PersonalLeadView;
   onStatusChange: (status: LeadStatusFilter) => void;
   onPersonalViewChange: (view: PersonalLeadView) => void;
@@ -263,7 +305,7 @@ function LeadStatusTabs({
     { label: 'Lost', value: 'lost', count: data.kpis.lost_count },
   ];
   const salesConsultantTabs: Array<{ label: string; value: LeadStatusFilter; count: number }> = [
-    { label: 'Leads', value: 'all', count: data.kpis.total },
+    { label: 'All', value: 'all', count: data.kpis.total },
     { label: 'New', value: 'sales-new', count: data.kpis.sales_new_today },
     { label: 'Pending', value: 'sales-pending', count: data.kpis.sales_pending },
     { label: 'Contacted', value: 'sales-contacted', count: data.kpis.sales_contacted },
@@ -279,7 +321,7 @@ function LeadStatusTabs({
     { label: 'Lost', value: 'lost', count: data.kpis.lost_count },
   ];
   const tabs = role === 'sales-consultant' ? salesConsultantTabs : generalTabs;
-  const starredCount = Object.values(personalFlags).filter((flag) => flag.starred).length;
+  const starredCount = data.kpis.starred_count;
 
   return (
     <div
@@ -375,6 +417,8 @@ function LeadCreateDialog({
   });
   const selectedBranchId = branchId || options.data?.branches[0]?.id || '';
   const teams = options.data?.teams.filter((team) => team.branch_id === selectedBranchId) ?? [];
+  const showBranchPicker = (options.data?.branches.length ?? 0) > 1;
+  const showTeamPicker = teams.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -442,46 +486,50 @@ function LeadCreateDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="grid gap-1.5 text-sm font-medium">
-            Branch
-            <Select
-              value={selectedBranchId}
-              onValueChange={(value) => {
-                setBranchId(value);
-                setTeamId('none');
-              }}
-              disabled={options.isPending || !options.data?.branches.length}
-            >
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={options.isPending ? 'Loading branches…' : 'Select branch'}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {options.data?.branches.map((branch) => (
-                  <SelectItem key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1.5 text-sm font-medium">
-            Team <span className="font-normal text-muted-foreground">(optional)</span>
-            <Select value={teamId} onValueChange={setTeamId} disabled={!selectedBranchId}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No team yet</SelectItem>
-                {teams.map((team) => (
-                  <SelectItem key={team.id} value={team.id}>
-                    {team.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {showBranchPicker ? (
+            <div className="grid gap-1.5 text-sm font-medium">
+              Branch
+              <Select
+                value={selectedBranchId}
+                onValueChange={(value) => {
+                  setBranchId(value);
+                  setTeamId('none');
+                }}
+                disabled={options.isPending || !options.data?.branches.length}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={options.isPending ? 'Loading branches…' : 'Select branch'}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {options.data?.branches.map((branch) => (
+                    <SelectItem key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+          {showTeamPicker ? (
+            <div className="grid gap-1.5 text-sm font-medium">
+              Team <span className="font-normal text-muted-foreground">(optional)</span>
+              <Select value={teamId} onValueChange={setTeamId} disabled={!selectedBranchId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No team yet</SelectItem>
+                  {teams.map((team) => (
+                    <SelectItem key={team.id} value={team.id}>
+                      {team.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
           <label className="grid gap-1.5 text-sm font-medium">
             Interested model <span className="font-normal text-muted-foreground">(optional)</span>
             <Input name="interestedModel" maxLength={160} />
@@ -844,8 +892,13 @@ function LeadTable({
   personalFlags,
   personalView,
   personalFlagsPending,
+  savedFilters,
+  savedFiltersLoading,
+  savedFiltersAvailable,
   onQueryChange,
   onPersonalFlagChange,
+  onSaveSavedFilter,
+  onRemoveSavedFilter,
   canAssign,
   canUpdate,
   canScheduleFollowups,
@@ -866,8 +919,13 @@ function LeadTable({
   personalFlags: PersonalLeadFlags;
   personalView: PersonalLeadView;
   personalFlagsPending: boolean;
+  savedFilters: SavedLeadFilter[];
+  savedFiltersLoading: boolean;
+  savedFiltersAvailable: boolean;
   onQueryChange: (next: Partial<LeadQuery>) => void;
   onPersonalFlagChange: (leadId: string, flag: PersonalLeadToggle, active: boolean) => void;
+  onSaveSavedFilter: (name: string, filters: SavedLeadFilterValues) => Promise<void>;
+  onRemoveSavedFilter: (id: string) => Promise<void>;
   canAssign: boolean;
   canUpdate: boolean;
   canScheduleFollowups: boolean;
@@ -897,14 +955,39 @@ function LeadTable({
         ]
       : ['all', ...lifecycleOptions, 'Test Drive', 'Quotation', 'Booking'];
   const canOpenFollowups = roleHasNavigationSlug(role, 'follow-ups');
+  const canOpenAppointments = roleHasNavigationSlug(role, 'appointments');
+  const tableRouter = useRouter();
+  const blockedByOpenFollowup = useCallback((lead: LeadRecord, label: string) => {
+    if (!lead.next_followup_at) return false;
+    toast.add({
+      title: 'Follow-up still pending',
+      description: `Complete or cancel the scheduled follow-up before ${label}.`,
+      type: 'error',
+    });
+    return true;
+  }, []);
+  const advanceLead = useCallback(
+    (lead: LeadRecord, destination: string, label: string) => {
+      if (lead.next_followup_at) {
+        toast.add({
+          title: 'Follow-up still pending',
+          description: `Complete or cancel the scheduled follow-up before moving this lead to ${label}.`,
+          type: 'error',
+        });
+        return;
+      }
+      tableRouter.push(destination);
+    },
+    [tableRouter],
+  );
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
   const [draftFollowupFrom, setDraftFollowupFrom] = useState('');
   const [draftFollowupTo, setDraftFollowupTo] = useState('');
+  const [saveFilterOpen, setSaveFilterOpen] = useState(false);
+  const [savedFilterName, setSavedFilterName] = useState('');
+  const [savedFilterError, setSavedFilterError] = useState<string>();
   const visibleRecords = useMemo(() => {
-    const matchingRecords =
-      personalView === 'all'
-        ? data.records
-        : data.records.filter((lead) => personalFlags[lead.id]?.starred === true);
+    const matchingRecords = data.records;
 
     // An unpinned row has no flag entry at all, so compare pin rank explicitly:
     // Number(undefined) is NaN, and a NaN comparator result is read as 0, which
@@ -923,7 +1006,7 @@ function LeadTable({
       // Newest pin wins, so the lead pinned last sits above earlier pins.
       return rightPin.localeCompare(leftPin);
     });
-  }, [data.records, personalFlags, personalView]);
+  }, [data.records, personalFlags]);
   const followupDateLabel =
     query.followupFrom && query.followupTo
       ? `${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupFrom}T00:00:00`))} – ${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupTo}T00:00:00`))}`
@@ -949,16 +1032,12 @@ function LeadTable({
       {
         accessorKey: 'customer_name',
         header: 'Customer',
-        // The name opens the person, the Lead ID beside it opens the
-        // opportunity. Both cells pointing at the lead made Customer 360
-        // unreachable from the one list that names every customer.
+        // A row represents one opportunity, so selecting either identifier
+        // opens the lead-scoped workspace. Customer 360 remains available
+        // from the explicit action inside that workspace.
         cell: ({ row }) => (
           <Link
-            href={
-              row.original.customer_id
-                ? customerDetailHref(role, row.original.customer_id)
-                : leadDetailHref(role, row.original.id)
-            }
+            href={leadDetailHref(role, row.original.id)}
             className="font-semibold text-foreground hover:text-primary hover:underline"
           >
             {row.original.customer_name}
@@ -994,7 +1073,33 @@ function LeadTable({
       {
         accessorKey: 'lead_stage',
         header: 'Lead stage',
-        cell: ({ getValue }) => <StageBadge value={String(getValue())} />,
+        cell: ({ row }) => {
+          const lead = row.original;
+          const stage = leadStageLabel(lead.lead_stage, Boolean(lead.next_followup_at));
+          const destination =
+            stage === 'Follow-up' && canOpenFollowups
+              ? {
+                  href: `/${role}/follow-ups?q=${encodeURIComponent(lead.id)}`,
+                  actionLabel: 'Open follow-ups',
+                }
+              : stage === 'Appointment Scheduled' && canOpenAppointments
+                ? {
+                    href: `/${role}/appointments?q=${encodeURIComponent(lead.id)}`,
+                    actionLabel: 'Open appointments',
+                  }
+                : {
+                    href: leadDetailHref(role, lead.id),
+                    actionLabel: 'Open lead details',
+                  };
+          return (
+            <StageBadge
+              value={stage}
+              href={destination.href}
+              actionLabel={destination.actionLabel}
+              customerName={lead.customer_name}
+            />
+          );
+        },
       },
       {
         accessorKey: 'temperature',
@@ -1097,7 +1202,13 @@ function LeadTable({
                   {followupReasons.map((reason) => (
                     <DropdownMenuItem
                       key={reason}
-                      onSelect={() => onScheduleFollowup(row.original, reason)}
+                      onSelect={(event) => {
+                        if (blockedByOpenFollowup(row.original, 'scheduling another follow-up')) {
+                          event.preventDefault();
+                          return;
+                        }
+                        onScheduleFollowup(row.original, reason);
+                      }}
                     >
                       <CalendarDays className="size-4" /> {reason}
                     </DropdownMenuItem>
@@ -1107,7 +1218,7 @@ function LeadTable({
             ) : canOpenFollowups ? (
               <Button asChild variant="ghost" size="icon" className="size-7 text-blue-600">
                 <Link
-                  href={`/${role}/follow-ups?q=${encodeURIComponent(row.original.phone)}`}
+                  href={`/${role}/follow-ups?q=${encodeURIComponent(row.original.id)}`}
                   aria-label={`Open follow-ups for ${row.original.customer_name}`}
                   title={`Open follow-ups for ${row.original.customer_name}`}
                 >
@@ -1194,7 +1305,13 @@ function LeadTable({
                     {appointmentTypes.map((type) => (
                       <DropdownMenuItem
                         key={type}
-                        onSelect={() => onScheduleAppointment(row.original, type)}
+                        onSelect={(event) => {
+                          if (blockedByOpenFollowup(row.original, 'booking an appointment')) {
+                            event.preventDefault();
+                            return;
+                          }
+                          onScheduleAppointment(row.original, type);
+                        }}
                       >
                         <CalendarDays className="size-4" /> {type}
                       </DropdownMenuItem>
@@ -1204,12 +1321,17 @@ function LeadTable({
                 {row.original.customer_id && canScheduleTestDrives && (
                   <>
                     {(canUpdate || canScheduleAppointments) && <DropdownMenuSeparator />}
-                    <DropdownMenuItem asChild>
-                      <Link
-                        href={`/${role}/test-drives?action=create&lead=${encodeURIComponent(row.original.id)}&q=${encodeURIComponent(row.original.phone)}`}
-                      >
-                        <CalendarDays className="size-4" /> Schedule test drive
-                      </Link>
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        advanceLead(
+                          row.original,
+                          `/${role}/test-drives?action=create&lead=${encodeURIComponent(row.original.id)}&q=${encodeURIComponent(row.original.phone)}`,
+                          'a test drive',
+                        );
+                      }}
+                    >
+                      <CalendarDays className="size-4" /> Schedule test drive
                     </DropdownMenuItem>
                   </>
                 )}
@@ -1220,24 +1342,34 @@ function LeadTable({
                       (row.original.customer_id && canScheduleTestDrives)) && (
                       <DropdownMenuSeparator />
                     )}
-                    <DropdownMenuItem asChild>
-                      <Link
-                        href={`/${role}/quotations?action=create&lead=${encodeURIComponent(row.original.id)}`}
-                      >
-                        Create quotation
-                      </Link>
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        advanceLead(
+                          row.original,
+                          `/${role}/quotations?action=create&lead=${encodeURIComponent(row.original.id)}`,
+                          'a quotation',
+                        );
+                      }}
+                    >
+                      Create quotation
                     </DropdownMenuItem>
                   </>
                 )}
                 {roleHasNavigationSlug(role, 'bookings') && (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                      <Link
-                        href={`/${role}/bookings?action=create&lead=${encodeURIComponent(row.original.id)}`}
-                      >
-                        Create booking
-                      </Link>
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        advanceLead(
+                          row.original,
+                          `/${role}/bookings?action=create&lead=${encodeURIComponent(row.original.id)}`,
+                          'a booking',
+                        );
+                      }}
+                    >
+                      Create booking
                     </DropdownMenuItem>
                   </>
                 )}
@@ -1250,10 +1382,13 @@ function LeadTable({
     [
       canAssign,
       canOpenFollowups,
+      canOpenAppointments,
       canScheduleFollowups,
       canScheduleAppointments,
       canScheduleTestDrives,
       canUpdate,
+      advanceLead,
+      blockedByOpenFollowup,
       isManagerView,
       onEdit,
       onScheduleFollowup,
@@ -1273,12 +1408,9 @@ function LeadTable({
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
     manualSorting: true,
-    rowCount: personalView === 'all' ? data.total : visibleRecords.length,
+    rowCount: data.total,
   });
-  const pages = Math.max(
-    1,
-    Math.ceil((personalView === 'all' ? data.total : visibleRecords.length) / query.pageSize),
-  );
+  const pages = Math.max(1, Math.ceil(data.total / query.pageSize));
   const pageNumbers = Array.from({ length: Math.min(5, pages) }, (_, index) =>
     Math.min(Math.max(query.page - 2, 1) + index, pages),
   ).filter((value, index, values) => index === 0 || value > values[index - 1]!);
@@ -1291,6 +1423,35 @@ function LeadTable({
     query.followupFrom ||
     query.followupTo,
   );
+  const savedFilterLimitReached = savedFilters.length >= MAX_SAVED_LEAD_FILTERS;
+  const openSaveFilter = () => {
+    setSavedFilterName('');
+    setSavedFilterError(undefined);
+    setSaveFilterOpen(true);
+  };
+  const saveCurrentFilter = async () => {
+    const name = savedFilterName.trim();
+    if (!name) {
+      setSavedFilterError('Enter a name for this filter.');
+      return;
+    }
+    try {
+      await onSaveSavedFilter(name, savedLeadFilterValues(query));
+      setSaveFilterOpen(false);
+      toast.add({
+        type: 'success',
+        title: 'Filter saved',
+        description: `“${name}” is ready to use.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      setSavedFilterError(
+        message === 'SAVED_LEAD_FILTER_LIMIT_REACHED'
+          ? 'You can save up to 5 filters. Remove one to save another.'
+          : 'This filter could not be saved. Please try again.',
+      );
+    }
+  };
 
   return (
     <Card className="overflow-hidden border-slate-200 shadow-none">
@@ -1418,20 +1579,65 @@ function LeadTable({
                   <SlidersHorizontal className="size-3.5" /> Saved Filters
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuItem disabled>No saved filters yet</DropdownMenuItem>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel>Saved filters ({savedFilters.length}/5)</DropdownMenuLabel>
+                {!savedFiltersAvailable ? (
+                  <DropdownMenuItem disabled>
+                    Saved filters need an active CRM session.
+                  </DropdownMenuItem>
+                ) : savedFiltersLoading ? (
+                  <DropdownMenuItem disabled>Loading saved filters…</DropdownMenuItem>
+                ) : savedFilters.length ? (
+                  savedFilters.flatMap((savedFilter) => [
+                    <DropdownMenuItem
+                      key={`apply-${savedFilter.id}`}
+                      onSelect={() => onQueryChange({ ...savedFilter.filters, page: 1 })}
+                    >
+                      <SlidersHorizontal className="size-3.5 text-blue-600" />
+                      <span className="truncate">{savedFilter.name}</span>
+                    </DropdownMenuItem>,
+                    <DropdownMenuItem
+                      key={`remove-${savedFilter.id}`}
+                      className="pl-9 text-destructive focus:text-destructive"
+                      onSelect={() => {
+                        void onRemoveSavedFilter(savedFilter.id).catch(() =>
+                          toast.add({
+                            type: 'error',
+                            title: 'Filter could not be removed',
+                            description: 'Please try again.',
+                          }),
+                        );
+                      }}
+                    >
+                      <X className="size-3.5" /> Remove “{savedFilter.name}”
+                    </DropdownMenuItem>,
+                  ])
+                ) : (
+                  <DropdownMenuItem disabled>No saved filters yet</DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={
+                    !hasFilters ||
+                    !savedFiltersAvailable ||
+                    savedFiltersLoading ||
+                    savedFilterLimitReached
+                  }
+                  onSelect={openSaveFilter}
+                >
+                  Save current filters
+                </DropdownMenuItem>
+                {savedFilterLimitReached ? (
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                    Maximum of 5 saved filters. Remove one to save another.
+                  </p>
+                ) : null}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   disabled={!hasFilters}
                   onSelect={() =>
                     onQueryChange({
-                      search: '',
-                      model: '',
-                      source: '',
-                      stage: 'all',
-                      temperature: 'all',
-                      followupFrom: '',
-                      followupTo: '',
+                      ...emptySavedLeadFilterValues(),
                       page: 1,
                     })
                   }
@@ -1497,17 +1703,11 @@ function LeadTable({
         </div>
         <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm lg:flex-row lg:items-center lg:justify-between">
           <p className="text-xs text-[#526079]">
-            {personalView === 'all' ? (
-              <>
-                Showing {data.total ? (query.page - 1) * query.pageSize + 1 : 0} to{' '}
-                {Math.min(query.page * query.pageSize, data.total)} of {data.total} leads
-              </>
-            ) : (
-              <>
-                Showing {visibleRecords.length} {personalView} lead
-                {visibleRecords.length === 1 ? '' : 's'} on this page
-              </>
-            )}
+            <>
+              Showing {data.total ? (query.page - 1) * query.pageSize + 1 : 0} to{' '}
+              {Math.min(query.page * query.pageSize, data.total)} of {data.total}{' '}
+              {personalView === 'starred' ? 'starred ' : ''}leads
+            </>
           </p>
           <div className="flex items-center gap-1.5">
             <Button
@@ -1621,6 +1821,52 @@ function LeadTable({
           </div>
         </DialogContent>
       </Dialog>
+      <Dialog
+        open={saveFilterOpen}
+        onOpenChange={(open) => {
+          setSaveFilterOpen(open);
+          if (!open) setSavedFilterError(undefined);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Save current filters</DialogTitle>
+            <DialogDescription>
+              Save this filter combination for your account on this device. You can keep up to 5.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveCurrentFilter();
+            }}
+          >
+            <label className="grid gap-1.5 text-sm font-medium">
+              Filter name
+              <Input
+                value={savedFilterName}
+                maxLength={40}
+                autoFocus
+                placeholder="For example, Hot website leads"
+                onChange={(event) => {
+                  setSavedFilterName(event.target.value);
+                  setSavedFilterError(undefined);
+                }}
+              />
+            </label>
+            {savedFilterError ? (
+              <p className="text-sm text-destructive">{savedFilterError}</p>
+            ) : null}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setSaveFilterOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit">Save filter</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -1670,7 +1916,26 @@ export function LeadWorkspace({
   const [personalView, setPersonalView] = useState<PersonalLeadView>(() =>
     parsePersonalLeadView(searchParams),
   );
-  const [createOpen, setCreateOpen] = useState(() => searchParams.get('action') === 'create');
+  const [createOpen, setCreateOpen] = useState(false);
+  // Quick add navigates to `?action=create` on a route this workspace may already
+  // be mounted on. A lazy useState initialiser only runs at mount, so the param
+  // changed and nothing opened until a reload remounted the component. Deriving
+  // the open state from the URL instead keeps it correct on client navigation
+  // without synchronising state inside an effect.
+  const createRequested = searchParams.get('action') === 'create';
+  const createDialogOpen = createOpen || createRequested;
+  const closeCreateDialog = () => {
+    setCreateOpen(false);
+    if (!createRequested) return;
+    // The param has to go, or reopening would be a navigation to an unchanged
+    // URL and Quick add would silently do nothing the second time.
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete('action');
+    const nextQueryString = nextParams.toString();
+    router.replace(nextQueryString ? `${pathname}?${nextQueryString}` : pathname, {
+      scroll: false,
+    });
+  };
   const [assignmentLead, setAssignmentLead] = useState<LeadRecord | null>(null);
   const [editingLead, setEditingLead] = useState<LeadEditRequest | null>(null);
   const [followupShortcut, setFollowupShortcut] = useState<FollowupShortcut | null>(null);
@@ -1688,6 +1953,15 @@ export function LeadWorkspace({
     workspaceSession?.organizationId,
     workspaceSession?.userId,
   ] as const;
+  const savedFilterStorageKey =
+    workspaceSession?.organizationId && workspaceSession.userId
+      ? `${workspaceSession.organizationId}:${workspaceSession.userId}:${role}`
+      : null;
+  const [savedFilters, setSavedFilters] = useState<SavedLeadFilter[]>([]);
+  const [savedFiltersLoadedKey, setSavedFiltersLoadedKey] = useState<string | null>(null);
+  const savedFiltersLoading = Boolean(
+    savedFilterStorageKey && savedFiltersLoadedKey !== savedFilterStorageKey,
+  );
   const personalLeadPreferences = useQuery({
     queryKey: personalPreferenceKey,
     queryFn: ({ signal }) => fetchPersonalLeadFlags(signal),
@@ -1695,6 +1969,31 @@ export function LeadWorkspace({
     staleTime: 60_000,
   });
   const personalFlags = personalLeadPreferences.data ?? emptyPersonalLeadFlags;
+  useEffect(() => {
+    let cancelled = false;
+    if (!savedFilterStorageKey) return;
+    void loadSavedLeadFilters(savedFilterStorageKey)
+      .then((filters) => {
+        if (!cancelled) {
+          setSavedFilters(filters);
+          setSavedFiltersLoadedKey(savedFilterStorageKey);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSavedFilters([]);
+          setSavedFiltersLoadedKey(savedFilterStorageKey);
+          toast.add({
+            type: 'error',
+            title: 'Saved filters unavailable',
+            description: 'Your saved filters could not be loaded. Please refresh and try again.',
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [savedFilterStorageKey]);
   const applyPersonalFlag = (
     current: PersonalLeadFlags,
     leadId: string,
@@ -1745,10 +2044,26 @@ export function LeadWorkspace({
       );
       return { snapshot };
     },
-    onError: (_error, _variables, context) => {
+    onError: (error, _variables, context) => {
       if (context?.snapshot) {
         queryClient.setQueryData<PersonalLeadFlags>(personalPreferenceKey, context.snapshot);
       }
+      const message =
+        typeof error === 'object' && error !== null && 'message' in error
+          ? String((error as { message?: unknown }).message ?? '')
+          : '';
+      const limitReached = message.includes('LEAD_PIN_LIMIT_REACHED')
+        ? {
+            title: 'Pin limit reached',
+            description: 'You can pin up to 5 leads. Unpin one to pin another.',
+          }
+        : message.includes('LEAD_STAR_LIMIT_REACHED')
+          ? {
+              title: 'Star limit reached',
+              description: 'You can star up to 10 leads. Unstar one to star another.',
+            }
+          : { title: 'That lead could not be updated', description: 'Please try again.' };
+      toast.add({ ...limitReached, type: 'error', priority: 'high' });
     },
     onSuccess: (nextFlags) => {
       queryClient.setQueryData<PersonalLeadFlags>(personalPreferenceKey, (current = {}) =>
@@ -1761,6 +2076,10 @@ export function LeadWorkspace({
       // Pins float to the top of the whole result set server-side, so the page
       // that is currently rendered has to be refetched to pull them forward.
       salesConsultantCache.invalidate('lead.preference.changed');
+      // Starring is now counted server-side, so the badge is a cached value that
+      // goes stale the moment a star is toggled unless the counters refetch too.
+      void queryClient.invalidateQueries({ queryKey: ['lead-workspace', ...queryScope] });
+      void queryClient.invalidateQueries({ queryKey: ['lead-workspace-meta', ...queryScope] });
     },
   });
   const metaQuery = useMemo(() => toLeadMetaQuery(requestQuery), [requestQuery]);
@@ -1800,6 +2119,44 @@ export function LeadWorkspace({
     setQuery(updated);
     replaceLeadWorkspaceUrl(updated);
   };
+  const saveCurrentLeadFilter = useCallback(
+    async (name: string, filters: SavedLeadFilterValues) => {
+      if (!savedFilterStorageKey) throw new Error('SAVED_LEAD_FILTERS_UNAVAILABLE');
+      if (savedFilters.length >= MAX_SAVED_LEAD_FILTERS)
+        throw new Error('SAVED_LEAD_FILTER_LIMIT_REACHED');
+      const next: SavedLeadFilter[] = [
+        ...savedFilters,
+        {
+          id: globalThis.crypto.randomUUID(),
+          name: name.trim().slice(0, 40),
+          filters,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+      setSavedFilters(next);
+      try {
+        await saveSavedLeadFilters(savedFilterStorageKey, next);
+      } catch (error) {
+        setSavedFilters(savedFilters);
+        throw error;
+      }
+    },
+    [savedFilterStorageKey, savedFilters],
+  );
+  const removeSavedLeadFilter = useCallback(
+    async (id: string) => {
+      if (!savedFilterStorageKey) throw new Error('SAVED_LEAD_FILTERS_UNAVAILABLE');
+      const next = savedFilters.filter((filter) => filter.id !== id);
+      setSavedFilters(next);
+      try {
+        await saveSavedLeadFilters(savedFilterStorageKey, next);
+      } catch (error) {
+        setSavedFilters(savedFilters);
+        throw error;
+      }
+    },
+    [savedFilterStorageKey, savedFilters],
+  );
   const onStatusChange = (status: LeadStatusFilter) => {
     const updated = { ...query, status, page: 1 };
     setQuery(updated);
@@ -1807,8 +2164,12 @@ export function LeadWorkspace({
     replaceLeadWorkspaceUrl(updated, 'all');
   };
   const onPersonalViewChange = (view: PersonalLeadView) => {
-    const updated = view === 'all' ? query : { ...query, status: 'all' as const, page: 1 };
-    if (view !== 'all') setQuery(updated);
+    const updated: LeadQuery = {
+      ...query,
+      status: view === 'starred' ? 'starred' : 'all',
+      page: 1,
+    };
+    setQuery(updated);
     setPersonalView(view);
     replaceLeadWorkspaceUrl(updated, view);
   };
@@ -1816,14 +2177,32 @@ export function LeadWorkspace({
     if (!workspaceSession?.organizationId || !workspaceSession.userId) return;
     personalLeadFlagMutation.mutate({ leadId, flag, active });
   };
-  const invalidate = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: ['lead-workspace', ...queryScope] }),
-    [queryClient, queryScope],
-  );
+  const invalidate = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['lead-workspace', ...queryScope] }),
+      queryClient.invalidateQueries({ queryKey: ['lead-workspace-meta', ...queryScope] }),
+    ]);
+  }, [queryClient, queryScope]);
+  const personalPreferencesFailed = personalLeadPreferences.isError;
+  useEffect(() => {
+    if (!personalPreferencesFailed) return;
+    toast.add({
+      type: 'error',
+      priority: 'high',
+      title: 'Pins and stars unavailable',
+      description:
+        'Your personal pin and star list could not be loaded. No lead data was changed. Refresh and try again.',
+    });
+  }, [personalPreferencesFailed]);
+
   const salesContactMutation = useMutation({
     mutationFn: recordSalesLeadContact,
-    onSuccess: (_result, input) => {
+    onSuccess: async (_result, input) => {
       salesConsultantCache.invalidate('lead.updated', { leadId: input.leadId });
+      // Recording contact moves the lead from Pending to Contacted, so both the
+      // rows and the counters are stale the moment this returns. Refreshing the
+      // sales-consultant cache alone left the tab showing the previous answer.
+      await invalidate();
     },
   });
 
@@ -1886,21 +2265,10 @@ export function LeadWorkspace({
           Refresh
         </Button>
       </div>
-      {(personalLeadFlagMutation.isError || personalLeadPreferences.isError) && (
-        <p
-          role="alert"
-          className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-        >
-          <TriangleAlert className="size-4 shrink-0" />
-          Could not save your pin and star list. They are personal to you and no lead data was
-          changed. Refresh and try again.
-        </p>
-      )}
       <LeadStatusTabs
         data={workspace.data}
         query={query}
         role={role}
-        personalFlags={personalFlags}
         personalView={personalView}
         onStatusChange={onStatusChange}
         onPersonalViewChange={onPersonalViewChange}
@@ -1912,8 +2280,13 @@ export function LeadWorkspace({
         personalFlags={personalFlags}
         personalView={personalView}
         personalFlagsPending={personalLeadFlagMutation.isPending}
+        savedFilters={savedFilters}
+        savedFiltersLoading={savedFiltersLoading}
+        savedFiltersAvailable={Boolean(savedFilterStorageKey)}
         onQueryChange={onQueryChange}
         onPersonalFlagChange={onPersonalFlagChange}
+        onSaveSavedFilter={saveCurrentLeadFilter}
+        onRemoveSavedFilter={removeSavedLeadFilter}
         canAssign={!spec.readOnly && role === 'team-manager' && Boolean(permissions?.canAssign)}
         canUpdate={!spec.readOnly && Boolean(permissions?.canUpdate)}
         canScheduleFollowups={!spec.readOnly && Boolean(permissions?.canCreateFollowup)}
@@ -1937,8 +2310,8 @@ export function LeadWorkspace({
       {permissions?.canCreate && (
         <LeadCreateDialog
           organizationId={permissions.organizationId}
-          open={createOpen}
-          onOpenChange={setCreateOpen}
+          open={createDialogOpen}
+          onOpenChange={(open) => (open ? setCreateOpen(true) : closeCreateDialog())}
           onCreated={invalidate}
         />
       )}
@@ -1982,7 +2355,14 @@ export function LeadWorkspace({
               }
             : undefined
         }
-        onCreated={invalidate}
+        onCreated={async () => {
+          if (role === 'sales-consultant' && followupShortcut)
+            salesContactMutation.mutate({
+              leadId: followupShortcut.lead.id,
+              channel: 'FOLLOWUP',
+            });
+          await invalidate();
+        }}
       />
       <WorkCreateDialog
         key={`lead-appointment-${appointmentShortcut?.lead.id ?? 'none'}-${appointmentShortcut?.type ?? 'none'}`}
@@ -2008,7 +2388,14 @@ export function LeadWorkspace({
               }
             : undefined
         }
-        onCreated={invalidate}
+        onCreated={async () => {
+          if (role === 'sales-consultant' && appointmentShortcut)
+            salesContactMutation.mutate({
+              leadId: appointmentShortcut.lead.id,
+              channel: 'APPOINTMENT',
+            });
+          await invalidate();
+        }}
       />
       <CustomerMatchDialog
         key={`customer-match-${matchingLead?.id ?? 'none'}`}
