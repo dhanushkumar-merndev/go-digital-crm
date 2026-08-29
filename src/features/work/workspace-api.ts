@@ -260,6 +260,13 @@ function nullableFilter(value: string) {
   return value === 'all' ? null : value;
 }
 
+function isMissingFilteredFollowupRpc(error: { code?: string; message?: string } | null) {
+  return (
+    error?.code === 'PGRST202' ||
+    (error?.message?.includes('get_followup_workspace_filtered_page') ?? false)
+  );
+}
+
 export async function fetchWorkWorkspace(
   kind: WorkKind,
   query: WorkQuery,
@@ -291,7 +298,26 @@ export async function fetchWorkWorkspace(
     parameters.target_followup_to = query.followupTo || null;
   } else parameters.target_appointment_type = query.appointmentType;
   const request = createClient().rpc(functionName, parameters);
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  let { data, error } = await (signal ? request.abortSignal(signal) : request);
+  // The expanded lead filters are deployed through a migration. Keep the
+  // essential Follow-ups workspace available while an environment is still on
+  // the previous RPC, instead of leaving the consultant on a blank error page.
+  if (kind === 'followups' && isMissingFilteredFollowupRpc(error)) {
+    const legacyParameters = {
+      target_search: query.search,
+      target_status: query.status,
+      target_priority: query.priority,
+      target_branch_id: nullableFilter(query.branchId),
+      target_team_id: nullableFilter(query.teamId),
+      target_owner_id: nullableFilter(query.ownerId),
+      target_page: query.page,
+      target_page_size: query.pageSize,
+      target_sort: query.sort,
+      target_timezone: timezone,
+    };
+    const legacyRequest = createClient().rpc('get_followup_workspace_page', legacyParameters);
+    ({ data, error } = await (signal ? legacyRequest.abortSignal(signal) : legacyRequest));
+  }
   if (error) throw error;
   return kind === 'followups'
     ? followupWorkspaceSchema.parse(data)

@@ -16,6 +16,7 @@ import {
   Search,
   TriangleAlert,
 } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
@@ -88,6 +89,15 @@ type StockCheckRow = StockCheckPage['records'][number];
 type InventoryPage = StockUnitPage | StockCheckPage | AllocationPage | MovementPage;
 
 const branchChartSeries: [string, string] = ['Total stock', 'Available'];
+
+function demoVehicleImage(modelName: string) {
+  const model = modelName.toLowerCase();
+  if (model.includes('harrier') || model.includes('safari')) {
+    return '/demo/vehicles/graphite-family-suv.png';
+  }
+
+  return '/demo/vehicles/electric-coupe-suv.png';
+}
 
 const filterOptions: Record<
   Exclude<InventoryView, 'dashboard'>,
@@ -366,7 +376,7 @@ function Filters({
       key: 'brand' | 'model' | 'variant' | 'fuel' | 'transmission' | 'color',
     ) => (
       <label className="min-w-0 space-y-1.5">
-        <span className="block text-xs font-medium text-muted-foreground">{label}</span>
+        <span className="block text-[10px] font-medium text-[#526079]">{label}</span>
         <Select
           value={value || 'all'}
           onValueChange={(next) => onQueryChange({ [key]: next === 'all' ? '' : next, page: 1 })}
@@ -411,7 +421,7 @@ function Filters({
           )}
           {selectFilter('Colour', query.color, stockOptions?.colors ?? [], 'color')}
           <label className="min-w-0 space-y-1.5">
-            <span className="block text-xs font-medium text-muted-foreground">Branch</span>
+            <span className="block text-[10px] font-medium text-[#526079]">Branch</span>
             {branches.length === 1 ? (
               <div className="flex h-9 items-center truncate rounded-md border bg-muted/30 px-3 text-sm">
                 {branches[0]?.name}
@@ -438,7 +448,7 @@ function Filters({
             )}
           </label>
           <label className="min-w-0 space-y-1.5">
-            <span className="block text-xs font-medium text-muted-foreground">Stock status</span>
+            <span className="block text-[10px] font-medium text-[#526079]">Stock status</span>
             <Select
               value={query.filter}
               onValueChange={(filter) =>
@@ -873,9 +883,13 @@ function StockCheckTable({
         header: 'Model',
         cell: ({ row }) => (
           <div className="flex items-center gap-3">
-            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600">
-              <CarFront className="size-[18px]" />
-            </span>
+            <Image
+              src={demoVehicleImage(row.original.model_name)}
+              alt={`${row.original.model_name} demo vehicle`}
+              width={36}
+              height={36}
+              className="size-9 shrink-0 rounded-full border border-slate-100 bg-slate-100 object-cover"
+            />
             <div>
               <p className="font-medium">{row.original.model_name}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">{row.original.brand_name}</p>
@@ -1169,7 +1183,7 @@ function ListWorkspace({
   return (
     <div className="space-y-6">
       <KpiGrid metrics={pageMetrics(page.data)} />
-      <Card className="shadow-none">
+      <Card className="sales-consultant-list-card shadow-none">
         <CardHeader className="p-4">
           <Filters
             view={view}

@@ -24,7 +24,9 @@ export function KpiGrid({ metrics, className }: { metrics: Metric[]; className?:
                 </span>
               )}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium text-muted-foreground">{metric.label}</p>
+                <p className="truncate text-[10px] font-medium text-muted-foreground">
+                  {metric.label}
+                </p>
                 <p className="mt-1.5 text-2xl font-bold tracking-tight">{metric.value}</p>
                 <div className="mt-1 flex min-h-5 items-center gap-1.5">
                   {metric.change && (
@@ -38,7 +40,7 @@ export function KpiGrid({ metrics, className }: { metrics: Metric[]; className?:
                       {metric.change}
                     </span>
                   )}
-                  <p className="truncate text-[11px] text-muted-foreground">
+                  <p className="truncate text-[10px] text-muted-foreground">
                     {metric.helper ?? (metric.change ? undefined : 'Current selected period')}
                   </p>
                 </div>

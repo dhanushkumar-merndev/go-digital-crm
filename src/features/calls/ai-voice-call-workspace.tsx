@@ -163,7 +163,7 @@ export function AiVoiceCallWorkspace() {
       ) : null}
 
       <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
-      <Card className="overflow-hidden shadow-none">
+      <Card className="sales-consultant-list-card overflow-hidden shadow-none">
         <CardHeader className="gap-4 border-b py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-base">AI voice calls</CardTitle>
@@ -171,7 +171,7 @@ export function AiVoiceCallWorkspace() {
           </div>
           <div className="flex flex-wrap gap-2">
             <div className="relative min-w-56">
-              <Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query.search}
                 onChange={(event) => update({ search: event.target.value, page: 1 })}
