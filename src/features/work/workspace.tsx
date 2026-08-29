@@ -1,6 +1,7 @@
 'use client';
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { ZodError } from 'zod';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   Building2,
@@ -1305,6 +1306,49 @@ function WorkTable({
   );
 }
 
+/**
+ * Why the work workspace could not render, in a form that can be read off the
+ * screen and acted on.
+ *
+ * Supabase surfaces PostgREST failures as `{ code, message, details }` and Zod
+ * surfaces contract drift as an issue list; neither reaches the user unless it
+ * is printed. `!permissions` is its own case because nothing threw -- the
+ * session simply carries no access context.
+ */
+function workspaceFailureDetail({
+  permissions,
+  workspaceError,
+  permissionsError,
+  hasData,
+}: {
+  permissions: WorkWorkspacePermissions | undefined;
+  workspaceError: unknown;
+  permissionsError: unknown;
+  hasData: boolean;
+}) {
+  const describe = (error: unknown): string | null => {
+    if (!error) return null;
+    if (error instanceof ZodError) {
+      const issue = error.issues[0];
+      return `Response did not match the expected shape at "${issue?.path.join('.') || '(root)'}": ${issue?.message ?? 'unknown'}`;
+    }
+    if (typeof error === 'object') {
+      const { code, message, details, hint } = error as Record<string, string | undefined>;
+      return [code && `[${code}]`, message, details, hint].filter(Boolean).join(' ');
+    }
+    return String(error);
+  };
+  return (
+    describe(permissionsError) ??
+    describe(workspaceError) ??
+    (!permissions
+      ? 'No access context for this session. Sign out and back in, or ask an administrator to check your role assignment.'
+      : !hasData
+        ? 'The request finished without returning any data.'
+        : 'Unknown failure.')
+  );
+}
+
 export function WorkWorkspace({
   kind,
   role,
@@ -1448,6 +1492,22 @@ export function WorkWorkspace({
           <p className="mt-2 text-sm text-muted-foreground">
             Your access scope or the work workspace migration needs attention. Reference:
             GDM-WORK-QUERY.
+          </p>
+          {/*
+            The card used to stop at the reference code, which hid every actual
+            cause behind one sentence and made the page undiagnosable without a
+            devtools session. The underlying reason is shown here instead: a
+            PostgREST code and message for a failed call, a Zod path for a
+            response that did not match the contract, or the missing-permission
+            case that produces no error object at all.
+          */}
+          <p className="mt-3 max-w-lg break-words rounded-md bg-slate-50 px-3 py-2 text-left font-mono text-[11px] leading-5 text-[#263550]">
+            {workspaceFailureDetail({
+              permissions,
+              workspaceError: workspace.error,
+              permissionsError: useWorkspaceBootstrap ? null : legacyPermissions.error,
+              hasData: Boolean(workspace.data),
+            })}
           </p>
           <Button
             className="mt-5"
