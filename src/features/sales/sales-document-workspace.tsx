@@ -22,6 +22,12 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
+import {
+  focusRowElementId,
+  focusedRowClassName,
+  readFocusParam,
+  useFocusedRows,
+} from '@/lib/navigation/focus-row';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -187,6 +193,7 @@ function bookingMetrics(result: BookingWorkspaceResult): Metric[] {
 }
 
 function TableFrame<T>({
+  role,
   columns,
   records,
   total,
@@ -195,7 +202,10 @@ function TableFrame<T>({
   isFetching,
   onQueryChange,
   bookingOptions,
+  focusedRowIds,
+  getRowId,
 }: {
+  role: string;
   columns: ColumnDef<T>[];
   records: T[];
   total: number;
@@ -204,6 +214,8 @@ function TableFrame<T>({
   isFetching: boolean;
   onQueryChange: (next: Partial<SalesDocumentQuery>) => void;
   bookingOptions?: BookingFilterOptions;
+  focusedRowIds: ReadonlySet<string>;
+  getRowId: (record: T) => string;
 }) {
   // TanStack Table intentionally owns an imperative row model.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -276,7 +288,7 @@ function TableFrame<T>({
                   ))}
                 </SelectContent>
               </Select>
-              {bookingOptions?.branches.length === 1 ? (
+              {role === 'sales-consultant' ? null : bookingOptions?.branches.length === 1 ? (
                 <div className="flex h-9 items-center truncate rounded-md border bg-muted/30 px-3 text-sm">
                   {bookingOptions.branches[0]?.name}
                 </div>
@@ -447,15 +459,22 @@ function TableFrame<T>({
             </TableHeader>
             <TableBody>
               {table.getRowModel().rows.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className="align-top">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
+                table.getRowModel().rows.map((row) => {
+                  const recordId = getRowId(row.original);
+                  return (
+                    <TableRow
+                      key={row.id}
+                      id={focusRowElementId(kind, recordId)}
+                      className={focusedRowIds.has(recordId) ? focusedRowClassName : undefined}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id} className="align-top">
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })
               ) : (
                 <TableRow>
                   <TableCell colSpan={columns.length} className="h-44 text-center">
@@ -576,6 +595,24 @@ export function SalesDocumentWorkspace({
     enabled: Boolean(permissions) && !directCreate,
     placeholderData: keepPreviousData,
   });
+  // Arrived from a lead's Quotation or Booking stage badge on My Leads.
+  const focusId = readFocusParam(searchParams);
+  const focusMatchedIds = useMemo(() => {
+    if (!focusId) return [];
+    const records = (workspace.data?.records ?? []) as Array<{
+      id: string;
+      lead_id: string | null;
+    }>;
+    return records.filter((record) => record.lead_id === focusId).map((record) => record.id);
+  }, [focusId, workspace.data]);
+  const focusedRowIds = useFocusedRows({
+    focusId,
+    matchedIds: focusMatchedIds,
+    scope: kind,
+    pathname,
+    searchParams,
+  });
+
   const bookingFilterOptions = useQuery({
     queryKey: ['sales-booking-filter-options', ...queryScope],
     queryFn: ({ signal }) => fetchBookingFilterOptions(signal),
@@ -1015,6 +1052,7 @@ export function SalesDocumentWorkspace({
         />
         {kind === 'quotations' ? (
           <TableFrame
+            role={role}
             kind={kind}
             columns={quotationColumns}
             records={(result as QuotationWorkspaceResult).records}
@@ -1022,9 +1060,12 @@ export function SalesDocumentWorkspace({
             query={query}
             isFetching={workspace.isFetching}
             onQueryChange={onQueryChange}
+            focusedRowIds={focusedRowIds}
+            getRowId={(record) => record.id}
           />
         ) : (
           <TableFrame
+            role={role}
             kind={kind}
             columns={bookingColumns}
             records={(result as BookingWorkspaceResult).records}
@@ -1033,6 +1074,8 @@ export function SalesDocumentWorkspace({
             isFetching={workspace.isFetching}
             onQueryChange={onQueryChange}
             bookingOptions={bookingFilterOptions.data}
+            focusedRowIds={focusedRowIds}
+            getRowId={(record) => record.id}
           />
         )}
       </div>

@@ -108,6 +108,12 @@ import {
   type WorkStatusFilter,
 } from './workspace-query';
 import { recordDetailHref } from '@/lib/navigation/record-links';
+import {
+  focusRowElementId,
+  focusedRowClassName,
+  readFocusParam,
+  useFocusedRows,
+} from '@/lib/navigation/focus-row';
 
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat('en-IN', {
@@ -360,6 +366,7 @@ function WorkTable({
   timezone,
   organizationId,
   scopeKey,
+  focusedRowIds,
 }: {
   kind: WorkKind;
   role: string;
@@ -376,6 +383,7 @@ function WorkTable({
   timezone: string;
   organizationId: string;
   scopeKey: string;
+  focusedRowIds: ReadonlySet<string>;
 }) {
   const managerial = role === 'team-manager' || role === 'showroom-manager';
   const columns = useMemo<ColumnDef<WorkRecord>[]>(() => {
@@ -1134,11 +1142,17 @@ function WorkTable({
                       const overdue =
                         kind === 'followups' &&
                         (row.original as FollowupRecord).display_status === 'OVERDUE';
+                      const focused = focusedRowIds.has(row.original.id);
                       return (
                         <TableRow
                           key={row.id}
+                          id={focusRowElementId(kind, row.original.id)}
                           className={
-                            overdue ? 'bg-red-50/65 hover:bg-red-50' : 'hover:bg-slate-50/70'
+                            focused
+                              ? focusedRowClassName
+                              : overdue
+                                ? 'bg-red-50/65 hover:bg-red-50'
+                                : 'hover:bg-slate-50/70'
                           }
                         >
                           {row.getVisibleCells().map((cell) => (
@@ -1367,6 +1381,27 @@ export function WorkWorkspace({
     enabled: Boolean(permissions),
     placeholderData: keepPreviousData,
   });
+  // Arrived from a lead's stage badge: mark whichever rows on this page belong
+  // to that lead. The badge only knows the lead, so more than one follow-up or
+  // appointment can match and all of them are marked.
+  const focusId = readFocusParam(searchParams);
+  const focusMatchedIds = useMemo(
+    () =>
+      focusId
+        ? (workspace.data?.records ?? [])
+            .filter((record) => record.lead_id === focusId)
+            .map((record) => record.id)
+        : [],
+    [focusId, workspace.data],
+  );
+  const focusedRowIds = useFocusedRows({
+    focusId,
+    matchedIds: focusMatchedIds,
+    scope: kind,
+    pathname,
+    searchParams,
+  });
+
   const onQueryChange = (next: Partial<WorkQuery>) => {
     const changesFilter = [
       'search',
@@ -1519,6 +1554,7 @@ export function WorkWorkspace({
               timezone={timezone}
               organizationId={permissions.organizationId}
               scopeKey={permissions.scopeKey}
+              focusedRowIds={focusedRowIds}
             />
           </>
         ) : (
@@ -1535,6 +1571,7 @@ export function WorkWorkspace({
             timezone={timezone}
             organizationId={permissions.organizationId}
             scopeKey={permissions.scopeKey}
+            focusedRowIds={focusedRowIds}
           />
         )}
       </div>

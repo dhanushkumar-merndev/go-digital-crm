@@ -56,6 +56,7 @@ import {
   type WorkStatusFilter,
 } from './workspace-query';
 import { recordDetailHref } from '@/lib/navigation/record-links';
+import { focusRowElementId, focusedRowClassName } from '@/lib/navigation/focus-row';
 
 const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const appointmentTypes = schedulableAppointmentTypes;
@@ -257,6 +258,7 @@ export function AppointmentWorkspaceView({
   timezone,
   organizationId,
   scopeKey,
+  focusedRowIds,
 }: {
   role: string;
   result: AppointmentWorkspaceResult;
@@ -270,6 +272,7 @@ export function AppointmentWorkspaceView({
   timezone: string;
   organizationId: string;
   scopeKey: string;
+  focusedRowIds: ReadonlySet<string>;
 }) {
   const [displayedMonth, setDisplayedMonth] = useState(() => {
     const value = new Date();
@@ -381,7 +384,9 @@ export function AppointmentWorkspaceView({
 
   const filters = (
     <Card className="sales-consultant-list-card shadow-none">
-      <CardContent className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-6">
+      <CardContent
+        className={`grid gap-3 p-4 md:grid-cols-2 ${role === 'sales-consultant' ? 'xl:grid-cols-5' : 'xl:grid-cols-6'}`}
+      >
         <div className="relative xl:col-span-2">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -437,12 +442,14 @@ export function AppointmentWorkspaceView({
             ))}
           </SelectContent>
         </Select>
-        <div className="flex h-10 items-center gap-2 rounded-md border bg-slate-50 px-3 text-xs">
-          <Building2 className="size-4 text-blue-600" />
-          <span className="truncate">
-            {result.filters.branches[0]?.name ?? 'Assigned dealership'}
-          </span>
-        </div>
+        {role !== 'sales-consultant' && (
+          <div className="flex h-10 items-center gap-2 rounded-md border bg-slate-50 px-3 text-xs">
+            <Building2 className="size-4 text-blue-600" />
+            <span className="truncate">
+              {result.filters.branches[0]?.name ?? 'Assigned dealership'}
+            </span>
+          </div>
+        )}
         <Button
           variant="ghost"
           className="justify-self-start text-blue-700"
@@ -533,8 +540,13 @@ export function AppointmentWorkspaceView({
                     result.records.map((record) => {
                       const visual = typeVisual(record.appointment_type);
                       const Icon = visual.icon;
+                      const focused = focusedRowIds.has(record.id);
                       return (
-                        <TableRow key={record.id}>
+                        <TableRow
+                          key={record.id}
+                          id={focusRowElementId('appointments', record.id)}
+                          className={focused ? focusedRowClassName : undefined}
+                        >
                           <TableCell>
                             <Link
                               href={recordDetailHref(role, record) ?? '#'}

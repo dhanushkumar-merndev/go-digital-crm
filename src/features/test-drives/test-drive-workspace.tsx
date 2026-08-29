@@ -21,6 +21,12 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
+import {
+  focusRowElementId,
+  focusedRowClassName,
+  readFocusParam,
+  useFocusedRows,
+} from '@/lib/navigation/focus-row';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -159,6 +165,7 @@ function TestDriveTable({
   onQueryChange,
   onAction,
   onOpen,
+  focusedRowIds,
 }: {
   result: TestDriveWorkspaceResult;
   query: TestDriveQuery;
@@ -168,6 +175,7 @@ function TestDriveTable({
   onQueryChange: (next: Partial<TestDriveQuery>) => void;
   onAction: (action: TestDriveActionState) => void;
   onOpen: (record: TestDriveRecord) => void;
+  focusedRowIds: ReadonlySet<string>;
 }) {
   const columns = useMemo<ColumnDef<TestDriveRecord>[]>(
     () => [
@@ -473,7 +481,15 @@ function TestDriveTable({
             <TableBody>
               {table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id} className="hover:bg-slate-50/80">
+                  <TableRow
+                    key={row.id}
+                    id={focusRowElementId('test-drives', row.original.id)}
+                    className={
+                      focusedRowIds.has(row.original.id)
+                        ? focusedRowClassName
+                        : 'hover:bg-slate-50/80'
+                    }
+                  >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id} className="align-top">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -592,6 +608,25 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
     enabled: Boolean(permissions) && screen !== 'create',
     placeholderData: keepPreviousData,
   });
+  // Arrived from a lead's stage badge on My Leads.
+  const focusId = readFocusParam(searchParams);
+  const focusMatchedIds = useMemo(
+    () =>
+      focusId
+        ? (workspace.data?.records ?? [])
+            .filter((record) => record.lead_id === focusId)
+            .map((record) => record.id)
+        : [],
+    [focusId, workspace.data],
+  );
+  const focusedRowIds = useFocusedRows({
+    focusId,
+    matchedIds: focusMatchedIds,
+    scope: 'test-drives',
+    pathname,
+    searchParams,
+  });
+
   const onQueryChange = (next: Partial<TestDriveQuery>) => {
     const updated = { ...query, ...next };
     setQuery(updated);
@@ -747,6 +782,7 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
             setSelectedRecord(record);
             setScreen('detail');
           }}
+          focusedRowIds={focusedRowIds}
         />
       </div>
       {actionState?.kind === 'cancel' && (

@@ -23,6 +23,7 @@ import {
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
+import { focusRowHref, focusedRowClassName } from '@/lib/navigation/focus-row';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LeadWorkspaceSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
@@ -228,6 +229,29 @@ const preFollowupStages = new Set([
 function leadStageLabel(value: string, hasFollowup = false) {
   return hasFollowup && preFollowupStages.has(value) ? 'Follow-up' : value;
 }
+
+/**
+ * Where each lead stage opens, and the tab that guarantees the row is in the
+ * list when it gets there.
+ */
+const stageFocusDestinations: Record<
+  string,
+  { slug: string; actionLabel: string; params?: Record<string, string> }
+> = {
+  'Follow-up': {
+    slug: 'follow-ups',
+    actionLabel: 'Open follow-ups',
+    params: { status: 'all' },
+  },
+  'Appointment Scheduled': {
+    slug: 'appointments',
+    actionLabel: 'Open appointments',
+    params: { status: 'all' },
+  },
+  'Test Drive': { slug: 'test-drives', actionLabel: 'Open test drives' },
+  Quotation: { slug: 'quotations', actionLabel: 'Open quotations' },
+  Booking: { slug: 'bookings', actionLabel: 'Open bookings' },
+};
 
 function StageBadge({
   value,
@@ -992,7 +1016,6 @@ function LeadTable({
         ]
       : ['all', ...lifecycleOptions, 'Test Drive', 'Quotation', 'Booking'];
   const canOpenFollowups = roleHasNavigationSlug(role, 'follow-ups');
-  const canOpenAppointments = roleHasNavigationSlug(role, 'appointments');
   const canOpenTasks = roleHasNavigationSlug(role, 'tasks');
   const tableRouter = useRouter();
   const [highlightedLeadId, setHighlightedLeadId] = useState<string | null>(null);
@@ -1131,21 +1154,28 @@ function LeadTable({
         cell: ({ row }) => {
           const lead = row.original;
           const stage = leadStageLabel(lead.lead_stage, Boolean(lead.next_followup_at));
+          // Each stage opens the module it actually lives in, with the lead's
+          // row marked. The previous links passed the lead's UUID as `?q=`,
+          // which filtered the destination to one row and left the identifier
+          // sitting in a visible search box; `focus` marks the row instead and
+          // is stripped from the URL once consumed. `status=all` is required
+          // because several of these lists open on a narrower default tab and
+          // the record would otherwise not be there to mark.
+          const stageDestination = stageFocusDestinations[stage];
           const destination =
-            stage === 'Follow-up' && canOpenFollowups
+            stageDestination && roleHasNavigationSlug(role, stageDestination.slug)
               ? {
-                  href: `/${role}/follow-ups?q=${encodeURIComponent(lead.id)}`,
-                  actionLabel: 'Open follow-ups',
+                  href: focusRowHref(
+                    `/${role}/${stageDestination.slug}`,
+                    lead.id,
+                    stageDestination.params,
+                  ),
+                  actionLabel: stageDestination.actionLabel,
                 }
-              : stage === 'Appointment Scheduled' && canOpenAppointments
-                ? {
-                    href: `/${role}/appointments?q=${encodeURIComponent(lead.id)}`,
-                    actionLabel: 'Open appointments',
-                  }
-                : {
-                    href: leadDetailHref(role, lead.id),
-                    actionLabel: 'Open lead details',
-                  };
+              : {
+                  href: leadDetailHref(role, lead.id),
+                  actionLabel: 'Open lead details',
+                };
           return (
             <StageBadge
               value={stage}
@@ -1448,7 +1478,6 @@ function LeadTable({
     [
       canAssign,
       canOpenFollowups,
-      canOpenAppointments,
       canOpenTasks,
       canCreateTasks,
       canScheduleFollowups,
@@ -1750,7 +1779,7 @@ function LeadTable({
                     id={`lead-row-${row.original.id}`}
                     className={
                       highlightedLeadId === row.original.id
-                        ? 'bg-blue-50 ring-1 ring-inset ring-blue-300 transition-colors duration-300'
+                        ? focusedRowClassName
                         : 'hover:bg-slate-50/70'
                     }
                   >
