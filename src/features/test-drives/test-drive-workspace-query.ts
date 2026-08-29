@@ -1,7 +1,16 @@
 export const testDrivePageSizes = [25, 50, 100] as const;
 export type TestDrivePageSize = (typeof testDrivePageSizes)[number];
 
-export const testDriveViews = ['today', 'upcoming', 'active', 'completed', 'cancelled'] as const;
+// `all` deliberately has no date restriction. It is the lifetime history tab;
+// the other views are operational queues for the current test-drive lifecycle.
+export const testDriveViews = [
+  'all',
+  'today',
+  'upcoming',
+  'active',
+  'completed',
+  'cancelled',
+] as const;
 export type TestDriveView = (typeof testDriveViews)[number];
 
 export const testDriveSorts = [

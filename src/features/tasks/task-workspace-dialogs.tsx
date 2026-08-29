@@ -8,6 +8,7 @@ import {
 } from '@/components/providers/workspace-session-provider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui/toast';
 import {
   Dialog,
   DialogContent,
@@ -37,7 +38,6 @@ import {
   updateTask,
   type TaskRecord,
 } from './task-workspace-api';
-import { isTaskVersionConflict } from './task-workspace-query';
 
 function toLocalDateTime(value: string | null) {
   if (!value) return '';
@@ -48,18 +48,25 @@ function toLocalDateTime(value: string | null) {
 
 export function TaskFormDialog({
   record,
+  initialLead,
   open,
   onOpenChange,
   onSaved,
 }: {
   record?: TaskRecord | null;
+  initialLead?: {
+    leadId: string;
+    customerName: string;
+    phone: string | null;
+    interestedModel: string | null;
+  } | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }) {
   const workspaceSession = useWorkspaceSession();
   const queryScope = workspaceQueryScope(workspaceSession);
-  const [leadId, setLeadId] = useState(record?.lead_id ?? '');
+  const [leadId, setLeadId] = useState(record?.lead_id ?? initialLead?.leadId ?? '');
   const [leadSearch, setLeadSearch] = useState('');
   const [title, setTitle] = useState(record?.title ?? '');
   const [description, setDescription] = useState(record?.description ?? '');
@@ -72,7 +79,9 @@ export function TaskFormDialog({
     optionQueryOptions({
       queryKey: ['task-lead-options', ...queryScope, debouncedSearch],
       queryFn: ({ signal }) => fetchTaskLeadOptions(debouncedSearch, signal),
-      enabled: open && !record,
+      // A lead-row task shortcut supplies the exact lead. Do not load the
+      // general picker or let the user accidentally switch that customer.
+      enabled: open && !record && !initialLead,
     }),
   );
   const leadOptions = options.data ?? [];
@@ -111,6 +120,18 @@ export function TaskFormDialog({
     requestId.current = null;
     mutation.reset();
   };
+  const submit = () => {
+    if (!record && new Date(dueAt).getTime() <= Date.now()) {
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'Choose a future due date',
+        description: 'A new task cannot be scheduled in the past.',
+      });
+      return;
+    }
+    mutation.mutate();
+  };
   return (
     <Dialog
       open={open}
@@ -130,7 +151,7 @@ export function TaskFormDialog({
           className="mt-5 space-y-4"
           onSubmit={(event) => {
             event.preventDefault();
-            mutation.mutate();
+            submit();
           }}
         >
           <div className="grid gap-2">
@@ -140,6 +161,15 @@ export function TaskFormDialog({
                 <p className="font-medium">{record.customer_name ?? 'Linked opportunity'}</p>
                 <p className="text-xs text-muted-foreground">
                   {record.interested_model ?? 'Vehicle not specified'} · {record.branch_name}
+                </p>
+              </div>
+            ) : initialLead ? (
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                <p className="font-medium">{initialLead.customerName}</p>
+                <p className="text-xs text-muted-foreground">
+                  {[initialLead.phone, initialLead.interestedModel ?? 'Vehicle not specified']
+                    .filter(Boolean)
+                    .join(' · ')}
                 </p>
               </div>
             ) : (
@@ -273,6 +303,7 @@ export function TaskFormDialog({
               id="task-due"
               type="datetime-local"
               value={dueAt}
+              min={record ? undefined : toLocalDateTime(new Date().toISOString())}
               required
               onChange={(event) => {
                 resetRequest();
@@ -280,15 +311,6 @@ export function TaskFormDialog({
               }}
             />
           </div>
-          {mutation.isError && (
-            <Alert variant="destructive">
-              <AlertDescription>
-                {isTaskVersionConflict(mutation.error)
-                  ? 'This task changed elsewhere. Close and reopen it before saving.'
-                  : 'The task could not be saved. Check the due date and linked opportunity.'}
-              </AlertDescription>
-            </Alert>
-          )}
           <div className="flex justify-end gap-2">
             <Button
               type="button"
@@ -386,15 +408,6 @@ export function TaskActionDialog({
               }}
             />
           </div>
-          {mutation.isError && (
-            <Alert variant="destructive">
-              <AlertDescription>
-                {isTaskVersionConflict(mutation.error)
-                  ? 'This task changed elsewhere. Close and reopen the action.'
-                  : 'The task action could not be completed.'}
-              </AlertDescription>
-            </Alert>
-          )}
           <div className="flex justify-end gap-2">
             <Button
               type="button"

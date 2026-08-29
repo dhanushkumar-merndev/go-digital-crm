@@ -109,14 +109,14 @@ function expectedEnd(record: TestDriveRecord) {
 }
 
 function testDriveMetrics(result: TestDriveWorkspaceResult): Metric[] {
-  const conversion = result.kpis.completed_this_month
-    ? Math.round((result.kpis.converted / result.kpis.completed_this_month) * 100)
+  const conversion = result.kpis.completed
+    ? Math.round((result.kpis.converted / result.kpis.completed) * 100)
     : 0;
   return [
     {
-      label: 'Today',
-      value: result.kpis.today.toLocaleString(),
-      helper: 'Scheduled for today',
+      label: 'Total test drives',
+      value: result.kpis.total.toLocaleString(),
+      helper: `${result.kpis.cancelled.toLocaleString()} cancelled all time`,
       icon: Route,
       tone: 'bg-blue-50 text-blue-600',
     },
@@ -128,8 +128,9 @@ function testDriveMetrics(result: TestDriveWorkspaceResult): Metric[] {
       tone: 'bg-violet-50 text-violet-600',
     },
     {
-      label: 'Completed this month',
-      value: result.kpis.completed_this_month.toLocaleString(),
+      label: 'Completed',
+      value: result.kpis.completed.toLocaleString(),
+      helper: `${result.kpis.completed_this_month.toLocaleString()} completed this month`,
       icon: CheckCircle2,
       tone: 'bg-emerald-50 text-emerald-600',
     },
@@ -387,7 +388,7 @@ function TestDriveTable({
   });
   const pages = Math.max(1, Math.ceil(result.total / query.pageSize));
   return (
-    <Card className="overflow-hidden shadow-none">
+    <Card className="sales-consultant-list-card overflow-hidden shadow-none">
       <CardHeader className="border-b p-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(240px,1.2fr)_minmax(180px,1fr)_minmax(190px,1fr)_170px_170px_120px]">
           <div className="relative">

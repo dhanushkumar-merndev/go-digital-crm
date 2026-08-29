@@ -152,6 +152,14 @@ export function getDefaultLeadStatus(slug: string): LeadStatusFilter {
   return 'all';
 }
 
+/**
+ * Sales Consultants should start with fresh enquiries when there is meaningful
+ * new work to triage. Otherwise Pending is the more useful starting queue.
+ */
+export function getSalesMyLeadsDefaultStatus(newLeadCount: number): LeadStatusFilter {
+  return newLeadCount > 1 ? 'sales-new' : 'sales-pending';
+}
+
 export function toLeadQueryString(query: LeadQuery) {
   const params = new URLSearchParams();
   if (query.page > 1) params.set('page', String(query.page));

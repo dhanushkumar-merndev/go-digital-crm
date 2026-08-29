@@ -212,7 +212,7 @@ export function InboxWorkspace({ role }: { role: string }) {
           Refresh
         </Button>
       </div>
-      <Card className="overflow-hidden shadow-none">
+      <Card className="sales-consultant-list-card overflow-hidden shadow-none">
         <div className="grid min-h-[calc(100vh-230px)] lg:grid-cols-[320px_minmax(0,1fr)_300px]">
           <aside className="flex min-h-0 flex-col border-r">
             <div className="space-y-2 border-b p-3">

@@ -24,5 +24,9 @@ export function StatusBadge({ value }: { value: string }) {
               normalized.includes('connected')
             ? 'info'
             : 'secondary';
-  return <Badge variant={variant}>{value.replaceAll('_', ' ')}</Badge>;
+  return (
+    <Badge variant={variant} className="rounded px-2 py-0 text-[10px]">
+      {value.replaceAll('_', ' ')}
+    </Badge>
+  );
 }

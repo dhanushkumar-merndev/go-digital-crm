@@ -9,12 +9,15 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleCheckBig,
+  ClipboardList,
   ClockAlert,
   MoreHorizontal,
   Pencil,
   Plus,
   RotateCcw,
   Search,
+  TrendingDown,
+  TrendingUp,
   TriangleAlert,
   X,
 } from 'lucide-react';
@@ -22,7 +25,6 @@ import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { KpiGrid } from '@/components/shared/kpi-grid';
 import { TasksSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
@@ -52,12 +54,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { cn } from '@/lib/utils';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
-import type { Metric, PageSpec } from '@/lib/domain';
+import type { PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import {
   fetchTaskPermissions,
@@ -72,6 +75,7 @@ import {
   taskPriorityFilters,
   toTaskQueryString,
   type TaskQuery,
+  type TaskStatusFilter,
 } from './task-workspace-query';
 import { recordDetailHref } from '@/lib/navigation/record-links';
 
@@ -89,35 +93,236 @@ function titleCase(value: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function metrics(result: TaskWorkspaceResult): Metric[] {
+type TaskCreateContext = {
+  leadId: string;
+  customerName: string;
+  phone: string | null;
+  interestedModel: string | null;
+};
+
+function taskCreateContextFromUrl(params: URLSearchParams): TaskCreateContext | null {
+  if (params.get('action') !== 'create') return null;
+  const leadId = params.get('lead')?.trim() ?? '';
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(leadId))
+    return null;
+  const bounded = (value: string | null, maximum: number) =>
+    value?.trim().slice(0, maximum) || null;
+  return {
+    leadId,
+    customerName: bounded(params.get('customer'), 160) ?? 'Selected customer',
+    phone: bounded(params.get('phone'), 40),
+    interestedModel: bounded(params.get('model'), 120),
+  };
+}
+
+function percentOf(part: number, whole: number) {
+  if (whole <= 0) return 0;
+  return Math.round((part / whole) * 1000) / 10;
+}
+
+/**
+ * The task KPIs, in the same card language as the follow-up workspace and the
+ * Sales Consultant dashboard.
+ *
+ * The rate under each count is a share of the consultant's own workload, not a
+ * period-over-period trend — this response carries no yesterday figure, and a
+ * number nobody can check is worse than no number. `neutral` keeps a share that
+ * is neither good nor bad out of the green/red vocabulary.
+ */
+function taskMetricCards(
+  kpis: TaskWorkspaceResult['kpis'],
+  statusCounts: TaskWorkspaceResult['status_counts'],
+) {
+  const open = kpis.today + kpis.overdue + kpis.upcoming;
+  const dueTodayTotal = kpis.completed_today + kpis.today;
+  const clearedRate = percentOf(kpis.completed_today, dueTodayTotal);
+  // The total card mirrors the All tab, so its open share comes from
+  // status_counts too. `kpis` ignores the search box while status_counts
+  // honours it; mixing the two would push the share past 100% as soon as
+  // someone typed in search.
+  const openInView = statusCounts.open + statusCounts.in_progress;
   return [
     {
+      status: 'all' as const,
+      label: 'Total tasks',
+      value: statusCounts.all,
+      icon: ClipboardList,
+      chip: 'bg-violet-50 text-violet-600',
+      rate: percentOf(openInView, statusCounts.all),
+      helper: 'still to do',
+      rising: true,
+      good: true,
+      neutral: true,
+      footnote: `${statusCounts.completed.toLocaleString()} completed \u00b7 ${statusCounts.cancelled.toLocaleString()} cancelled`,
+    },
+    {
+      status: 'today' as const,
       label: 'Due today',
-      value: result.kpis.today.toLocaleString(),
+      value: kpis.today,
       icon: CalendarCheck2,
-      tone: 'bg-blue-50 text-blue-600',
+      chip: 'bg-blue-50 text-blue-600',
+      rate: percentOf(kpis.today, open),
+      helper: 'of tasks still to do',
+      rising: true,
+      good: true,
     },
     {
+      status: 'overdue' as const,
       label: 'Overdue',
-      value: result.kpis.overdue.toLocaleString(),
-      helper: 'Open and past due',
-      trend: result.kpis.overdue ? 'down' : 'neutral',
+      value: kpis.overdue,
       icon: ClockAlert,
-      tone: 'bg-red-50 text-red-600',
+      chip: 'bg-rose-50 text-rose-600',
+      rate: percentOf(kpis.overdue, open),
+      helper: 'missed against open workload',
+      rising: kpis.overdue > 0,
+      good: kpis.overdue === 0,
     },
     {
+      status: 'completed' as const,
       label: 'Completed today',
-      value: result.kpis.completed_today.toLocaleString(),
+      value: kpis.completed_today,
       icon: CircleCheckBig,
-      tone: 'bg-emerald-50 text-emerald-600',
+      chip: 'bg-emerald-50 text-emerald-600',
+      rate: clearedRate,
+      helper: dueTodayTotal ? 'of today\u2019s tasks cleared' : 'nothing was due today',
+      rising: clearedRate >= 50,
+      good: clearedRate >= 50,
+      neutral: dueTodayTotal === 0,
+      // The Completed tab lists every completed task; this card counts only
+      // today's. Naming the tab total stops that reading as a contradiction.
+      footnote: `${statusCounts.completed.toLocaleString()} completed all time`,
     },
     {
+      status: 'upcoming' as const,
       label: 'Upcoming',
-      value: result.kpis.upcoming.toLocaleString(),
+      value: kpis.upcoming,
       icon: CalendarDays,
-      tone: 'bg-orange-50 text-orange-600',
+      chip: 'bg-orange-50 text-orange-600',
+      rate: percentOf(kpis.upcoming, open),
+      helper: 'of tasks still to do',
+      rising: true,
+      good: true,
     },
   ];
+}
+
+function TaskMetricCard({
+  card,
+  active,
+  onSelect,
+}: {
+  card: ReturnType<typeof taskMetricCards>[number];
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const Icon = card.icon;
+  const TrendIcon = card.rising ? TrendingUp : TrendingDown;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={active}
+      className="group min-w-0 rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    >
+      <Card
+        className={cn(
+          'h-full min-w-0 shadow-none transition-all group-hover:-translate-y-0.5 group-hover:border-blue-200 group-hover:shadow-sm',
+          active ? 'border-blue-300 ring-1 ring-blue-200' : 'border-slate-200/90',
+        )}
+      >
+        <CardContent className="p-4">
+          <div className="flex items-center gap-2.5">
+            <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', card.chip)}>
+              <Icon className="size-4" />
+            </span>
+            <p className="min-w-0 text-[11px] font-semibold leading-4 text-[#263550]">
+              {card.label}
+            </p>
+          </div>
+          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-[#12213f]">
+            {card.value.toLocaleString()}
+          </p>
+          <p
+            className={cn(
+              'mt-3 flex flex-wrap items-center justify-center gap-1 text-[10px] font-semibold',
+              card.neutral
+                ? 'text-muted-foreground'
+                : card.good
+                  ? 'text-emerald-600'
+                  : 'text-rose-600',
+            )}
+          >
+            <TrendIcon className="size-3" /> {card.rate}%
+            <span className="font-normal text-muted-foreground">{card.helper}</span>
+          </p>
+          {card.footnote && (
+            <p className="mt-1 text-center text-[10px] text-muted-foreground">{card.footnote}</p>
+          )}
+        </CardContent>
+      </Card>
+    </button>
+  );
+}
+
+/**
+ * Task tabs follow the work's own order: the three time views first, then the
+ * lifecycle states an open task moves through. Unlike the follow-up tabs these
+ * overlap on purpose — an OPEN task past its due date is counted under both
+ * Open and Overdue — so the counts describe each tab rather than partitioning
+ * the total.
+ */
+function TaskStatusTabs({
+  statusCounts,
+  status,
+  onStatusChange,
+}: {
+  statusCounts: TaskWorkspaceResult['status_counts'];
+  status: TaskStatusFilter;
+  onStatusChange: (status: TaskStatusFilter) => void;
+}) {
+  const tabs: Array<{ label: string; value: TaskStatusFilter; count: number }> = [
+    { label: 'All', value: 'all', count: statusCounts.all },
+    { label: 'Today', value: 'today', count: statusCounts.today },
+    { label: 'Upcoming', value: 'upcoming', count: statusCounts.upcoming },
+    { label: 'Overdue', value: 'overdue', count: statusCounts.overdue },
+    { label: 'Open', value: 'open', count: statusCounts.open },
+    { label: 'In Progress', value: 'in-progress', count: statusCounts.in_progress },
+    { label: 'Completed', value: 'completed', count: statusCounts.completed },
+    { label: 'Cancelled', value: 'cancelled', count: statusCounts.cancelled },
+  ];
+  return (
+    <div
+      role="tablist"
+      aria-label="Task quick views"
+      className="flex h-10 gap-2 overflow-x-auto border-b"
+    >
+      {tabs.map((tab) => {
+        const active = status === tab.value;
+        return (
+          <button
+            key={tab.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onStatusChange(tab.value)}
+            style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
+            className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
+              active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
+            }`}
+          >
+            <span>{tab.label}</span>
+            <span
+              className={`grid min-w-5 place-items-center rounded px-1 py-0.5 text-[10px] leading-none ${
+                active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+              }`}
+            >
+              {tab.count.toLocaleString()}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function isOverdueTask(record: TaskRecord) {
@@ -284,7 +489,7 @@ function TaskTable({
   });
   const pages = Math.max(1, Math.ceil(result.total / query.pageSize));
   return (
-    <Card className="overflow-hidden shadow-none">
+    <Card className="sales-consultant-list-card overflow-hidden shadow-none">
       <CardHeader className="border-b p-4">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
           <div className="relative min-w-0 flex-1 xl:w-[360px] xl:flex-none">
@@ -458,6 +663,10 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
     : undefined;
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const initialCreateContext = useMemo(
+    () => taskCreateContextFromUrl(searchParams),
+    [searchParams],
+  );
   const salesConsultantCache = useSalesConsultantCache();
   const [query, setQuery] = useState<TaskQuery>(() => {
     const parsed = parseTaskQuery(searchParams);
@@ -466,7 +675,10 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
     return parsed;
   });
   const [searchInput, setSearchInput] = useState(query.search);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(() => Boolean(initialCreateContext));
+  const [createContext, setCreateContext] = useState<TaskCreateContext | null>(
+    () => initialCreateContext,
+  );
   const [editing, setEditing] = useState<TaskRecord | null>(null);
   const [actionState, setActionState] = useState<{
     action: 'complete' | 'cancel';
@@ -569,40 +781,38 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
           </p>
         </div>
         {permissions.canCreate && (
-          <Button className="shrink-0" onClick={() => setCreateOpen(true)}>
+          <Button
+            className="shrink-0"
+            onClick={() => {
+              setCreateContext(null);
+              setCreateOpen(true);
+            }}
+          >
             <Plus className="size-4" /> Create task
           </Button>
         )}
       </div>
       <div className="space-y-6">
-        <div className="flex h-10 gap-2 overflow-x-auto border-b">
-          {(
-            [
-              ['today', 'Today'],
-              ['upcoming', 'Upcoming'],
-              ['overdue', 'Overdue'],
-              ['completed', 'Completed'],
-              ['cancelled', 'Cancelled'],
-            ] as const
-          ).map(([value, label]) => {
-            const active = query.status === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                onClick={() => onQueryChange({ status: value, page: 1 })}
-                aria-pressed={active}
-                className={`relative h-full shrink-0 px-3 text-xs font-semibold ${
-                  active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
-                }`}
-                style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
-              >
-                {label}
-              </button>
-            );
-          })}
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          {taskMetricCards(workspace.data.kpis, workspace.data.status_counts).map((card) => (
+            <TaskMetricCard
+              key={card.status}
+              card={card}
+              active={query.status === card.status}
+              onSelect={() =>
+                onQueryChange({
+                  status: query.status === card.status ? 'all' : card.status,
+                  page: 1,
+                })
+              }
+            />
+          ))}
         </div>
-        <KpiGrid metrics={metrics(workspace.data)} />
+        <TaskStatusTabs
+          statusCounts={workspace.data.status_counts}
+          status={query.status}
+          onStatusChange={(status) => onQueryChange({ status, page: 1 })}
+        />
         <TaskTable
           result={workspace.data}
           query={query}
@@ -617,7 +827,18 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
         />
       </div>
       {permissions.canCreate && createOpen && (
-        <TaskFormDialog open onOpenChange={setCreateOpen} onSaved={invalidate} />
+        <TaskFormDialog
+          initialLead={createContext}
+          open
+          onOpenChange={(open) => {
+            setCreateOpen(open);
+            if (!open) setCreateContext(null);
+          }}
+          onSaved={() => {
+            setCreateContext(null);
+            invalidate();
+          }}
+        />
       )}
       {editing && (
         <TaskFormDialog

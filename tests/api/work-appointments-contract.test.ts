@@ -182,6 +182,12 @@ describe('work web runtime contract', () => {
     expect(workspace).not.toMatch(/recharts|chart\.js|apexcharts/i);
   });
 
+  it('keeps follow-up creation in the lead workspace, not in the tracking list', () => {
+    expect(workspace).toContain("kind === 'appointments' && permissions.canCreate");
+    expect(workspace).toContain('kind="appointments"');
+    expect(workspace).not.toContain("kind === 'followups' ? 'Schedule follow-up'");
+  });
+
   it('wires only completed work families into configured mode', () => {
     expect(roleRoute).toContain("if (spec.category === 'followups' && !isLocalPreviewMode())");
     expect(roleRoute).toContain('<WorkWorkspace kind="followups"');

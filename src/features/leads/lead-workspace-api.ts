@@ -65,6 +65,7 @@ export type LeadWorkspacePermissions = {
   canAssign: boolean;
   canUpdate: boolean;
   canCreateFollowup: boolean;
+  canCreateTask: boolean;
   canCreateAppointment: boolean;
   canManageTestDrive: boolean;
   canCreateCustomer: boolean;
@@ -222,6 +223,7 @@ export async function fetchLeadWorkspacePermissions(): Promise<LeadWorkspacePerm
       'lead.assign',
       'lead.update',
       'followup.create',
+      'task.create',
       'appointment.create',
       'test_drive.manage',
       'customer.create',
@@ -242,10 +244,11 @@ export async function fetchLeadWorkspacePermissions(): Promise<LeadWorkspacePerm
     canAssign: Boolean(permissionResults[1]?.data),
     canUpdate: Boolean(permissionResults[2]?.data),
     canCreateFollowup: Boolean(permissionResults[3]?.data),
-    canCreateAppointment: Boolean(permissionResults[4]?.data),
-    canManageTestDrive: Boolean(permissionResults[5]?.data),
-    canCreateCustomer: Boolean(permissionResults[6]?.data),
-    canLinkCustomer: Boolean(permissionResults[7]?.data),
+    canCreateTask: Boolean(permissionResults[4]?.data),
+    canCreateAppointment: Boolean(permissionResults[5]?.data),
+    canManageTestDrive: Boolean(permissionResults[6]?.data),
+    canCreateCustomer: Boolean(permissionResults[7]?.data),
+    canLinkCustomer: Boolean(permissionResults[8]?.data),
   };
 }
 

@@ -79,6 +79,38 @@ body {
   background: var(--background);
   color: var(--foreground);
 }
+
+/* Shared density for Sales Consultant list workspaces. The pages keep their
+ * own columns and filters, but controls, table labels and row text use the
+ * same compact Follow-ups / My Leads language. */
+.sales-consultant-list-card {
+  border-color: rgb(226 232 240);
+  box-shadow: none;
+}
+.sales-consultant-list-card input,
+.sales-consultant-list-card button[role='combobox'] {
+  height: 2rem;
+  background: white;
+  font-size: 10px;
+}
+.sales-consultant-list-card thead th {
+  height: 2.75rem;
+  padding-right: 1rem;
+  padding-left: 1rem;
+  background: rgb(248 250 252);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  color: #263550;
+}
+.sales-consultant-list-card tbody td {
+  padding: 0.75rem 1rem;
+  font-size: 12px;
+  color: #263550;
+}
+.sales-consultant-list-card tbody tr:hover {
+  background: rgb(248 250 252 / 0.7);
+}
 .auth-page-content {
   /* Match the dark navy left panel on every authentication-page primary
      action, without changing the CRM globally. */

@@ -217,7 +217,7 @@ function TableFrame<T>({
   const pages = Math.max(1, Math.ceil(total / query.pageSize));
   const statuses = kind === 'quotations' ? quotationStatusFilters : bookingStatusFilters;
   return (
-    <Card className="shadow-none">
+    <Card className="sales-consultant-list-card shadow-none">
       <CardHeader className="border-b p-4">
         <div
           className={

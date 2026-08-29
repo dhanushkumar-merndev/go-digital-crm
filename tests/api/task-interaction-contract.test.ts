@@ -9,6 +9,8 @@ function source(path: string) {
 const workspace = source('src/features/tasks/task-workspace.tsx');
 const dialogs = source('src/features/tasks/task-workspace-dialogs.tsx');
 const dashboard = source('src/features/dashboards/sales-consultant-dashboard.tsx');
+const leads = source('src/features/leads/lead-workspace.tsx');
+const providers = source('src/components/providers/app-providers.tsx');
 
 describe('task workspace interaction contract', () => {
   it('keeps raw typing local and debounces both the bounded API search and URL update', () => {
@@ -38,8 +40,12 @@ describe('task workspace interaction contract', () => {
     expect(workspace).toContain("sort: sort as TaskQuery['sort'], page: 1");
     expect(workspace).toContain('aria-label="Rows per page"');
     expect(workspace).toContain('pageSize: Number(value) as 25 | 50 | 100, page: 1');
+    // The status tabs moved into TaskStatusTabs (below the KPIs, with counts),
+    // so they report selection as a tablist rather than a pressed button. The
+    // KPI cards are the remaining aria-pressed toggles and filter the same way.
     expect(workspace).toContain('aria-pressed={active}');
-    expect(workspace).toContain('onQueryChange({ status: value, page: 1 })');
+    expect(workspace).toContain('aria-selected={active}');
+    expect(workspace).toContain('onStatusChange={(status) => onQueryChange({ status, page: 1 })}');
     expect(workspace).toContain('onQueryChange({ page: query.page - 1 })');
     expect(workspace).toContain('onQueryChange({ page: query.page + 1 })');
   });
@@ -51,7 +57,8 @@ describe('task workspace interaction contract', () => {
     expect(workspace).toContain("onSelect={() => onAction('cancel', row.original)}");
     expect(workspace).not.toMatch(/DropdownMenuItem onClick/);
     expect(workspace).toContain('permissions.canCreate && createOpen &&');
-    expect(workspace).toContain('<TaskFormDialog open onOpenChange={setCreateOpen}');
+    expect(workspace).toContain('initialLead={createContext}');
+    expect(workspace).toContain('if (!open) setCreateContext(null)');
   });
 });
 
@@ -65,6 +72,8 @@ describe('task mutation feedback and cache linkage', () => {
     expect(dialogs).toContain('Customer opportunities could not be loaded.');
     expect(dialogs).toContain('No authorized active opportunities match this search.');
     expect(dialogs).toContain('onClick={() => void options.refetch()}');
+    expect(dialogs).toContain("title: 'Choose a future due date'");
+    expect(dialogs).toContain('A new task cannot be scheduled in the past.');
   });
 
   it('refreshes the task list and customer timeline through one action', () => {
@@ -78,15 +87,37 @@ describe('task mutation feedback and cache linkage', () => {
       expect(effect).toContain(`salesConsultantKeys.${key}(scope)`);
   });
 
-  it('no longer busts the cached dashboard on a task write', () => {
-    // Tasks keep their own named invalidation. The dashboard uses a short
-    // cache and its Refresh control always rebuilds the aggregate.
-    expect(workspace).not.toContain("'sales-consultant-dashboard'");
+  it('refreshes the live dashboard task alert after a task write', () => {
+    // The dashboard retains its aggregate cache, but attaches the task count
+    // live. Invalidating its in-memory query makes that alert agree with Tasks.
+    const registry = readFileSync(
+      'src/features/sales-consultant/sales-consultant-cache.ts',
+      'utf8',
+    );
+    const effect = registry.slice(registry.indexOf("'task.changed'"));
+    expect(effect).toContain('salesConsultantKeys.dashboard(scope)');
   });
 
   it('keeps dashboard task links pointed at the Today task filter', () => {
     expect(dashboard).toContain("label: 'Tasks due today'");
     expect(dashboard).toContain("href: '/sales-consultant/tasks?status=today'");
     expect(dashboard).toContain('<Link href="/sales-consultant/tasks">');
+  });
+
+  it('opens a lead-linked task form with the selected customer locked in place', () => {
+    expect(leads).toContain('aria-label={`Create task for ${row.original.customer_name}`}');
+    expect(leads).toContain('/tasks?action=create&lead=${encodeURIComponent(row.original.id)}');
+    expect(workspace).toContain('taskCreateContextFromUrl(searchParams)');
+    expect(workspace).toContain('initialLead={createContext}');
+    expect(dialogs).toContain('initialLead?:');
+    expect(dialogs).toContain('enabled: open && !record && !initialLead');
+  });
+
+  it('uses the shared toast feedback for successful and failed mutations', () => {
+    expect(providers).toContain('new MutationCache');
+    expect(providers).toContain("type: 'success'");
+    expect(providers).toContain("type: 'error'");
+    expect(providers).toContain("title: 'Saved successfully'");
+    expect(providers).toContain("title: 'Could not save changes'");
   });
 });

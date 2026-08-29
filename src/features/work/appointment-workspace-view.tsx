@@ -380,7 +380,7 @@ export function AppointmentWorkspaceView({
   };
 
   const filters = (
-    <Card className="shadow-none">
+    <Card className="sales-consultant-list-card shadow-none">
       <CardContent className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-6">
         <div className="relative xl:col-span-2">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -504,7 +504,7 @@ export function AppointmentWorkspaceView({
       </div>
       {filters}
       <div className="grid gap-4 xl:grid-cols-12">
-        <Card className="overflow-hidden shadow-none xl:col-span-9">
+        <Card className="sales-consultant-list-card overflow-hidden shadow-none xl:col-span-9">
           <CardHeader className="flex-row items-center justify-between border-b p-4">
             <CardTitle className="text-sm">Appointments ({result.total})</CardTitle>
             <span className="text-xs text-muted-foreground">

@@ -78,9 +78,9 @@ export type SalesConsultantAction =
 type ActionContext = { leadId?: string; callId?: string };
 
 /**
- * The dashboard is deliberately absent from every entry below. It is a cached
- * aggregate that only rebuilds on an explicit manual refresh, so invalidating
- * it here would spend a round trip to be handed back the identical Redis entry.
+ * The dashboard stays out of ordinary changes because its heavy aggregate is
+ * cached. Tasks are the exception: its alert is read live after the aggregate
+ * cache, so task writes must invalidate the in-memory dashboard query.
  */
 const actionEffects: Record<
   SalesConsultantAction,
@@ -141,6 +141,7 @@ const actionEffects: Record<
   'task.changed': (scope) => [
     salesConsultantKeys.taskWorkspace(scope),
     salesConsultantKeys.customer360(scope),
+    salesConsultantKeys.dashboard(scope),
   ],
   'testdrive.changed': (scope) => [
     salesConsultantKeys.testDriveWorkspace(scope),

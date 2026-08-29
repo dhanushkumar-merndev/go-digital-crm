@@ -82,6 +82,16 @@ function DetailSheet({
   const canComplete =
     permissions.canComplete &&
     (record.assigned_user_id === permissions.userId || permissions.canOverrideComplete);
+  // Mirrors the table: the month can now contain follow-ups that sit on this
+  // user's lead but belong to someone else, and on OWN_RECORDS scope the write
+  // RPCs will refuse those.
+  const writable =
+    permissions.dataScope !== 'OWN_RECORDS' ||
+    record.assigned_user_id === permissions.userId ||
+    permissions.canOverrideComplete;
+  // Linked on customer_id alone before, which left a lead-only follow-up as
+  // unclickable text.
+  const detailHref = recordDetailHref(role, record);
 
   return (
     <>
@@ -108,9 +118,9 @@ function DetailSheet({
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Customer
           </p>
-          {record.customer_id ? (
+          {detailHref ? (
             <Link
-              href={recordDetailHref(role, record) ?? '#'}
+              href={detailHref}
               className="mt-1 block text-base font-semibold text-blue-700 hover:underline"
             >
               {record.customer_name}
@@ -154,43 +164,46 @@ function DetailSheet({
           <p className="mt-2 rounded-lg border p-4 text-sm leading-6">{record.reason}</p>
         </div>
       </div>
-      {!terminal && (permissions.canUpdate || canComplete || permissions.canCancel) && (
-        <div className="flex flex-wrap justify-end gap-2 border-t p-4">
-          {permissions.canUpdate && (
-            <Button
-              variant="outline"
-              onClick={() => {
-                onClose();
-                onEdit(record);
-              }}
-            >
-              <Pencil className="size-4" /> Reschedule
-            </Button>
-          )}
-          {permissions.canCancel && (
-            <Button
-              variant="outline"
-              className="text-destructive hover:text-destructive"
-              onClick={() => {
-                onClose();
-                onAction('cancel', record);
-              }}
-            >
-              Cancel
-            </Button>
-          )}
-          {canComplete && (
-            <Button
-              onClick={() => {
-                onClose();
-                onAction('complete', record);
-              }}
-            >
-              Mark complete
-            </Button>
-          )}
-        </div>
-      )}
+      {!terminal &&
+        ((permissions.canUpdate && writable) ||
+          canComplete ||
+          (permissions.canCancel && writable)) && (
+          <div className="flex flex-wrap justify-end gap-2 border-t p-4">
+            {permissions.canUpdate && writable && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  onClose();
+                  onEdit(record);
+                }}
+              >
+                <Pencil className="size-4" /> Reschedule
+              </Button>
+            )}
+            {permissions.canCancel && writable && (
+              <Button
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                onClick={() => {
+                  onClose();
+                  onAction('cancel', record);
+                }}
+              >
+                Cancel
+              </Button>
+            )}
+            {canComplete && (
+              <Button
+                onClick={() => {
+                  onClose();
+                  onAction('complete', record);
+                }}
+              >
+                Mark complete
+              </Button>
+            )}
+          </div>
+        )}
     </>
   );
 }

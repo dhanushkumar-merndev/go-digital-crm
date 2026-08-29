@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   getDefaultLeadStatus,
+  getSalesMyLeadsDefaultStatus,
   getLeadStatusConstraint,
   isLeadVersionConflict,
   LeadVersionConflictError,
@@ -60,6 +61,9 @@ describe('lead workspace query boundary', () => {
     // new-leads was removed: it was my-leads pre-filtered to the New tab.
     expect(getDefaultLeadStatus('new-leads')).toBe('all');
     expect(getDefaultLeadStatus('lost-leads')).toBe('lost');
+    expect(getSalesMyLeadsDefaultStatus(0)).toBe('sales-pending');
+    expect(getSalesMyLeadsDefaultStatus(1)).toBe('sales-pending');
+    expect(getSalesMyLeadsDefaultStatus(2)).toBe('sales-new');
   });
 
   it('removes PostgREST OR grammar characters from page-local search input', () => {

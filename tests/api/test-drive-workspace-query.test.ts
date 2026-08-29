@@ -12,7 +12,7 @@ describe('test-drive URL boundary', () => {
     expect(
       parseTestDriveQuery(
         new URLSearchParams(
-          'page=-8&pageSize=1000&view=all&sort=random&q=%20%20Ravi%20%20&model=Altroz&from=2026-02-31&to=tomorrow',
+          'page=-8&pageSize=1000&view=invalid&sort=random&q=%20%20Ravi%20%20&model=Altroz&from=2026-02-31&to=tomorrow',
         ),
       ),
     ).toEqual({
@@ -43,6 +43,8 @@ describe('test-drive URL boundary', () => {
       'page=3&pageSize=50&view=completed&q=9876543210&model=Nexon+EV&from=2026-08-01&to=2026-08-15&sort=updated%3Adesc',
     );
     expect(testDriveViewValue('active')).toBe('ACTIVE');
+    expect(parseTestDriveQuery(new URLSearchParams('view=all')).view).toBe('all');
+    expect(testDriveViewValue('all')).toBe('ALL');
   });
 
   it('drops an inverted end date before it reaches the SQL boundary', () => {

@@ -204,6 +204,7 @@ function UserEditorDialog({
   const supportsTeams = ['team_manager', 'sales_consultant', 'telecaller_bdc'].includes(
     selectedRole?.role_key ?? '',
   );
+  const requiresSingleTeam = selectedRole?.role_key === 'sales_consultant';
   const availableScopes = options.data_scopes.filter(({ value }) => {
     if (mode === 'CLIENT_ADMIN_BOOTSTRAP') return !['OWN_RECORDS', 'OWN_TEAM'].includes(value);
     if (selectedRole?.role_key === 'team_manager') return value !== 'OWN_RECORDS';
@@ -226,7 +227,8 @@ function UserEditorDialog({
     (form.dataScope === 'SELECTED_BRANCHES' && form.selectedBranchIds.length > 0) ||
     !['ONE_BRANCH', 'SELECTED_BRANCHES'].includes(form.dataScope);
   const teamShapeValid =
-    !['OWN_RECORDS', 'OWN_TEAM'].includes(form.dataScope) || form.teamIds.length > 0;
+    (!['OWN_RECORDS', 'OWN_TEAM'].includes(form.dataScope) || form.teamIds.length > 0) &&
+    (!requiresSingleTeam || form.teamIds.length <= 1);
   const valid =
     form.fullName.trim().length >= 2 &&
     form.fullName.trim().length <= 160 &&
@@ -468,7 +470,7 @@ function UserEditorDialog({
           {supportsTeams && (
             <div className="space-y-2">
               <p className="text-sm font-medium">
-                Team membership
+                {requiresSingleTeam ? 'Team membership (choose one)' : 'Team membership'}
                 {['OWN_RECORDS', 'OWN_TEAM'].includes(form.dataScope)
                   ? ' (required)'
                   : ' (optional)'}
@@ -494,7 +496,9 @@ function UserEditorDialog({
                           ...current,
                           teamIds: selected
                             ? current.teamIds.filter((id) => id !== team.id)
-                            : [...current.teamIds, team.id],
+                            : requiresSingleTeam
+                              ? [team.id]
+                              : [...current.teamIds, team.id],
                         }));
                       }}
                     >

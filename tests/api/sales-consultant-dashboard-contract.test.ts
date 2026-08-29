@@ -31,6 +31,7 @@ const scheduleDeepLinksMigration = readFileSync(
 );
 const api = readFileSync('src/features/dashboards/sales-consultant-dashboard-api.ts', 'utf8');
 const workspace = readFileSync('src/features/dashboards/sales-consultant-dashboard.tsx', 'utf8');
+const leadWorkspace = readFileSync('src/features/leads/lead-workspace.tsx', 'utf8');
 const taskWorkspace = readFileSync('src/features/tasks/task-workspace.tsx', 'utf8');
 const dashboardHandler = readFileSync(
   'supabase/functions/sales-consultant-dashboard/index.ts',
@@ -140,6 +141,15 @@ describe('sales consultant dashboard contract', () => {
     }
   });
 
+  it('opens recent leads in the All list with a temporary focused row instead of call shortcuts', () => {
+    expect(workspace).toContain('/my-leads?status=all&focus=${encodeURIComponent(lead.id)}');
+    expect(workspace).not.toContain('toWhatsAppClickToChatUrl(lead.phone)');
+    expect(workspace).not.toContain('href={`tel:${lead.phone}`}');
+    expect(leadWorkspace).toContain('lead-row-${focusLeadId}');
+    expect(leadWorkspace).toContain("scrollIntoView({ behavior: 'smooth', block: 'center' })");
+    expect(leadWorkspace).toContain('}, 3_000);');
+  });
+
   it('orders today’s sales-consultant schedule chronologically across all event types', () => {
     expect(todayScheduleMigration).toContain('get_sales_consultant_dashboard_live');
     expect(todayScheduleMigration).toContain("'Consultant Call'");
@@ -207,12 +217,20 @@ describe('sales consultant dashboard contract', () => {
     expect(dashboardHandler).toContain("target_status: 'TODAY'");
     expect(dashboardHandler).toContain('response_version: z.literal');
     expect(dashboardHandler).toContain(': summary.alerts');
-    expect(dashboardHandler).toContain("{ key: 'TASKS_DUE', value: taskDueCount }");
+    expect(dashboardHandler).toContain(
+      "{ key: 'TASKS_DUE', value: await loadTaskDueCount(client) }",
+    );
+    expect(dashboardHandler.indexOf('const cachedDashboard')).toBeLessThan(
+      dashboardHandler.indexOf('const dashboardWithLiveTaskAlert'),
+    );
+    expect(dashboardHandler.indexOf('const dashboardWithLiveTaskAlert')).toBeLessThan(
+      dashboardHandler.indexOf('const result = await attachInventoryImages'),
+    );
     expect(api).toContain("'TASKS_DUE'");
     expect(api).toContain('response_version: 2');
     expect(workspace).toContain("label: 'Tasks due today'");
-    // Task writes have their own workspace invalidation; the dashboard cache is
-    // explicitly replaced only by its user-triggered Refresh control.
+    // Task writes invalidate the in-memory dashboard. Its live alert count is
+    // then attached to the cached aggregate during the next read.
     expect(taskWorkspace).toContain("salesConsultantCache.invalidate('task.changed')");
   });
 

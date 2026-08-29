@@ -77,6 +77,7 @@ describe('test-drive web runtime contract', () => {
     expect(workspace).toContain('manualPagination: true');
     expect(workspace).toContain('useDebouncedValue(query.search, 300)');
     expect(workspace).toContain('useDebouncedValue(query.model, 300)');
+    expect(workspace).toContain("label: 'Total test drives'");
     expect(workspace).toContain("label: 'Conversion after Test Drive'");
     expect(workspace).toContain("setScreen('create')");
     expect(workspace).toContain('<TestDriveActiveView');

@@ -439,7 +439,7 @@ export function SalesExchangeWorkspace({ role }: { role: string }) {
         </Alert>
       ) : null}
 
-      <Card className="shadow-none">
+      <Card className="sales-consultant-list-card shadow-none">
         <CardContent className="p-4">
           <Field label="Find an eligible booking">
             <div className="relative">

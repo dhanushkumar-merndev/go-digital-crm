@@ -13,6 +13,17 @@ export const taskStatusFilters = [
 ] as const;
 export type TaskStatusFilter = (typeof taskStatusFilters)[number];
 
+/**
+ * Tasks open on Today, matching the follow-up workspace. The serialiser has to
+ * know this: dropping `status` when it is 'all' would make the All tab parse
+ * back to Today on reload, so 'all' is written explicitly and 'today' is the
+ * value left out.
+ *
+ * A deep link carrying a search term is the exception and starts on 'all' — a
+ * search that silently only looked at today's tasks would be worse than useless.
+ */
+export const defaultTaskStatus: TaskStatusFilter = 'today';
+
 export const taskPriorityFilters = ['all', 'LOW', 'NORMAL', 'HIGH', 'URGENT'] as const;
 export type TaskPriorityFilter = (typeof taskPriorityFilters)[number];
 
@@ -68,7 +79,7 @@ export function toTaskQueryString(query: TaskQuery) {
   if (query.page > 1) params.set('page', String(query.page));
   if (query.pageSize !== 25) params.set('pageSize', String(query.pageSize));
   if (query.search) params.set('q', query.search);
-  if (query.status !== 'all') params.set('status', query.status);
+  if (query.status !== defaultTaskStatus) params.set('status', query.status);
   if (query.priority !== 'all') params.set('priority', query.priority);
   if (query.sort !== 'due:asc') params.set('sort', query.sort);
   return params.toString();

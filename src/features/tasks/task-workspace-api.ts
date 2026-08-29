@@ -37,6 +37,16 @@ export const taskRecordSchema = z.object({
 });
 export type TaskRecord = z.infer<typeof taskRecordSchema>;
 
+/**
+ * `kpis` is the standing workload: scope plus priority, with the status tab and
+ * the search box deliberately excluded. It used to be computed after both, so
+ * opening the Completed tab reported zero overdue tasks.
+ *
+ * `status_counts` drives the tab strip and honours the search box, so the counts
+ * describe what each tab would actually show. These tabs overlap by design — an
+ * OPEN task past its due date appears under both Open and Overdue — so unlike
+ * the follow-up tabs they are not expected to sum to `all`.
+ */
 const taskWorkspaceSchema = z.object({
   records: z.array(taskRecordSchema),
   total: z.coerce.number().int().nonnegative(),
@@ -45,6 +55,16 @@ const taskWorkspaceSchema = z.object({
     today: z.coerce.number().int().nonnegative(),
     upcoming: z.coerce.number().int().nonnegative(),
     completed_today: z.coerce.number().int().nonnegative(),
+  }),
+  status_counts: z.object({
+    all: z.coerce.number().int().nonnegative(),
+    open: z.coerce.number().int().nonnegative(),
+    in_progress: z.coerce.number().int().nonnegative(),
+    overdue: z.coerce.number().int().nonnegative(),
+    today: z.coerce.number().int().nonnegative(),
+    upcoming: z.coerce.number().int().nonnegative(),
+    completed: z.coerce.number().int().nonnegative(),
+    cancelled: z.coerce.number().int().nonnegative(),
   }),
 });
 export type TaskWorkspaceResult = z.infer<typeof taskWorkspaceSchema>;

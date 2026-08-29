@@ -20,6 +20,8 @@ const filtersSchema = z.object({
   branches: z.array(filterOptionSchema),
   teams: z.array(teamFilterOptionSchema),
   owners: z.array(filterOptionSchema),
+  models: z.array(z.string()).default([]),
+  sources: z.array(z.string()).default([]),
 });
 
 export const followupRecordSchema = z.object({
@@ -83,6 +85,13 @@ export type FollowupRecord = z.infer<typeof followupRecordSchema>;
 export type AppointmentRecord = z.infer<typeof appointmentRecordSchema>;
 export type WorkRecord = FollowupRecord | AppointmentRecord;
 
+/**
+ * `kpis` is the consultant's standing workload and is deliberately blind to the
+ * search box — it answers "how much do I owe", not "how much matches what I
+ * typed". `status_counts` is the opposite: it is measured over the same scope
+ * *and* search the table is showing, with the status filter left off, so the
+ * six tab counts always sum to the unfiltered total of the current view.
+ */
 const followupWorkspaceSchema = z.object({
   records: z.array(followupRecordSchema),
   total: z.coerce.number().int().nonnegative(),
@@ -91,6 +100,14 @@ const followupWorkspaceSchema = z.object({
     today: z.coerce.number().int().nonnegative(),
     upcoming: z.coerce.number().int().nonnegative(),
     completed_today: z.coerce.number().int().nonnegative(),
+  }),
+  status_counts: z.object({
+    all: z.coerce.number().int().nonnegative(),
+    overdue: z.coerce.number().int().nonnegative(),
+    today: z.coerce.number().int().nonnegative(),
+    upcoming: z.coerce.number().int().nonnegative(),
+    completed: z.coerce.number().int().nonnegative(),
+    cancelled: z.coerce.number().int().nonnegative(),
   }),
   filters: filtersSchema,
   timezone: z.string(),
@@ -157,6 +174,13 @@ export type WorkWorkspacePermissions = {
   organizationId: string;
   userId: string;
   scopeKey: string;
+  /**
+   * Raw `data_scope` for this session. Needed because the follow-up list now
+   * includes rows owned by other users, and only an OWN_RECORDS viewer is
+   * actually barred from writing to them — `scopeKey` cannot be parsed for
+   * this, its shape differs between the bootstrap and legacy paths.
+   */
+  dataScope: string | null;
   canCreate: boolean;
   canUpdate: boolean;
   canComplete: boolean;
@@ -167,13 +191,25 @@ export type WorkWorkspacePermissions = {
 
 function permissionKeys(kind: WorkKind) {
   const resource = kind === 'followups' ? 'followup' : 'appointment';
+  if (kind === 'followups') {
+    // Follow-ups are created from a lead context. The list is tracking-only,
+    // so it does not need to request the create permission or load the create
+    // dialog's customer/lead search endpoint.
+    return [
+      `${resource}.update`,
+      `${resource}.complete`,
+      `${resource}.cancel`,
+      `${resource}.assign`,
+      'followup.override_complete',
+    ];
+  }
   return [
     `${resource}.create`,
     `${resource}.update`,
     `${resource}.complete`,
     `${resource}.cancel`,
     `${resource}.assign`,
-    kind === 'followups' ? 'followup.override_complete' : `${resource}.complete`,
+    `${resource}.complete`,
   ];
 }
 
@@ -205,16 +241,18 @@ export async function fetchWorkWorkspacePermissions(
   );
   const failed = permissionResults.find((response) => response.error);
   if (failed?.error) throw failed.error;
+  const permissionOffset = kind === 'appointments' ? 1 : 0;
   return {
     organizationId: context.organization_id,
     userId: context.user_id,
     scopeKey: `${context.role_key ?? 'unknown'}:${context.data_scope ?? 'unknown'}`,
-    canCreate: Boolean(permissionResults[0]?.data),
-    canUpdate: Boolean(permissionResults[1]?.data),
-    canComplete: Boolean(permissionResults[2]?.data),
-    canCancel: Boolean(permissionResults[3]?.data),
-    canAssign: Boolean(permissionResults[4]?.data),
-    canOverrideComplete: Boolean(permissionResults[5]?.data),
+    dataScope: context.data_scope ?? null,
+    canCreate: kind === 'appointments' && Boolean(permissionResults[0]?.data),
+    canUpdate: Boolean(permissionResults[permissionOffset]?.data),
+    canComplete: Boolean(permissionResults[permissionOffset + 1]?.data),
+    canCancel: Boolean(permissionResults[permissionOffset + 2]?.data),
+    canAssign: Boolean(permissionResults[permissionOffset + 3]?.data),
+    canOverrideComplete: Boolean(permissionResults[permissionOffset + 4]?.data),
   };
 }
 
@@ -229,7 +267,9 @@ export async function fetchWorkWorkspace(
   signal?: AbortSignal,
 ): Promise<WorkWorkspaceResult> {
   const functionName =
-    kind === 'followups' ? 'get_followup_workspace_page' : 'get_appointment_workspace_page';
+    kind === 'followups'
+      ? 'get_followup_workspace_filtered_page'
+      : 'get_appointment_workspace_page';
   const parameters: Record<string, string | number | null> = {
     target_search:
       kind === 'appointments' && query.appointmentId ? query.appointmentId : query.search,
@@ -242,8 +282,14 @@ export async function fetchWorkWorkspace(
     target_sort: query.sort,
     target_timezone: timezone,
   };
-  if (kind === 'followups') parameters.target_priority = query.priority;
-  else parameters.target_appointment_type = query.appointmentType;
+  if (kind === 'followups') {
+    parameters.target_priority = query.priority;
+    parameters.target_model = query.model;
+    parameters.target_source = query.source;
+    parameters.target_temperature = query.temperature;
+    parameters.target_followup_from = query.followupFrom || null;
+    parameters.target_followup_to = query.followupTo || null;
+  } else parameters.target_appointment_type = query.appointmentType;
   const request = createClient().rpc(functionName, parameters);
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
@@ -468,23 +514,51 @@ export async function updateAppointment(input: {
   return mutationResultSchema.parse(data);
 }
 
+/**
+ * What the consultant committed to when closing a follow-up. Completing one is
+ * the moment the lead becomes advanceable — the Leads workspace blocks stage
+ * changes while a follow-up is open — so the answer is captured rather than
+ * left to a free-text note nothing can query.
+ */
+export const followupOutcomes = ['FOLLOW_UP', 'APPOINTMENT', 'LOST'] as const;
+export type FollowupOutcome = (typeof followupOutcomes)[number];
+
 export async function completeWork(input: {
   kind: WorkKind;
   id: string;
   expectedVersion: number;
   note: string;
   requestId: string;
+  outcome?: FollowupOutcome;
 }) {
   const functionName = input.kind === 'followups' ? 'complete_followup' : 'complete_appointment';
   const idKey = input.kind === 'followups' ? 'target_followup_id' : 'target_appointment_id';
-  const { data, error } = await createClient().rpc(functionName, {
+  const parameters: Record<string, string | number | null> = {
     [idKey]: input.id,
     expected_version: input.expectedVersion,
     completion_note: input.note || null,
     target_request_id: input.requestId,
-  });
+  };
+  if (input.kind === 'followups') parameters.followup_outcome = input.outcome ?? null;
+  const { data, error } = await createClient().rpc(functionName, parameters);
   throwMutationError(error);
   return mutationResultSchema.parse(data);
+}
+
+/**
+ * The lead's current `updated_at`, needed as the optimistic-concurrency token
+ * for `update_lead`. A follow-up row does not carry it, and marking the lead
+ * Lost from the completion dialog must not clobber an edit someone made in
+ * between.
+ */
+export async function fetchLeadUpdatedAt(leadId: string) {
+  const { data, error } = await createClient()
+    .from('leads')
+    .select('updated_at')
+    .eq('id', leadId)
+    .single();
+  if (error) throw error;
+  return z.object({ updated_at: z.string() }).parse(data).updated_at;
 }
 
 export async function cancelWork(input: {

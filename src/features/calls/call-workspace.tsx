@@ -1340,7 +1340,7 @@ function CallTable({
   const pages = Math.max(1, Math.ceil(data.total / query.pageSize));
 
   return (
-    <Card className="overflow-hidden shadow-none">
+    <Card className="sales-consultant-list-card overflow-hidden shadow-none">
       <CardHeader className="border-b p-4">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">

@@ -38,6 +38,7 @@ export const workSorts = [
 
 export type WorkSort = (typeof workSorts)[number];
 export type WorkPriorityFilter = 'all' | 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+export type WorkLeadTemperatureFilter = 'all' | 'HOT' | 'WARM' | 'COLD';
 /**
  * The appointment types a consultant can book from the Appointments module.
  * Shared by the filter, the create/edit dialogs, and the mutation contracts so
@@ -71,6 +72,11 @@ export type WorkQuery = {
   branchId: string;
   teamId: string;
   ownerId: string;
+  model: string;
+  source: string;
+  temperature: WorkLeadTemperatureFilter;
+  followupFrom: string;
+  followupTo: string;
   sort: WorkSort;
 };
 
@@ -85,11 +91,29 @@ export const defaultWorkQuery: WorkQuery = {
   branchId: 'all',
   teamId: 'all',
   ownerId: 'all',
+  model: '',
+  source: '',
+  temperature: 'all',
+  followupFrom: '',
+  followupTo: '',
   sort: 'scheduled:asc',
 };
 
 function allowedFilters(kind: WorkKind) {
   return kind === 'followups' ? followupFilters : appointmentFilters;
+}
+
+/**
+ * Follow-ups open on Today — the consultant's actual shift — while appointments
+ * open on the full list.
+ *
+ * Parsing and serialising must agree on this. They did not: the serialiser
+ * dropped `status` whenever it was 'all', so choosing the All tab produced a URL
+ * with no status, which parsed straight back to Today. The tab worked until you
+ * reloaded or shared the link.
+ */
+export function defaultWorkStatus(kind: WorkKind): WorkStatusFilter {
+  return kind === 'followups' ? 'today' : 'all';
 }
 
 export function parseWorkQuery(params: URLSearchParams, kind: WorkKind): WorkQuery {
@@ -107,7 +131,9 @@ export function parseWorkQuery(params: URLSearchParams, kind: WorkKind): WorkQue
     pageSize: workPageSizes.includes(pageSize as WorkPageSize) ? (pageSize as WorkPageSize) : 25,
     search: (params.get('q') ?? '').trim().slice(0, 160),
     appointmentId: kind === 'appointments' && isUuid(appointmentId) ? appointmentId : '',
-    status: filters.includes(status as never) ? (status as WorkStatusFilter) : 'all',
+    status: filters.includes(status as never)
+      ? (status as WorkStatusFilter)
+      : defaultWorkStatus(kind),
     priority: ['LOW', 'NORMAL', 'HIGH', 'URGENT'].includes(priority ?? '')
       ? (priority as WorkPriorityFilter)
       : 'all',
@@ -119,23 +145,38 @@ export function parseWorkQuery(params: URLSearchParams, kind: WorkKind): WorkQue
     branchId: isUuid(params.get('branch') ?? '') ? (params.get('branch') as string) : 'all',
     teamId: isUuid(params.get('team') ?? '') ? (params.get('team') as string) : 'all',
     ownerId: isUuid(params.get('owner') ?? '') ? (params.get('owner') as string) : 'all',
+    model: (params.get('model') ?? '').trim().slice(0, 160),
+    source: (params.get('source') ?? '').trim().slice(0, 100),
+    temperature: ['HOT', 'WARM', 'COLD'].includes(params.get('temperature') ?? '')
+      ? (params.get('temperature') as WorkLeadTemperatureFilter)
+      : 'all',
+    followupFrom: (params.get('followupFrom') ?? '').slice(0, 10),
+    followupTo: (params.get('followupTo') ?? '').slice(0, 10),
     sort: workSorts.includes(sort as WorkSort) ? (sort as WorkSort) : 'scheduled:asc',
   };
 }
 
-export function toWorkQueryString(query: WorkQuery) {
+export function toWorkQueryString(query: WorkQuery, kind?: WorkKind) {
+  // Without a kind the plain 'all' default applies, which keeps the existing
+  // single-argument callers behaving exactly as before.
+  const defaultStatus = kind ? defaultWorkStatus(kind) : 'all';
   const params = new URLSearchParams();
   if (query.page > 1) params.set('page', String(query.page));
   if (query.pageSize !== 25) params.set('pageSize', String(query.pageSize));
   if (query.search) params.set('q', query.search);
   if (query.appointmentId) params.set('appointment', query.appointmentId);
-  if (query.status !== 'all') params.set('status', query.status);
+  if (query.status !== defaultStatus) params.set('status', query.status);
   if (query.priority && query.priority !== 'all') params.set('priority', query.priority);
   if (query.appointmentType && query.appointmentType !== 'all')
     params.set('type', query.appointmentType);
   if (query.branchId !== 'all') params.set('branch', query.branchId);
   if (query.teamId !== 'all') params.set('team', query.teamId);
   if (query.ownerId !== 'all') params.set('owner', query.ownerId);
+  if (query.model) params.set('model', query.model);
+  if (query.source) params.set('source', query.source);
+  if (query.temperature !== 'all') params.set('temperature', query.temperature);
+  if (query.followupFrom) params.set('followupFrom', query.followupFrom);
+  if (query.followupTo) params.set('followupTo', query.followupTo);
   if (query.sort !== 'scheduled:asc') params.set('sort', query.sort);
   return params.toString();
 }

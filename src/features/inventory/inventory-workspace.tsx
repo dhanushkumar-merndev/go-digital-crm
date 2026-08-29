@@ -660,7 +660,7 @@ function ServerTable<T>({
   });
   const pages = Math.max(1, Math.ceil(total / query.pageSize));
   return (
-    <Card className="overflow-hidden shadow-none">
+    <Card className="sales-consultant-list-card overflow-hidden shadow-none">
       <CardContent className="p-0">
         <div className={`overflow-x-auto transition-opacity ${isFetching ? 'opacity-65' : ''}`}>
           <Table>

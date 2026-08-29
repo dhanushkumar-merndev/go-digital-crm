@@ -54,6 +54,10 @@ describe('Sales Consultant dummy lead seed safety', () => {
     expect(source).toContain('connection_id: null');
     expect(source).toContain("await insert('lead_assignments', assignmentRows)");
     expect(source).toContain("await insert('lead_assignment_history', historyRows)");
+    expect(source).toContain("fixture?.state === 'FOLLOW_UP'");
+    expect(source).toContain("await insert('followups', followupRows)");
+    expect(source).toContain('reason: `${FIXTURE_MARKER} follow-up`');
+    expect(source).toContain("status: 'OPEN'");
     expect(source).toContain("await insert('lead_stage_history', handoffRows)");
     expect(source).toContain("to_status: 'Transferred to Sales'");
     expect(source).toContain("'LEAD_TRANSFERRED_TO_SALES'");

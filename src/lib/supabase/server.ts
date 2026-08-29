@@ -17,5 +17,18 @@ export async function createClient() {
         }
       },
     },
+    ...(process.env.NODE_ENV === 'development' && {
+      global: {
+        fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+          const start = performance.now();
+          const response = await fetch(input, init);
+          const end = performance.now();
+          const duration = (end - start).toFixed(2);
+          const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+          console.log(`[SSR DB/Network] 🟢 API DB fetch: ${urlStr.split('/').pop()} took ${duration}ms`);
+          return response;
+        },
+      },
+    }),
   });
 }

@@ -87,10 +87,12 @@ const testDriveWorkspaceSchema = z.object({
   organization_id: z.uuid(),
   timezone: z.string(),
   kpis: z.object({
+    total: z.coerce.number().int().nonnegative(),
     today: z.coerce.number().int().nonnegative(),
     overdue: z.coerce.number().int().nonnegative(),
     upcoming: z.coerce.number().int().nonnegative(),
     active: z.coerce.number().int().nonnegative(),
+    completed: z.coerce.number().int().nonnegative(),
     completed_this_month: z.coerce.number().int().nonnegative(),
     cancelled: z.coerce.number().int().nonnegative(),
     converted: z.coerce.number().int().nonnegative(),

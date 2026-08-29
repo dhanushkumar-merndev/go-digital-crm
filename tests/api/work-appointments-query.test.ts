@@ -15,17 +15,24 @@ describe('work workspace query boundary', () => {
       pageSize: 25,
       search: 'Ravi',
       appointmentId: '',
-      status: 'all',
+      status: 'today',
       priority: 'all',
       appointmentType: 'all',
       branchId: 'all',
       teamId: 'all',
       ownerId: 'all',
+      model: '',
+      source: '',
+      temperature: 'all',
+      followupFrom: '',
+      followupTo: '',
       sort: 'scheduled:asc',
     });
   });
 
   it('keeps follow-up and appointment filter vocabularies separate', () => {
+    expect(parseWorkQuery(new URLSearchParams(), 'followups').status).toBe('today');
+    expect(parseWorkQuery(new URLSearchParams(), 'appointments').status).toBe('all');
     expect(parseWorkQuery(new URLSearchParams('status=overdue'), 'followups').status).toBe(
       'overdue',
     );
@@ -71,6 +78,11 @@ describe('work workspace query boundary', () => {
         branchId,
         teamId: 'all',
         ownerId,
+        model: '',
+        source: '',
+        temperature: 'all',
+        followupFrom: '',
+        followupTo: '',
         sort: 'customer:asc',
       }),
     ).toBe(

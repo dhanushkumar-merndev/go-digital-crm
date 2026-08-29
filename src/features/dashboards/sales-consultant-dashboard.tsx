@@ -33,7 +33,6 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { SalesConsultantDashboardSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
-import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -54,7 +53,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { PageSpec } from '@/lib/domain';
-import { toWhatsAppClickToChatUrl } from '@/lib/phone';
 import { ManualDashboardRefreshLimitError } from '@/lib/query/cached-dashboard-api';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import {
@@ -682,37 +680,12 @@ function RecentLeads({
                     </Badge>
                   </TableCell>
                   <TableCell className="px-3 py-2">
-                    <div className="flex justify-end gap-0.5">
-                      <Button
-                        asChild
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 text-emerald-600"
-                      >
-                        <a href={`tel:${lead.phone}`} aria-label={`Call ${lead.customer_name}`}>
-                          <Phone className="size-3.5" />
-                        </a>
-                      </Button>
-                      <Button
-                        asChild
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 text-emerald-600"
-                      >
-                        <a
-                          href={toWhatsAppClickToChatUrl(lead.phone)}
-                          target="_blank"
-                          rel="noreferrer"
-                          aria-label={`WhatsApp ${lead.customer_name}`}
-                          title={`WhatsApp ${lead.customer_name}`}
-                        >
-                          <WhatsAppIcon className="size-4" />
-                        </a>
-                      </Button>
+                    <div className="flex justify-end">
                       <Button asChild variant="ghost" size="icon" className="size-7 text-blue-600">
                         <Link
-                          href={leadDetailHref(DASHBOARD_ROLE, lead.id)}
-                          aria-label={`Open ${lead.customer_name}`}
+                          href={`/${DASHBOARD_ROLE}/my-leads?status=all&focus=${encodeURIComponent(lead.id)}`}
+                          aria-label={`Open ${lead.customer_name} in My Leads`}
+                          title={`Open ${lead.customer_name} in My Leads`}
                         >
                           <ArrowRight className="size-3.5" />
                         </Link>

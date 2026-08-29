@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   MoreVertical,
+  ListTodo,
   Pin,
   Phone,
   RefreshCw,
@@ -22,7 +23,7 @@ import {
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LeadWorkspaceSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
@@ -104,6 +105,8 @@ import {
 } from './lead-workspace-api';
 import {
   getDefaultLeadStatus,
+  getSalesMyLeadsDefaultStatus,
+  isUuid,
   isLeadVersionConflict,
   parseLeadQuery,
   toLeadQueryString,
@@ -112,7 +115,7 @@ import {
   type LeadStatusFilter,
   type LeadTemperatureFilter,
 } from './lead-workspace-query';
-import { leadDetailHref } from '@/lib/navigation/record-links';
+import { customerDetailHref, leadDetailHref } from '@/lib/navigation/record-links';
 import {
   emptySavedLeadFilterValues,
   loadSavedLeadFilters,
@@ -206,12 +209,6 @@ function formatCompactDate(value: string | null) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
-}
-
-function maskPhone(phone: string) {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.length < 6) return phone;
-  return `${digits.slice(0, 4)}****${digits.slice(-2)}`;
 }
 
 function formatLeadAge(createdAt: string) {
@@ -387,6 +384,37 @@ function LeadStatusTabs({
   );
 }
 
+/**
+ * The generic "check the permitted branch and required fields" text hid every
+ * real reason, including ones the user cannot act on by editing the form. The
+ * server's own codes are mapped where they mean something specific, and the
+ * fallback keeps the original wording for anything unrecognised.
+ */
+function leadCreateMessage(error: unknown) {
+  const code =
+    typeof error === 'object' && error !== null
+      ? ((error as { message?: string }).message ?? '')
+      : '';
+  const known: Record<string, string> = {
+    SALES_CONSULTANT_TEAM_REQUIRED:
+      'You are not a member of a team in this branch, and a lead assigned to you must belong to one. Ask your manager to add you to a sales team, then try again.',
+    ASSIGNED_LEAD_REQUIRES_TEAM:
+      'A lead assigned to you must belong to a team. Ask your manager to add you to a sales team, then try again.',
+    LEAD_ASSIGNEE_NOT_IN_TEAM: 'You are not an active member of the selected team.',
+    LEAD_TEAM_NOT_IN_BRANCH: 'That team does not belong to the selected branch.',
+    NO_ELIGIBLE_FRESH_ASSIGNEE: 'No one on that team can currently receive a new lead.',
+    PERMISSION_DENIED: 'You are not allowed to create leads in this branch.',
+    INVALID_PHONE: 'Enter a valid phone number of 7 to 15 digits.',
+    INVALID_EMAIL: 'Enter a valid email address, or leave it blank.',
+    INVALID_CUSTOMER_NAME: 'Customer name must be between 2 and 160 characters.',
+    INVALID_LEAD_SOURCE: 'Choose a valid source.',
+  };
+  return (
+    known[code] ??
+    'The lead could not be created. Check the permitted branch and required fields, then try again.'
+  );
+}
+
 function LeadCreateDialog({
   organizationId,
   open,
@@ -418,7 +446,13 @@ function LeadCreateDialog({
   const selectedBranchId = branchId || options.data?.branches[0]?.id || '';
   const teams = options.data?.teams.filter((team) => team.branch_id === selectedBranchId) ?? [];
   const showBranchPicker = (options.data?.branches.length ?? 0) > 1;
-  const showTeamPicker = teams.length > 0;
+  // A consultant does not choose a team: they belong to exactly one active
+  // sales team, and `create_lead` now resolves it from that membership. The
+  // picker offered a choice that was never theirs and defaulted to "No team
+  // yet", which quietly created teamless leads. OWN_RECORDS is the same
+  // condition the server uses to decide the creator owns what they created.
+  const derivesOwnTeam = workspaceSession?.dataScope === 'OWN_RECORDS';
+  const showTeamPicker = teams.length > 0 && !derivesOwnTeam;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -438,7 +472,7 @@ function LeadCreateDialog({
             mutation.mutate({
               organizationId,
               branchId: selectedBranchId,
-              teamId: teamId === 'none' ? null : teamId,
+              teamId: derivesOwnTeam || teamId === 'none' ? null : teamId,
               source,
               customerName: String(form.get('customerName') ?? ''),
               phone: String(form.get('phone') ?? ''),
@@ -548,10 +582,7 @@ function LeadCreateDialog({
             </p>
           )}
           {mutation.isError && (
-            <p className="text-sm text-destructive">
-              The lead could not be created. Check the permitted branch and required fields, then
-              try again.
-            </p>
+            <p className="text-sm text-destructive">{leadCreateMessage(mutation.error)}</p>
           )}
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -902,9 +933,12 @@ function LeadTable({
   canAssign,
   canUpdate,
   canScheduleFollowups,
+  canCreateTasks,
   canScheduleAppointments,
   canScheduleTestDrives,
   canLinkCustomer,
+  focusLeadId,
+  onFocusConsumed,
   isFetching,
   onAssign,
   onEdit,
@@ -929,9 +963,12 @@ function LeadTable({
   canAssign: boolean;
   canUpdate: boolean;
   canScheduleFollowups: boolean;
+  canCreateTasks: boolean;
   canScheduleAppointments: boolean;
   canScheduleTestDrives: boolean;
   canLinkCustomer: boolean;
+  focusLeadId: string | null;
+  onFocusConsumed: () => void;
   isFetching: boolean;
   onAssign: (lead: LeadRecord) => void;
   onEdit: (lead: LeadRecord, preset?: LeadEditPreset) => void;
@@ -956,7 +993,9 @@ function LeadTable({
       : ['all', ...lifecycleOptions, 'Test Drive', 'Quotation', 'Booking'];
   const canOpenFollowups = roleHasNavigationSlug(role, 'follow-ups');
   const canOpenAppointments = roleHasNavigationSlug(role, 'appointments');
+  const canOpenTasks = roleHasNavigationSlug(role, 'tasks');
   const tableRouter = useRouter();
+  const [highlightedLeadId, setHighlightedLeadId] = useState<string | null>(null);
   const blockedByOpenFollowup = useCallback((lead: LeadRecord, label: string) => {
     if (!lead.next_followup_at) return false;
     toast.add({
@@ -1007,6 +1046,19 @@ function LeadTable({
       return rightPin.localeCompare(leftPin);
     });
   }, [data.records, personalFlags]);
+  useEffect(() => {
+    if (!focusLeadId || !visibleRecords.some((lead) => lead.id === focusLeadId)) return;
+    setHighlightedLeadId(focusLeadId);
+    const row = document.getElementById(`lead-row-${focusLeadId}`);
+    globalThis.requestAnimationFrame(() => {
+      row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    const timeout = globalThis.setTimeout(() => {
+      setHighlightedLeadId(null);
+      onFocusConsumed();
+    }, 3_000);
+    return () => globalThis.clearTimeout(timeout);
+  }, [focusLeadId, onFocusConsumed, visibleRecords]);
   const followupDateLabel =
     query.followupFrom && query.followupTo
       ? `${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupFrom}T00:00:00`))} – ${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupTo}T00:00:00`))}`
@@ -1022,7 +1074,7 @@ function LeadTable({
         header: 'Lead ID',
         cell: ({ row }) => (
           <Link
-            href={`/${role}/leads/${row.original.id}`}
+            href={leadDetailHref(role, row.original.id)}
             className="font-medium text-muted-foreground hover:text-primary hover:underline"
           >
             L-{shortId(row.original.id)}
@@ -1032,17 +1084,20 @@ function LeadTable({
       {
         accessorKey: 'customer_name',
         header: 'Customer',
-        // A row represents one opportunity, so selecting either identifier
-        // opens the lead-scoped workspace. Customer 360 remains available
-        // from the explicit action inside that workspace.
-        cell: ({ row }) => (
-          <Link
-            href={leadDetailHref(role, row.original.id)}
-            className="font-semibold text-foreground hover:text-primary hover:underline"
-          >
-            {row.original.customer_name}
-          </Link>
-        ),
+        // Lead ID opens one opportunity; customer name opens the person's
+        // Customer 360. An unlinked lead has no Customer 360 yet, so retain
+        // its lead destination until the customer is resolved.
+        cell: ({ row }) => {
+          const { customer_id: customerId, customer_name: customerName, id } = row.original;
+          return (
+            <Link
+              href={customerId ? customerDetailHref(role, customerId) : leadDetailHref(role, id)}
+              className="font-semibold text-foreground hover:text-primary hover:underline"
+            >
+              {customerName}
+            </Link>
+          );
+        },
       },
       ...(isManagerView
         ? [
@@ -1061,7 +1116,7 @@ function LeadTable({
         accessorKey: 'phone',
         header: 'Mobile',
         cell: ({ getValue }) => (
-          <span className="font-medium text-[#263550]">{maskPhone(String(getValue()))}</span>
+          <span className="font-medium text-[#263550]">{String(getValue())}</span>
         ),
       },
       {
@@ -1226,6 +1281,17 @@ function LeadTable({
                 </Link>
               </Button>
             ) : null}
+            {canCreateTasks && canOpenTasks && (
+              <Button asChild variant="ghost" size="icon" className="size-7 text-blue-600">
+                <Link
+                  href={`/${role}/tasks?action=create&lead=${encodeURIComponent(row.original.id)}&customer=${encodeURIComponent(row.original.customer_name)}&phone=${encodeURIComponent(row.original.phone)}&model=${encodeURIComponent(row.original.interested_model ?? '')}`}
+                  aria-label={`Create task for ${row.original.customer_name}`}
+                  title={`Create task for ${row.original.customer_name}`}
+                >
+                  <ListTodo className="size-3.5" />
+                </Link>
+              </Button>
+            )}
             <Button
               type="button"
               variant="ghost"
@@ -1383,6 +1449,8 @@ function LeadTable({
       canAssign,
       canOpenFollowups,
       canOpenAppointments,
+      canOpenTasks,
+      canCreateTasks,
       canScheduleFollowups,
       canScheduleAppointments,
       canScheduleTestDrives,
@@ -1677,7 +1745,15 @@ function LeadTable({
             <TableBody>
               {table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id} className="hover:bg-slate-50/70">
+                  <TableRow
+                    key={row.id}
+                    id={`lead-row-${row.original.id}`}
+                    className={
+                      highlightedLeadId === row.original.id
+                        ? 'bg-blue-50 ring-1 ring-inset ring-blue-300 transition-colors duration-300'
+                        : 'hover:bg-slate-50/70'
+                    }
+                  >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell
                         key={cell.id}
@@ -1894,6 +1970,7 @@ export function LeadWorkspace({
         canAssign: hasWorkspacePermission(workspaceSession, 'lead.assign'),
         canUpdate: hasWorkspacePermission(workspaceSession, 'lead.update'),
         canCreateFollowup: hasWorkspacePermission(workspaceSession, 'followup.create'),
+        canCreateTask: hasWorkspacePermission(workspaceSession, 'task.create'),
         canCreateAppointment: hasWorkspacePermission(workspaceSession, 'appointment.create'),
         canManageTestDrive: hasWorkspacePermission(workspaceSession, 'test_drive.manage'),
         canCreateCustomer: hasWorkspacePermission(workspaceSession, 'customer.create'),
@@ -1903,6 +1980,7 @@ export function LeadWorkspace({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const focusLeadId = isUuid(searchParams.get('focus') ?? '') ? searchParams.get('focus') : null;
   const fallbackStatus = getDefaultLeadStatus(slug);
   const workspaceLabel =
     role === 'team-manager'
@@ -1913,6 +1991,7 @@ export function LeadWorkspace({
           ? 'Sales Leads'
           : 'My Leads';
   const [query, setQuery] = useState<LeadQuery>(() => parseLeadQuery(searchParams, fallbackStatus));
+  const salesMyLeadsDefaultApplied = useRef(false);
   const [personalView, setPersonalView] = useState<PersonalLeadView>(() =>
     parsePersonalLeadView(searchParams),
   );
@@ -2114,6 +2193,35 @@ export function LeadWorkspace({
     if (nextPersonalView !== 'all') params.set('personal', nextPersonalView);
     replaceQueryString(pathname, params.toString());
   };
+  const clearFocusedLead = useCallback(() => {
+    if (!focusLeadId) return;
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete('focus');
+    const nextQueryString = nextParams.toString();
+    router.replace(nextQueryString ? `${pathname}?${nextQueryString}` : pathname, {
+      scroll: false,
+    });
+  }, [focusLeadId, pathname, router, searchParams]);
+  useEffect(() => {
+    const isSalesMyLeads = role === 'sales-consultant' && slug === 'my-leads';
+    if (
+      !isSalesMyLeads ||
+      searchParams.has('status') ||
+      personalView !== 'all' ||
+      salesMyLeadsDefaultApplied.current ||
+      !workspace.data
+    )
+      return;
+
+    salesMyLeadsDefaultApplied.current = true;
+    const updated = {
+      ...query,
+      status: getSalesMyLeadsDefaultStatus(workspace.data.kpis.sales_new_today),
+      page: 1,
+    };
+    setQuery(updated);
+    replaceQueryString(pathname, toLeadQueryString(updated));
+  }, [pathname, personalView, query, role, searchParams, slug, workspace.data]);
   const onQueryChange = (next: Partial<LeadQuery>) => {
     const updated = { ...query, ...next };
     setQuery(updated);
@@ -2290,6 +2398,11 @@ export function LeadWorkspace({
         canAssign={!spec.readOnly && role === 'team-manager' && Boolean(permissions?.canAssign)}
         canUpdate={!spec.readOnly && Boolean(permissions?.canUpdate)}
         canScheduleFollowups={!spec.readOnly && Boolean(permissions?.canCreateFollowup)}
+        canCreateTasks={
+          !spec.readOnly &&
+          Boolean(permissions?.canCreateTask) &&
+          roleHasNavigationSlug(role, 'tasks')
+        }
         canScheduleAppointments={!spec.readOnly && Boolean(permissions?.canCreateAppointment)}
         canScheduleTestDrives={
           !spec.readOnly &&
@@ -2297,6 +2410,8 @@ export function LeadWorkspace({
           roleHasNavigationSlug(role, 'test-drives')
         }
         canLinkCustomer={!spec.readOnly && Boolean(permissions?.canLinkCustomer)}
+        focusLeadId={focusLeadId}
+        onFocusConsumed={clearFocusedLead}
         isFetching={workspace.isFetching}
         onAssign={setAssignmentLead}
         onEdit={(lead, preset) => setEditingLead({ lead, preset })}

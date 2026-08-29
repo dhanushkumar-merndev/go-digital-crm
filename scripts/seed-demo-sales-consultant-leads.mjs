@@ -617,6 +617,42 @@ async function main() {
     }));
   await insert('lead_assignment_history', historyRows);
 
+  // A lead in the Follow-up cohort must have the corresponding open work row.
+  // `next_followup_at` alone only decorates the lead list; without this row the
+  // Follow-ups workspace and its Today/Overdue/Upcoming counts cannot account
+  // for the consultant's commitment.
+  const followupFixtures = allLeads.flatMap((lead) => {
+    const fixture = fixtureByExternalId.get(lead.external_lead_id);
+    return fixture?.state === 'FOLLOW_UP' && fixture.nextFollowupAt ? [{ lead, fixture }] : [];
+  });
+  const existingOpenFollowups = followupFixtures.length
+    ? await select('followups', {
+        select: 'lead_id',
+        organization_id: `eq.${target.organizationId}`,
+        lead_id: inFilter(followupFixtures.map(({ lead }) => lead.id)),
+        status: 'eq.OPEN',
+      })
+    : [];
+  const openFollowupLeadIds = new Set(existingOpenFollowups.map((followup) => followup.lead_id));
+  const followupRows = followupFixtures
+    .filter(({ lead }) => !openFollowupLeadIds.has(lead.id))
+    .map(({ lead, fixture }) => ({
+      organization_id: target.organizationId,
+      branch_id: target.branchId,
+      team_id: target.teamId,
+      lead_id: lead.id,
+      customer_id: lead.customer_id,
+      assigned_user_id: target.salesConsultantId,
+      reason: `${FIXTURE_MARKER} follow-up`,
+      priority: fixture.temperature === 'HOT' ? 'HIGH' : 'NORMAL',
+      due_at: fixture.nextFollowupAt,
+      status: 'OPEN',
+      created_by: target.clientAdminId,
+      created_at: fixture.handoffAt,
+      updated_at: fixture.handoffAt,
+    }));
+  await insert('followups', followupRows);
+
   const existingActivities = await select('activities', {
     select: 'lead_id,activity_type',
     organization_id: `eq.${target.organizationId}`,
@@ -690,6 +726,7 @@ async function main() {
         created_sales_handoff_history: handoffRows.length,
         created_assignment_records: assignmentRows.length,
         created_assignment_history_records: historyRows.length,
+        created_open_followups: followupRows.length,
         total_active_fixture_leads: verifiedLeads.length,
       },
       null,

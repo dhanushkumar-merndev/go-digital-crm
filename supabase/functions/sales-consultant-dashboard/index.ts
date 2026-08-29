@@ -11,7 +11,9 @@ import {
 import { tigrisClient } from '../_shared/tigris.ts';
 
 // Held for 24 hours. Manual Refresh removes this entry and rebuilds it from
-// PostgreSQL before writing the replacement value back to Redis.
+// PostgreSQL before writing the replacement value back to Redis. The task-due
+// alert is attached after this cache read because it must agree with the live
+// Tasks workspace rather than with an older dashboard aggregate.
 const SALES_DASHBOARD_CACHE_TTL_SECONDS = 24 * 60 * 60;
 const SALES_DASHBOARD_CACHE_SCHEMA_VERSION = 2;
 const SALES_DASHBOARD_RESPONSE_VERSION = 2;
@@ -254,12 +256,11 @@ Deno.serve(async (request) => {
       },
       forceRefresh: parsed.data.manual_refresh,
       load: async () => {
-        const [summary, liveResponse, taskDueCount] = await Promise.all([
+        const [summary, liveResponse] = await Promise.all([
           loadDashboardSummary(client),
           client.rpc('get_sales_consultant_dashboard_live', {
             target_timezone: SALES_DASHBOARD_TIMEZONE,
           }),
-          useTaskAlerts ? loadTaskDueCount(client) : Promise.resolve(null),
         ]);
         if (liveResponse.error) throw new SalesDashboardAccessError();
         const live = dashboardLiveShape.parse(liveResponse.data);
@@ -270,17 +271,21 @@ Deno.serve(async (request) => {
           generated_at: live.generated_at,
           schedule: live.schedule,
           recent_leads: live.recent_leads,
-          alerts: useTaskAlerts
-            ? [
-                { key: 'TASKS_DUE', value: taskDueCount },
-                ...summary.alerts.filter((item) => item.key !== 'FOLLOWUPS_DUE'),
-              ].slice(0, 5)
-            : summary.alerts,
+          alerts: summary.alerts,
         });
       },
     });
 
-    const result = await attachInventoryImages(cachedDashboard.value);
+    const dashboardWithLiveTaskAlert = useTaskAlerts
+      ? dashboardShape.parse({
+          ...cachedDashboard.value,
+          alerts: [
+            { key: 'TASKS_DUE', value: await loadTaskDueCount(client) },
+            ...cachedDashboard.value.alerts.filter((item) => item.key !== 'FOLLOWUPS_DUE'),
+          ].slice(0, 5),
+        })
+      : cachedDashboard.value;
+    const result = await attachInventoryImages(dashboardWithLiveTaskAlert);
     return success(
       {
         result,

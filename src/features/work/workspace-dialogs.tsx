@@ -30,10 +30,12 @@ import {
   completeWork,
   createAppointment,
   createFollowup,
+  fetchLeadUpdatedAt,
   fetchWorkCreateOptions,
   updateAppointment,
   updateFollowup,
   type AppointmentRecord,
+  type FollowupOutcome,
   type FollowupRecord,
   type WorkEntityOption,
   type WorkRecord,
@@ -42,6 +44,7 @@ import {
 import { SearchSelect } from '@/components/ui/search-select';
 import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import { optionQueryOptions } from '@/lib/query/option-query';
+import { updateLead } from '@/features/leads/lead-workspace-api';
 import {
   isWorkVersionConflict,
   schedulableAppointmentTypes,
@@ -862,5 +865,225 @@ export function WorkActionDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const outcomeChoices = [
+  {
+    value: 'FOLLOW_UP' as const,
+    label: 'Book another follow-up',
+    hint: 'Still nurturing — schedule the next call now.',
+  },
+  {
+    value: 'APPOINTMENT' as const,
+    label: 'Book an appointment',
+    hint: 'Customer agreed to come in or take a call.',
+  },
+  {
+    value: 'LOST' as const,
+    label: 'Mark lead lost',
+    hint: 'Customer is gone. Needs a reason and is terminal.',
+  },
+];
+
+/**
+ * Completing a follow-up asks what happens next, because this is the moment the
+ * lead becomes movable: the Leads workspace refuses stage changes while a
+ * follow-up is open, and clearing the last one drops the lead from the Follow-up
+ * rung back onto Contacted. Closing without an answer left the lead looking like
+ * it had gone backwards.
+ *
+ * The next record is created *before* the follow-up is completed. If the
+ * consultant abandons the appointment form, or the write fails, the follow-up
+ * stays open and the work is still on their list. The reverse order would leave
+ * a follow-up marked "APPOINTMENT" with no appointment behind it — a promise the
+ * data claims was kept.
+ */
+export function FollowupCompleteDialog({
+  record,
+  open,
+  onOpenChange,
+  onCompleted,
+}: {
+  record: FollowupRecord;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCompleted: () => void;
+}) {
+  const [outcome, setOutcome] = useState<FollowupOutcome | null>(null);
+  const [note, setNote] = useState('');
+  const [lostReason, setLostReason] = useState('');
+  const [chained, setChained] = useState<WorkKind | null>(null);
+
+  const complete = useMutation({
+    mutationFn: (chosen: FollowupOutcome) =>
+      completeWork({
+        kind: 'followups',
+        id: record.id,
+        expectedVersion: record.version,
+        note,
+        requestId: crypto.randomUUID(),
+        outcome: chosen,
+      }),
+    onSuccess: () => {
+      onCompleted();
+      onOpenChange(false);
+    },
+  });
+
+  const markLost = useMutation({
+    mutationFn: async () => {
+      if (!record.lead_id) throw new Error('FOLLOWUP_HAS_NO_LEAD');
+      const expectedUpdatedAt = await fetchLeadUpdatedAt(record.lead_id);
+      await updateLead({
+        leadId: record.lead_id,
+        expectedUpdatedAt,
+        patch: { lifecycle_status: 'Lost', lost_reason: lostReason.trim() },
+        reason: `Lost at follow-up: ${lostReason.trim()}`,
+      });
+      return completeWork({
+        kind: 'followups',
+        id: record.id,
+        expectedVersion: record.version,
+        note,
+        requestId: crypto.randomUUID(),
+        outcome: 'LOST',
+      });
+    },
+    onSuccess: () => {
+      onCompleted();
+      onOpenChange(false);
+    },
+  });
+
+  // A follow-up can hang off a customer with no lead. There is no opportunity to
+  // lose in that case, so the option is offered but disabled rather than
+  // silently failing on submit.
+  const lostUnavailable = !record.lead_id;
+  const busy = complete.isPending || markLost.isPending;
+  const lostReasonTooShort = lostReason.trim().length < 3;
+  const canSubmit =
+    Boolean(outcome) && !busy && (outcome !== 'LOST' || (!lostUnavailable && !lostReasonTooShort));
+
+  const entity = {
+    leadId: record.lead_id,
+    customerId: record.customer_id,
+    branchId: record.branch_id,
+    teamId: record.team_id,
+    assignedUserId: record.assigned_user_id,
+    assignedUserName: record.assigned_user_name,
+    customerName: record.customer_name,
+    phone: record.phone,
+    interestedModel: record.interested_model,
+    search: record.phone ?? record.customer_name,
+    label: `${record.customer_name}${record.phone ? ` · ${record.phone}` : ''}`,
+  };
+
+  return (
+    <>
+      <Dialog open={open && !chained} onOpenChange={(next) => !busy && onOpenChange(next)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Complete follow-up</DialogTitle>
+            <DialogDescription>
+              {record.customer_name} · {record.reason}. Record what happens next so the lead does
+              not fall back down the ladder.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-2">
+            <Label>What happens next?</Label>
+            <div className="grid gap-2">
+              {outcomeChoices.map((choice) => {
+                const disabled = choice.value === 'LOST' && lostUnavailable;
+                const active = outcome === choice.value;
+                return (
+                  <button
+                    key={choice.value}
+                    type="button"
+                    disabled={disabled}
+                    aria-pressed={active}
+                    onClick={() => setOutcome(choice.value)}
+                    className={`rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                      active ? 'border-blue-400 bg-blue-50/60' : 'hover:border-blue-200'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-[#12213f]">{choice.label}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {disabled ? 'This follow-up is not linked to a lead.' : choice.hint}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {outcome === 'LOST' && !lostUnavailable && (
+            <div className="mt-4 space-y-2">
+              <Label htmlFor="followup-lost-reason">Why was the lead lost?</Label>
+              <Textarea
+                id="followup-lost-reason"
+                value={lostReason}
+                onChange={(event) => setLostReason(event.target.value)}
+                maxLength={500}
+                placeholder="Required, at least 3 characters"
+              />
+            </div>
+          )}
+          <div className="mt-4 space-y-2">
+            <Label htmlFor="followup-completion-note">Completion note (optional)</Label>
+            <Textarea
+              id="followup-completion-note"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              maxLength={1000}
+              placeholder="What was discussed"
+            />
+          </div>
+          {(complete.isError || markLost.isError) && (
+            <p className="mt-4 text-sm text-destructive">
+              {safeMutationMessage(complete.error ?? markLost.error)}
+            </p>
+          )}
+          <div className="mt-6 flex justify-end gap-2">
+            <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
+              Keep open
+            </Button>
+            <Button
+              disabled={!canSubmit}
+              onClick={() => {
+                if (outcome === 'LOST') markLost.mutate();
+                else if (outcome)
+                  setChained(outcome === 'FOLLOW_UP' ? 'followups' : 'appointments');
+              }}
+            >
+              {busy
+                ? 'Saving…'
+                : outcome === 'LOST'
+                  ? 'Mark lost and complete'
+                  : outcome === 'APPOINTMENT'
+                    ? 'Next: book appointment'
+                    : outcome === 'FOLLOW_UP'
+                      ? 'Next: schedule follow-up'
+                      : 'Choose an outcome'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {chained && (
+        <WorkCreateDialog
+          kind={chained}
+          open
+          lockInitialEntity
+          initialEntity={entity}
+          onOpenChange={(next) => {
+            // Backing out of the next step leaves the follow-up open on purpose.
+            if (!next) setChained(null);
+          }}
+          onCreated={() => {
+            setChained(null);
+            complete.mutate(chained === 'followups' ? 'FOLLOW_UP' : 'APPOINTMENT');
+          }}
+        />
+      )}
+    </>
   );
 }
