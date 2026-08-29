@@ -112,7 +112,30 @@ export function TestDriveCreateView({
   // new search replaces that page, and deriving from it made an already-chosen
   // customer read as "no longer available" without the user touching the field.
   const [pickedLead, setPickedLead] = useState<TestDriveLeadOption | null>(null);
-  const selectedLead = leads.data?.find((item) => item.lead_id === leadId) ?? pickedLead;
+  // Arriving from a lead ("New test drive" on that lead) seeds `leadId` from the
+  // URL but has nothing to display for it. The option list is the 25 most
+  // recently updated leads, so the one we came from is usually not in it and the
+  // form used to report the customer as gone before the user touched anything.
+  // Resolving the id directly is a separate lookup so it cannot be displaced by
+  // whatever the user types into the search box afterwards.
+  const seededLead = useQuery(
+    optionQueryOptions({
+      queryKey: [...salesConsultantKeys.testDriveLeadOptions(queryScope), 'seed', initialLeadId],
+      queryFn: ({ signal }) => fetchTestDriveLeadOptions(initialLeadId ?? '', signal),
+      enabled: Boolean(initialLeadId),
+    }),
+  );
+  const seededMatch = initialLeadId
+    ? (seededLead.data?.find((item) => item.lead_id === initialLeadId) ?? null)
+    : null;
+  const selectedLead =
+    leads.data?.find((item) => item.lead_id === leadId) ??
+    pickedLead ??
+    (leadId && leadId === initialLeadId ? seededMatch : null);
+  // Until both lookups have settled we do not know whether the lead exists, and
+  // saying it is gone while we are still asking is simply wrong.
+  const leadLookupPending =
+    leads.isPending || (Boolean(initialLeadId) && leadId === initialLeadId && seededLead.isPending);
   const resolvedBranchId = branchId || selectedLead?.branch_id || '';
   const vehicles = useQuery(
     optionQueryOptions({
@@ -180,19 +203,21 @@ export function TestDriveCreateView({
       : null;
   const validationMessage = !leadId
     ? 'Select an assigned customer or lead.'
-    : !selectedLead
-      ? 'The selected customer is no longer available. Select the customer again.'
-      : !stockUnitId
-        ? 'Select an available test-drive vehicle.'
-        : !selectedVehicle
-          ? 'The selected vehicle is no longer available. Select another vehicle.'
-          : !scheduledAt
-            ? 'Choose a date and time.'
-            : Number(duration) < 15
-              ? 'Expected duration must be at least 15 minutes.'
-              : registrationValidationMessage
-                ? registrationValidationMessage
-                : null;
+    : leadLookupPending
+      ? 'Loading the selected customer…'
+      : !selectedLead
+        ? 'The selected customer is no longer available. Select the customer again.'
+        : !stockUnitId
+          ? 'Select an available test-drive vehicle.'
+          : !selectedVehicle
+            ? 'The selected vehicle is no longer available. Select another vehicle.'
+            : !scheduledAt
+              ? 'Choose a date and time.'
+              : Number(duration) < 15
+                ? 'Expected duration must be at least 15 minutes.'
+                : registrationValidationMessage
+                  ? registrationValidationMessage
+                  : null;
   const valid = validationMessage === null;
   const submit = () => valid && mutation.mutate();
   return (
