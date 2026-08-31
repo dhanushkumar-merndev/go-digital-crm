@@ -26,7 +26,6 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { useUiStore } from '@/stores/ui-store';
 import { AppIcon } from './icon';
-import { RoleSwitcher } from './role-switcher';
 
 function SidebarContent({
   role,
@@ -68,11 +67,7 @@ function SidebarContent({
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
           {previewMode ? 'Viewing as' : 'Workspace'}
         </p>
-        {previewMode ? (
-          <RoleSwitcher role={role} />
-        ) : (
-          <p className="truncate text-sm font-semibold text-white">{navigation.shortLabel}</p>
-        )}
+        <p className="truncate text-sm font-semibold text-white">{navigation.shortLabel}</p>
         <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
           <ShieldCheck className="size-3.5" />
           {previewMode ? navigation.scope : 'Assigned data scope'}

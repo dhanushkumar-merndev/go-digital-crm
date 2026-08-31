@@ -69,6 +69,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { roleHasNavigationSlug } from '@/config/navigation';
 import type { PageSpec } from '@/lib/domain';
@@ -1235,8 +1236,24 @@ function LeadTable({
       },
       {
         accessorKey: 'created_at',
-        header: 'Lead age',
-        cell: ({ getValue }) => <span>{formatLeadAge(String(getValue()))}</span>,
+        header: 'Created',
+        cell: ({ getValue }) => {
+          const createdAt = String(getValue());
+          return (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  tabIndex={0}
+                  className="cursor-help whitespace-nowrap underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={`${formatCompactDate(createdAt)}. Lead age ${formatLeadAge(createdAt)}`}
+                >
+                  {formatCompactDate(createdAt)}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">Lead age: {formatLeadAge(createdAt)}</TooltipContent>
+            </Tooltip>
+          );
+        },
       },
       {
         id: 'actions',

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast, Toaster } from '@/components/ui/toast';
 import { QUERY_GC_TIME_MS, QUERY_STALE_TIME_MS } from '@/lib/query/cache-policy';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -52,7 +53,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         if (event.type === 'observerAdded') {
           const queryKeyStr = JSON.stringify(event.query.queryKey);
           if (event.query.state.data) {
-             console.log(`[Cache] ⚡ Tanstack Cache hit: ${queryKeyStr}`);
+            console.log(`[Cache] ⚡ Tanstack Cache hit: ${queryKeyStr}`);
           }
         } else if (event.type === 'updated' && event.action?.type === 'success') {
           console.log(`[Cache] 🔄 Data fetched/updated: ${JSON.stringify(event.query.queryKey)}`);
@@ -81,8 +82,10 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
-      <Toaster />
+      <TooltipProvider delayDuration={250} skipDelayDuration={100}>
+        {children}
+        <Toaster />
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }

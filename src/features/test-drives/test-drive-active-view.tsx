@@ -10,6 +10,7 @@ import {
   Navigation,
   Phone,
   Route,
+  X,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,10 +40,12 @@ export function TestDriveActiveView({
   record,
   onBack,
   onAnchor,
+  onCancel,
 }: {
   record: TestDriveRecord;
   onBack: () => void;
   onAnchor: (kind: TestDriveAnchorKind) => void;
+  onCancel: () => void;
 }) {
   const anchors = [record.start_anchor, record.reached_anchor, record.end_anchor].filter(
     (anchor): anchor is NonNullable<typeof anchor> => Boolean(anchor),
@@ -245,13 +248,22 @@ export function TestDriveActiveView({
                 </Button>
               )}
               {record.status === 'ACTIVE' && (
-                <Button variant="destructive" onClick={() => onAnchor('end')}>
-                  <Flag className="size-4" /> End drive
+                <Button onClick={() => onAnchor('end')}>
+                  <Flag className="size-4" /> Complete drive
                 </Button>
               )}
               {record.status === 'READY' && (
                 <Button className="col-span-2" onClick={() => onAnchor('start')}>
                   <Navigation className="size-4" /> Start drive
+                </Button>
+              )}
+              {record.status === 'ACTIVE' && (
+                <Button
+                  variant="outline"
+                  className="col-span-2 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={onCancel}
+                >
+                  <X className="size-4" /> Cancel active drive
                 </Button>
               )}
             </div>

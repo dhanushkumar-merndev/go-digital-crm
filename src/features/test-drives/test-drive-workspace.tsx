@@ -311,7 +311,8 @@ function TestDriveTable({
           const record = row.original;
           const canProgress =
             permissions.canProgressOwn && record.assigned_user_id === permissions.userId;
-          const canCancel = permissions.canManage && record.status === 'READY';
+          const canCancel =
+            permissions.canManage && (record.status === 'READY' || record.status === 'ACTIVE');
           const canStart = canProgress && record.status === 'READY';
           const canReach = canProgress && record.status === 'ACTIVE' && !record.reached_at;
           const canEnd = canProgress && record.status === 'ACTIVE';
@@ -711,11 +712,25 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
           record={current}
           onBack={() => setScreen('list')}
           onAnchor={(anchorKind) => setActionState({ kind: 'anchor', anchorKind, record: current })}
+          onCancel={() => setActionState({ kind: 'cancel', record: current })}
         />
         {actionState?.kind === 'anchor' && (
           <TestDriveAnchorDialog
             key={`${actionState.record.id}:${actionState.record.version}:${actionState.anchorKind}`}
             kind={actionState.anchorKind}
+            record={actionState.record}
+            open
+            onOpenChange={(open) => !open && setActionState(null)}
+            onSaved={() => {
+              setActionState(null);
+              invalidate();
+              setScreen('list');
+            }}
+          />
+        )}
+        {actionState?.kind === 'cancel' && (
+          <TestDriveCancelDialog
+            key={`${actionState.record.id}:${actionState.record.version}:cancel`}
             record={actionState.record}
             open
             onOpenChange={(open) => !open && setActionState(null)}

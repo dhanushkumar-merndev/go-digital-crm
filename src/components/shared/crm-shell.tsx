@@ -7,6 +7,7 @@ import {
 import { isLocalPreviewMode } from '@/lib/runtime/runtime-mode';
 import { AppHeader } from './app-header';
 import { AppSidebar } from './app-sidebar';
+import { RoleSwitcher } from './role-switcher';
 
 export function CrmShell({
   role,
@@ -26,6 +27,7 @@ export function CrmShell({
         <AppSidebar role={role} previewMode={previewMode} navigationAccess={navigationAccess} />
         <AppHeader role={role} previewMode={previewMode} />
         <main className="px-4 py-5 md:px-6 lg:ml-[252px] lg:px-8">{children}</main>
+        {previewMode ? <RoleSwitcher role={role} /> : null}
       </div>
     </WorkspaceSessionProvider>
   );

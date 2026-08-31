@@ -10,6 +10,9 @@ const migration = source('supabase/migrations/202608150025_test_drive_workspace.
 const hardeningMigration = source(
   'supabase/migrations/202608150001_foundation_security_hardening.sql',
 );
+const activeCancellationMigration = source(
+  'supabase/migrations/202608310002_allow_active_test_drive_cancellation.sql',
+);
 const anchorEdge = source('supabase/functions/test-drive-anchor/index.ts');
 const completeEdge = source('supabase/functions/test-drive-complete/index.ts');
 const config = source('supabase/config.toml');
@@ -179,6 +182,16 @@ describe('test-drive lifecycle and concurrency boundary', () => {
       expect(mutation).toContain('TEST_DRIVE_VERSION_CONFLICT');
       expect(mutation).toContain('insert into public.audit_logs');
     }
+  });
+
+  it('lets an explicitly cancelled active drive release the consultant without losing history', () => {
+    expect(activeCancellationMigration).toContain("drive_row.status not in ('READY', 'ACTIVE')");
+    expect(activeCancellationMigration).toContain("previous_status = 'ACTIVE'");
+    expect(activeCancellationMigration).toContain('update public.live_tracking_sessions');
+    expect(activeCancellationMigration).toContain("'previous_status', previous_status");
+    expect(activeCancellationMigration).toContain('app_private.replay_test_drive_request');
+    expect(activeCancellationMigration).toContain('TEST_DRIVE_VERSION_CONFLICT');
+    expect(activeCancellationMigration).toContain('insert into public.audit_logs');
   });
 
   it('restricts driving evidence to the assignee and enforces recoverable ordering', () => {

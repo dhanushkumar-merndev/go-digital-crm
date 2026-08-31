@@ -74,9 +74,13 @@ function mutationMessage(error: unknown, fallback: string) {
     if (message.includes('VEHICLE_UNAVAILABLE'))
       return 'The selected vehicle is no longer available.';
     if (message.includes('INVALID_END_TRANSITION'))
-      return 'This drive can no longer be completed with these details. Refresh the page and verify the end time and odometer.';
+      return 'This drive cannot be completed with these details. Refresh and verify the end time and odometer; if it is a stale interrupted drive, cancel it from the Active tab instead.';
     if (message.includes('INVALID_START_TRANSITION'))
       return 'This drive is no longer ready to start. Refresh the page to see its current status.';
+    if (message.includes('TEST_DRIVE_CONSULTANT_ALREADY_ACTIVE'))
+      return 'You already have an active test drive. Open the Active tab and complete or cancel it before starting another.';
+    if (message.includes('TEST_DRIVE_CANCELLATION_NOT_ALLOWED'))
+      return 'Only a scheduled or active test drive can be cancelled.';
     if (message.includes('TEST_DRIVE_ASSIGNEE_REQUIRED'))
       return 'Only the consultant assigned to this test drive can progress it.';
   }
@@ -442,6 +446,7 @@ export function TestDriveCancelDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }) {
+  const active = record.status === 'ACTIVE';
   const [reason, setReason] = useState('');
   const requestId = useRef<string | null>(null);
   const mutation = useMutation({
@@ -464,9 +469,11 @@ export function TestDriveCancelDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Cancel test drive</DialogTitle>
+          <DialogTitle>{active ? 'Cancel active test drive' : 'Cancel test drive'}</DialogTitle>
           <DialogDescription>
-            Cancel {record.customer_name}&apos;s scheduled drive. The record remains in history.
+            {active
+              ? `Stop and cancel ${record.customer_name}'s active drive without marking it completed. Its recorded anchors remain in the audit history.`
+              : `Cancel ${record.customer_name}'s scheduled drive. The record remains in history.`}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -496,21 +503,27 @@ export function TestDriveCancelDialog({
               <AlertDescription>
                 {mutationMessage(
                   mutation.error,
-                  'The scheduled test drive could not be cancelled.',
+                  active
+                    ? 'The active test drive could not be cancelled.'
+                    : 'The scheduled test drive could not be cancelled.',
                 )}
               </AlertDescription>
             </Alert>
           )}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Keep scheduled
+              {active ? 'Keep active' : 'Keep scheduled'}
             </Button>
             <Button
               type="submit"
               variant="destructive"
               disabled={mutation.isPending || reason.trim().length < 5}
             >
-              {mutation.isPending ? 'Cancelling…' : 'Cancel test drive'}
+              {mutation.isPending
+                ? 'Cancelling…'
+                : active
+                  ? 'Cancel active drive'
+                  : 'Cancel test drive'}
             </Button>
           </div>
         </form>

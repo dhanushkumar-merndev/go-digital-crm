@@ -5,6 +5,7 @@ import {
   decodeWorkspaceBootstrapHeader,
   WORKSPACE_BOOTSTRAP_HEADER,
 } from '@/lib/auth/workspace-bootstrap-header';
+import { isLocalPreviewMode } from '@/lib/runtime/runtime-mode';
 import { createClient } from '@/lib/supabase/server';
 import { isTransientSupabaseError } from '@/lib/supabase/transient-error';
 
@@ -14,6 +15,8 @@ type AccessContext = {
 };
 
 export default async function HomePage() {
+  if (isLocalPreviewMode()) redirect('/sales-consultant/dashboard');
+
   const requestHeaders = await headers();
   let context = decodeWorkspaceBootstrapHeader(
     requestHeaders.get(WORKSPACE_BOOTSTRAP_HEADER),
