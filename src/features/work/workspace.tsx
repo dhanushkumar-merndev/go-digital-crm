@@ -875,6 +875,90 @@ function WorkTable({
                 </Select>
               </label>
             )}
+            {kind === 'followups' && (
+              <>
+                <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+                  Model
+                  <Select
+                    value={query.model || 'all'}
+                    onValueChange={(model) =>
+                      onQueryChange({ model: model === 'all' ? '' : model, page: 1 })
+                    }
+                  >
+                    <SelectTrigger className="h-8 bg-white text-[10px]">
+                      <SelectValue placeholder="All models" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All models</SelectItem>
+                      {result.filters.models.map((model) => (
+                        <SelectItem key={model} value={model}>
+                          {model}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+                  Source
+                  <Select
+                    value={query.source || 'all'}
+                    onValueChange={(source) =>
+                      onQueryChange({ source: source === 'all' ? '' : source, page: 1 })
+                    }
+                  >
+                    <SelectTrigger className="h-8 bg-white text-[10px]">
+                      <SelectValue placeholder="All sources" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All sources</SelectItem>
+                      {result.filters.sources.map((source) => (
+                        <SelectItem key={source} value={source}>
+                          {source}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+                  Temperature
+                  <Select
+                    value={query.temperature}
+                    onValueChange={(temperature) =>
+                      onQueryChange({
+                        temperature: temperature as WorkQuery['temperature'],
+                        page: 1,
+                      })
+                    }
+                  >
+                    <SelectTrigger className="h-8 bg-white text-[10px]">
+                      <SelectValue placeholder="All temperatures" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All temperatures</SelectItem>
+                      <SelectItem value="HOT">Hot</SelectItem>
+                      <SelectItem value="WARM">Warm</SelectItem>
+                      <SelectItem value="COLD">Cold</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+                <div className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+                  Follow-up date
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 justify-start px-2 text-[10px] font-normal text-muted-foreground"
+                    onClick={() => {
+                      setDraftFollowupFrom(query.followupFrom);
+                      setDraftFollowupTo(query.followupTo);
+                      setDateRangeOpen(true);
+                    }}
+                  >
+                    <CalendarDays className="size-3.5 shrink-0 text-blue-600" />
+                    <span className="truncate">{followupDateLabel}</span>
+                  </Button>
+                </div>
+              </>
+            )}
             {managerial ? (
               <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
                 Branch
@@ -1012,90 +1096,6 @@ function WorkTable({
               </div>
             )}
           </div>
-          {kind === 'followups' && (
-            <>
-              <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
-                Model
-                <Select
-                  value={query.model || 'all'}
-                  onValueChange={(model) =>
-                    onQueryChange({ model: model === 'all' ? '' : model, page: 1 })
-                  }
-                >
-                  <SelectTrigger className="h-8 bg-white text-[10px]">
-                    <SelectValue placeholder="All models" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All models</SelectItem>
-                    {result.filters.models.map((model) => (
-                      <SelectItem key={model} value={model}>
-                        {model}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
-              <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
-                Source
-                <Select
-                  value={query.source || 'all'}
-                  onValueChange={(source) =>
-                    onQueryChange({ source: source === 'all' ? '' : source, page: 1 })
-                  }
-                >
-                  <SelectTrigger className="h-8 bg-white text-[10px]">
-                    <SelectValue placeholder="All sources" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All sources</SelectItem>
-                    {result.filters.sources.map((source) => (
-                      <SelectItem key={source} value={source}>
-                        {source}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
-              <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
-                Temperature
-                <Select
-                  value={query.temperature}
-                  onValueChange={(temperature) =>
-                    onQueryChange({
-                      temperature: temperature as WorkQuery['temperature'],
-                      page: 1,
-                    })
-                  }
-                >
-                  <SelectTrigger className="h-8 bg-white text-[10px]">
-                    <SelectValue placeholder="All temperatures" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All temperatures</SelectItem>
-                    <SelectItem value="HOT">Hot</SelectItem>
-                    <SelectItem value="WARM">Warm</SelectItem>
-                    <SelectItem value="COLD">Cold</SelectItem>
-                  </SelectContent>
-                </Select>
-              </label>
-              <div className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
-                Follow-up date
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 justify-start px-2 text-[10px] font-normal text-muted-foreground"
-                  onClick={() => {
-                    setDraftFollowupFrom(query.followupFrom);
-                    setDraftFollowupTo(query.followupTo);
-                    setDateRangeOpen(true);
-                  }}
-                >
-                  <CalendarDays className="size-3.5 shrink-0 text-blue-600" />
-                  <span className="truncate">{followupDateLabel}</span>
-                </Button>
-              </div>
-            </>
-          )}
         </div>
       </CardHeader>
       <CardContent className="p-0">

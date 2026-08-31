@@ -3,6 +3,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
+  ArrowRightLeft,
   CalendarDays,
   ChevronDown,
   ChevronLeft,
@@ -17,7 +18,7 @@ import {
   SlidersHorizontal,
   Star,
   TriangleAlert,
-  UserRoundCheck,
+  UserRoundPlus,
   X,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -97,8 +98,12 @@ import {
   fetchLeadWorkspacePermissions,
   fetchPersonalLeadFlags,
   recordSalesLeadContact,
+  recordTelecallerLeadContact,
+  fetchSalesHandoffCandidates,
+  transferLeadToSales,
   setPersonalLeadPreference,
   updateLead,
+  type SalesHandoffCandidate,
   type PersonalLeadFlag,
   type PersonalLeadFlags,
   type LeadRecord,
@@ -342,7 +347,29 @@ function LeadStatusTabs({
     { label: 'Booking', value: 'booking', count: data.kpis.booking },
     { label: 'Lost', value: 'lost', count: data.kpis.lost_count },
   ];
-  const tabs = role === 'sales-consultant' ? salesConsultantTabs : generalTabs;
+  // Intake and sales use different working queues. A Telecaller owns a lead
+  // from New through qualification; it becomes a Sales lead only after the
+  // qualified handoff. Pending remains a derived work-state, never a lifecycle
+  // update, so a freshly added lead stays in New until the 24-hour rule applies.
+  const telecallerTabs: Array<{ label: string; value: LeadStatusFilter; count: number }> = [
+    { label: 'All', value: 'all', count: data.kpis.total },
+    { label: 'New', value: 'new', count: data.kpis.new_count },
+    { label: 'Pending', value: 'pending', count: data.kpis.pending },
+    { label: 'Contacted', value: 'contacted', count: data.kpis.contacted_count },
+    { label: 'Follow-up', value: 'follow-up', count: data.kpis.follow_up },
+    {
+      label: 'Transferred to Sales',
+      value: 'transferred-to-sales',
+      count: data.kpis.transferred_to_sales_count,
+    },
+    { label: 'Lost', value: 'lost', count: data.kpis.lost_count },
+  ];
+  const tabs =
+    role === 'sales-consultant'
+      ? salesConsultantTabs
+      : role === 'telecaller'
+        ? telecallerTabs
+        : generalTabs;
   const starredCount = data.kpis.starred_count;
 
   return (
@@ -755,6 +782,181 @@ function LeadAssignmentDialog({
   );
 }
 
+/** Auto-assign is the sentinel that tells the database to balance the book. */
+const AUTO_SALES_HANDOFF = 'auto';
+
+/** A lost lead is closed, and a transferred one already belongs to Sales. */
+function canHandOffToSales(lead: LeadRecord) {
+  return lead.lifecycle_status !== 'Lost' && lead.lifecycle_status !== 'Transferred to Sales';
+}
+
+function salesHandoffErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (message.includes('NO_ELIGIBLE_SALES_CONSULTANT'))
+    return 'This team has no Sales Consultant marked eligible for qualified leads. Ask your Team Manager to enable one, then try again.';
+  if (message.includes('SALES_CONSULTANT_NOT_ELIGIBLE'))
+    return 'That Sales Consultant is no longer eligible for this team. Refresh the list and choose another.';
+  if (message.includes('LEAD_ALREADY_WITH_SALES'))
+    return 'This lead has already been transferred to Sales.';
+  if (message.includes('LOST_LEAD_CANNOT_TRANSFER'))
+    return 'A lost lead cannot be transferred. Reopen it first.';
+  if (message.includes('LEAD_TEAM_REQUIRED'))
+    return 'This lead is not in a team yet, so there is nobody to hand it to. Ask your manager to place it in a team.';
+  if (message.includes('PERMISSION_DENIED') || message.includes('SCOPE_DENIED'))
+    return 'You can only transfer leads you own. Refresh the list and try again.';
+  return 'This lead was not transferred. Nothing was changed. Refresh and try again.';
+}
+
+/**
+ * Where an interested intake lead leaves the Telecaller and enters Sales.
+ * Qualification and assignment happen together, so the lead is never left
+ * qualified with nobody working it.
+ */
+function SalesHandoffDialog({
+  lead,
+  open,
+  onOpenChange,
+  onTransferred,
+}: {
+  lead: LeadRecord | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onTransferred: () => void;
+}) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
+  const [search, setSearch] = useState('');
+  const [selection, setSelection] = useState<string>(AUTO_SALES_HANDOFF);
+  const [reason, setReason] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const candidates = useQuery({
+    queryKey: ['sales-handoff-candidates', ...queryScope, lead?.id, debouncedSearch],
+    queryFn: ({ signal }) => fetchSalesHandoffCandidates(lead?.id ?? '', debouncedSearch, signal),
+    enabled: open && Boolean(lead),
+    placeholderData: keepPreviousData,
+  });
+  const consultants: SalesHandoffCandidate[] = candidates.data ?? [];
+  const recommended = consultants.find((consultant) => consultant.recommended) ?? null;
+  const mutation = useMutation({
+    mutationFn: transferLeadToSales,
+    onSuccess: (result) => {
+      const owner = consultants.find(
+        (consultant) => consultant.user_id === result.assigned_user_id,
+      );
+      onOpenChange(false);
+      toast.add({
+        type: 'success',
+        title: 'Lead transferred to Sales',
+        description: owner
+          ? `${owner.full_name} now owns this lead${result.method === 'ROUND_ROBIN' ? ' (fewest open leads).' : '.'}`
+          : 'The lead is now with Sales.',
+      });
+      onTransferred();
+    },
+    onError: (error) => {
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'Lead was not transferred',
+        description: salesHandoffErrorMessage(error),
+      });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Transfer to Sales</DialogTitle>
+          <DialogDescription>
+            {lead
+              ? `${lead.customer_name} is qualified and handed to a Sales Consultant in the same team.`
+              : 'Choose the Sales Consultant who takes this lead.'}
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="mt-4 grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!lead) return;
+            mutation.mutate({
+              leadId: lead.id,
+              userId: selection === AUTO_SALES_HANDOFF ? null : selection,
+              reason,
+            });
+          }}
+        >
+          <div className="grid gap-1.5 text-sm font-medium">
+            Sales Consultant
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="pl-9"
+                placeholder="Search Sales Consultant"
+                maxLength={160}
+              />
+            </div>
+            <Select value={selection} onValueChange={setSelection}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={AUTO_SALES_HANDOFF}>
+                  Auto-assign · fewest open leads
+                  {recommended ? ` (${recommended.full_name})` : ''}
+                </SelectItem>
+                {consultants.map((consultant) => (
+                  <SelectItem key={consultant.user_id} value={consultant.user_id}>
+                    {consultant.full_name} · {consultant.open_leads} open
+                    {consultant.hot_leads ? ` · ${consultant.hot_leads} hot` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs font-normal text-muted-foreground">
+              {candidates.isPending
+                ? 'Loading the team’s Sales Consultants…'
+                : consultants.length
+                  ? 'Auto-assign picks the consultant carrying the fewest open leads in this team.'
+                  : 'No eligible Sales Consultant is available in this team.'}
+            </p>
+          </div>
+          <label className="grid gap-1.5 text-sm font-medium">
+            Reason <span className="font-normal text-muted-foreground">(optional)</span>
+            <Input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              maxLength={500}
+              placeholder="Interested, wants a showroom visit"
+            />
+          </label>
+          {candidates.isError && (
+            <p className="text-sm text-destructive">
+              The Sales Consultant list could not be loaded for this lead.
+            </p>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={
+                mutation.isPending ||
+                (selection === AUTO_SALES_HANDOFF && !candidates.isPending && !consultants.length)
+              }
+            >
+              {mutation.isPending ? 'Transferring…' : 'Transfer to Sales'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function LeadEditDialog({
   lead,
   role,
@@ -962,6 +1164,7 @@ function LeadTable({
   canScheduleAppointments,
   canScheduleTestDrives,
   canLinkCustomer,
+  canTransferToSales,
   focusLeadId,
   onFocusConsumed,
   isFetching,
@@ -971,6 +1174,8 @@ function LeadTable({
   onScheduleAppointment,
   onMatchCustomer,
   onSalesContact,
+  onIntakeContact,
+  onTransferToSales,
 }: {
   role: string;
   data: LeadWorkspaceResult;
@@ -992,6 +1197,7 @@ function LeadTable({
   canScheduleAppointments: boolean;
   canScheduleTestDrives: boolean;
   canLinkCustomer: boolean;
+  canTransferToSales: boolean;
   focusLeadId: string | null;
   onFocusConsumed: () => void;
   isFetching: boolean;
@@ -1001,6 +1207,8 @@ function LeadTable({
   onScheduleAppointment: (lead: LeadRecord, type: AppointmentType) => void;
   onMatchCustomer: (lead: LeadRecord) => void;
   onSalesContact: (lead: LeadRecord, channel: 'CALL' | 'WHATSAPP') => void;
+  onIntakeContact: (lead: LeadRecord, channel: 'CALL' | 'WHATSAPP') => void;
+  onTransferToSales: (lead: LeadRecord) => void;
 }) {
   const isManagerView = ['team-manager', 'showroom-manager', 'gm-sales'].includes(role);
   const showLeadStageFilter = role !== 'sales-consultant';
@@ -1266,6 +1474,7 @@ function LeadTable({
                 aria-label={`Call ${row.original.customer_name}`}
                 onClick={() => {
                   if (role === 'sales-consultant') onSalesContact(row.original, 'CALL');
+                  if (role === 'telecaller') onIntakeContact(row.original, 'CALL');
                 }}
               >
                 <Phone className="size-3.5" />
@@ -1280,6 +1489,7 @@ function LeadTable({
                 title={`WhatsApp ${row.original.customer_name}`}
                 onClick={() => {
                   if (role === 'sales-consultant') onSalesContact(row.original, 'WHATSAPP');
+                  if (role === 'telecaller') onIntakeContact(row.original, 'WHATSAPP');
                 }}
               >
                 <WhatsAppIcon className="size-4" />
@@ -1328,6 +1538,26 @@ function LeadTable({
                 </Link>
               </Button>
             ) : null}
+            {canTransferToSales && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 text-violet-600 disabled:text-muted-foreground"
+                disabled={!canHandOffToSales(row.original)}
+                aria-label={`Transfer ${row.original.customer_name} to Sales`}
+                title={
+                  canHandOffToSales(row.original)
+                    ? `Transfer ${row.original.customer_name} to Sales`
+                    : row.original.lifecycle_status === 'Lost'
+                      ? 'A lost lead cannot be transferred'
+                      : 'Already transferred to Sales'
+                }
+                onClick={() => onTransferToSales(row.original)}
+              >
+                <ArrowRightLeft className="size-3.5" />
+              </Button>
+            )}
             {canCreateTasks && canOpenTasks && (
               <Button asChild variant="ghost" size="icon" className="size-7 text-blue-600">
                 <Link
@@ -1500,6 +1730,7 @@ function LeadTable({
       canScheduleFollowups,
       canScheduleAppointments,
       canScheduleTestDrives,
+      canTransferToSales,
       canUpdate,
       advanceLead,
       blockedByOpenFollowup,
@@ -1508,6 +1739,8 @@ function LeadTable({
       onScheduleFollowup,
       onScheduleAppointment,
       onSalesContact,
+      onIntakeContact,
+      onTransferToSales,
       onPersonalFlagChange,
       personalFlagsPending,
       role,
@@ -2062,6 +2295,7 @@ export function LeadWorkspace({
     });
   };
   const [assignmentLead, setAssignmentLead] = useState<LeadRecord | null>(null);
+  const [handoffLead, setHandoffLead] = useState<LeadRecord | null>(null);
   const [editingLead, setEditingLead] = useState<LeadEditRequest | null>(null);
   const [followupShortcut, setFollowupShortcut] = useState<FollowupShortcut | null>(null);
   const [appointmentShortcut, setAppointmentShortcut] = useState<AppointmentShortcut | null>(null);
@@ -2360,6 +2594,23 @@ export function LeadWorkspace({
     },
   });
 
+  // Pressing Call or WhatsApp is the Telecaller's first contact: it moves the
+  // lead out of the New/Pending queue into Contacted, so the tabs and the row
+  // both have to be refetched.
+  const intakeContactMutation = useMutation({
+    mutationFn: recordTelecallerLeadContact,
+    onSuccess: invalidate,
+    onError: () => {
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'Contact was not recorded',
+        description:
+          'The call or message still went out, but this lead was not marked as contacted. Refresh and mark it from the lead row.',
+      });
+    },
+  });
+
   if (workspace.isPending) return <LeadWorkspaceSkeleton />;
   if (workspace.isError || (!useWorkspaceBootstrap && legacyPermissions.isError))
     return (
@@ -2409,15 +2660,21 @@ export function LeadWorkspace({
               : 'View and manage your leads, track progress and take timely actions.'}
           </p>
         </div>
-        <Button
-          variant="outline"
-          className="shrink-0"
-          onClick={() => void workspace.refetch()}
-          disabled={workspace.isFetching}
-        >
-          <RefreshCw className={`size-4 ${workspace.isFetching ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {role === 'telecaller' && permissions?.canCreate ? (
+            <Button onClick={() => setCreateOpen(true)}>
+              <UserRoundPlus className="size-4" /> Add leads
+            </Button>
+          ) : null}
+          <Button
+            variant="outline"
+            onClick={() => void workspace.refetch()}
+            disabled={workspace.isFetching}
+          >
+            <RefreshCw className={`size-4 ${workspace.isFetching ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
       <LeadStatusTabs
         data={workspace.data}
@@ -2456,6 +2713,9 @@ export function LeadWorkspace({
           roleHasNavigationSlug(role, 'test-drives')
         }
         canLinkCustomer={!spec.readOnly && Boolean(permissions?.canLinkCustomer)}
+        canTransferToSales={
+          !spec.readOnly && role === 'telecaller' && Boolean(permissions?.canUpdate)
+        }
         focusLeadId={focusLeadId}
         onFocusConsumed={clearFocusedLead}
         isFetching={workspace.isFetching}
@@ -2467,6 +2727,12 @@ export function LeadWorkspace({
         onSalesContact={(lead, channel) =>
           salesContactMutation.mutate({ leadId: lead.id, channel })
         }
+        onIntakeContact={(lead, channel) => {
+          if (lead.lifecycle_status === 'Lost' || lead.lifecycle_status === 'Transferred to Sales')
+            return;
+          intakeContactMutation.mutate({ leadId: lead.id, channel });
+        }}
+        onTransferToSales={setHandoffLead}
       />
       {permissions?.canCreate && (
         <LeadCreateDialog
@@ -2476,6 +2742,16 @@ export function LeadWorkspace({
           onCreated={invalidate}
         />
       )}
+      <SalesHandoffDialog
+        key={`handoff-${handoffLead?.id ?? 'none'}`}
+        lead={handoffLead}
+        open={Boolean(handoffLead)}
+        onOpenChange={(open) => !open && setHandoffLead(null)}
+        onTransferred={() => {
+          setHandoffLead(null);
+          void invalidate();
+        }}
+      />
       <LeadAssignmentDialog
         key={`assignment-${assignmentLead?.id ?? 'none'}`}
         lead={assignmentLead}

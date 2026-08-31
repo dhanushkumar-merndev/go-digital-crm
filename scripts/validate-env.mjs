@@ -57,7 +57,7 @@ const runtimeTargets = {
   ],
 };
 
-const exampleOnlyNames = ['NEXT_PUBLIC_ENABLE_LOCAL_PREVIEW'];
+const exampleOnlyNames = ['NEXT_PUBLIC_ENABLE_LOCAL_PREVIEW', 'DEMO_ROLE_LOGIN_ENABLED'];
 const optionalRuntimeNames = [
   'PROVIDER_EVENT_BATCH_SIZE',
   'PROVIDER_EVENT_CONCURRENCY',
@@ -72,6 +72,7 @@ const optionalRuntimeNames = [
   'DEMO_ALLOW_REMOTE_SEED',
   'DEMO_ALLOWED_SUPABASE_PROJECT_REF',
   'DEMO_TEST_PASSWORD',
+  'DEMO_ROLE_LOGIN_ENABLED',
 ];
 const documentedRuntimeNames = new Set([
   ...['web', 'mobile', 'edge', 'trigger'].flatMap((name) => runtimeTargets[name]),
@@ -89,6 +90,7 @@ const safeExampleDefaults = new Set([
   'UPSTASH_REDIS_CACHE_PREFIX',
   'UPSTASH_REDIS_ENABLED',
   'DEMO_ALLOW_REMOTE_SEED',
+  'DEMO_ROLE_LOGIN_ENABLED',
 ]);
 const publicCredentialNames = new Set([
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
@@ -319,6 +321,9 @@ function validateRuntime(target, mode, values) {
   if (mode === 'production' && values.NEXT_PUBLIC_ENABLE_LOCAL_PREVIEW === 'true') {
     errors.push('NEXT_PUBLIC_ENABLE_LOCAL_PREVIEW: must not be true in production');
   }
+  if (mode === 'production' && values.DEMO_ROLE_LOGIN_ENABLED === 'true') {
+    errors.push('DEMO_ROLE_LOGIN_ENABLED: must not be true in production');
+  }
   if (
     requiredSet.has('SUPABASE_SERVICE_ROLE_KEY') &&
     values.SUPABASE_ANON_KEY &&
@@ -448,6 +453,9 @@ function validateExample() {
   validatePublicNames(Object.keys(values), errors);
   if (values.NEXT_PUBLIC_ENABLE_LOCAL_PREVIEW !== 'false') {
     errors.push('NEXT_PUBLIC_ENABLE_LOCAL_PREVIEW: example must default to false');
+  }
+  if (values.DEMO_ROLE_LOGIN_ENABLED !== 'false') {
+    errors.push('DEMO_ROLE_LOGIN_ENABLED: example must default to false');
   }
   if (values.DEMO_ALLOW_REMOTE_SEED !== 'false') {
     errors.push('DEMO_ALLOW_REMOTE_SEED: example must default to false');

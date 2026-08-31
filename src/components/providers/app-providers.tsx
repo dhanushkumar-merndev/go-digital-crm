@@ -5,9 +5,13 @@ import { useEffect, useRef, useState } from 'react';
 import { toast, Toaster } from '@/components/ui/toast';
 import { QUERY_GC_TIME_MS, QUERY_STALE_TIME_MS } from '@/lib/query/cache-policy';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
+import { installRandomUuidFallback } from '@/lib/uuid';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
+  // Run during render rather than an effect: client children can allocate a
+  // request UUID on their first render.
+  installRandomUuidFallback();
   const [queryClient] = useState(
     () =>
       new QueryClient({

@@ -18,6 +18,7 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
+import { createUuid } from '@/lib/uuid';
 import { fetchPossibleCustomerMatches, resolveLeadCustomer } from './customer-workspace-api';
 
 export type MatchableLead = {
@@ -45,7 +46,7 @@ export function CustomerMatchDialog({
   const queryScope = workspaceQueryScope(workspaceSession);
   const [resolution, setResolution] = useState<'LINK_EXISTING' | 'CREATE_NEW'>('LINK_EXISTING');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
-  const [requestId] = useState(() => crypto.randomUUID());
+  const [requestId] = useState(createUuid);
   const matches = useQuery({
     queryKey: ['possible-customer-matches', ...queryScope, lead?.id],
     queryFn: ({ signal }) => fetchPossibleCustomerMatches(lead!.id, signal),

@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { Check, LoaderCircle, ShieldUser } from 'lucide-react';
-import { roleKeys, roleNavigation } from '@/config/navigation';
+import { isRoleKey, roleKeys, roleNavigation } from '@/config/navigation';
 import type { RoleKey, RoleNavigation } from '@/config/navigation/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,8 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { toast } from '@/components/ui/toast';
+import { DEVELOPMENT_DEMO_ROLE_LOGIN_PATH } from '@/lib/auth/development-demo-role-login';
 
 const roleGroupOrder: RoleNavigation['group'][] = [
   'Platform',
@@ -24,20 +27,60 @@ const roleGroupOrder: RoleNavigation['group'][] = [
   'Operations',
 ];
 
-export function RoleSwitcher({ role }: { role: RoleKey }) {
+export function RoleSwitcher({
+  role,
+  mode = 'preview',
+}: {
+  role?: RoleKey;
+  mode?: 'preview' | 'demo-login';
+}) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [switchingTo, setSwitchingTo] = useState<RoleKey>();
   const [isPending, startTransition] = useTransition();
-  const currentRole = roleNavigation[role];
+  const pathnameRole = pathname.split('/')[1] ?? '';
+  const currentRoleKey = role ?? (isRoleKey(pathnameRole) ? pathnameRole : undefined);
+  const currentRole = currentRoleKey ? roleNavigation[currentRoleKey] : undefined;
+  const realDemoLogin = mode === 'demo-login';
+  const isSwitching = Boolean(switchingTo) || isPending;
 
-  function switchRole(nextRole: RoleKey) {
-    if (nextRole === role) {
+  async function switchRole(nextRole: RoleKey) {
+    if (nextRole === currentRoleKey) {
       setOpen(false);
       return;
     }
 
     setSwitchingTo(nextRole);
+    if (realDemoLogin) {
+      try {
+        const response = await fetch(DEVELOPMENT_DEMO_ROLE_LOGIN_PATH, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ role: nextRole }),
+        });
+        if (!response.ok) throw new Error('DEMO_ROLE_LOGIN_FAILED');
+        queryClient.clear();
+        setSwitchingTo(undefined);
+        setOpen(false);
+        startTransition(() => {
+          router.replace('/');
+          router.refresh();
+        });
+      } catch {
+        setSwitchingTo(undefined);
+        toast.add({
+          type: 'error',
+          priority: 'high',
+          title: 'Demo role sign-in failed',
+          description:
+            'The selected demo account could not be opened. Check the local setup and try again.',
+        });
+      }
+      return;
+    }
+
     startTransition(() => {
       setOpen(false);
       router.replace(`/${nextRole}/dashboard`);
@@ -50,16 +93,18 @@ export function RoleSwitcher({ role }: { role: RoleKey }) {
         type="button"
         onClick={() => setOpen(true)}
         className="fixed bottom-5 right-5 z-[35] h-auto rounded-full border border-blue-300/30 bg-[#17233d] px-3 py-2.5 text-white shadow-xl hover:bg-[#223252] sm:px-4"
-        aria-label={`Open development role switcher. Viewing as ${currentRole.label}`}
+        aria-label={`Open development role switcher. ${currentRole ? `Viewing as ${currentRole.label}` : 'Choose a role preview'}`}
       >
         <span className="grid size-8 place-items-center rounded-full bg-blue-500">
           <ShieldUser className="size-4" />
         </span>
         <span className="hidden min-w-0 text-left sm:block">
           <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-200">
-            Dev role
+            {realDemoLogin ? 'Demo login' : 'Dev role'}
           </span>
-          <span className="block max-w-40 truncate text-xs">{currentRole.shortLabel}</span>
+          <span className="block max-w-40 truncate text-xs">
+            {currentRole?.shortLabel ?? 'Choose a role'}
+          </span>
         </span>
       </Button>
 
@@ -70,11 +115,13 @@ export function RoleSwitcher({ role }: { role: RoleKey }) {
         >
           <SheetHeader className="border-b">
             <div className="flex items-center gap-2">
-              <SheetTitle>Preview a role</SheetTitle>
+              <SheetTitle>{realDemoLogin ? 'Sign in as a demo role' : 'Preview a role'}</SheetTitle>
               <Badge variant="warning">Development only</Badge>
             </div>
             <SheetDescription>
-              Open any role dashboard with its navigation, scope label, and isolated preview data.
+              {realDemoLogin
+                ? 'Switch to the selected seeded demo account and use its real permissions and data scope.'
+                : 'Open any role dashboard with its navigation, scope label, and isolated preview data.'}
             </SheetDescription>
           </SheetHeader>
 
@@ -95,8 +142,8 @@ export function RoleSwitcher({ role }: { role: RoleKey }) {
                     <div className="space-y-1">
                       {roles.map((key) => {
                         const candidate = roleNavigation[key];
-                        const active = key === role;
-                        const loading = isPending && switchingTo === key;
+                        const active = key === currentRoleKey;
+                        const loading = switchingTo === key;
 
                         return (
                           <Button
@@ -104,7 +151,7 @@ export function RoleSwitcher({ role }: { role: RoleKey }) {
                             type="button"
                             variant="ghost"
                             onClick={() => switchRole(key)}
-                            disabled={isPending}
+                            disabled={isSwitching}
                             aria-current={active ? 'page' : undefined}
                             className={cn(
                               'h-auto w-full justify-start gap-3 whitespace-normal px-3 py-2.5 text-left',
@@ -143,8 +190,9 @@ export function RoleSwitcher({ role }: { role: RoleKey }) {
           </ScrollArea>
 
           <div className="border-t bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
-            This simulates the selected role for local UI testing. It never changes a real account,
-            role assignment, permission, or data scope.
+            {realDemoLogin
+              ? 'This uses a real Supabase session for the selected seeded demo account. Its actual permissions, RLS scope, and MFA policy still apply.'
+              : 'This simulates the selected role for local UI testing. It never changes a real account, role assignment, permission, or data scope.'}
           </div>
         </SheetContent>
       </Sheet>

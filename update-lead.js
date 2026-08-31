@@ -7,7 +7,9 @@ let content = fs.readFileSync(path, 'utf8');
 const importMatch = content.match(/import \{([\s\S]*?)\} from 'lucide-react';/);
 if (importMatch) {
   let imports = importMatch[1];
-  const newImports = ['Bot', 'CarFront', 'MessageSquareText', 'Pencil', 'FileText', 'Plus'].filter(i => !imports.includes(i));
+  const newImports = ['Bot', 'CarFront', 'MessageSquareText', 'Pencil', 'FileText', 'Plus'].filter(
+    (i) => !imports.includes(i),
+  );
   if (newImports.length > 0) {
     imports = imports + ', ' + newImports.join(', ');
     content = content.replace(importMatch[0], `import {${imports}} from 'lucide-react';`);
@@ -127,9 +129,15 @@ const newOverviewStr = `function LeadOverview({ data, role }: { data: LeadDetail
   );
 }`;
 
-content = content.replace(/function LeadOverview[\s\S]*?function Timeline/, newOverviewStr + '\n\nfunction Timeline');
+content = content.replace(
+  /function LeadOverview[\s\S]*?function Timeline/,
+  newOverviewStr + '\n\nfunction Timeline',
+);
 
 // Remove DetailGrid since it's replaced by InformationGrid
-content = content.replace(/function DetailGrid[\s\S]*?function LeadOverview/, 'function LeadOverview');
+content = content.replace(
+  /function DetailGrid[\s\S]*?function LeadOverview/,
+  'function LeadOverview',
+);
 
 fs.writeFileSync(path, content, 'utf8');

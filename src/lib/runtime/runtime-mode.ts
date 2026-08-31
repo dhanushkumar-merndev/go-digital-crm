@@ -13,6 +13,16 @@ export function isDevelopmentPreviewEnabled({
   return nodeEnv === 'development' && previewFlag === 'true';
 }
 
+export function isDevelopmentDemoRoleLoginEnabled({
+  nodeEnv = process.env.NODE_ENV,
+  demoRoleLoginFlag = process.env.DEMO_ROLE_LOGIN_ENABLED,
+}: {
+  nodeEnv?: string;
+  demoRoleLoginFlag?: string;
+} = {}) {
+  return nodeEnv === 'development' && demoRoleLoginFlag === 'true';
+}
+
 export function resolveRuntimeMode(input: RuntimeModeInput): RuntimeMode {
   if (isDevelopmentPreviewEnabled(input)) return 'LOCAL_PREVIEW';
   return input.hasSupabaseConfig ? 'CONFIGURED' : 'MISCONFIGURED';

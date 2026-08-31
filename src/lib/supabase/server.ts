@@ -24,8 +24,15 @@ export async function createClient() {
           const response = await fetch(input, init);
           const end = performance.now();
           const duration = (end - start).toFixed(2);
-          const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
-          console.log(`[SSR DB/Network] 🟢 API DB fetch: ${urlStr.split('/').pop()} took ${duration}ms`);
+          const urlStr =
+            typeof input === 'string'
+              ? input
+              : input instanceof URL
+                ? input.href
+                : (input as Request).url;
+          console.log(
+            `[SSR DB/Network] 🟢 API DB fetch: ${urlStr.split('/').pop()} took ${duration}ms`,
+          );
           return response;
         },
       },

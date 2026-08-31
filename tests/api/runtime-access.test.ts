@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isDevelopmentDemoRoleLoginEnabled,
   isDevelopmentPreviewEnabled,
   resolveRuntimeMode,
 } from '../../src/lib/runtime/runtime-mode';
@@ -13,6 +14,27 @@ describe('runtime access mode', () => {
     expect(isDevelopmentPreviewEnabled({ nodeEnv: 'development', previewFlag: 'TRUE' })).toBe(
       false,
     );
+  });
+
+  it('allows real demo-role login only with its explicit development flag', () => {
+    expect(
+      isDevelopmentDemoRoleLoginEnabled({
+        nodeEnv: 'development',
+        demoRoleLoginFlag: 'true',
+      }),
+    ).toBe(true);
+    expect(
+      isDevelopmentDemoRoleLoginEnabled({
+        nodeEnv: 'development',
+        demoRoleLoginFlag: undefined,
+      }),
+    ).toBe(false);
+    expect(
+      isDevelopmentDemoRoleLoginEnabled({
+        nodeEnv: 'production',
+        demoRoleLoginFlag: 'true',
+      }),
+    ).toBe(false);
   });
 
   it('ignores the public preview flag in production', () => {

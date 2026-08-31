@@ -61,6 +61,7 @@ export function MfaGate() {
   }, [router]);
 
   async function verify() {
+    if (submitting) return;
     if (!factor || !/^\d{6}$/.test(code)) {
       toast.add({
         type: 'error',
@@ -122,7 +123,13 @@ export function MfaGate() {
               <LoaderCircle className="size-6 animate-spin text-primary" />
             </div>
           ) : (
-            <>
+            <form
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void verify();
+              }}
+            >
               {qr && (
                 <div className="mx-auto w-fit rounded-xl border bg-white p-3">
                   <Image
@@ -143,22 +150,19 @@ export function MfaGate() {
                     onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
                     inputMode="numeric"
                     autoComplete="one-time-code"
+                    autoFocus
                     className="pl-9 text-center text-lg tracking-[.35em]"
                   />
                 </div>
               </label>
-              <Button
-                className="w-full"
-                disabled={submitting || code.length !== 6}
-                onClick={() => void verify()}
-              >
+              <Button type="submit" className="w-full" disabled={submitting || code.length !== 6}>
                 {submitting ? 'Verifying…' : 'Verify and continue'}
               </Button>
               <p className="text-center text-[11px] leading-5 text-muted-foreground">
                 For security, the enrollment QR is shown only during setup. MFA verification is also
                 enforced by database assurance-level policies.
               </p>
-            </>
+            </form>
           )}
         </CardContent>
       </Card>

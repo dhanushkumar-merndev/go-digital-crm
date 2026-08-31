@@ -305,6 +305,65 @@ export async function recordSalesLeadContact(input: {
   return data as { lead_id: string; contacted_at: string };
 }
 
+export async function recordTelecallerLeadContact(input: {
+  leadId: string;
+  channel: 'CALL' | 'WHATSAPP';
+}): Promise<{ lead_id: string; contacted_at: string; lifecycle_status: string }> {
+  const { data, error } = await createClient().rpc('record_telecaller_lead_contact', {
+    target_lead_id: input.leadId,
+    contact_channel: input.channel,
+  });
+  if (error) throw error;
+  return data as { lead_id: string; contacted_at: string; lifecycle_status: string };
+}
+
+export type SalesHandoffCandidate = {
+  user_id: string;
+  full_name: string;
+  open_leads: number;
+  hot_leads: number;
+  recommended: boolean;
+};
+
+export async function fetchSalesHandoffCandidates(
+  leadId: string,
+  search = '',
+  signal?: AbortSignal,
+): Promise<SalesHandoffCandidate[]> {
+  const request = createClient().rpc('get_sales_handoff_candidates', {
+    target_lead_id: leadId,
+    target_search: search.normalize('NFKC').trim().slice(0, 160),
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return (data ?? []) as SalesHandoffCandidate[];
+}
+
+/** `userId: null` lets the database pick the consultant with the lightest open book. */
+export async function transferLeadToSales(input: {
+  leadId: string;
+  userId: string | null;
+  reason: string;
+}): Promise<{
+  lead_id: string;
+  assigned_user_id: string;
+  method: 'ROUND_ROBIN' | 'MANUAL_ASSIGNMENT';
+  lifecycle_status: string;
+}> {
+  const { data, error } = await createClient().rpc('transfer_lead_to_sales', {
+    target_lead_id: input.leadId,
+    target_user_id: input.userId,
+    transfer_reason: input.reason.trim() || null,
+  });
+  if (error) throw error;
+  return data as {
+    lead_id: string;
+    assigned_user_id: string;
+    method: 'ROUND_ROBIN' | 'MANUAL_ASSIGNMENT';
+    lifecycle_status: string;
+  };
+}
+
 export type LeadCreateInput = {
   organizationId: string;
   branchId: string;

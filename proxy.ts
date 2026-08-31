@@ -4,7 +4,8 @@ import {
   encodeWorkspaceBootstrapHeader,
   WORKSPACE_BOOTSTRAP_HEADER,
 } from '@/lib/auth/workspace-bootstrap-header';
-import { getRuntimeMode } from '@/lib/runtime/runtime-mode';
+import { getRuntimeMode, isDevelopmentDemoRoleLoginEnabled } from '@/lib/runtime/runtime-mode';
+import { DEVELOPMENT_DEMO_ROLE_LOGIN_PATH } from '@/lib/auth/development-demo-role-login';
 import { isTransientSupabaseError } from '@/lib/supabase/transient-error';
 
 type AccessContext = {
@@ -67,9 +68,11 @@ function redirectWithSessionCookies(
 
 export async function proxy(request: NextRequest) {
   const runtimeMode = getRuntimeMode();
-  if (runtimeMode === 'LOCAL_PREVIEW') return NextResponse.next({ request });
-
   const pathname = request.nextUrl.pathname;
+  if (runtimeMode === 'LOCAL_PREVIEW') return NextResponse.next({ request });
+  if (isDevelopmentDemoRoleLoginEnabled() && pathname === DEVELOPMENT_DEMO_ROLE_LOGIN_PATH)
+    return NextResponse.next({ request });
+
   if (runtimeMode === 'MISCONFIGURED') {
     return pathname === '/access/configuration'
       ? privateNoStore(NextResponse.next({ request }))
