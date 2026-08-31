@@ -42,8 +42,16 @@ describe('sales consultant cache registry', () => {
   });
 
   it('leaves aggregate dashboard refresh to its short cache and explicit refresh control', () => {
+    // `task.changed` is the one deliberate exception: the dashboard attaches its
+    // task count live, so that alert has to agree with Tasks. Invalidating the
+    // in-memory query re-reads the cached bundle and never spends the manual
+    // refresh budget. Every other action leaves the aggregate alone.
     const effects = registry.slice(registry.indexOf('const actionEffects'));
-    expect(effects).not.toContain('salesConsultantKeys.dashboard');
+    const withoutTaskChanged =
+      effects.slice(0, effects.indexOf("'task.changed'")) +
+      effects.slice(effects.indexOf("'testdrive.changed'"));
+    expect(effects).toContain('salesConsultantKeys.dashboard(scope)');
+    expect(withoutTaskChanged).not.toContain('salesConsultantKeys.dashboard');
   });
 });
 

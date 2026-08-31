@@ -16,10 +16,10 @@ const workWorkspace = source('src/features/work/workspace.tsx');
 
 describe('Customer 360 edit contract', () => {
   it('provides a contextual creation action for each editable Customer 360 tab', () => {
+    // Calls and Conversations are no longer Customer 360 tabs, so neither has
+    // a contextual create action here any more.
     for (const label of [
       'Add lead',
-      'Add call',
-      'Message customer',
       'Add follow-up',
       'Add appointment',
       'Schedule test drive',
@@ -30,7 +30,6 @@ describe('Customer 360 edit contract', () => {
     ]) {
       expect(customerWorkspace).toContain(label);
     }
-    expect(customerWorkspace).toContain('router.push(`/${role}/calls?action=create`)');
     expect(customerWorkspace).toContain('router.push(`/${role}/follow-ups?action=create`)');
     expect(customerWorkspace).toContain('router.push(`/${role}/appointments?action=create`)');
     expect(customerWorkspace).toContain('router.push(`/${role}/test-drives?action=create`)');
@@ -106,8 +105,8 @@ describe('Customer 360 AI-call branch scope contract', () => {
     expect(migration).toContain("message = 'AI_CALL_CONNECTION_NOT_AUTHORIZED'");
   });
 
-  it('uses the AI-only provider path from the Customer 360 action', () => {
-    expect(customerWorkspace).toContain('Call AI');
+  it('uses the AI-only provider path from the customer AI call dialog', () => {
+    expect(customerActions).toContain('CustomerAiCallDialog');
     expect(customerActions).toContain('fetchCustomerAiCallOptions(customerId, signal)');
     expect(customerActions).toContain('aiMode: true');
     expect(callApi).toContain('aiMode?: boolean');

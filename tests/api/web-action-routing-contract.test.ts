@@ -18,7 +18,7 @@ const notFound = source('src/app/not-found.tsx');
 
 describe('production web action routing', () => {
   it('keeps Customer 360 header actions contextual instead of linking to absent role routes', () => {
-    for (const tab of ['conversations', 'followups', 'test-drives', 'quotations', 'bookings']) {
+    for (const tab of ['followups', 'test-drives', 'quotations', 'bookings']) {
       expect(customer).toContain(`selectCustomerTab('${tab}')`);
     }
     for (const slug of ['messages', 'follow-ups', 'test-drives', 'quotations', 'bookings']) {

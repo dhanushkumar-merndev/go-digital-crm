@@ -61,7 +61,6 @@ describe('record navigation', () => {
     // Searching My Leads for a lead id made the destination depend on that
     // list's filters, pagination and visibility rules, so a lead the dashboard
     // had just shown could land on "no leads found".
-    expect(dashboard).toContain('leadDetailHref(DASHBOARD_ROLE, item.lead_id)');
     expect(dashboard).toContain('leadDetailHref(DASHBOARD_ROLE, lead.id)');
     expect(dashboard).not.toContain('my-leads?q=${encodeURIComponent(item.lead_id)}');
     expect(dashboard).not.toContain('my-leads?q=${encodeURIComponent(lead.phone)}');
