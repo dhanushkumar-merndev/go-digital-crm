@@ -242,7 +242,7 @@ export function CustomerCareWorkspaceSkeleton() {
       </div>
 
       {/* 7 KPI Cards */}
-      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
+      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-7">
         {Array.from({ length: 7 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-3">

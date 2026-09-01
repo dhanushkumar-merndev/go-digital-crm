@@ -43,6 +43,7 @@ const aiSummaryHandler = readFileSync(
   'utf8',
 );
 const config = readFileSync('supabase/config.toml', 'utf8');
+const vehicleImage = readFileSync('src/lib/vehicle-image.ts', 'utf8');
 
 describe('sales consultant dashboard contract', () => {
   it('returns one tenant-scoped dashboard bundle for the current Sales Consultant', () => {
@@ -70,6 +71,15 @@ describe('sales consultant dashboard contract', () => {
     expect(dashboardHandler).toContain(".from('object_files')");
     expect(dashboardHandler).toContain('tigrisClient()');
     expect(config).toContain('[functions.sales-consultant-dashboard]\nverify_jwt = true');
+  });
+
+  it('shows existing local vehicle artwork when a stock image has not been uploaded', () => {
+    expect(workspace).toContain('model.image_url ?? fallbackVehicleImage(model.name)');
+    expect(vehicleImage).toContain('/demo/vehicles/graphite-family-suv.png');
+    expect(vehicleImage).toContain('/demo/vehicles/electric-coupe-suv.png');
+    expect(readFileSync('src/features/inventory/inventory-workspace.tsx', 'utf8')).toContain(
+      'fallbackVehicleImage(row.original.model_name)',
+    );
   });
 
   it('returns up to five live top models using scoped bookings, leads and inventory', () => {

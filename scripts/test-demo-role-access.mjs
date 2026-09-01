@@ -21,6 +21,7 @@ const roleKeys = [
   'sales_consultant',
   'telecaller_bdc',
   'inventory_manager',
+  'inventory_executive',
   'finance_manager',
   'insurance_manager',
   'rto_manager',

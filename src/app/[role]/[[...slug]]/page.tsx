@@ -214,7 +214,7 @@ export default async function RolePage({ params }: Props) {
   if (role === 'system-administrator' && slug[0] === 'system-health' && !isLocalPreviewMode())
     return <SystemHealthWorkspace spec={spec} />;
   if (
-    ((role === 'inventory' &&
+    (((role === 'inventory' || role === 'inventory-executive') &&
       [
         'dashboard',
         'vehicle-inventory',

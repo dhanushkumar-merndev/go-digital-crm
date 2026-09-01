@@ -64,10 +64,10 @@ export function RoleSwitcher({
         queryClient.clear();
         setSwitchingTo(undefined);
         setOpen(false);
-        startTransition(() => {
-          router.replace('/');
-          router.refresh();
-        });
+        // Authentication replaced the session cookies. A full document
+        // navigation gives the next request one coherent cookie snapshot and
+        // avoids overlapping replace/refresh performance marks in Turbopack.
+        window.location.replace('/');
       } catch {
         setSwitchingTo(undefined);
         toast.add({
@@ -191,7 +191,7 @@ export function RoleSwitcher({
 
           <div className="border-t bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
             {realDemoLogin
-              ? 'This uses a real Supabase session for the selected seeded demo account. Its actual permissions, RLS scope, and MFA policy still apply.'
+              ? 'This uses a real Supabase session for the selected seeded demo account. Development login completes demo MFA automatically; actual permissions and RLS scope still apply.'
               : 'This simulates the selected role for local UI testing. It never changes a real account, role assignment, permission, or data scope.'}
           </div>
         </SheetContent>

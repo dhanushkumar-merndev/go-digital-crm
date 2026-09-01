@@ -53,6 +53,7 @@ import {
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { Metric, PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
+import { fallbackVehicleImage } from '@/lib/vehicle-image';
 import {
   fetchAllocationPage,
   fetchInventoryBranches,
@@ -89,15 +90,6 @@ type StockCheckRow = StockCheckPage['records'][number];
 type InventoryPage = StockUnitPage | StockCheckPage | AllocationPage | MovementPage;
 
 const branchChartSeries: [string, string] = ['Total stock', 'Available'];
-
-function demoVehicleImage(modelName: string) {
-  const model = modelName.toLowerCase();
-  if (model.includes('harrier') || model.includes('safari')) {
-    return '/demo/vehicles/graphite-family-suv.png';
-  }
-
-  return '/demo/vehicles/electric-coupe-suv.png';
-}
 
 const filterOptions: Record<
   Exclude<InventoryView, 'dashboard'>,
@@ -408,7 +400,7 @@ function Filters({
     );
     return (
       <div className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-8">
           {selectFilter('Brand', query.brand, stockOptions?.brands ?? [], 'brand')}
           {selectFilter('Model', query.model, stockOptions?.models ?? [], 'model')}
           {selectFilter('Variant', query.variant, stockOptions?.variants ?? [], 'variant')}
@@ -884,7 +876,7 @@ function StockCheckTable({
         cell: ({ row }) => (
           <div className="flex items-center gap-3">
             <Image
-              src={demoVehicleImage(row.original.model_name)}
+              src={fallbackVehicleImage(row.original.model_name)}
               alt={`${row.original.model_name} demo vehicle`}
               width={36}
               height={36}

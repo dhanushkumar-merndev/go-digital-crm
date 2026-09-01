@@ -17,6 +17,8 @@ export const workspaceBootstrapSchema = z.object({
   profile_version: z.coerce.number().int().positive().optional(),
   organization_name: z.string().nullable().optional(),
   workspace_name: z.string().nullable().optional(),
+  session_expires_at: z.string().datetime({ offset: true }).nullable().optional(),
+  session_policy: z.enum(['STANDARD_7_DAYS', 'SENSITIVE_5_HOURS']).nullable().optional(),
 });
 
 export type WorkspaceBootstrap = z.infer<typeof workspaceBootstrapSchema>;
@@ -50,5 +52,7 @@ export function toWorkspaceSession(context: WorkspaceBootstrap): WorkspaceSessio
     profileVersion: context.profile_version ?? 1,
     organizationName: context.organization_name ?? null,
     workspaceName: context.workspace_name ?? context.organization_name ?? null,
+    sessionExpiresAt: context.session_expires_at ?? null,
+    sessionPolicy: context.session_policy ?? null,
   };
 }

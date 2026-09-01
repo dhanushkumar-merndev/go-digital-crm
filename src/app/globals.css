@@ -239,3 +239,31 @@ a {
     @apply bg-transparent! dark:invert;
   }
 }
+
+/*
+ * Floating elements under the fixed canvas.
+ *
+ * Radix positions every popper -- dropdown menus, selects, popovers, tooltips
+ * -- by measuring the trigger with getBoundingClientRect, which returns
+ * physical pixels, and then writing that offset into `transform: translate()`,
+ * which is read in the *zoomed* coordinate space. Under the canvas the two
+ * disagree by exactly the zoom factor, and every menu opened short of its
+ * trigger: at 0.83 a header menu landed 270px to the left of the button that
+ * opened it, overlapping the row above instead of sitting under it.
+ *
+ * Floating UI cannot compensate on its own. It derives scale from
+ * rect.width / offsetWidth, and Chromium's offsetWidth is already
+ * zoom-adjusted, so that ratio is 1 and it sees no scale at all.
+ *
+ * Undoing the zoom on the wrapper gives its offsets back their physical
+ * meaning, and re-applying the canvas scale to the content keeps the menu the
+ * same size as the page it belongs to. Off-canvas `--canvas-zoom` is 1 and
+ * both rules cancel out.
+ */
+[data-radix-popper-content-wrapper] {
+  zoom: calc(1 / var(--canvas-zoom, 1));
+}
+
+[data-radix-popper-content-wrapper] > * {
+  zoom: var(--canvas-zoom, 1);
+}

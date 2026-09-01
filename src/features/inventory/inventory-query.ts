@@ -71,7 +71,10 @@ export type InventoryQuery = {
 };
 
 export function inventoryViewForRoute(role: string, slug: string): InventoryView | null {
-  if (role === 'inventory' && (slug === 'dashboard' || slug === 'my-performance'))
+  if (
+    (role === 'inventory' || role === 'inventory-executive') &&
+    (slug === 'dashboard' || slug === 'my-performance')
+  )
     return 'dashboard';
   if (slug === 'vehicle-inventory') return 'units';
   if (slug === 'stock-check') return 'stock-check';

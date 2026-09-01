@@ -8,6 +8,9 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ClockAlert,
+  Flame,
   MoreVertical,
   ListTodo,
   Pin,
@@ -17,10 +20,14 @@ import {
   Search,
   SlidersHorizontal,
   Star,
+  TrendingDown,
+  TrendingUp,
   TriangleAlert,
   UserRoundPlus,
+  Users,
   X,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
@@ -306,6 +313,143 @@ function TemperatureBadge({ value }: { value: LeadRecord['temperature'] }) {
   );
 }
 
+function leadShare(part: number, whole: number) {
+  if (whole <= 0) return 0;
+  return Math.round((part / whole) * 1000) / 10;
+}
+
+type SalesLeadMetricCard = {
+  status: LeadStatusFilter;
+  label: string;
+  value: number;
+  icon: LucideIcon;
+  chip: string;
+  rate: number;
+  helper: string;
+  good: boolean;
+  neutral?: boolean;
+  footnote: string;
+};
+
+function salesLeadMetricCards(kpis: LeadWorkspaceResult['kpis']): SalesLeadMetricCard[] {
+  const active = Math.max(0, kpis.total - kpis.lost_count);
+  return [
+    {
+      status: 'all',
+      label: 'Total my leads',
+      value: kpis.total,
+      icon: Users,
+      chip: 'bg-violet-50 text-violet-600',
+      rate: leadShare(active, kpis.total),
+      helper: 'still active',
+      good: true,
+      neutral: kpis.total === 0,
+      footnote: `${kpis.booking.toLocaleString()} booked · ${kpis.lost_count.toLocaleString()} lost`,
+    },
+    {
+      status: 'sales-new',
+      label: 'New today',
+      value: kpis.sales_new_today,
+      icon: UserRoundPlus,
+      chip: 'bg-blue-50 text-blue-600',
+      rate: leadShare(kpis.sales_new_today, kpis.total),
+      helper: 'of all my leads',
+      good: true,
+      footnote: 'Fresh leads awaiting sales progress',
+    },
+    {
+      status: 'sales-pending',
+      label: 'Pending action',
+      value: kpis.sales_pending,
+      icon: ClockAlert,
+      chip: 'bg-rose-50 text-rose-600',
+      rate: leadShare(kpis.sales_pending, kpis.total),
+      helper: 'need attention',
+      good: kpis.sales_pending === 0,
+      neutral: kpis.total === 0,
+      footnote: 'Lead has no completed sales action',
+    },
+    {
+      status: 'sales-contacted',
+      label: 'Contacted',
+      value: kpis.sales_contacted,
+      icon: Phone,
+      chip: 'bg-emerald-50 text-emerald-600',
+      rate: leadShare(kpis.sales_contacted, kpis.total),
+      helper: 'of all my leads',
+      good: true,
+      footnote: 'Sales contact already recorded',
+    },
+    {
+      status: 'hot',
+      label: 'Hot leads',
+      value: kpis.hot,
+      icon: Flame,
+      chip: 'bg-orange-50 text-orange-600',
+      rate: leadShare(kpis.hot, kpis.total),
+      helper: 'high priority',
+      good: true,
+      footnote: 'Prioritise these opportunities',
+    },
+  ];
+}
+
+function SalesLeadMetricCard({
+  card,
+  active,
+  onSelect,
+}: {
+  card: SalesLeadMetricCard;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const Icon = card.icon;
+  const TrendIcon = card.good ? TrendingUp : TrendingDown;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={active}
+      className="group min-w-0 rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    >
+      <Card
+        className={cn(
+          'h-full min-w-0 shadow-none transition-all group-hover:-translate-y-0.5 group-hover:border-blue-200 group-hover:shadow-sm',
+          active ? 'border-blue-300 ring-1 ring-blue-200' : 'border-slate-200/90',
+        )}
+      >
+        <CardContent className="p-4">
+          <div className="flex items-center gap-2.5">
+            <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', card.chip)}>
+              <Icon className="size-4" />
+            </span>
+            <p className="min-w-0 text-[11px] font-semibold leading-4 text-[#263550]">
+              {card.label}
+            </p>
+          </div>
+          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-[#12213f]">
+            {card.value.toLocaleString()}
+          </p>
+          <p
+            className={cn(
+              'mt-3 flex flex-wrap items-center justify-center gap-1 text-[10px] font-semibold',
+              card.neutral
+                ? 'text-muted-foreground'
+                : card.good
+                  ? 'text-emerald-600'
+                  : 'text-rose-600',
+            )}
+          >
+            <TrendIcon className="size-3" /> {card.rate}%
+            <span className="font-normal text-muted-foreground">{card.helper}</span>
+          </p>
+          <p className="mt-1 text-center text-[10px] text-muted-foreground">{card.footnote}</p>
+        </CardContent>
+      </Card>
+    </button>
+  );
+}
+
 function LeadStatusTabs({
   data,
   query,
@@ -313,6 +457,8 @@ function LeadStatusTabs({
   personalView,
   onStatusChange,
   onPersonalViewChange,
+  summaryOpen,
+  onSummaryToggle,
 }: {
   data: LeadWorkspaceResult;
   query: LeadQuery;
@@ -320,6 +466,8 @@ function LeadStatusTabs({
   personalView: PersonalLeadView;
   onStatusChange: (status: LeadStatusFilter) => void;
   onPersonalViewChange: (view: PersonalLeadView) => void;
+  summaryOpen?: boolean;
+  onSummaryToggle?: () => void;
 }) {
   const generalTabs: Array<{ label: string; value: LeadStatusFilter; count: number }> = [
     { label: 'All', value: 'all', count: data.kpis.total },
@@ -373,65 +521,96 @@ function LeadStatusTabs({
   const starredCount = data.kpis.starred_count;
 
   return (
-    <div
-      role="tablist"
-      aria-label="Lead quick views"
-      className="flex h-10 gap-2 overflow-x-auto border-b"
-    >
-      {tabs.map((tab) => {
-        const active = personalView === 'all' && query.status === tab.value;
-        return (
-          <button
-            key={tab.value}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onStatusChange(tab.value)}
-            style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
-            className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
-              active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
-            }`}
-          >
-            <span>{tab.label}</span>
-            <span
-              className={`grid min-w-5 place-items-center rounded px-1 py-0.5 text-[10px] leading-none ${
-                active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+    <div className="flex h-10 border-b">
+      <div
+        role="tablist"
+        aria-label="Lead quick views"
+        className="flex min-w-0 flex-1 gap-2 overflow-x-auto"
+      >
+        {tabs.map((tab) => {
+          const active = personalView === 'all' && query.status === tab.value;
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onStatusChange(tab.value)}
+              style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
+              className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
+                active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
               }`}
             >
-              {tab.count}
-            </span>
-          </button>
-        );
-      })}
-      {(
-        [{ label: 'Starred', value: 'starred' as const, count: starredCount, icon: Star }] as const
-      ).map((tab) => {
-        const active = personalView === tab.value;
-        const Icon = tab.icon;
-        return (
-          <button
-            key={tab.value}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onPersonalViewChange(tab.value)}
-            style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
-            className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
-              active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
-            }`}
-          >
-            <Icon className={`size-3.5 ${active ? 'fill-current' : ''}`} />
-            <span>{tab.label}</span>
-            <span
-              className={`grid min-w-5 place-items-center rounded px-1 py-0.5 text-[10px] leading-none ${
-                active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+              <span>{tab.label}</span>
+              <span
+                className={`grid min-w-5 place-items-center rounded px-1 py-0.5 text-[10px] leading-none ${
+                  active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {tab.count}
+              </span>
+            </button>
+          );
+        })}
+        {(
+          [
+            { label: 'Starred', value: 'starred' as const, count: starredCount, icon: Star },
+          ] as const
+        ).map((tab) => {
+          const active = personalView === tab.value;
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onPersonalViewChange(tab.value)}
+              style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
+              className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
+                active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
               }`}
             >
-              {tab.count}
-            </span>
-          </button>
-        );
-      })}
+              <Icon className={`size-3.5 ${active ? 'fill-current' : ''}`} />
+              <span>{tab.label}</span>
+              <span
+                className={`grid min-w-5 place-items-center rounded px-1 py-0.5 text-[10px] leading-none ${
+                  active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {tab.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {typeof summaryOpen === 'boolean' && onSummaryToggle ? (
+        <div className="flex shrink-0 items-center pl-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-7 rounded-full bg-background shadow-none"
+                aria-expanded={summaryOpen}
+                aria-controls="sales-consultant-lead-kpis"
+                aria-label={summaryOpen ? 'Hide lead summary cards' : 'Show lead summary cards'}
+                onClick={onSummaryToggle}
+              >
+                {summaryOpen ? (
+                  <ChevronUp className="size-4" />
+                ) : (
+                  <ChevronDown className="size-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {summaryOpen ? 'Hide lead summary' : 'Show lead summary'}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -456,6 +635,17 @@ function leadCreateMessage(error: unknown) {
     LEAD_TEAM_NOT_IN_BRANCH: 'That team does not belong to the selected branch.',
     NO_ELIGIBLE_FRESH_ASSIGNEE: 'No one on that team can currently receive a new lead.',
     PERMISSION_DENIED: 'You are not allowed to create leads in this branch.',
+    SCOPE_DENIED:
+      'Your team sits in a branch you do not have access to. Ask your manager to check your branch access.',
+    SALES_CONSULTANT_CANNOT_ASSIGN_LEADS:
+      'A sales consultant cannot assign leads. Reload the page and try again; if it keeps happening, report it — the lead you create is meant to be assigned to you automatically.',
+    FRESH_ASSIGNMENT_REQUIRES_TELECALLER:
+      'A new lead can only be queued to a Telecaller. Ask your manager to check who is eligible on that team.',
+    SALES_HANDOFF_REQUIRES_QUALIFIED_LEAD:
+      'A lead reaches a sales consultant only after it is qualified and handed over.',
+    LEAD_BRANCH_NOT_IN_ORGANIZATION: 'That branch is no longer active.',
+    LEAD_FIELD_TOO_LONG:
+      'Source detail and campaign are limited to 200 characters, and interested model to 160.',
     INVALID_PHONE: 'Enter a valid phone number of 7 to 15 digits.',
     INVALID_EMAIL: 'Enter a valid email address, or leave it blank.',
     INVALID_CUSTOMER_NAME: 'Customer name must be between 2 and 160 characters.',
@@ -2275,6 +2465,7 @@ export function LeadWorkspace({
     parsePersonalLeadView(searchParams),
   );
   const [createOpen, setCreateOpen] = useState(false);
+  const [salesLeadMetricsOpen, setSalesLeadMetricsOpen] = useState(true);
   // Quick add navigates to `?action=create` on a route this workspace may already
   // be mounted on. A lazy useState initialiser only runs at mount, so the param
   // changed and nothing opened until a reload remounted the component. Deriving
@@ -2500,8 +2691,13 @@ export function LeadWorkspace({
       page: 1,
     };
     setQuery(updated);
-    replaceQueryString(pathname, toLeadQueryString(updated));
-  }, [pathname, personalView, query, role, searchParams, slug, workspace.data]);
+    const params = new URLSearchParams(toLeadQueryString(updated));
+    // Quick add reaches this page with `action=create`. The Sales Consultant
+    // default-filter pass runs as soon as the first workspace query resolves;
+    // dropping that unrelated param here closes the controlled dialog again.
+    if (createRequested) params.set('action', 'create');
+    replaceQueryString(pathname, params.toString());
+  }, [createRequested, pathname, personalView, query, role, searchParams, slug, workspace.data]);
   const onQueryChange = (next: Partial<LeadQuery>) => {
     const updated = { ...query, ...next };
     setQuery(updated);
@@ -2676,6 +2872,24 @@ export function LeadWorkspace({
           </Button>
         </div>
       </div>
+      {role === 'sales-consultant' && slug === 'my-leads' ? (
+        <section aria-label="My Leads summary">
+          <div
+            id="sales-consultant-lead-kpis"
+            hidden={!salesLeadMetricsOpen}
+            className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+          >
+            {salesLeadMetricCards(workspace.data.kpis).map((card) => (
+              <SalesLeadMetricCard
+                key={card.status}
+                card={card}
+                active={personalView === 'all' && query.status === card.status}
+                onSelect={() => onStatusChange(card.status)}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
       <LeadStatusTabs
         data={workspace.data}
         query={query}
@@ -2683,6 +2897,14 @@ export function LeadWorkspace({
         personalView={personalView}
         onStatusChange={onStatusChange}
         onPersonalViewChange={onPersonalViewChange}
+        summaryOpen={
+          role === 'sales-consultant' && slug === 'my-leads' ? salesLeadMetricsOpen : undefined
+        }
+        onSummaryToggle={
+          role === 'sales-consultant' && slug === 'my-leads'
+            ? () => setSalesLeadMetricsOpen((open) => !open)
+            : undefined
+        }
       />
       <LeadTable
         role={role}

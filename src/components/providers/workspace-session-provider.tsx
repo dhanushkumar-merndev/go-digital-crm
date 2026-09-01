@@ -16,6 +16,8 @@ export type WorkspaceSession = {
   profileVersion: number;
   organizationName: string | null;
   workspaceName: string | null;
+  sessionExpiresAt: string | null;
+  sessionPolicy: 'STANDARD_7_DAYS' | 'SENSITIVE_5_HOURS' | null;
 };
 
 const WorkspaceSessionContext = createContext<WorkspaceSession | null>(null);

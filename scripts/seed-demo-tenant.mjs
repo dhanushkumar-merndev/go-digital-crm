@@ -34,6 +34,7 @@ const roleAccounts = [
   ['sales_consultant', 'Sales Consultant', 'OWN_RECORDS'],
   ['telecaller_bdc', 'Telecaller / BDC Executive', 'OWN_RECORDS'],
   ['inventory_manager', 'Inventory Manager', 'ONE_BRANCH'],
+  ['inventory_executive', 'Inventory Executive', 'ONE_BRANCH'],
   ['finance_manager', 'Finance Manager', 'ONE_BRANCH'],
   ['insurance_manager', 'Insurance Manager', 'ONE_BRANCH'],
   ['rto_manager', 'RTO Manager', 'ONE_BRANCH'],
@@ -51,6 +52,7 @@ const rolePresets = [
   ['showroom_manager', 'Showroom Manager', 600, false],
   ['team_manager', 'Team Manager', 500, false],
   ['inventory_manager', 'Inventory Manager', 450, false],
+  ['inventory_executive', 'Inventory Executive', 400, false],
   ['finance_manager', 'Finance Manager', 450, false],
   ['insurance_manager', 'Insurance Manager', 450, false],
   ['rto_manager', 'RTO Manager', 450, false],
@@ -1855,6 +1857,13 @@ async function main() {
       'support.',
     ],
     inventory_manager: ['inventory.', 'customer.', 'booking.', 'quotation.', 'document.'],
+    inventory_executive: [
+      'inventory.stock_check',
+      'inventory.view',
+      'inventory.create',
+      'inventory.update',
+      'document.',
+    ],
     finance_manager: ['finance.', 'customer.', 'booking.', 'quotation.', 'document.'],
     insurance_manager: ['insurance.', 'customer.', 'booking.', 'quotation.', 'document.'],
     rto_manager: ['rto.', 'customer.', 'booking.', 'document.'],
@@ -2150,7 +2159,7 @@ async function main() {
       {
         organization_slug: DEMO_SLUG,
         organization_id: organizationId,
-        test_account_count: 28,
+        test_account_count: 29,
         seeded_records: {
           ...summary,
           ...actionFixtures,

@@ -30,7 +30,7 @@ export function TenantDashboardSkeleton({ role = 'general' }: { role?: string })
         className={`grid gap-3 ${
           isCompact
             ? 'sm:grid-cols-2 xl:grid-cols-4'
-            : 'sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8'
+            : 'sm:grid-cols-2 lg:grid-cols-8'
         }`}
       >
         {Array.from({ length: kpiCount }).map((_, i) => (

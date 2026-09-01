@@ -22,7 +22,7 @@ export function SalesConsultantDashboardSkeleton() {
       </div>
 
       {/* 8 KPI Metrics */}
-      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-8">
         {Array.from({ length: 8 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-3">
@@ -1403,7 +1403,7 @@ export function SalesConsultantPerformanceSkeleton() {
       </div>
 
       {/* 8 KPI Cards Grid */}
-      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-8">
         {Array.from({ length: 8 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-3.5">

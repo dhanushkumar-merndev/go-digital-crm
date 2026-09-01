@@ -9,6 +9,7 @@ export type RoleKey =
   | 'business-owner'
   | 'super-admin'
   | 'inventory'
+  | 'inventory-executive'
   | 'finance'
   | 'insurance'
   | 'rto'

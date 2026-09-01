@@ -12,6 +12,7 @@ import {
   LoaderCircle,
   LogOut,
   Menu,
+  Monitor,
   Plus,
   QrCode,
   UserRoundPen,
@@ -22,6 +23,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { roleHasNavigationSlug, roleNavigation } from '@/config/navigation';
 import type { RoleKey } from '@/config/navigation/types';
+import { useFixedCanvas } from '@/components/shared/viewport-scale';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -87,6 +89,7 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
   const [profileOverride, setProfileOverride] = useState<SavedProfile>();
   const [signingOut, setSigningOut] = useState(false);
   const [menuError, setMenuError] = useState<string>();
+  const fixedCanvas = useFixedCanvas();
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const queryClient = useQueryClient();
   const sessionProfile = {
@@ -384,6 +387,38 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
                   Link mobile app
                 </DropdownMenuItem>
               )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                role="switch"
+                aria-checked={fixedCanvas.enabled}
+                onSelect={(event) => {
+                  // Staying open lets the change be seen and undone in place:
+                  // the whole page resizes underneath the menu.
+                  event.preventDefault();
+                  fixedCanvas.setEnabled(!fixedCanvas.enabled);
+                }}
+              >
+                <Monitor className="size-4" />
+                <span className="flex-1">Fixed layout</span>
+                <span
+                  aria-hidden
+                  className={`flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors ${
+                    fixedCanvas.enabled ? 'bg-blue-600' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`size-3 rounded-full bg-white transition-transform ${
+                      fixedCanvas.enabled ? 'translate-x-3' : 'translate-x-0'
+                    }`}
+                  />
+                </span>
+              </DropdownMenuItem>
+              <p className="px-2 pb-1 text-[11px] leading-4 text-muted-foreground">
+                {fixedCanvas.enabled
+                  ? 'Every screen shows the same layout, scaled to fit.'
+                  : 'The layout reflows to this window, and browser zoom applies.'}
+              </p>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 disabled={signingOut}
                 className="text-red-700 focus:bg-red-50 focus:text-red-800"

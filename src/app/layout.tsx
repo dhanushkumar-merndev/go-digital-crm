@@ -2,8 +2,10 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { AppProviders } from '@/components/providers/app-providers';
 import { RoleSwitcher } from '@/components/shared/role-switcher';
+import { ViewportScale } from '@/components/shared/viewport-scale';
 import { PersistentAuthLottie } from '@/features/auth/persistent-auth-lottie';
 import { isDevelopmentDemoRoleLoginEnabled, isLocalPreviewMode } from '@/lib/runtime/runtime-mode';
+import { VIEWPORT_ZOOM_SCRIPT } from '@/lib/layout/viewport-scale';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
@@ -17,8 +19,17 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   const previewMode = isLocalPreviewMode();
   const demoRoleLoginEnabled = isDevelopmentDemoRoleLoginEnabled();
   return (
-    <html lang="en">
+    // The pre-paint script below writes `style="zoom"` onto this element
+    // before React hydrates, so the root's attributes will not match the
+    // server HTML. That is the point of running it early, not a defect.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Sizes the 1920 design canvas before first paint, so a wide monitor
+            never shows one unscaled frame. */}
+        <script dangerouslySetInnerHTML={{ __html: VIEWPORT_ZOOM_SCRIPT }} />
+      </head>
       <body className={`${inter.variable} min-h-screen antialiased`}>
+        <ViewportScale />
         <AppProviders>
           {children}
           <PersistentAuthLottie />

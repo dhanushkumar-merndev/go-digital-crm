@@ -1,16 +1,60 @@
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { AppState, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { initializeRouteBuffer } from '@/lib/route-buffer';
 import { mobileSupabaseConfigured } from '@/lib/runtime-config';
+import { enforceMobileSessionPolicy } from '@/lib/session-policy';
+import { supabase } from '@/lib/supabase';
 import '@/lib/test-drive-tracking';
 import { colors } from '@/theme';
 
 export default function RootLayout() {
   useEffect(() => {
     if (mobileSupabaseConfigured) initializeRouteBuffer();
+  }, []);
+  useEffect(() => {
+    if (!mobileSupabaseConfigured) return;
+
+    let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+    let disposed = false;
+    const checkSession = async () => {
+      if (disposed) return;
+      const policy = await enforceMobileSessionPolicy();
+      if (disposed) return;
+      if (expiryTimer) clearTimeout(expiryTimer);
+      if (policy.expired) {
+        router.replace('/');
+        return;
+      }
+      if (policy.expiresAt) {
+        expiryTimer = setTimeout(
+          () => void checkSession(),
+          Math.max(0, policy.expiresAt - Date.now()),
+        );
+      }
+    };
+
+    void checkSession();
+    const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void checkSession();
+    });
+    const {
+      data: { subscription: authSubscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        setTimeout(() => void checkSession(), 0);
+      }
+      if (event === 'SIGNED_OUT' && expiryTimer) clearTimeout(expiryTimer);
+    });
+
+    return () => {
+      disposed = true;
+      if (expiryTimer) clearTimeout(expiryTimer);
+      appStateSubscription.remove();
+      authSubscription.unsubscribe();
+    };
   }, []);
   if (!mobileSupabaseConfigured) {
     return (

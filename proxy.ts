@@ -12,6 +12,7 @@ type AccessContext = {
   destination:
     'CRM' | 'LOGIN' | 'ACCOUNT_LOCKED' | 'ONBOARDING' | 'MFA' | 'MAINTENANCE' | 'NO_ROLE';
   role_key?: string;
+  reason?: string;
 };
 const accessDestinations = new Set<AccessContext['destination']>([
   'CRM',
@@ -133,6 +134,10 @@ export async function proxy(request: NextRequest) {
   }
   const data = bootstrap.data;
   const context = data;
+  if (context.destination === 'LOGIN' && context.reason === 'SESSION_EXPIRED') {
+    await supabase.auth.signOut({ scope: 'local' });
+    return redirectWithSessionCookies('/login?reason=session-expired', request, response);
+  }
   if (context.destination !== 'CRM') {
     const target = accessPaths[context.destination as keyof typeof accessPaths] ?? '/login';
     return pathname === target

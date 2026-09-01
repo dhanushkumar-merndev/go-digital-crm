@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
@@ -28,6 +29,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
+import { fallbackVehicleImage } from '@/lib/vehicle-image';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -539,20 +541,16 @@ function TopModels({ models }: { models: SalesConsultantDashboardResult['top_mod
               href={`/sales-consultant/stock-check?q=${encodeURIComponent(model.name)}`}
               className="grid grid-cols-[52px_1fr_auto_auto] items-center gap-2 rounded-lg px-1.5 py-1.5 hover:bg-slate-50"
             >
-              {model.image_url ? (
-                <span
-                  role="img"
-                  aria-label={`${model.name} inventory vehicle`}
-                  className="h-8 w-12 bg-contain bg-center bg-no-repeat"
-                  style={{
-                    backgroundImage: `url(${JSON.stringify(model.image_url).slice(1, -1)})`,
-                  }}
-                />
-              ) : (
-                <span className="grid h-8 w-12 place-items-center rounded-md bg-slate-100 text-slate-500">
-                  <CarFront className="size-5" />
-                </span>
-              )}
+              <span
+                role="img"
+                aria-label={`${model.name} inventory vehicle`}
+                className="h-8 w-12 rounded-md bg-slate-100 bg-contain bg-center bg-no-repeat"
+                style={{
+                  backgroundImage: `url(${JSON.stringify(
+                    model.image_url ?? fallbackVehicleImage(model.name),
+                  ).slice(1, -1)})`,
+                }}
+              />
               <span className="min-w-0">
                 <span className="block truncate text-xs font-semibold text-[#263550]">
                   {model.name}
@@ -594,6 +592,12 @@ function RecentLeads({
   leads: SalesConsultantDashboardResult['recent_leads'];
   timezone: string;
 }) {
+  const router = useRouter();
+  // The row and the arrow go to the same place, so the arrow stays as the
+  // visible affordance for anyone who does not know the row is clickable.
+  const openLead = (leadId: string) =>
+    router.push(`/${DASHBOARD_ROLE}/my-leads?status=all&focus=${encodeURIComponent(leadId)}`);
+
   return (
     <Card className="overflow-hidden shadow-none">
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
@@ -618,13 +622,13 @@ function RecentLeads({
                 <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal lg:table-cell">
                   Mobile
                 </TableHead>
-                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal xl:table-cell">
+                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal lg:table-cell">
                   Interested model
                 </TableHead>
-                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal 2xl:table-cell">
+                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal lg:table-cell">
                   Next follow-up
                 </TableHead>
-                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal 2xl:table-cell">
+                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal lg:table-cell">
                   Lead source
                 </TableHead>
                 <TableHead className="h-9 px-3 text-[9px] normal-case tracking-normal">
@@ -640,23 +644,43 @@ function RecentLeads({
             </TableHeader>
             <TableBody>
               {leads.map((lead) => (
-                <TableRow key={lead.id} className="text-[10px]">
+                <TableRow
+                  key={lead.id}
+                  role="link"
+                  tabIndex={0}
+                  aria-label={`Open ${lead.customer_name} in My Leads`}
+                  onClick={() => openLead(lead.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      openLead(lead.id);
+                    }
+                  }}
+                  className="cursor-pointer text-[10px] hover:bg-slate-50"
+                >
                   <TableCell className="px-3 py-2 font-semibold text-blue-700">
-                    <Link href={leadDetailHref(DASHBOARD_ROLE, lead.id)}>{lead.reference}</Link>
+                    {/* The reference opens the lead's own record page, so it keeps
+                        its own destination rather than the row's. */}
+                    <Link
+                      href={leadDetailHref(DASHBOARD_ROLE, lead.id)}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {lead.reference}
+                    </Link>
                   </TableCell>
                   <TableCell className="whitespace-nowrap px-3 py-2 font-medium">
                     {lead.customer_name}
                   </TableCell>
                   <TableCell className="hidden px-3 py-2 lg:table-cell">{lead.phone}</TableCell>
-                  <TableCell className="hidden max-w-36 truncate px-3 py-2 xl:table-cell">
+                  <TableCell className="hidden max-w-36 truncate px-3 py-2 lg:table-cell">
                     {lead.interested_model ?? '—'}
                   </TableCell>
-                  <TableCell className="hidden whitespace-nowrap px-3 py-2 2xl:table-cell">
+                  <TableCell className="hidden whitespace-nowrap px-3 py-2 lg:table-cell">
                     {lead.next_followup_at
                       ? `${formatDate(lead.next_followup_at.slice(0, 10), timezone)} · ${formatTime(lead.next_followup_at, timezone)}`
                       : 'Not scheduled'}
                   </TableCell>
-                  <TableCell className="hidden px-3 py-2 2xl:table-cell">{lead.source}</TableCell>
+                  <TableCell className="hidden px-3 py-2 lg:table-cell">{lead.source}</TableCell>
                   <TableCell className="px-3 py-2">
                     <Badge
                       variant={statusVariant(lead.lifecycle_status)}
@@ -686,6 +710,7 @@ function RecentLeads({
                           href={`/${DASHBOARD_ROLE}/my-leads?status=all&focus=${encodeURIComponent(lead.id)}`}
                           aria-label={`Open ${lead.customer_name} in My Leads`}
                           title={`Open ${lead.customer_name} in My Leads`}
+                          onClick={(event) => event.stopPropagation()}
                         >
                           <ArrowRight className="size-3.5" />
                         </Link>
@@ -946,7 +971,7 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
         </div>
       </div>
 
-      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-8">
         {metricDefinitions.map((definition) => (
           <MetricCard
             key={definition.key}

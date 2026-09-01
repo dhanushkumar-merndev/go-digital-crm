@@ -227,6 +227,19 @@ export const roleNavigation: Record<RoleKey, RoleNavigation> = {
       ['My Performance', 'my-performance', 'ChartNoAxesCombined'],
     ]),
   },
+  'inventory-executive': {
+    label: 'Inventory Executive',
+    shortLabel: 'Inventory Executive',
+    scope: 'MG Road Branch',
+    group: 'Operations',
+    items: items([
+      ['Dashboard', 'dashboard', 'LayoutDashboard'],
+      ['Vehicle Inventory', 'vehicle-inventory', 'CarFront'],
+      ['Stock Allocation', 'stock-allocation', 'PackageCheck'],
+      ['Stock Ageing', 'stock-ageing', 'History'],
+      ['Stock Movement', 'stock-transfer', 'ArrowLeftRight'],
+    ]),
+  },
   finance: {
     label: 'Finance Manager',
     shortLabel: 'Finance',
