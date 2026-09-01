@@ -81,6 +81,16 @@ export function viewportZoom(width: number) {
  */
 export const CANVAS_ZOOM_PROPERTY = '--canvas-zoom';
 
+/** Fired when the applied zoom changes, for anything that measures pixels. */
+export const CANVAS_ZOOM_CHANGED_EVENT = 'gdm:canvas-zoom-changed';
+
+export function readCanvasZoom() {
+  if (typeof document === 'undefined') return 1;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(CANVAS_ZOOM_PROPERTY);
+  const zoom = Number.parseFloat(raw);
+  return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+}
+
 export function applyViewportZoom(root: HTMLElement, enabled = true) {
   root.style.zoom = '1';
   const zoom = enabled ? viewportZoom(root.clientWidth) : 1;

@@ -1,7 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { applyViewportZoom, canvasEnabled, storeCanvasEnabled } from '@/lib/layout/viewport-scale';
+import {
+  applyViewportZoom,
+  CANVAS_ZOOM_CHANGED_EVENT,
+  canvasEnabled,
+  storeCanvasEnabled,
+} from '@/lib/layout/viewport-scale';
 
 /**
  * One preference, read by both the component that applies the zoom and the
@@ -50,9 +55,17 @@ export function ViewportScale() {
   useEffect(() => {
     const root = document.documentElement;
     let frame = 0;
+    let applied = Number.NaN;
     const update = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => applyViewportZoom(root, enabled));
+      frame = requestAnimationFrame(() => {
+        const zoom = applyViewportZoom(root, enabled);
+        if (zoom === applied) return;
+        applied = zoom;
+        // Anything that maps pixels to pointers has to re-measure: a zoom
+        // change moves no layout box, so a ResizeObserver never sees it.
+        window.dispatchEvent(new Event(CANVAS_ZOOM_CHANGED_EVENT));
+      });
     };
     update();
     window.addEventListener('resize', update);

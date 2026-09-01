@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyViewportZoom,
   CANVAS_DISABLED_VALUE,
+  CANVAS_ZOOM_CHANGED_EVENT,
   CANVAS_ZOOM_PROPERTY,
   CANVAS_STORAGE_KEY,
   DESIGN_CONTENT_WIDTH,
@@ -143,6 +144,22 @@ describe('One desktop view across every screen size', () => {
     // Off-canvas the rules have to cancel out, not divide by nothing.
     expect(properties.get(CANVAS_ZOOM_PROPERTY)).toBe('1');
     expect(VIEWPORT_ZOOM_SCRIPT).toContain(CANVAS_ZOOM_PROPERTY);
+  });
+
+  it('lets charts map the pointer to the right data point', () => {
+    // ECharts converts pointer coordinates without accounting for CSS zoom, so
+    // hovering 27 Aug reported 25 Aug. It draws in physical pixels instead.
+    const chart = readFileSync('src/components/charts/e-chart.tsx', 'utf8');
+    expect(chart).toContain("canvas.style.zoom = zoom === 1 ? '' : String(1 / zoom)");
+    expect(chart).toContain('Math.round(width * zoom)');
+    // Drawing in physical pixels means every size has to come back down.
+    expect(chart).toContain('const px = (value: number) => value * scale;');
+    expect(chart).toContain(
+      CANVAS_ZOOM_CHANGED_EVENT.length > 0 ? 'CANVAS_ZOOM_CHANGED_EVENT' : '',
+    );
+    const store = readFileSync('src/components/shared/viewport-scale.tsx', 'utf8');
+    // A zoom change moves no layout box, so nothing else would notice it.
+    expect(store).toContain('new Event(CANVAS_ZOOM_CHANGED_EVENT)');
   });
 
   it('holds the desktop layout between its floor and its canvas', () => {
