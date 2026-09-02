@@ -2,6 +2,7 @@
 
 import {
   SalesConsultantDashboardSkeleton,
+  TelecallerDashboardSkeleton,
   LeadWorkspaceSkeleton,
   FollowupsSkeleton,
   TasksSkeleton,
@@ -110,10 +111,10 @@ export function getRoleSkeleton(role: string, slug: string = 'dashboard') {
   if (role === 'sales-consultant' || role === 'telecaller') {
     switch (slug) {
       case 'dashboard':
-        return role === 'sales-consultant' ? (
-          <SalesConsultantDashboardSkeleton />
+        return role === 'telecaller' ? (
+          <TelecallerDashboardSkeleton />
         ) : (
-          <TenantDashboardSkeleton role="telecaller" />
+          <SalesConsultantDashboardSkeleton />
         );
       case 'my-leads':
         return <LeadWorkspaceSkeleton />;

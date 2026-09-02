@@ -1,32 +1,11 @@
 'use client';
 
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
-import { usePathname } from 'next/navigation';
 
-function isAuthRoute(pathname: string) {
+export function AuthIllustration() {
   return (
-    pathname === '/login' ||
-    pathname === '/forgot-password' ||
-    pathname === '/reset-password' ||
-    pathname === '/auth/invite' ||
-    pathname === '/access/mfa'
-  );
-}
-
-/**
- * Mounted from the persistent root layout instead of an individual auth page.
- * This keeps the Lottie canvas alive while only the auth form route changes.
- */
-export function PersistentAuthLottie() {
-  const pathname = usePathname();
-  if (!isAuthRoute(pathname)) return null;
-
-  return (
-    <div
-      aria-hidden="true"
-      className="pointer-events-none fixed inset-y-0 left-0 z-10 hidden w-[52.5vw] lg:block"
-    >
-      <div className="absolute bottom-20 left-1/2 size-[min(58vh,560px)] -translate-x-1/2">
+    <div className="flex w-full items-center justify-center my-auto min-h-0 py-1">
+      <div className="w-full max-w-[min(32vh,300px)] lg:max-w-[min(35vh,350px)] xl:max-w-[min(40vh,420px)] 2xl:max-w-[min(45vh,480px)] aspect-square flex items-center justify-center">
         <DotLottieReact
           src="/Login Character Animation.lottie"
           loop
@@ -36,4 +15,8 @@ export function PersistentAuthLottie() {
       </div>
     </div>
   );
+}
+
+export function PersistentAuthLottie() {
+  return null;
 }

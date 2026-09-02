@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(path, 'utf8');
-const tenantDashboard = read('src/features/dashboards/tenant-dashboard.tsx');
+const telecallerDashboard = read('src/features/dashboards/telecaller-dashboard.tsx');
+const salesConsultantDashboard = read('src/features/dashboards/sales-consultant-dashboard.tsx');
 const dashboardCache = read('supabase/functions/dashboard-cache/index.ts');
 const callWorkspace = read('src/features/calls/call-workspace.tsx');
 const header = read('src/components/shared/app-header.tsx');
@@ -23,16 +24,16 @@ describe('telecaller workspace parity', () => {
   });
 
   it('gives the telecaller dashboard the same read-through policy', () => {
-    expect(tenantDashboard).toContain('staleTime: DASHBOARD_QUERY_STALE_TIME_MS');
-    expect(tenantDashboard).toContain('gcTime: DASHBOARD_QUERY_GC_TIME_MS');
+    expect(telecallerDashboard).toContain('staleTime: DASHBOARD_QUERY_STALE_TIME_MS');
+    expect(telecallerDashboard).toContain('gcTime: DASHBOARD_QUERY_GC_TIME_MS');
     expect(dashboardCache).toContain('const DASHBOARD_CACHE_TTL_SECONDS = 24 * 60 * 60;');
     expect(dashboardCache).toContain('ttlSeconds: DASHBOARD_CACHE_TTL_SECONDS');
   });
 
   it('states the real refresh window on every dashboard', () => {
     // The budget is three per thirty minutes; the old copy said one minute.
-    expect(tenantDashboard).toContain('Try again after the 30-minute window.');
-    expect(tenantDashboard).not.toContain('one-minute window');
+    expect(telecallerDashboard).toContain('Try again after the 30-minute window.');
+    expect(telecallerDashboard).not.toContain('one-minute window');
   });
 
   it('refreshes the lead row when a call is logged', () => {
@@ -45,12 +46,46 @@ describe('telecaller workspace parity', () => {
     // navigate and leaves dead margin on the narrower pages.
     const surface = [
       ...shared,
-      'src/features/dashboards/tenant-dashboard.tsx',
+      'src/features/dashboards/telecaller-dashboard.tsx',
       'src/features/dashboards/sales-consultant-activity-timeline.tsx',
       'src/features/dashboards/sales-consultant-performance.tsx',
     ];
     const offenders = surface.filter((file) => !read(file).includes('mx-auto max-w-[1800px]'));
     expect(offenders).toEqual([]);
+  });
+
+  it('paints both front-line dashboards from one accent palette', () => {
+    // The two pages are the same surface for two roles. Sharing the table is
+    // what stops one of them from drifting to a different set of shades.
+    for (const file of [telecallerDashboard, salesConsultantDashboard])
+      expect(file).toContain("from './dashboard-tone'");
+  });
+
+  it('builds the telecaller dashboard from the same layout as sales consultant', () => {
+    // Both pages retain the same dashboard shell. Appointment slots on the
+    // Telecaller dashboard are replaced with intake and handoff information.
+    const shells = [
+      'grid gap-2.5 sm:grid-cols-2 lg:grid-cols-8',
+      'grid gap-4 xl:grid-cols-12',
+      'grid gap-2.5 p-3 sm:grid-cols-2 lg:grid-cols-5',
+      'space-y-4 xl:col-span-8',
+      'space-y-4 xl:col-span-4',
+    ];
+    const missing = shells.filter((shell) => !telecallerDashboard.includes(shell));
+    expect(missing).toEqual([]);
+    expect(shells.filter((shell) => !salesConsultantDashboard.includes(shell))).toEqual([]);
+  });
+
+  it('keeps appointments completely outside the telecaller surface', () => {
+    expect(telecallerDashboard.toLowerCase()).not.toContain('appointment');
+    expect(telecallerDashboard).toContain('Contacted leads');
+    expect(telecallerDashboard).toContain('Qualified for handoff');
+    expect(telecallerDashboard).toContain('Transferred to Sales');
+    expect(telecallerDashboard).toContain('Qualified leads');
+  });
+
+  it('keeps every telecaller dashboard link inside the telecaller workspace', () => {
+    expect(telecallerDashboard).not.toContain('/sales-consultant/');
   });
 
   it('gives telecaller the same header furniture as sales consultant', () => {

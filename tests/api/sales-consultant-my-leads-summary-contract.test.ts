@@ -44,7 +44,7 @@ describe('Sales Consultant My Leads summary cards', () => {
       'const [salesLeadMetricsOpen, setSalesLeadMetricsOpen] = useState(true);',
     );
     expect(workspace).toContain('aria-expanded={summaryOpen}');
-    expect(workspace).toContain('aria-controls="sales-consultant-lead-kpis"');
+    expect(workspace).toContain('aria-controls="my-leads-summary-kpis"');
     expect(workspace).toContain('setSalesLeadMetricsOpen((open) => !open)');
     expect(workspace).toContain('<ChevronUp className="size-4" />');
     expect(workspace).toContain('<ChevronDown className="size-4" />');

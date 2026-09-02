@@ -211,6 +211,33 @@ html[data-auth-direction='back'] {
     animation: none;
   }
 }
+
+/* Focused Record Highlight (when navigating from Dashboard or cross-record links) */
+@keyframes focused-row-pulse {
+  0%,
+  100% {
+    background-color: rgba(239, 246, 255, 0.96);
+    box-shadow: inset 0 0 16px -2px rgba(37, 99, 235, 0.12);
+  }
+  50% {
+    background-color: rgba(224, 238, 255, 0.82);
+    box-shadow: inset 0 0 22px 0px rgba(37, 99, 235, 0.2);
+  }
+}
+
+.focused-row-highlight {
+  animation: focused-row-pulse 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  border-top-color: rgba(191, 219, 254, 0.7) !important;
+  border-bottom-color: rgba(191, 219, 254, 0.7) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .focused-row-highlight {
+    animation: none;
+    background-color: rgba(239, 246, 255, 0.95);
+  }
+}
+
 button,
 a {
   -webkit-tap-highlight-color: transparent;

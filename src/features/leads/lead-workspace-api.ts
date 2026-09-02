@@ -15,7 +15,7 @@ export type LeadRecord = {
   email: string | null;
   interested_model: string | null;
   lifecycle_status: string;
-  temperature: 'COLD' | 'WARM' | 'HOT' | null;
+  temperature: 'COLD' | 'WARM' | 'HOT' | 'DORMANT' | null;
   lost_reason: string | null;
   work_state: 'NEW_TODAY' | 'PENDING' | 'SLA_RISK' | null;
   assigned_user_id: string | null;
@@ -26,6 +26,9 @@ export type LeadRecord = {
   next_followup_at: string | null;
   lead_stage: string;
   assigned_user_name: string | null;
+  /** Historical handoff visible to its former Telecaller; never mutable. */
+  read_only: boolean;
+  phone_lead_count: number;
 };
 
 export type LeadKpis = {
@@ -54,7 +57,10 @@ export type LeadKpis = {
 
 export type LeadWorkspaceResult = {
   records: LeadRecord[];
+  /** Number of phone groups after the active list filters. */
   total: number;
+  /** Number of individual lead opportunities inside those groups. */
+  lead_total: number;
   kpis: LeadKpis;
   filters: { models: string[]; sources: string[] };
 };
@@ -125,8 +131,16 @@ function normalizeKpis(row: KpiRow | null): LeadKpis {
  * Splitting them keeps a page change to one indexed limit/offset instead of
  * seventeen aggregates over every lead in scope.
  */
-export type LeadWorkspaceMeta = Pick<LeadWorkspaceResult, 'total' | 'kpis' | 'filters'>;
+export type LeadWorkspaceMeta = Pick<
+  LeadWorkspaceResult,
+  'total' | 'lead_total' | 'kpis' | 'filters'
+>;
 export type LeadWorkspaceRecords = Pick<LeadWorkspaceResult, 'records'>;
+
+export type LeadPhoneHistory = {
+  records: LeadRecord[];
+  total: number;
+};
 
 export type LeadMetaQuery = Omit<LeadQuery, 'page' | 'pageSize' | 'sort'>;
 
@@ -168,8 +182,14 @@ async function callLeadWorkspace(
   if (error) throw error;
   const result = data as Partial<LeadWorkspaceResult> | null;
   return {
-    records: Array.isArray(result?.records) ? (result.records as LeadRecord[]) : [],
+    records: Array.isArray(result?.records)
+      ? (result.records as LeadRecord[]).map((record) => ({
+          ...record,
+          phone_lead_count: Math.max(1, Number(record.phone_lead_count ?? 1)),
+        }))
+      : [],
     total: Number(result?.total ?? 0),
+    lead_total: Number(result?.lead_total ?? result?.total ?? 0),
     kpis: normalizeKpis((result?.kpis ?? null) as KpiRow | null),
     filters: {
       models: Array.isArray(result?.filters?.models)
@@ -200,12 +220,33 @@ export async function fetchLeadWorkspaceMeta(
 ): Promise<LeadWorkspaceMeta> {
   // Page and sort are fixed here: they cannot change a counter, and pinning
   // them keeps this request identical while the user pages around.
-  const { total, kpis, filters } = await callLeadWorkspace(
+  const { total, lead_total, kpis, filters } = await callLeadWorkspace(
     { ...query, page: 1, pageSize: 25, sort: 'updated:desc' },
     { records: false, kpis: true },
     signal,
   );
-  return { total, kpis, filters };
+  return { total, lead_total, kpis, filters };
+}
+
+export async function fetchLeadPhoneHistory(
+  leadId: string,
+  signal?: AbortSignal,
+): Promise<LeadPhoneHistory> {
+  const supabase = createClient();
+  const request = supabase.rpc('get_lead_phone_history', { target_lead_id: leadId });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  const result = data as Partial<LeadPhoneHistory> | null;
+  const total = Number(result?.total ?? 0);
+  return {
+    records: Array.isArray(result?.records)
+      ? (result.records as LeadRecord[]).map((record) => ({
+          ...record,
+          phone_lead_count: total,
+        }))
+      : [],
+    total,
+  };
 }
 
 export async function fetchLeadWorkspacePermissions(): Promise<LeadWorkspacePermissions> {
@@ -413,7 +454,7 @@ export type LeadUpdateInput = {
   expectedUpdatedAt: string;
   patch: {
     lifecycle_status?: string;
-    temperature?: 'COLD' | 'WARM' | 'HOT';
+    temperature?: 'COLD' | 'WARM' | 'HOT' | 'DORMANT';
     lost_reason?: string;
   };
   reason: string;
@@ -468,3 +509,18 @@ export async function fetchAssignableUsers(leadId: string, search = '', signal?:
   if (error) throw error;
   return data as ProfileRow[];
 }
+
+export async function fetchLeadPhone(
+  leadId: string,
+  signal?: AbortSignal,
+): Promise<{ id: string; phone: string } | null> {
+  const supabase = createClient();
+  let query = supabase.from('leads').select('id, phone').eq('id', leadId);
+  if (signal) {
+    query = query.abortSignal(signal);
+  }
+  const { data, error } = await query.maybeSingle();
+  if (error || !data) return null;
+  return data as { id: string; phone: string };
+}
+

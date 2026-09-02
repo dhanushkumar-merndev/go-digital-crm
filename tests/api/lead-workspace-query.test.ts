@@ -61,9 +61,14 @@ describe('lead workspace query boundary', () => {
     // new-leads was removed: it was my-leads pre-filtered to the New tab.
     expect(getDefaultLeadStatus('new-leads')).toBe('all');
     expect(getDefaultLeadStatus('lost-leads')).toBe('lost');
-    expect(getSalesMyLeadsDefaultStatus(0)).toBe('sales-pending');
-    expect(getSalesMyLeadsDefaultStatus(1)).toBe('sales-pending');
-    expect(getSalesMyLeadsDefaultStatus(2)).toBe('sales-new');
+    // A single fresh handoff still opens New. Landing on Pending while the New
+    // tab reads `1` makes that lead look lost.
+    expect(getSalesMyLeadsDefaultStatus(1, 9)).toBe('sales-new');
+    expect(getSalesMyLeadsDefaultStatus(2, 0)).toBe('sales-new');
+    // Nothing arrived today: work the uncontacted backlog instead.
+    expect(getSalesMyLeadsDefaultStatus(0, 4)).toBe('sales-pending');
+    // Both queues clear, so show the book of business rather than empty tabs.
+    expect(getSalesMyLeadsDefaultStatus(0, 0)).toBe('all');
   });
 
   it('removes PostgREST OR grammar characters from page-local search input', () => {

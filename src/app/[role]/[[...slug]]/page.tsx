@@ -27,6 +27,7 @@ import { ReportExportWorkspace } from '@/features/reports/report-export-workspac
 import { TenantDashboard } from '@/features/dashboards/tenant-dashboard';
 import { OwnerAiBusinessSummaryWorkspace } from '@/features/dashboards/owner-ai-business-summary';
 import { SalesConsultantDashboard } from '@/features/dashboards/sales-consultant-dashboard';
+import { TelecallerDashboard } from '@/features/dashboards/telecaller-dashboard';
 import { SalesConsultantActivityTimeline } from '@/features/dashboards/sales-consultant-activity-timeline';
 import { SalesConsultantPerformance } from '@/features/dashboards/sales-consultant-performance';
 import { TeamManagerPerformance } from '@/features/dashboards/team-manager-performance';
@@ -41,6 +42,7 @@ import { IntegrationWorkspace } from '@/features/integrations/integration-worksp
 import { InventoryWorkspace } from '@/features/inventory/inventory-workspace';
 import { InboxWorkspace } from '@/features/inbox/inbox-workspace';
 import { LeadAssignmentWorkspace } from '@/features/leads/lead-assignment-workspace';
+import { DuplicateLeadDeletionWorkspace } from '@/features/leads/duplicate-lead-deletion-workspace';
 import { LeadWorkspace } from '@/features/leads/lead-workspace';
 import { OperationalCaseWorkspace } from '@/features/operations/operational-case-workspace';
 import { SalesExchangeWorkspace } from '@/features/operations/sales-exchange-workspace';
@@ -281,6 +283,7 @@ export default async function RolePage({ params }: Props) {
   if (slug[0] === 'reports' && !isLocalPreviewMode()) return <ReportExportWorkspace spec={spec} />;
   if (role === 'sales-consultant' && slug[0] === 'dashboard')
     return <SalesConsultantDashboard spec={spec} />;
+  if (role === 'telecaller' && slug[0] === 'dashboard') return <TelecallerDashboard spec={spec} />;
   if (
     (role === 'sales-consultant' || role === 'telecaller') &&
     slug[0] === 'activity-timeline' &&
@@ -299,6 +302,8 @@ export default async function RolePage({ params }: Props) {
     return <TeamManagerPerformance heading="Team Manager Workspace" />;
   if (role === 'team-manager' && slug[0] === 'lead-assignment' && !isLocalPreviewMode())
     return <LeadAssignmentWorkspace />;
+  if (role === 'team-manager' && slug[0] === 'duplicate-leads' && !isLocalPreviewMode())
+    return <DuplicateLeadDeletionWorkspace spec={spec} />;
   if (role === 'showroom-manager' && slug[0] === 'lead-assignment' && !isLocalPreviewMode())
     return <LeadAssignmentWorkspace audience="SHOWROOM_MANAGER" />;
   if (role === 'team-manager' && slug[0] === 'team-calls' && !isLocalPreviewMode())

@@ -34,4 +34,8 @@ describe('navigation capability filtering', () => {
       filterNavigationItems(roleNavigation['client-admin'].items).map((item) => item.slug),
     ).toContain('users');
   });
+
+  it('does not expose the appointments module to Telecaller', () => {
+    expect(roleNavigation.telecaller.items.map((item) => item.slug)).not.toContain('appointments');
+  });
 });

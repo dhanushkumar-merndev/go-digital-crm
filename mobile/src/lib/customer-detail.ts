@@ -26,7 +26,7 @@ export type MobileCustomerDetail = {
     source: string;
     interested_model: string | null;
     lifecycle_status: string;
-    temperature: 'COLD' | 'WARM' | 'HOT' | null;
+    temperature: 'COLD' | 'WARM' | 'HOT' | 'DORMANT' | null;
     work_state: 'NEW_TODAY' | 'PENDING' | 'SLA_RISK' | null;
     branch_name: string;
     team_name: string | null;

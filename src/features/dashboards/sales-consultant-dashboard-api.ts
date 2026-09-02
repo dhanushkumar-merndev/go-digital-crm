@@ -61,7 +61,7 @@ const leadSchema = z.object({
   next_followup_at: z.string().nullable(),
   source: z.string(),
   lifecycle_status: z.string(),
-  temperature: z.enum(['COLD', 'WARM', 'HOT']).nullable(),
+  temperature: z.enum(['COLD', 'WARM', 'HOT', 'DORMANT']).nullable(),
 });
 
 const alertSchema = z.object({

@@ -3,7 +3,6 @@ import { Inter } from 'next/font/google';
 import { AppProviders } from '@/components/providers/app-providers';
 import { RoleSwitcher } from '@/components/shared/role-switcher';
 import { ViewportScale } from '@/components/shared/viewport-scale';
-import { PersistentAuthLottie } from '@/features/auth/persistent-auth-lottie';
 import { isDevelopmentDemoRoleLoginEnabled, isLocalPreviewMode } from '@/lib/runtime/runtime-mode';
 import { VIEWPORT_ZOOM_SCRIPT } from '@/lib/layout/viewport-scale';
 import './globals.css';
@@ -32,7 +31,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <ViewportScale />
         <AppProviders>
           {children}
-          <PersistentAuthLottie />
           {previewMode ? <RoleSwitcher /> : null}
           {!previewMode && demoRoleLoginEnabled ? <RoleSwitcher mode="demo-login" /> : null}
         </AppProviders>

@@ -642,6 +642,91 @@ Examples:
 
 Inventory can exist before a customer and is primarily anchored by `vehicle_id` / VIN / chassis.
 
+### 9.7 Lead temperature and outbound messaging priority
+
+`public.lead_temperature` is the lead's buying intent, set by the consultant or
+telecaller working it, and every change is written to `lead_temperature_history`.
+
+| Value | Meaning | Outbound messaging |
+| --- | --- | --- |
+| `HOT` | Ready to buy; intent confirmed on a call | Send first |
+| `WARM` | Interested, not yet committed | Send after HOT |
+| `COLD` | Enquiry logged, little engagement yet | Send last |
+| `DORMANT` | Do not disturb | **Never send** |
+
+Temperature is not a lifecycle stage and never moves one. A `HOT` lead can sit
+at `New`, and a `Transferred to Sales` lead can be `COLD`. Do not derive one
+from the other.
+
+**Priority rule.** Anything that sends outbound marketing to a set of leads —
+drip campaigns, bulk WhatsApp or SMS, Brevo email batches, any future campaign
+dispatcher — orders its queue `HOT` first, then `WARM`, then `COLD`. Within one
+temperature, order by the due time the queue already carries. The point is a
+finite send window and provider rate limits: when only part of the batch can go
+out, the leads most likely to convert go out first. Order at the point the batch
+is claimed, not at enrollment, so a lead re-rated between enrollment and send is
+sent at its current temperature.
+
+**`DORMANT` is a hard suppression, not a low priority.** It means the customer
+asked not to be contacted, or the dealership decided to stop contacting them. A
+`DORMANT` lead is excluded from every outbound marketing send, and enrollment is
+refused up front rather than queuing messages that must later be cancelled —
+`create_customer_drip_enrollment` raises `LEAD_IS_DORMANT`. Suppression applies
+to marketing only: a consultant can still call a `DORMANT` lead, log that call,
+and set a follow-up, because those are one-to-one actions a person chose to take.
+Transactional messages a customer is entitled to — booking confirmation, delivery
+updates, RTO or insurance document requests — are not marketing and are not
+suppressed.
+
+Nothing automatically sets or clears `DORMANT`. It is a deliberate human choice,
+so no rule may downgrade a lead into it after N days of silence, and no rule may
+lift it because the customer replied. Only an explicit temperature change moves a
+lead out of it, and that change is auditable through `lead_temperature_history`.
+
+When adding a new value to this enum, update in the same change: the Postgres
+enum, every `z.enum([...])` that parses a lead row, the `leadTemperatureFilters`
+list, the temperature badge variants on web and mobile, and the "Set temperature"
+menu. A value present in the database and missing from a zod schema fails the
+parse and blanks the workspace for every row that carries it.
+
+### 9.8 Lead stage colours
+
+The `LEAD STAGE` badge is the pipeline position, coloured by `StageBadge` in
+`lead-workspace.tsx` using the shared `Badge` variants.
+
+| Stage | Variant | Colour |
+| --- | --- | --- |
+| New | `info` | `bg-blue-50 text-blue-700` |
+| Contacted | `success` | `bg-emerald-50 text-emerald-700` |
+| Qualified | `success` | `bg-emerald-50 text-emerald-700` |
+| Transferred to Sales | `success` | `bg-emerald-50 text-emerald-700` |
+| Booking | `success` | `bg-emerald-50 text-emerald-700` |
+| Follow-up | `warning` | `bg-amber-50 text-amber-700` |
+| Quotation | `warning` | `bg-amber-50 text-amber-700` |
+| Test Drive | `default` | `bg-primary/10 text-primary` |
+| Anything else, incl. Lost and Appointment Scheduled | `secondary` | `bg-secondary text-secondary-foreground` |
+
+Green is "this lead moved forward", amber is "waiting on someone", blue is
+untouched, grey is inert. That is why four different stages share `success`:
+the colour reports progress, not identity, and the label carries the identity.
+Do not give a stage its own colour to make it stand out -- a fifth hue in this
+column stops the row being scannable, which is the only thing the colour is for.
+
+Two stages in the column are not lifecycle values:
+
+- **Follow-up** is derived. `leadStageLabel` substitutes it for any pre-followup
+  stage once `next_followup_at` is set, so a lead reading `Follow-up` is still
+  `New` or `Contacted` underneath. Do not persist it.
+- **Test Drive**, **Quotation** and **Booking** are sales-stage events layered
+  over the lifecycle by the workspace query, not `lead_lifecycle` members.
+
+`Lost` deliberately lands in `secondary` rather than `destructive`. A lost lead
+is closed, not broken, and colouring it red made a normal outcome read as an
+error in every list it appeared in.
+
+The muted variant of this badge is for a row inside an expanded phone group:
+an earlier enquiry on the same mobile, shown for context and not actionable.
+
 ---
 
 ## 10. Database table families

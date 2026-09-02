@@ -42,7 +42,7 @@ export const leadStageFilters = [
 ] as const;
 export type LeadStageFilter = (typeof leadStageFilters)[number];
 
-export const leadTemperatureFilters = ['all', 'HOT', 'WARM', 'COLD'] as const;
+export const leadTemperatureFilters = ['all', 'HOT', 'WARM', 'COLD', 'DORMANT'] as const;
 export type LeadTemperatureFilter = (typeof leadTemperatureFilters)[number];
 
 export const leadSortOptions = {
@@ -153,11 +153,24 @@ export function getDefaultLeadStatus(slug: string): LeadStatusFilter {
 }
 
 /**
- * Sales Consultants should start with fresh enquiries when there is meaningful
- * new work to triage. Otherwise Pending is the more useful starting queue.
+ * Where a Sales Consultant lands on My Leads.
+ *
+ * New is today's handoffs, Pending is the uncontacted backlog from before
+ * today, so the useful order is: triage what arrived today, and if nothing did,
+ * work the backlog. The tab a consultant lands on has to agree with the count
+ * printed on it -- landing on Pending while the New tab reads `1` makes that
+ * lead look lost, which is what `> 1` used to do.
+ *
+ * Falling through twice is deliberate: with both queues empty, All at least
+ * shows the book of business rather than an empty table.
  */
-export function getSalesMyLeadsDefaultStatus(newLeadCount: number): LeadStatusFilter {
-  return newLeadCount > 1 ? 'sales-new' : 'sales-pending';
+export function getSalesMyLeadsDefaultStatus(
+  newLeadCount: number,
+  pendingLeadCount: number,
+): LeadStatusFilter {
+  if (newLeadCount > 0) return 'sales-new';
+  if (pendingLeadCount > 0) return 'sales-pending';
+  return 'all';
 }
 
 export function toLeadQueryString(query: LeadQuery) {

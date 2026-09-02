@@ -30,7 +30,7 @@ export type MobileSalesDashboard = {
     nextFollowupAt: string | null;
     source: string;
     lifecycleStatus: string;
-    temperature: 'COLD' | 'WARM' | 'HOT' | null;
+    temperature: 'COLD' | 'WARM' | 'HOT' | 'DORMANT' | null;
   }>;
 };
 
@@ -117,7 +117,10 @@ export async function fetchMobileSalesDashboard(): Promise<MobileSalesDashboard>
           source: asString(value.source),
           lifecycleStatus: asString(value.lifecycle_status),
           temperature:
-            temperature === 'HOT' || temperature === 'WARM' || temperature === 'COLD'
+            temperature === 'HOT' ||
+            temperature === 'WARM' ||
+            temperature === 'COLD' ||
+            temperature === 'DORMANT'
               ? temperature
               : null,
         },

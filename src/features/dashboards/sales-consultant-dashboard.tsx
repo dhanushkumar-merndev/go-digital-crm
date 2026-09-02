@@ -69,32 +69,10 @@ import {
   type SalesConsultantDashboardResult,
 } from './sales-consultant-dashboard-api';
 import { leadDetailHref } from '@/lib/navigation/record-links';
+import { toneStyles, type Tone } from './dashboard-tone';
 
 type DashboardMetric =
   SalesConsultantDashboardResult['metrics'][keyof SalesConsultantDashboardResult['metrics']];
-type Tone = 'blue' | 'rose' | 'amber' | 'emerald' | 'cyan' | 'violet' | 'orange';
-
-const toneStyles: Record<Tone, { icon: string; soft: string; border: string }> = {
-  blue: { icon: 'bg-blue-50 text-blue-600', soft: 'bg-blue-50/70', border: 'border-blue-100' },
-  rose: { icon: 'bg-rose-50 text-rose-600', soft: 'bg-rose-50/70', border: 'border-rose-100' },
-  amber: { icon: 'bg-amber-50 text-amber-600', soft: 'bg-amber-50/70', border: 'border-amber-100' },
-  emerald: {
-    icon: 'bg-emerald-50 text-emerald-600',
-    soft: 'bg-emerald-50/70',
-    border: 'border-emerald-100',
-  },
-  cyan: { icon: 'bg-cyan-50 text-cyan-600', soft: 'bg-cyan-50/70', border: 'border-cyan-100' },
-  violet: {
-    icon: 'bg-violet-50 text-violet-600',
-    soft: 'bg-violet-50/70',
-    border: 'border-violet-100',
-  },
-  orange: {
-    icon: 'bg-orange-50 text-orange-600',
-    soft: 'bg-orange-50/70',
-    border: 'border-orange-100',
-  },
-};
 
 const metricDefinitions: Array<{
   key: keyof SalesConsultantDashboardResult['metrics'];
@@ -696,7 +674,9 @@ function RecentLeads({
                           ? 'destructive'
                           : lead.temperature === 'WARM'
                             ? 'warning'
-                            : 'info'
+                            : lead.temperature === 'DORMANT'
+                              ? 'secondary'
+                              : 'info'
                       }
                       className="rounded px-1.5 py-0 text-[9px]"
                     >

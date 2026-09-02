@@ -63,6 +63,10 @@ function age(value: string) {
 function temperatureVariant(value: string | null) {
   if (value === 'HOT') return 'destructive' as const;
   if (value === 'WARM') return 'warning' as const;
+  // DORMANT is do-not-disturb, not a colder COLD, so it must not share the
+  // COLD styling: someone scanning the column has to see that this lead is
+  // suppressed from outbound messaging. See AGENTS.md 9.7.
+  if (value === 'DORMANT') return 'secondary' as const;
   return 'info' as const;
 }
 

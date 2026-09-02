@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   CalendarClock,
@@ -14,8 +14,10 @@ import {
   Phone,
   RotateCcw,
   UserRound,
+  UserRoundPlus,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
@@ -31,13 +33,22 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { LeadDetailSkeleton } from '@/components/skeletons';
+import {
+  hasWorkspacePermission,
+  useWorkspaceSession,
+} from '@/components/providers/workspace-session-provider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { roleHasNavigationSlug, roleLeadListHref } from '@/config/navigation';
+import { useReturnToList } from '@/lib/navigation/use-return-to-list';
 import { toWhatsAppClickToChatUrl } from '@/lib/phone';
 import { WorkCreateDialog } from '@/features/work/workspace-dialogs';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
+import {
+  CustomerMatchDialog,
+  type MatchableLead,
+} from '@/features/customers/customer-match-dialog';
 import { updateLead } from './lead-workspace-api';
 import { fetchLeadDetail, type LeadDetail } from './lead-detail-api';
 
@@ -288,10 +299,15 @@ function Followups({ followups }: { followups: LeadDetail['followups'] }) {
 }
 
 export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: string }) {
+  const router = useRouter();
+  const returnToLeads = useReturnToList(roleLeadListHref(role));
+  const queryClient = useQueryClient();
+  const workspaceSession = useWorkspaceSession();
   const salesConsultantCache = useSalesConsultantCache();
   const canOpenAppointments = roleHasNavigationSlug(role, 'appointments');
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [lostOpen, setLostOpen] = useState(false);
+  const [customerMatchOpen, setCustomerMatchOpen] = useState(false);
   const [lostReason, setLostReason] = useState('');
   const detail = useQuery({
     queryKey: ['lead-detail', leadId],
@@ -348,10 +364,8 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
   return (
     <div className="mx-auto max-w-[1800px] space-y-6">
       <div>
-        <Button variant="ghost" size="sm" asChild className="-ml-3 mb-3">
-          <Link href={roleLeadListHref(role)}>
-            <ArrowLeft className="size-4" /> Back to leads
-          </Link>
+        <Button variant="ghost" size="sm" onClick={returnToLeads} className="-ml-3 mb-3">
+          <ArrowLeft className="size-4" /> Back to leads
         </Button>
         <Card className="overflow-hidden shadow-none">
           <CardContent className="p-0">
@@ -362,6 +376,7 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
                     {lead.customer_name}
                   </h1>
                   {lead.work_state && <StatusBadge value={lead.work_state} />}
+                  {data.access.read_only && <Badge variant="secondary">Read only</Badge>}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                   <a
@@ -390,29 +405,41 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
               </LeadHeaderValue>
             </div>
             <div className="flex flex-wrap gap-2 border-t p-3">
-              <Button asChild size="sm" variant="outline">
-                <a href={`tel:${lead.phone}`}>
-                  <Phone className="size-3.5 text-emerald-600" /> Call
-                </a>
-              </Button>
-              <Button asChild size="sm" variant="outline">
-                <a href={toWhatsAppClickToChatUrl(lead.phone)} target="_blank" rel="noreferrer">
-                  <WhatsAppIcon className="size-3.5 text-emerald-600" /> WhatsApp
-                </a>
-              </Button>
-              {lead.email && (
-                <Button asChild size="sm" variant="outline">
-                  <a href={`mailto:${lead.email}`}>
-                    <Mail className="size-3.5 text-blue-600" /> Email
-                  </a>
-                </Button>
+              {!data.access.read_only && (
+                <>
+                  <Button asChild size="sm" variant="outline">
+                    <a href={`tel:${lead.phone}`}>
+                      <Phone className="size-3.5 text-emerald-600" /> Call
+                    </a>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
+                    <a href={toWhatsAppClickToChatUrl(lead.phone)} target="_blank" rel="noreferrer">
+                      <WhatsAppIcon className="size-3.5 text-emerald-600" /> WhatsApp
+                    </a>
+                  </Button>
+                  {lead.email && (
+                    <Button asChild size="sm" variant="outline">
+                      <a href={`mailto:${lead.email}`}>
+                        <Mail className="size-3.5 text-blue-600" /> Email
+                      </a>
+                    </Button>
+                  )}
+                </>
               )}
+              {!lead.customer_id &&
+                !data.access.read_only &&
+                hasWorkspacePermission(workspaceSession, 'customer.link') && (
+                  <Button size="sm" variant="outline" onClick={() => setCustomerMatchOpen(true)}>
+                    <UserRoundPlus className="size-3.5 text-blue-600" /> Review possible customer
+                    match
+                  </Button>
+                )}
               {lead.customer_id && (
                 <Button asChild size="sm" variant="outline">
                   <Link href={`/${role}/customers/${lead.customer_id}`}>Open customer 360</Link>
                 </Button>
               )}
-              {data.access.can_followups && (
+              {data.access.can_followups && !data.access.read_only && (
                 <Button size="sm" className="sm:ml-auto" onClick={() => setScheduleOpen(true)}>
                   <CalendarClock className="size-3.5" /> Schedule follow-up
                 </Button>
@@ -534,6 +561,16 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
           </TabsContent>
         )}
       </Tabs>
+      <CustomerMatchDialog
+        lead={(customerMatchOpen ? lead : null) as MatchableLead | null}
+        open={customerMatchOpen}
+        canCreate={hasWorkspacePermission(workspaceSession, 'customer.create')}
+        onOpenChange={setCustomerMatchOpen}
+        onResolved={(customerId) => {
+          void queryClient.invalidateQueries({ queryKey: ['lead-detail', leadId] });
+          router.push(`/${role}/customers/${customerId}`);
+        }}
+      />
       <WorkCreateDialog
         kind="followups"
         open={scheduleOpen}

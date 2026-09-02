@@ -49,10 +49,15 @@ describe('Customer 360 edit contract', () => {
   });
 
   it('returns to the actual previous workspace view before falling back to customers', () => {
+    // The history-vs-fallback logic moved into the shared useReturnToList hook
+    // so the lead detail page could not implement it a second, different way.
+    // See tests/api/detail-back-navigation-contract.test.ts for the behaviour.
     expect(customerWorkspace).toContain('const returnToPreviousPage');
-    expect(customerWorkspace).toContain('window.history.length > 1');
-    expect(customerWorkspace).toContain('router.back()');
-    expect(customerWorkspace).toContain('router.replace(`/${role}/customers`)');
+    expect(customerWorkspace).toContain('useReturnToList(`/${role}/customers`)');
+    const hook = readFileSync('src/lib/navigation/use-return-to-list.ts', 'utf8');
+    expect(hook).toContain('window.history.length > 1');
+    expect(hook).toContain('router.back()');
+    expect(hook).toContain('router.replace(fallbackHref)');
   });
 
   it('uses a scoped, optimistic and audited customer mutation', () => {

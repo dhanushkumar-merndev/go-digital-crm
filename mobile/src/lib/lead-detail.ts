@@ -14,7 +14,7 @@ export type MobileLeadDetail = {
     source: string;
     interested_model: string | null;
     lifecycle_status: string;
-    temperature: 'COLD' | 'WARM' | 'HOT' | null;
+    temperature: 'COLD' | 'WARM' | 'HOT' | 'DORMANT' | null;
     work_state: 'NEW_TODAY' | 'PENDING' | 'SLA_RISK' | null;
     assigned_user_name: string | null;
     next_followup_at: string | null;

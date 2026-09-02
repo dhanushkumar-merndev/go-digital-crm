@@ -15,6 +15,10 @@ const handoffMigration = readFileSync(
   'supabase/migrations/202608310005_telecaller_sales_handoff_assignment.sql',
   'utf8',
 );
+const handoffGuardFixMigration = readFileSync(
+  'supabase/migrations/202609020008_fix_telecaller_sales_transfer_guards.sql',
+  'utf8',
+);
 
 describe('Telecaller lead workflow', () => {
   it('shows the intake queues, including the actual sales handoff state', () => {
@@ -109,6 +113,16 @@ describe('Telecaller to Sales handoff', () => {
     expect(handoffMigration).toContain("'lead.sales_handoff_requested'");
     expect(handoffMigration).toContain('LEAD_ALREADY_WITH_SALES');
     expect(handoffMigration).toContain('LOST_LEAD_CANNOT_TRANSFER');
+  });
+
+  it('crosses lifecycle and owner guards only inside the trusted handoff RPC', () => {
+    expect(handoffGuardFixMigration).toContain(
+      "set_config(''app.sales_handoff_rpc'', ''on'', true)",
+    );
+    expect(handoffGuardFixMigration).toContain("set_config(''app.assign_lead_rpc'', ''on'', true)");
+    expect(handoffGuardFixMigration).toContain("current_setting('app.sales_handoff_rpc', true)");
+    expect(handoffGuardFixMigration).toContain('trusted_sales_handoff');
+    expect(handoffGuardFixMigration).toContain("new.lifecycle_status = 'Transferred to Sales'");
   });
 
   it('is reachable only for the owning Telecaller or a manager who may assign', () => {

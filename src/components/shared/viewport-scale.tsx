@@ -1,5 +1,6 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import {
   applyViewportZoom,
@@ -7,6 +8,17 @@ import {
   canvasEnabled,
   storeCanvasEnabled,
 } from '@/lib/layout/viewport-scale';
+
+function isAuthRoute(pathname: string | null) {
+  if (!pathname) return false;
+  return (
+    pathname === '/login' ||
+    pathname === '/forgot-password' ||
+    pathname === '/reset-password' ||
+    pathname === '/auth/invite' ||
+    pathname.startsWith('/access/mfa')
+  );
+}
 
 /**
  * One preference, read by both the component that applies the zoom and the
@@ -51,9 +63,18 @@ export function useFixedCanvas() {
  * current through resizes, monitor changes and the menu switch.
  */
 export function ViewportScale() {
+  const pathname = usePathname();
   const { enabled } = useFixedCanvas();
+
   useEffect(() => {
     const root = document.documentElement;
+
+    if (isAuthRoute(pathname)) {
+      root.style.zoom = '';
+      root.style.removeProperty('--canvas-zoom');
+      return;
+    }
+
     let frame = 0;
     let applied = Number.NaN;
     const update = () => {
@@ -74,6 +95,6 @@ export function ViewportScale() {
       window.removeEventListener('resize', update);
       root.style.zoom = '';
     };
-  }, [enabled]);
+  }, [enabled, pathname]);
   return null;
 }

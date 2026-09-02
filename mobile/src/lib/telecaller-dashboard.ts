@@ -7,7 +7,6 @@ export type MobileTelecallerDashboard = {
     followupsToday: number;
     followupsOverdue: number;
     callsToday: number;
-    appointmentsToday: number;
   };
   attention: Array<{ title: string; detail: string; severity: 'HIGH' | 'MEDIUM' }>;
   recentLeads: Array<{
@@ -17,7 +16,7 @@ export type MobileTelecallerDashboard = {
     source: string;
     interestedModel: string | null;
     lifecycleStatus: string;
-    temperature: 'COLD' | 'WARM' | 'HOT' | null;
+    temperature: 'COLD' | 'WARM' | 'HOT' | 'DORMANT' | null;
   }>;
 };
 
@@ -44,7 +43,6 @@ export async function fetchMobileTelecallerDashboard(): Promise<MobileTelecaller
       followupsToday: number(kpis.followups_due_today),
       followupsOverdue: number(kpis.followups_overdue),
       callsToday: number(kpis.calls_today),
-      appointmentsToday: number(kpis.appointments_today),
     },
     attention: Array.isArray(raw.attention)
       ? raw.attention.flatMap((item) => {
@@ -75,7 +73,10 @@ export async function fetchMobileTelecallerDashboard(): Promise<MobileTelecaller
                 typeof value.interested_model === 'string' ? value.interested_model : null,
               lifecycleStatus: string(value.lifecycle_status),
               temperature:
-                temperature === 'HOT' || temperature === 'WARM' || temperature === 'COLD'
+                temperature === 'HOT' ||
+                temperature === 'WARM' ||
+                temperature === 'COLD' ||
+                temperature === 'DORMANT'
                   ? temperature
                   : null,
             },

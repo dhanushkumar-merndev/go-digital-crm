@@ -29,7 +29,7 @@ export const FOCUS_PARAM = 'focus';
  * the row and losing the mark a few seconds later both fade rather than snap.
  */
 export const focusedRowClassName =
-  'bg-blue-50/90 shadow-[inset_4px_0_0_0_#2563eb] ring-1 ring-inset ring-blue-200 transition-colors duration-500';
+  'focused-row-highlight bg-blue-50/95 ring-1 ring-inset ring-blue-200/80 transition-all duration-700 ease-out';
 
 export function focusRowElementId(scope: string, recordId: string) {
   return `${scope}-row-${recordId}`;

@@ -20,7 +20,7 @@ type Lead = {
   source: string;
   interested_model: string | null;
   lifecycle_status: string;
-  temperature: 'COLD' | 'WARM' | 'HOT' | null;
+  temperature: 'COLD' | 'WARM' | 'HOT' | 'DORMANT' | null;
   next_followup_at: string | null;
 };
 

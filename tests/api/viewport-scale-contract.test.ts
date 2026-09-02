@@ -79,9 +79,13 @@ describe('One desktop view across every screen size', () => {
   it('has no breakpoint-gated layout left that the canvas cannot reach', () => {
     // Media queries resolve against the physical width, not the canvas, so a
     // 1920-only arrangement gated at 2xl would never apply on a 1366 laptop.
+    // Auth screens sit outside the canvas (ViewportScale skips those routes),
+    // so they are fluid and breakpoints are the right tool there.
+    const outsideTheCanvas = (file: string) =>
+      file.includes('features/auth/') || file.includes('auth-page-shell');
     const files = readdirSync('src', { recursive: true, encoding: 'utf8' });
     const gated = files
-      .filter((file) => file.endsWith('.tsx'))
+      .filter((file) => file.endsWith('.tsx') && !outsideTheCanvas(file))
       .filter((file) => readFileSync(`src/${file}`, 'utf8').includes('2xl:'));
     expect(gated).toEqual([]);
   });

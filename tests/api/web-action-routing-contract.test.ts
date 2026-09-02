@@ -32,7 +32,9 @@ describe('production web action routing', () => {
     expect(navigation).toContain("'team-manager': 'team-leads'");
     expect(navigation).toContain("'showroom-manager': 'showroom-leads'");
     expect(navigation).toContain("'gm-sales': 'sales-leads'");
-    expect(leadDetail).toContain('href={roleLeadListHref(role)}');
+    // Back is history-driven now, so the role-safe list href is the fallback
+    // passed to useReturnToList rather than a plain link target.
+    expect(leadDetail).toContain('useReturnToList(roleLeadListHref(role))');
     expect(leadDetail).toContain("roleHasNavigationSlug(role, 'appointments')");
     expect(leadList).toContain("roleHasNavigationSlug(role, 'follow-ups')");
   });

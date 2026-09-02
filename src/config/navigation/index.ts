@@ -26,7 +26,6 @@ export const roleNavigation: Record<RoleKey, RoleNavigation> = {
       ['Activity Timeline', 'activity-timeline', 'History'],
       ['Calls', 'calls', 'Phone'],
       ['Inbox', 'messages', 'MessageCircleMore'],
-      ['Appointments', 'appointments', 'CalendarDays'],
       ['Performance', 'performance', 'ChartNoAxesCombined'],
     ]),
   },
@@ -61,6 +60,7 @@ export const roleNavigation: Record<RoleKey, RoleNavigation> = {
     items: items([
       ['Dashboard', 'dashboard', 'LayoutDashboard'],
       ['Team Leads', 'team-leads', 'Users'],
+      ['Duplicate Approvals', 'duplicate-leads', 'BadgeCheck'],
       ['Lead Assignment', 'lead-assignment', 'UserRoundCheck'],
       ['Follow-ups', 'follow-ups', 'CalendarClock'],
       ['Team Calls', 'team-calls', 'PhoneCall'],

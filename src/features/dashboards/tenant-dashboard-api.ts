@@ -42,7 +42,7 @@ const leadPreviewSchema = z.object({
   source: z.string(),
   interested_model: z.string().nullable(),
   lifecycle_status: z.string(),
-  temperature: z.enum(['COLD', 'WARM', 'HOT']).nullable(),
+  temperature: z.enum(['COLD', 'WARM', 'HOT', 'DORMANT']).nullable(),
   work_state: z.enum(['NEW_TODAY', 'PENDING', 'SLA_RISK']).nullable(),
   next_followup_at: z.string().nullable(),
   updated_at: z.string(),

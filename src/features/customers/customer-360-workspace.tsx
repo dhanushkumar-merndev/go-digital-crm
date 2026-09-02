@@ -30,6 +30,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useReturnToList } from '@/lib/navigation/use-return-to-list';
 import { Customer360Skeleton } from '@/components/skeletons';
 import {
   Select,
@@ -825,6 +826,7 @@ function Customer360Content({
 
 export function Customer360Workspace({ role, customerId }: { role: string; customerId: string }) {
   const router = useRouter();
+  const returnToPreviousPage = useReturnToList(`/${role}/customers`);
   const [activeTab, setActiveTab] = useState<Customer360Tab>('overview');
   const [editOpen, setEditOpen] = useState(false);
   const [documentUploadOpen, setDocumentUploadOpen] = useState(false);
@@ -911,13 +913,6 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
 
   const customerIsPending = useSalesHotPath ? salesCore.isPending : legacyCustomer.isPending;
   const customerIsError = useSalesHotPath ? salesCore.isError : legacyCustomer.isError;
-  const returnToPreviousPage = () => {
-    if (window.history.length > 1) {
-      router.back();
-      return;
-    }
-    router.replace(`/${role}/customers`);
-  };
 
   if (
     (!useWorkspaceBootstrap && legacyPermissions.isPending) ||

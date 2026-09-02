@@ -44,10 +44,13 @@ export default function ForgotPasswordPage() {
       });
       if (resetError) throw resetError;
       setSubmitted(true);
+      // Whether the address has an account is not ours to reveal -- confirming
+      // it would let anyone enumerate staff addresses one request at a time.
+      // The panel below already says this; the toast has to agree with it.
       toast.add({
         type: 'success',
         title: 'Recovery email requested',
-        description: 'Check your inbox for a short-lived password recovery link.',
+        description: 'If an account matches that address, a recovery link will arrive shortly.',
       });
     } catch {
       toast.add({
