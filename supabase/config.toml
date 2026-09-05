@@ -74,6 +74,9 @@ verify_jwt = true
 [functions.lead-ingest]
 verify_jwt = true
 
+[functions.lead-bulk-import]
+verify_jwt = true
+
 [functions.mobile-link-create]
 verify_jwt = true
 

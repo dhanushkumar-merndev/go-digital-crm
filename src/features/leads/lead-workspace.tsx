@@ -10,6 +10,7 @@ import {
   ChevronRight,
   ChevronUp,
   ClockAlert,
+  FileUp,
   Flame,
   MoreVertical,
   ListTodo,
@@ -147,6 +148,7 @@ import {
   savedLeadFilterValues,
 } from './saved-lead-filters';
 import { requestDuplicateLeadDeletion } from './duplicate-lead-deletion-api';
+import { LeadBulkImportDialog } from './lead-bulk-import-dialog';
 
 const leadSources = [
   'Facebook',
@@ -3055,6 +3057,7 @@ export function LeadWorkspace({
     parsePersonalLeadView(searchParams),
   );
   const [createOpen, setCreateOpen] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [salesLeadMetricsOpen, setSalesLeadMetricsOpen] = useState(true);
   // Sales Consultant and Telecaller both work My Leads as a personal queue,
   // so both get the summary strip. The other roles reach this component for
@@ -3461,9 +3464,14 @@ export function LeadWorkspace({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {role === 'telecaller' && permissions?.canCreate ? (
-            <Button onClick={() => setCreateOpen(true)}>
-              <UserRoundPlus className="size-4" /> Add leads
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setBulkImportOpen(true)}>
+                <FileUp className="size-4" /> Import CSV
+              </Button>
+              <Button onClick={() => setCreateOpen(true)}>
+                <UserRoundPlus className="size-4" /> Add lead
+              </Button>
+            </>
           ) : null}
           <Button
             variant="outline"
@@ -3567,12 +3575,22 @@ export function LeadWorkspace({
         onRequestDuplicateDeletion={setDuplicateDeletionLead}
       />
       {permissions?.canCreate && (
-        <LeadCreateDialog
-          organizationId={permissions.organizationId}
-          open={createDialogOpen}
-          onOpenChange={(open) => (open ? setCreateOpen(true) : closeCreateDialog())}
-          onCreated={invalidate}
-        />
+        <>
+          <LeadCreateDialog
+            organizationId={permissions.organizationId}
+            open={createDialogOpen}
+            onOpenChange={(open) => (open ? setCreateOpen(true) : closeCreateDialog())}
+            onCreated={invalidate}
+          />
+          {role === 'telecaller' ? (
+            <LeadBulkImportDialog
+              organizationId={permissions.organizationId}
+              open={bulkImportOpen}
+              onOpenChange={setBulkImportOpen}
+              onImported={invalidate}
+            />
+          ) : null}
+        </>
       )}
       <SalesHandoffDialog
         key={`handoff-${handoffLead?.id ?? 'none'}`}
