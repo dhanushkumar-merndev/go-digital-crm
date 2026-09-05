@@ -17,9 +17,12 @@ describe('Telecaller appointment exclusion', () => {
     );
     expect(dashboard.toLowerCase()).not.toContain('appointment');
     expect(dashboard).toContain('Contacted leads');
-    expect(dashboard).toContain('Qualified for handoff');
+    // 'Qualified' was a pass-through state -- transfer_lead_to_sales writes it
+    // and record_sales_lead_handoff replaces it in the same transaction -- so
+    // both tiles could only ever read zero. Replaced, not removed.
+    expect(dashboard).toContain('Contacted, not yet handed off');
     expect(dashboard).toContain('Transferred to Sales');
-    expect(dashboard).toContain('Qualified leads');
+    expect(dashboard).toContain('Handoff rate');
     expect(mobileDashboard.toLowerCase()).not.toContain('appointment');
     expect(workspace).toContain("role !== 'telecaller'");
   });

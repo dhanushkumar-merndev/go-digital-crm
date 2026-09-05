@@ -135,6 +135,7 @@ import {
   type LeadStatusFilter,
   type LeadTemperatureFilter,
 } from './lead-workspace-query';
+import { leadStageVariant } from './lead-stage-variant';
 import { customerDetailHref, leadDetailHref } from '@/lib/navigation/record-links';
 import {
   emptySavedLeadFilterValues,
@@ -289,19 +290,7 @@ function StageBadge({
   customerName: string;
   isMuted?: boolean;
 }) {
-  const variant =
-    value === 'New'
-      ? 'info'
-      : value === 'Contacted' ||
-          value === 'Booking' ||
-          value === 'Transferred to Sales' ||
-          value === 'Qualified'
-        ? 'success'
-        : value === 'Follow-up' || value === 'Quotation'
-          ? 'warning'
-          : value === 'Test Drive'
-            ? 'default'
-            : 'secondary';
+  const variant = leadStageVariant(value);
   return (
     <Link
       href={href}
@@ -2092,12 +2081,7 @@ function LeadTable({
           }
 
           return (
-            // The icon buttons are size-7 around a size-3.5 glyph, so each
-            // carries 7px of its own padding. Without pulling that back the
-            // last glyph lands 27px from the card edge while the ACTIONS
-            // label and every text column sit at 20px, which reads as a gap.
-            // The button keeps its full hit area; only the ink moves.
-            <div className="-mr-[7px] flex items-center justify-end gap-0.5">
+            <div className="flex items-center justify-end gap-0.5">
               {!row.original.customer_id && canLinkCustomer ? (
                 <Button
                   type="button"
@@ -2272,6 +2256,11 @@ function LeadTable({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="min-w-60">
+                  {canAssign && (
+                    <DropdownMenuItem onSelect={() => onAssign(row.original)}>
+                      <UserRoundPlus className="size-4" /> Assign / reassign
+                    </DropdownMenuItem>
+                  )}
                   {canUpdate && (
                     <>
                       <DropdownMenuItem
@@ -2397,6 +2386,7 @@ function LeadTable({
       advanceLead,
       blockedByOpenFollowup,
       isManagerView,
+      onAssign,
       onEdit,
       onScheduleFollowup,
       onScheduleAppointment,
@@ -2678,8 +2668,8 @@ function LeadTable({
         <div
           className={
             isFetching
-              ? 'overflow-x-auto opacity-65 transition-opacity'
-              : 'overflow-x-auto transition-opacity'
+              ? '[&>div]:overflow-y-hidden opacity-65 transition-opacity'
+              : '[&>div]:overflow-y-hidden transition-opacity'
           }
         >
           <Table className="min-w-[1220px]">
@@ -2696,7 +2686,7 @@ function LeadTable({
                         // icons and the right edge. w-px collapses the column to
                         // its content and hands the slack back to the text
                         // columns, which are the ones that benefit from it.
-                        header.column.id === 'actions' && 'w-px text-right',
+                        header.column.id === 'actions' && 'w-px !pr-2 text-right',
                       )}
                     >
                       {header.isPlaceholder
@@ -2751,7 +2741,7 @@ function LeadTable({
                           className={cn(
                             'whitespace-nowrap px-5 py-4 text-xs text-[#263550]',
                             cell.column.id === 'lead_id' && 'relative',
-                            cell.column.id === 'actions' && 'w-px',
+                            cell.column.id === 'actions' && 'w-px !pr-0',
                           )}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -2813,7 +2803,7 @@ function LeadTable({
                                 className={cn(
                                   'whitespace-nowrap px-5 py-4 text-xs text-slate-500',
                                   cell.column.id === 'lead_id' && 'relative',
-                                  cell.column.id === 'actions' && 'w-px',
+                                  cell.column.id === 'actions' && 'w-px !pr-0',
                                 )}
                               >
                                 {/* A row in the expanded group is a read-only

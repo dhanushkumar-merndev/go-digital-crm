@@ -141,7 +141,7 @@ pnpm supabase:functions:deploy -- --project-ref PROJECT_REF
 Post-deploy checks:
 
 - confirm migration versions match the release commit
-- confirm only the five explicitly allowlisted public boundaries have `verify_jwt = false`
+- confirm only the explicitly allowlisted public boundaries have `verify_jwt = false`
 - verify webhook challenges/signatures and OAuth callback URLs with staging provider assets
 - verify an authenticated allowed request and a denied cross-tenant request for every changed function family
 - verify audit/error records are sanitized and no secret is returned
@@ -155,6 +155,16 @@ Provider callback configuration:
   through the unique active tenant asset mapping.
 - Configure each Google Ads lead form callback with the connection-specific URL returned by the
   integration workflow and its separate anti-spoofing key.
+- Save the connection-specific TeleCMI CDR webhook and HTTP web-flow URLs returned by the CRM.
+  Configure the CDR callback for answered/missed call events and use the web-flow URL when the
+  incoming flow should return the selected IVR, team, or parallel agent list. These URLs contain an
+  encrypted-at-rest anti-spoofing token and must be handled like credentials.
+- Configure the AI voice gateway callback as
+  `PUBLIC_EDGE_FUNCTION_BASE_URL/provider-webhook-ai-voice`. Sign the exact raw request body with
+  `AI_VOICE_WEBHOOK_SECRET`, send the Unix timestamp in `x-ai-voice-timestamp`, and send
+  `sha256=HMAC_SHA256(secret, "timestamp.rawBody")` in `x-ai-voice-signature`. The timestamp must be
+  within five minutes. The gateway must echo the CRM call and tenant metadata supplied at dispatch
+  and return a short-lived HTTPS recording URL on completion.
 - In staging, prove that an unknown Page/phone is acknowledged without creating a tenant event,
   while each mapped asset creates a `RECEIVED` event only for its owning tenant.
 
@@ -184,6 +194,16 @@ For production, create an unpromoted candidate so the built version can be revie
 pnpm trigger:deploy:production:candidate
 ```
 
+Check current production flow before promotion:
+
+```bash
+pnpm dlx trigger.dev@4.5.11 report health --env prod --period 24h --skip-telemetry
+```
+
+Do not promote while the report says flow is stalled or the pending queue is growing. Identify the
+source of the trigger spike, confirm pending work returns to its normal range, and only then promote
+the reviewed candidate.
+
 Promote the reviewed version using the exact version emitted by the candidate deployment:
 
 ```bash
@@ -202,7 +222,16 @@ GROQ_TRANSCRIPTION_MODEL
 GROQ_ANALYSIS_MODEL
 AI_CALL_TRANSCRIPTION_CREDITS
 AI_CALL_ANALYSIS_CREDITS
+PUBLIC_EDGE_FUNCTION_BASE_URL
+AI_VOICE_GATEWAY_URL
+AI_VOICE_GATEWAY_TOKEN
 ```
+
+Add `AI_VOICE_WEBHOOK_SECRET` to the Supabase Edge Function secrets. Add the exact hostname that
+serves AI-agent recordings to `IVR_RECORDING_ALLOWED_HOSTS` alongside `rest.telecmi.com`; wildcards
+are discouraged. The AI voice adapter contract is intentionally separate from TeleCMI because the
+documented TeleCMI streaming interface sends one-way PCM audio to a WebSocket and does not expose a
+bidirectional bot-control API.
 
 Load Trigger.dev variables from a dedicated ignored environment file or enter
 them directly in the authenticated Trigger.dev Variables form. Do not print

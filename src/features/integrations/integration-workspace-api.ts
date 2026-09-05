@@ -13,7 +13,7 @@ export type IntegrationProviderKey =
   | 'openai'
   | 'gemini'
   | 'groq'
-  | 'twilio_voice';
+  | 'telecmi';
 export type IntegrationScopeMode = 'ONE_BRANCH' | 'SELECTED_BRANCHES' | 'ALL_BRANCHES';
 
 export type IntegrationRecord = {
@@ -35,6 +35,12 @@ export type IntegrationRecord = {
   connection_config: {
     connection_type?: string;
     capabilities?: string[];
+    default_user_id?: string;
+    caller_id_label?: string | null;
+    inbound_route?: 'PARALLEL_USERS' | 'IVR' | 'TEAM';
+    parallel_agents?: Array<{ user_id: string; phone: string }>;
+    ivr_name?: string | null;
+    team_name?: string | null;
     models?: {
       text_model?: string;
       image_model?: string;
@@ -54,6 +60,7 @@ export type IntegrationKpis = {
 export type IntegrationWorkspacePermissions = {
   organizationId: string;
   canManage: boolean;
+  canUseAllBranches: boolean;
 };
 
 export type IntegrationOptions = {
@@ -72,7 +79,11 @@ export async function fetchIntegrationWorkspacePermissions(): Promise<Integratio
   const supabase = createClient();
   const contextResponse = await supabase.rpc('get_access_context');
   if (contextResponse.error) throw contextResponse.error;
-  const context = contextResponse.data as { destination?: string; organization_id?: string } | null;
+  const context = contextResponse.data as {
+    destination?: string;
+    organization_id?: string;
+    data_scope?: string;
+  } | null;
   if (context?.destination !== 'CRM' || !context.organization_id)
     throw new Error('CRM_ACCESS_CONTEXT_UNAVAILABLE');
   const organizationId = context.organization_id;
@@ -88,7 +99,11 @@ export async function fetchIntegrationWorkspacePermissions(): Promise<Integratio
   if (view.error) throw view.error;
   if (manage.error) throw manage.error;
   if (!view.data && !manage.data) throw new Error('INTEGRATION_VIEW_DENIED');
-  return { organizationId, canManage: Boolean(manage.data) };
+  return {
+    organizationId,
+    canManage: Boolean(manage.data),
+    canUseAllBranches: ['ORGANIZATION', 'ALL_BRANCHES'].includes(context.data_scope ?? ''),
+  };
 }
 
 export async function fetchIntegrationWorkspace(query: IntegrationQuery) {
@@ -193,7 +208,7 @@ async function invokeIntegrationFunction<T>(name: string, body: Record<string, u
 
 export function startOAuthConnection(input: {
   organizationId: string;
-  providerKey: Exclude<IntegrationProviderKey, 'whatsapp_cloud'>;
+  providerKey: Exclude<IntegrationProviderKey, 'whatsapp_cloud' | 'telecmi'>;
   displayName: string;
   scopeMode: IntegrationScopeMode;
   branchIds: string[];
@@ -241,33 +256,45 @@ export function connectWhatsApp(input: {
   );
 }
 
-export function connectTwilio(input: {
+export function connectTelecmi(input: {
   organizationId: string;
   connectionId?: string;
   displayName: string;
   scopeMode: IntegrationScopeMode;
   branchIds: string[];
-  accountSid: string;
-  apiKeySid: string;
-  apiKeySecret: string;
-  authToken: string;
-  phoneNumber: string;
+  appId: number;
+  appSecret: string;
+  defaultUserId: string;
+  callerId?: string;
+  inboundRoute: 'PARALLEL_USERS' | 'IVR' | 'TEAM';
+  parallelAgents: Array<{ user_id: string; phone: string }>;
+  ivrName?: string;
+  teamName?: string;
+  aiStreamEnabled: boolean;
+  aiStreamWsUrl?: string;
 }) {
-  return invokeIntegrationFunction<{ connection_id: string; tested_at: string }>(
-    'integration-connect-twilio',
-    {
-      organization_id: input.organizationId,
-      connection_id: input.connectionId,
-      display_name: input.displayName,
-      scope_mode: input.scopeMode,
-      branch_ids: input.branchIds,
-      account_sid: input.accountSid,
-      api_key_sid: input.apiKeySid,
-      api_key_secret: input.apiKeySecret,
-      auth_token: input.authToken,
-      phone_number: input.phoneNumber,
-    },
-  );
+  return invokeIntegrationFunction<{
+    connection_id: string;
+    tested_at: string;
+    webhook_url: string;
+    call_flow_url: string;
+  }>('integration-connect-telecmi', {
+    organization_id: input.organizationId,
+    connection_id: input.connectionId,
+    display_name: input.displayName,
+    scope_mode: input.scopeMode,
+    branch_ids: input.branchIds,
+    app_id: input.appId,
+    app_secret: input.appSecret,
+    default_user_id: input.defaultUserId,
+    caller_id: input.callerId,
+    inbound_route: input.inboundRoute,
+    parallel_agents: input.parallelAgents,
+    ivr_name: input.ivrName,
+    team_name: input.teamName,
+    ai_stream_enabled: input.aiStreamEnabled,
+    ai_stream_ws_url: input.aiStreamWsUrl,
+  });
 }
 
 export function connectAiProvider(input: {

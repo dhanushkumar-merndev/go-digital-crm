@@ -40,6 +40,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { PageSpec } from '@/lib/domain';
+import { leadStageVariant } from '@/features/leads/lead-stage-variant';
 import { leadDetailHref } from '@/lib/navigation/record-links';
 import { ManualDashboardRefreshLimitError } from '@/lib/query/cached-dashboard-api';
 import {
@@ -63,8 +64,7 @@ const DASHBOARD_ROLE = 'telecaller';
  * in the same one rather than in whichever zone the browser happens to be in. */
 const DASHBOARD_TIMEZONE = 'Asia/Kolkata';
 
-/** The lifecycle stages the pipeline RPC emits, in the order it emits them. */
-const PIPELINE_QUALIFIED = 'Qualified';
+/** The lifecycle stage the pipeline RPC emits that this page reads by name. */
 const PIPELINE_TRANSFERRED = 'Transferred to Sales';
 
 type MetricCardModel = {
@@ -78,6 +78,8 @@ type MetricCardModel = {
   change?: { percent: number; comparison: string };
   /** The caption shown when there is no comparable series behind the number. */
   caption?: string;
+  /** Rendered against the value, for a card that reports a rate. */
+  suffix?: string;
 };
 
 function formatTime(value: string) {
@@ -99,13 +101,6 @@ function formatDateTime(value: string | null) {
     hour12: true,
     timeZone: DASHBOARD_TIMEZONE,
   }).format(new Date(value));
-}
-
-function statusVariant(status: string): 'info' | 'success' | 'warning' | 'destructive' {
-  if (status === 'Lost' || status === 'SLA_RISK') return 'destructive';
-  if (status === 'Qualified' || status === 'Transferred to Sales') return 'success';
-  if (status === 'Contacted' || status === 'PENDING') return 'warning';
-  return 'info';
 }
 
 function temperatureVariant(temperature: TenantDashboardLeadPreview['temperature']) {
@@ -151,6 +146,17 @@ function dayOverDayChange(data: TenantDashboardResult, seriesLabel: string) {
     percent: Math.round(((today - yesterday) / yesterday) * 100),
     comparison: 'yesterday',
   };
+}
+
+/**
+ * Share of the telecaller's non-lost queue that has reached Sales. Both terms
+ * come from the same pipeline payload, so the rate cannot disagree with the
+ * counts printed beside it.
+ */
+function handoffRate(data: TenantDashboardResult) {
+  const total = data.pipeline.reduce((sum, stage) => sum + stage.value, 0);
+  if (total <= 0) return 0;
+  return Math.round((pipelineStage(data, PIPELINE_TRANSFERRED) / total) * 100);
 }
 
 function metricCards(data: TenantDashboardResult): MetricCardModel[] {
@@ -214,13 +220,19 @@ function metricCards(data: TenantDashboardResult): MetricCardModel[] {
       caption: 'Customer reached',
     },
     {
-      key: 'qualified_leads',
-      label: 'Qualified leads',
-      value: pipelineStage(data, PIPELINE_QUALIFIED),
+      key: 'handoff_rate',
+      label: 'Handoff rate',
+      // Not a stage count. 'Qualified' used to sit here and could only ever read
+      // zero: transfer_lead_to_sales sets it, then record_sales_lead_handoff
+      // replaces it with 'Transferred to Sales' inside the same transaction, so
+      // no lead is ever at rest in it. This reports the telecaller's actual
+      // output instead -- how much of the queue reached Sales.
+      value: handoffRate(data),
+      suffix: '%',
       icon: BadgeCheck,
       tone: 'amber',
-      href: `${leads}?status=qualified`,
-      caption: 'Ready for handoff',
+      href: `${leads}?status=transferred-to-sales`,
+      caption: 'of assigned leads',
     },
     {
       key: 'transferred_leads',
@@ -266,13 +278,15 @@ function attentionTiles(data: TenantDashboardResult) {
       href: `${leads}?status=new`,
     },
     {
-      key: 'QUALIFIED_FOR_HANDOFF',
-      label: 'Qualified for handoff',
-      value: pipelineStage(data, PIPELINE_QUALIFIED),
-      action: 'Review qualified leads',
+      key: 'CONTACTED_AWAITING_HANDOFF',
+      label: 'Contacted, not yet handed off',
+      // Replaces a 'Qualified' tile that could not be non-zero. These are the
+      // leads the customer has been reached on and that still need a decision.
+      value: pipelineStage(data, 'Contacted'),
+      action: 'Review contacted leads',
       icon: BadgeCheck,
       tone: 'cyan' as Tone,
-      href: `${leads}?status=qualified`,
+      href: `${leads}?status=contacted`,
     },
     {
       key: 'OPEN_QUEUE',
@@ -367,6 +381,7 @@ function MetricCard({ metric }: { metric: MetricCardModel }) {
           </div>
           <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-[#12213f]">
             {metric.value}
+            {metric.suffix}
           </p>
           {metric.change ? (
             <p
@@ -572,7 +587,7 @@ function RecentLeads({ leads }: { leads: TenantDashboardLeadPreview[] }) {
                   </TableCell>
                   <TableCell className="px-3 py-2">
                     <Badge
-                      variant={statusVariant(lead.work_state ?? lead.lifecycle_status)}
+                      variant={leadStageVariant(lead.work_state ?? lead.lifecycle_status)}
                       className="rounded px-1.5 py-0 text-[9px]"
                     >
                       {leadStatusLabel(lead)}

@@ -13,6 +13,9 @@ function source(relativePath: string) {
 }
 
 const migration = source('supabase/migrations/202608150018_calls_workspace.sql');
+const kpiCompatibilityMigration = source(
+  'supabase/migrations/202609040007_call_workspace_kpi_compatibility.sql',
+);
 const api = source('src/features/calls/call-workspace-api.ts');
 const workspace = source('src/features/calls/call-workspace.tsx');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
@@ -62,6 +65,13 @@ describe('calls workspace query boundary', () => {
     expect(list).not.toContain("'bucket'");
     expect(list).not.toContain('temporary_url');
     expect(list).not.toContain('recording_url');
+  });
+
+  it('keeps the shared KPI response complete for legacy role paths', () => {
+    expect(kpiCompatibilityMigration).toContain("'{kpis,not_connected_today}'");
+    expect(kpiCompatibilityMigration).toContain("'{kpis,talk_time_seconds}'");
+    expect(kpiCompatibilityMigration).toContain('app_private.can_access_record(');
+    expect(api).toContain('nonnegative().default(0)');
   });
 });
 

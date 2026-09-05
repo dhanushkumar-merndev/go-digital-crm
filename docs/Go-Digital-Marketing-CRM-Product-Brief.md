@@ -542,7 +542,7 @@ Operational records are linked through customer ID, booking ID, department case 
 - **Google Ads:** OAuth, customer/campaign/lead-form discovery, branch mapping and lead-form ingestion.
 - **Google Business Profile:** OAuth connection testing and business-location integration path; actual connected locations map to CRM branches.
 - **WhatsApp Business Platform / Cloud API:** Inbound/outbound tracked conversations, delivery status and template/window-aware sending. Personal WhatsApp is not synchronized.
-- **Twilio Voice / IVR:** Server-side connection, outbound call start, signed webhook processing, call metadata and recording ingestion.
+- **TeleCMI Voice / IVR:** Server-side connection, outbound call start, authenticated webhook processing, HTTP IVR/team/parallel-agent routing, call metadata and recording ingestion.
 - **Generic provider webhook boundary:** Accepts validated provider events through tenant-isolated, idempotent workflows.
 
 ### AI providers
@@ -646,7 +646,7 @@ The standard page design is a desktop left sidebar, compact header, KPI cards, a
 - **Customer:** Long-term person/entity record across many enquiries and purchases.
 - **Lifecycle:** Business stage of a lead.
 - **Work-state:** Calculated urgency such as New Today, Pending or SLA Risk.
-- **Provider connection:** A tenant-isolated link to Meta, Google, WhatsApp, Twilio, AI or another service.
+- **Provider connection:** A tenant-isolated link to Meta, Google, WhatsApp, TeleCMI, AI or another service.
 - **Support session:** Explicit, approved, time-limited and audited platform access to a tenant.
 
 ## 16. Final product rules to remember

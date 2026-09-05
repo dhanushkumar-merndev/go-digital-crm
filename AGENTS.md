@@ -689,42 +689,79 @@ list, the temperature badge variants on web and mobile, and the "Set temperature
 menu. A value present in the database and missing from a zod schema fails the
 parse and blanks the workspace for every row that carries it.
 
-### 9.8 Lead stage colours
+### 9.8 Status colours (Telecaller and Sales Consultant)
 
-The `LEAD STAGE` badge is the pipeline position, coloured by `StageBadge` in
-`lead-workspace.tsx` using the shared `Badge` variants.
+Both roles read the same lead through several surfaces -- My Leads, the
+dashboard recent-leads table, the dashboard schedule -- so a stage has one
+colour everywhere. `leadStageVariant` in `src/features/leads/lead-stage-variant.ts`
+is the only mapping; do not re-derive it locally.
+
+Every stage owns a distinct hue, so a stage can be told apart by colour alone
+without reading the label. Adding a stage means adding a colour: reusing an
+existing one puts two different stages behind the same swatch, which is the
+thing this table exists to prevent.
+
+**Lead stage.** Identical for Telecaller and Sales Consultant:
 
 | Stage | Variant | Colour |
 | --- | --- | --- |
 | New | `info` | `bg-blue-50 text-blue-700` |
-| Contacted | `success` | `bg-emerald-50 text-emerald-700` |
-| Qualified | `success` | `bg-emerald-50 text-emerald-700` |
+| Contacted | `cyan` | `bg-cyan-50 text-cyan-700` |
+| Qualified | `teal` | `bg-teal-50 text-teal-700` |
+| Appointment Scheduled | `indigo` | `bg-indigo-50 text-indigo-700` |
 | Transferred to Sales | `success` | `bg-emerald-50 text-emerald-700` |
-| Booking | `success` | `bg-emerald-50 text-emerald-700` |
 | Follow-up | `warning` | `bg-amber-50 text-amber-700` |
-| Quotation | `warning` | `bg-amber-50 text-amber-700` |
-| Test Drive | `default` | `bg-primary/10 text-primary` |
-| Anything else, incl. Lost and Appointment Scheduled | `secondary` | `bg-secondary text-secondary-foreground` |
+| Test Drive | `violet` | `bg-violet-50 text-violet-700` |
+| Quotation | `orange` | `bg-orange-50 text-orange-700` |
+| Booking | `default` | `bg-primary/10 text-primary` |
+| Lost, and anything unrecognised | `secondary` | `bg-secondary` |
 
-Green is "this lead moved forward", amber is "waiting on someone", blue is
-untouched, grey is inert. That is why four different stages share `success`:
-the colour reports progress, not identity, and the label carries the identity.
-Do not give a stage its own colour to make it stand out -- a fifth hue in this
-column stops the row being scannable, which is the only thing the colour is for.
+**Derived work-state**, rendered in the same column when a lead carries one
+instead of a lifecycle value. They sit deliberately next to their lifecycle
+neighbours -- sky beside New's blue, yellow beside Follow-up's amber -- because
+they mean the adjacent thing:
 
-Two stages in the column are not lifecycle values:
+| Work-state | Shown as | Variant | Colour |
+| --- | --- | --- | --- |
+| `NEW_TODAY` | New today | `sky` | `bg-sky-50 text-sky-700` |
+| `PENDING` | Pending | `yellow` | `bg-yellow-50 text-yellow-800` |
+| `SLA_RISK` | SLA risk | `rose` | `bg-rose-50 text-rose-700` |
+
+**Schedule rows** on the Sales Consultant dashboard are a different family --
+appointments, test drives, follow-ups, deliveries -- and use
+`scheduleStatusVariant` on that page. Lead stages must never be mixed into it;
+doing so is what made `Transferred to Sales` blue there and green everywhere
+else:
+
+| Status | Variant |
+| --- | --- |
+| COMPLETED, DELIVERED | `success` |
+| ACTIVE, CONFIRMED, SENT | `warning` |
+| OVERDUE, CANCELLED | `destructive` |
+| anything else | `info` |
+
+**Temperature** is a separate axis and never shares this scale; see 9.7.
+
+`SLA_RISK` is the single lead-side red, because it is the only state that means
+a person is overdue rather than simply somewhere in the pipeline. `Lost` is
+deliberately grey rather than red: a lost lead is closed, not broken, and red
+made a normal outcome read as an error in every list it appeared in.
+
+Two entries in the stage column are not `lead_lifecycle` values:
 
 - **Follow-up** is derived. `leadStageLabel` substitutes it for any pre-followup
   stage once `next_followup_at` is set, so a lead reading `Follow-up` is still
-  `New` or `Contacted` underneath. Do not persist it.
+  `New` or `Contacted` underneath. Never persist it.
 - **Test Drive**, **Quotation** and **Booking** are sales-stage events layered
-  over the lifecycle by the workspace query, not `lead_lifecycle` members.
+  over the lifecycle by the workspace query.
 
-`Lost` deliberately lands in `secondary` rather than `destructive`. A lost lead
-is closed, not broken, and colouring it red made a normal outcome read as an
-error in every list it appeared in.
+**Qualified is never at rest.** `transfer_lead_to_sales` sets it and the
+`record_sales_lead_handoff` trigger replaces it with `Transferred to Sales`
+inside the same transaction, so a dashboard tile counting `Qualified` reads zero
+forever. It has a colour because stage history and the audit trail show it, not
+because a list will.
 
-The muted variant of this badge is for a row inside an expanded phone group:
+The muted variant of the stage badge marks a row inside an expanded phone group:
 an earlier enquiry on the same mobile, shown for context and not actionable.
 
 ---

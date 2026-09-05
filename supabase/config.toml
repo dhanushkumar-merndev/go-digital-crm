@@ -15,7 +15,13 @@ verify_jwt = false
 [functions.provider-webhook-generic]
 verify_jwt = false
 
-[functions.provider-webhook-twilio]
+[functions.provider-webhook-telecmi]
+verify_jwt = false
+
+[functions.provider-call-flow-telecmi]
+verify_jwt = false
+
+[functions.provider-webhook-ai-voice]
 verify_jwt = false
 
 [functions.mobile-link-exchange]
@@ -47,7 +53,7 @@ verify_jwt = true
 [functions.integration-connect-whatsapp]
 verify_jwt = true
 
-[functions.integration-connect-twilio]
+[functions.integration-connect-telecmi]
 verify_jwt = true
 
 [functions.integration-assets-list]

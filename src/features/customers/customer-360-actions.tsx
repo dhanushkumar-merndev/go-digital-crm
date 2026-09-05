@@ -1,8 +1,8 @@
 'use client';
 
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Bot, FileUp, Plus, Sparkles } from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
+import { FileUp, PhoneCall, Plus } from 'lucide-react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -24,7 +24,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { startProviderCall } from '@/features/calls/call-workspace-api';
 import {
-  fetchCustomerAiCallOptions,
+  fetchCustomerTelecmiCallOptions,
   fetchCustomer360EditData,
   updateCustomer360,
   uploadCustomerDocument,
@@ -552,7 +552,7 @@ function EditSection({
   );
 }
 
-export function CustomerAiCallDialog({
+export function CustomerTelecmiCallDialog({
   open,
   onOpenChange,
   customerId,
@@ -570,12 +570,13 @@ export function CustomerAiCallDialog({
   onStarted: () => void;
 }) {
   const optionsQuery = useQuery({
-    queryKey: ['customer-ai-call-options', customerId],
-    queryFn: ({ signal }) => fetchCustomerAiCallOptions(customerId, signal),
+    queryKey: ['customer-telecmi-call-options', customerId],
+    queryFn: ({ signal }) => fetchCustomerTelecmiCallOptions(customerId, signal),
     enabled: open,
     staleTime: 60_000,
   });
   const [connectionId, setConnectionId] = useState('');
+  const requestId = useRef<string | null>(null);
   const options = optionsQuery.data;
   const selectedConnectionId = useMemo(
     () => connectionId || options?.connections[0]?.id || '',
@@ -583,16 +584,17 @@ export function CustomerAiCallDialog({
   );
   const start = useMutation({
     mutationFn: () => {
-      if (!options?.lead_id || !selectedConnectionId) throw new Error('AI_CALL_NOT_AVAILABLE');
+      if (!options?.lead_id || !selectedConnectionId) throw new Error('TELECMI_CALL_NOT_AVAILABLE');
+      requestId.current ??= crypto.randomUUID();
       return startProviderCall({
         organizationId,
         connectionId: selectedConnectionId,
         leadId: options.lead_id,
-        requestId: crypto.randomUUID(),
-        aiMode: true,
+        requestId: requestId.current,
       });
     },
     onSuccess: () => {
+      requestId.current = null;
       onOpenChange(false);
       onStarted();
     },
@@ -600,15 +602,21 @@ export function CustomerAiCallDialog({
 
   const unavailable = !customerPhone || !options?.lead_id || !options.connections.length;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) requestId.current = null;
+        onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Bot className="size-5 text-violet-600" /> Start AI-enabled call
+            <PhoneCall className="size-5 text-primary" /> Call through CRM
           </DialogTitle>
           <DialogDescription>
-            This starts a provider call for {customerName}. Recording and AI analysis follow the
-            connection’s configured policy.
+            The dealership line rings you first, then securely connects {customerName}. Recording
+            follows your dealership’s configured policy.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 pt-2">
@@ -621,19 +629,23 @@ export function CustomerAiCallDialog({
             </p>
           </div>
           {optionsQuery.isPending ? (
-            <p className="text-sm text-muted-foreground">
-              Checking configured AI call connections…
-            </p>
+            <p className="text-sm text-muted-foreground">Checking dealership calling…</p>
           ) : null}
           {optionsQuery.isError ? (
             <p className="text-sm text-destructive">
-              AI call options could not be loaded for this customer.
+              Calling options could not be loaded for this customer.
             </p>
           ) : null}
           {options && options.connections.length > 1 ? (
             <div>
-              <Label>AI call connection</Label>
-              <Select value={selectedConnectionId} onValueChange={setConnectionId}>
+              <Label>Dealership line</Label>
+              <Select
+                value={selectedConnectionId}
+                onValueChange={(value) => {
+                  setConnectionId(value);
+                  requestId.current = null;
+                }}
+              >
                 <SelectTrigger className="mt-2">
                   <SelectValue />
                 </SelectTrigger>
@@ -650,13 +662,13 @@ export function CustomerAiCallDialog({
           ) : null}
           {!optionsQuery.isPending && unavailable ? (
             <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              No AI-enabled call connection is available for this lead’s branch. A Client Admin must
-              connect one for this branch, selected branches, or all branches.
+              Dealership calling is not configured for this lead’s branch. Ask a Client Admin to
+              enable it for this branch.
             </p>
           ) : null}
           {start.isError ? (
             <p className="text-sm text-destructive">
-              The AI-enabled call could not be started. Check the connection and try again.
+              The call could not be started. Check the dealership line and try again.
             </p>
           ) : null}
         </div>
@@ -674,7 +686,8 @@ export function CustomerAiCallDialog({
             onClick={() => start.mutate()}
             disabled={optionsQuery.isPending || unavailable || start.isPending}
           >
-            <Sparkles className="size-4" /> {start.isPending ? 'Starting…' : 'Start AI call'}
+            <PhoneCall className="size-4" />
+            {start.isPending ? 'Starting…' : 'Call through CRM'}
           </Button>
         </DialogFooter>
       </DialogContent>

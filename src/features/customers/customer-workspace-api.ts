@@ -375,7 +375,7 @@ export async function updateCustomer360(input: UpdateCustomer360Input) {
   return customer360UpdateResultSchema.parse(data);
 }
 
-const customerAiCallOptionsSchema = z.object({
+const customerTelecmiCallOptionsSchema = z.object({
   lead_id: z.uuid().nullable(),
   branch_name: z.string().nullable(),
   connections: z.array(
@@ -388,15 +388,15 @@ const customerAiCallOptionsSchema = z.object({
   ),
 });
 
-export type CustomerAiCallOptions = z.infer<typeof customerAiCallOptionsSchema>;
+export type CustomerTelecmiCallOptions = z.infer<typeof customerTelecmiCallOptionsSchema>;
 
-export async function fetchCustomerAiCallOptions(customerId: string, signal?: AbortSignal) {
-  const request = createClient().rpc('get_customer_ai_call_options', {
+export async function fetchCustomerTelecmiCallOptions(customerId: string, signal?: AbortSignal) {
+  const request = createClient().rpc('get_customer_telecmi_call_options', {
     target_customer_id: customerId,
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
-  return customerAiCallOptionsSchema.parse(data);
+  return customerTelecmiCallOptionsSchema.parse(data);
 }
 
 const customer360CoreSchema = customer360Schema.pick({

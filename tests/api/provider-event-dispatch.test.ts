@@ -19,6 +19,7 @@ const worker = source('trigger/provider-event-dispatch.ts');
 const metaIngress = source('supabase/functions/provider-webhook-meta/index.ts');
 const googleIngress = source('supabase/functions/provider-webhook-generic/index.ts');
 const whatsappIngress = source('supabase/functions/provider-webhook-whatsapp/index.ts');
+const telecmiIngress = source('supabase/functions/provider-webhook-telecmi/index.ts');
 const providerRouting = source('supabase/functions/_shared/provider-routing.ts');
 
 describe('provider event receipt readers', () => {
@@ -183,6 +184,7 @@ describe('durable provider event dispatch contract', () => {
       'GOOGLE_LEAD_FORM',
       'WHATSAPP_INBOUND_MESSAGE',
       'WHATSAPP_MESSAGE_STATUS',
+      'TELECMI_CALL_EVENT',
     ])
       expect(worker).toContain(`event.event_type === '${eventType}'`);
     expect(worker).toContain("id: 'provider-event-dispatch'");
@@ -200,7 +202,11 @@ describe('durable provider event dispatch contract', () => {
     expect(metaIngress).toContain('.upsert(');
     expect(whatsappIngress).toContain('.upsert(receipts');
     expect(googleIngress).toContain(".from('provider_events').insert");
-    for (const ingress of [metaIngress, googleIngress, whatsappIngress]) {
+    expect(telecmiIngress).toContain(".from('provider_events').insert(");
+    expect(telecmiIngress).toContain("receiptError.code !== '23505'");
+    expect(telecmiIngress).toContain('constantTimeEqual(existing.payload_hash, payloadHash)');
+    expect(telecmiIngress).toContain('constantTimeEqual(suppliedToken, credential.webhook_secret)');
+    for (const ingress of [metaIngress, googleIngress, whatsappIngress, telecmiIngress]) {
       expect(ingress).toContain(".from('provider_events')");
       expect(ingress).toContain("'RECEIVED'");
       expect(ingress).not.toContain("rpc('ingest_provider_lead'");

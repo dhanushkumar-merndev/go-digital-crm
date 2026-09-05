@@ -8,6 +8,8 @@ const recordSchema = z.object({
   customer_name: z.string().nullable(),
   phone: z.string().nullable(),
   provider_name: z.string(),
+  branch_name: z.string(),
+  telecaller_name: z.string(),
   status: z.string(),
   outcome: z.string().nullable(),
   started_at: z.string(),

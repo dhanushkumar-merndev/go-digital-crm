@@ -79,9 +79,12 @@ describe('telecaller workspace parity', () => {
   it('keeps appointments completely outside the telecaller surface', () => {
     expect(telecallerDashboard.toLowerCase()).not.toContain('appointment');
     expect(telecallerDashboard).toContain('Contacted leads');
-    expect(telecallerDashboard).toContain('Qualified for handoff');
+    // 'Qualified' was a pass-through state -- transfer_lead_to_sales writes it
+    // and record_sales_lead_handoff replaces it in the same transaction -- so
+    // both tiles could only ever read zero. Replaced, not removed.
+    expect(telecallerDashboard).toContain('Contacted, not yet handed off');
     expect(telecallerDashboard).toContain('Transferred to Sales');
-    expect(telecallerDashboard).toContain('Qualified leads');
+    expect(telecallerDashboard).toContain('Handoff rate');
   });
 
   it('keeps every telecaller dashboard link inside the telecaller workspace', () => {

@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import * as DocumentPicker from 'expo-document-picker';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,6 +16,7 @@ import {
   createMobileCallFollowup,
   fetchMobileCallDetail,
   getMobileRecordingDownload,
+  uploadMobileCallRecording,
   type MobileCallDetail,
 } from '@/lib/calls';
 import { colors } from '@/theme';
@@ -62,6 +64,9 @@ export default function CallSummary() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [recordingError, setRecordingError] = useState<string>();
+  const [recordingUploaded, setRecordingUploaded] = useState(false);
   const [followupOpen, setFollowupOpen] = useState(false);
   const [reason, setReason] = useState('Follow up after call');
   const [dueAt, setDueAt] = useState(localDateInput);
@@ -98,6 +103,49 @@ export default function CallSummary() {
       await Linking.openURL(await getMobileRecordingDownload(readyRecording.object_file_id));
     } finally {
       setDownloading(false);
+    }
+  };
+  const uploadRecording = async () => {
+    if (!call) return;
+    setUploading(true);
+    setRecordingError(undefined);
+    setRecordingUploaded(false);
+    try {
+      const selection = await DocumentPicker.getDocumentAsync({
+        type: [
+          'audio/mpeg',
+          'audio/mpeg3',
+          'audio/x-mpeg',
+          'audio/mp4',
+          'audio/m4a',
+          'audio/x-m4a',
+          'audio/wav',
+          'audio/x-wav',
+          'audio/wave',
+          'audio/vnd.wave',
+          'audio/ogg',
+          'audio/webm',
+        ],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (selection.canceled) return;
+      const asset = selection.assets[0];
+      if (!asset) throw new Error('RECORDING_SELECTION_EMPTY');
+      await uploadMobileCallRecording({ call, asset, requestId: requestId() });
+      setRecordingUploaded(true);
+      await load();
+    } catch (uploadError) {
+      const code = uploadError instanceof Error ? uploadError.message : '';
+      setRecordingError(
+        code === 'RECORDING_SIZE_INVALID'
+          ? 'Choose a recording between 1 byte and 100 MB.'
+          : code === 'RECORDING_TYPE_NOT_ALLOWED'
+            ? 'Choose an MP3, MP4, M4A, WAV, OGG, or WebM audio file.'
+            : 'Recording upload failed. Check your connection and try again.',
+      );
+    } finally {
+      setUploading(false);
     }
   };
   const scheduleFollowup = async () => {
@@ -206,8 +254,20 @@ export default function CallSummary() {
                 >
                   <Text style={styles.downloadText}>{downloading ? 'Opening…' : 'Open'}</Text>
                 </Pressable>
+              ) : call.call_source === 'PERSONAL_MANUAL' ? (
+                <Pressable
+                  style={styles.download}
+                  onPress={() => void uploadRecording()}
+                  disabled={uploading}
+                >
+                  <Text style={styles.downloadText}>{uploading ? 'Uploading…' : 'Upload'}</Text>
+                </Pressable>
               ) : null}
             </View>
+            {recordingError ? <Text style={styles.formError}>{recordingError}</Text> : null}
+            {recordingUploaded ? (
+              <Text style={styles.uploadSuccess}>Recording uploaded securely.</Text>
+            ) : null}
           </View>
 
           <InsightCard
@@ -215,16 +275,7 @@ export default function CallSummary() {
             tone="#7c3aed"
             text={call.ai_summary?.summary ?? 'AI summary is not available for this call.'}
           />
-          <InsightCard
-            title="Transcript"
-            tone={colors.primary}
-            text={call.transcript?.text ?? 'Transcript processing has not produced text yet.'}
-            note={
-              call.transcript?.truncated
-                ? 'Transcript preview is truncated for mobile response safety.'
-                : undefined
-            }
-          />
+          <SpeakerTranscriptCard transcript={call.transcript} />
           {call.notes ? (
             <InsightCard title="Call notes" tone={colors.navy} text={call.notes} />
           ) : null}
@@ -347,6 +398,78 @@ function InsightCard({
   );
 }
 
+function SpeakerTranscriptCard({ transcript }: { transcript: MobileCallDetail['transcript'] }) {
+  if (!transcript?.speaker_turns.length)
+    return (
+      <InsightCard
+        title="Transcript"
+        tone={colors.primary}
+        text={transcript?.text ?? 'Transcript processing has not produced text yet.'}
+        note={
+          transcript?.truncated
+            ? 'Transcript preview is truncated for mobile response safety.'
+            : undefined
+        }
+      />
+    );
+
+  const channelSeparated = /STEREO|CHANNEL/i.test(transcript.speaker_separation_method ?? '');
+  return (
+    <View style={styles.card}>
+      <Text style={[styles.insightTitle, { color: colors.primary }]}>Transcript</Text>
+      <View style={styles.speakerTurns}>
+        {transcript.speaker_turns.map((turn, index) => {
+          const label =
+            turn.speaker === 'AGENT'
+              ? 'Agent'
+              : turn.speaker === 'CUSTOMER'
+                ? 'Customer'
+                : 'Unclear';
+          return (
+            <View
+              key={`${index}-${turn.speaker}`}
+              style={[
+                styles.speakerBubble,
+                turn.speaker === 'AGENT'
+                  ? styles.agentBubble
+                  : turn.speaker === 'CUSTOMER'
+                    ? styles.customerBubble
+                    : styles.unclearBubble,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.speakerLabel,
+                  turn.speaker === 'AGENT'
+                    ? styles.agentLabel
+                    : turn.speaker === 'CUSTOMER'
+                      ? styles.customerLabel
+                      : styles.unclearLabel,
+                ]}
+              >
+                {label}
+              </Text>
+              <Text style={styles.speakerText}>{turn.text}</Text>
+            </View>
+          );
+        })}
+      </View>
+      {transcript.speaker_separation_method ? (
+        <Text style={styles.insightNote}>
+          {channelSeparated
+            ? 'Speaker labels are based on separated call channels.'
+            : 'Speaker labels were inferred by AI and may be imperfect. Unclear means the speaker could not be identified safely.'}
+        </Text>
+      ) : null}
+      {transcript.truncated ? (
+        <Text style={styles.insightNote}>
+          Transcript preview is truncated for mobile response safety.
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   back: { color: colors.primary, fontWeight: '700' },
   loading: { padding: 36, alignItems: 'center' },
@@ -416,6 +539,26 @@ const styles = StyleSheet.create({
   insightTitle: { fontWeight: '800', fontSize: 17 },
   insightText: { color: colors.text, fontSize: 13, lineHeight: 20 },
   insightNote: { color: colors.warning, fontSize: 11, lineHeight: 16 },
+  speakerTurns: { gap: 8 },
+  speakerBubble: {
+    maxWidth: '88%',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+  },
+  agentBubble: { alignSelf: 'flex-start', borderColor: '#bfdbfe', backgroundColor: '#eff6ff' },
+  customerBubble: {
+    alignSelf: 'flex-end',
+    borderColor: '#a7f3d0',
+    backgroundColor: '#ecfdf5',
+  },
+  unclearBubble: { alignSelf: 'flex-start', borderColor: '#fde68a', backgroundColor: '#fffbeb' },
+  speakerLabel: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  agentLabel: { color: '#1d4ed8' },
+  customerLabel: { color: '#047857' },
+  unclearLabel: { color: '#92400e' },
+  speakerText: { color: colors.text, fontSize: 13, lineHeight: 20, marginTop: 4 },
   nextTitle: { color: colors.navy, fontSize: 17, fontWeight: '800' },
   nextText: { color: colors.muted, fontSize: 12, lineHeight: 18 },
   success: { color: colors.success, fontSize: 12, fontWeight: '800' },
@@ -451,6 +594,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   formError: { color: colors.danger, fontSize: 12 },
+  uploadSuccess: { color: colors.success, fontSize: 12 },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 6 },
   modalCancel: {
     borderWidth: 1,

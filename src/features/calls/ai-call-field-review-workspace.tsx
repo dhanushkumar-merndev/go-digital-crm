@@ -25,6 +25,7 @@ import {
   reviewAiCallFields,
   type AiFieldDecision,
 } from './ai-call-field-review-api';
+import { SpeakerTranscript } from './speaker-transcript';
 
 type DraftDecision = { decision: AiFieldDecision; value?: string };
 
@@ -70,8 +71,8 @@ export function AiCallFieldReviewWorkspace({ callId, role }: { callId: string; r
         type: 'success',
         title: 'AI field review saved',
         description: result.accepted_fields.length
-          ? `${result.accepted_fields.length} approved field(s) updated on the lead.`
-          : 'Review decisions were saved without changing the lead.',
+          ? `${result.accepted_fields.length} approved field(s) updated in the CRM.`
+          : 'Review decisions were saved without changing CRM records.',
       });
       setDrafts({});
       client.invalidateQueries({ queryKey: ['ai-call-field-review', callId] });
@@ -81,7 +82,7 @@ export function AiCallFieldReviewWorkspace({ callId, role }: { callId: string; r
       toast.add({
         type: 'error',
         title: 'Review could not be saved',
-        description: 'The lead may have changed or you may no longer have update access.',
+        description: 'The CRM record may have changed or you may no longer have update access.',
       }),
   });
 
@@ -206,7 +207,7 @@ export function AiCallFieldReviewWorkspace({ callId, role }: { callId: string; r
                 <FileText className="size-4 text-blue-600" />
                 Transcript summary
               </CardTitle>
-              <CardDescription>Read-only provider transcript and AI summary.</CardDescription>
+              <CardDescription>Read-only processed transcript and AI summary.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 lg:grid-cols-2">
               <div>
@@ -217,9 +218,14 @@ export function AiCallFieldReviewWorkspace({ callId, role }: { callId: string; r
               </div>
               <div className="border-l pl-0 lg:pl-4">
                 <p className="text-sm font-medium">Transcript</p>
-                <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
-                  {transcript?.text ?? 'No transcript is available.'}
-                </p>
+                <div className="mt-2 max-h-72 overflow-y-auto pr-1">
+                  <SpeakerTranscript
+                    turns={transcript?.speaker_turns ?? []}
+                    fallbackText={transcript?.text ?? 'No transcript is available.'}
+                    separationMethod={transcript?.speaker_separation_method ?? null}
+                    truncated={transcript?.truncated}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -228,7 +234,7 @@ export function AiCallFieldReviewWorkspace({ callId, role }: { callId: string; r
               <CardTitle className="text-base">Extracted CRM fields</CardTitle>
               <CardDescription>
                 Accept, reject, or edit each suggestion. Only accepted and edited allowlisted fields
-                update the lead.
+                update the lead and, for approved identity fields, the exact linked customer.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">

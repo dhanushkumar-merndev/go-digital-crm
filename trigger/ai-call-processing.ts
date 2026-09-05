@@ -122,7 +122,8 @@ async function findTenantGroq(supabase: ReturnType<typeof createClient>, job: Jo
       transcriptionModel: config.models.transcription_model,
       analysisModel: config.models.analysis_model,
       billingMode: 'TENANT_CONNECTION',
-      credits: 0,
+      transcriptionCredits: configuredCredits('AI_CALL_TRANSCRIPTION_CREDITS'),
+      analysisCredits: configuredCredits('AI_CALL_ANALYSIS_CREDITS'),
     };
   }
   return null;
@@ -134,9 +135,8 @@ async function platformGroq() {
     transcriptionModel: requiredEnvironment('GROQ_TRANSCRIPTION_MODEL'),
     analysisModel: requiredEnvironment('GROQ_ANALYSIS_MODEL'),
     billingMode: 'PLATFORM_CREDITS',
-    credits:
-      configuredCredits('AI_CALL_TRANSCRIPTION_CREDITS') +
-      configuredCredits('AI_CALL_ANALYSIS_CREDITS'),
+    transcriptionCredits: configuredCredits('AI_CALL_TRANSCRIPTION_CREDITS'),
+    analysisCredits: configuredCredits('AI_CALL_ANALYSIS_CREDITS'),
   };
 }
 
@@ -153,12 +153,22 @@ async function transcribe(input: { apiKey: string; model: string; audioUrl: stri
     body: form,
     signal: AbortSignal.timeout(4 * 60_000),
   });
-  const payload = (await response.json().catch(() => null)) as { text?: string } | null;
+  const payload = (await response.json().catch(() => null)) as {
+    text?: string;
+    segments?: Array<{ start?: number; end?: number; text?: string }>;
+  } | null;
   if (!response.ok || !payload?.text?.trim())
     throw new Error(
       response.status === 429 ? 'GROQ_TRANSCRIPTION_RATE_LIMITED' : 'GROQ_TRANSCRIPTION_FAILED',
     );
-  return payload.text.trim();
+  return {
+    text: payload.text.trim(),
+    segments: (payload.segments ?? []).flatMap((segment) =>
+      typeof segment.text === 'string' && segment.text.trim()
+        ? [{ start: segment.start ?? null, end: segment.end ?? null, text: segment.text.trim() }]
+        : [],
+    ),
+  };
 }
 
 async function analyze(input: { apiKey: string; model: string; transcript: string }) {
@@ -173,7 +183,7 @@ async function analyze(input: { apiKey: string; model: string; transcript: strin
         {
           role: 'system',
           content:
-            'You review automobile dealership call transcripts. Return JSON only with normalized_transcript, summary, and fields. Preserve uncertain wording rather than inventing details. fields may include customer_name, phone, email, interested_model, lifecycle_status, temperature, next_followup_at only when directly supported by the call. next_followup_at must be ISO 8601 or null.',
+            'You review automobile dealership call transcripts. Return JSON only with normalized_transcript, speaker_turns, summary, and fields. speaker_turns is an ordered array of {speaker:"AGENT"|"CUSTOMER"|"UNKNOWN",text:string}; keep user 1 (dealership agent) and user 2 (customer) separate and never merge or swap their statements. If a mixed mono recording makes identity uncertain, use UNKNOWN instead of guessing. Preserve uncertain wording rather than inventing details. fields may include customer_name, phone, email, interested_model, lifecycle_status, temperature, next_followup_at, and lost_reason only when directly supported by the call. Only suggest lost_reason when the customer clearly gives a reason and lifecycle_status is Lost. next_followup_at must be ISO 8601 or null. All fields are suggestions requiring human approval.',
         },
         { role: 'user', content: input.transcript.slice(0, 100_000) },
       ],
@@ -192,104 +202,164 @@ async function analyze(input: { apiKey: string; model: string; transcript: strin
     normalized_transcript?: unknown;
     summary?: unknown;
     fields?: unknown;
+    speaker_turns?: unknown;
   };
   const normalizedTranscript =
     typeof parsed.normalized_transcript === 'string' && parsed.normalized_transcript.trim()
       ? parsed.normalized_transcript.trim()
       : input.transcript;
   const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 12_000) : '';
-  const fields =
+  const candidateFields =
     parsed.fields && typeof parsed.fields === 'object' && !Array.isArray(parsed.fields)
-      ? parsed.fields
+      ? (parsed.fields as Record<string, unknown>)
       : {};
-  return { normalizedTranscript, summary, fields };
+  const fields: Record<string, unknown> = {};
+  const boundedTextFields = new Map([
+    ['customer_name', 200],
+    ['phone', 40],
+    ['email', 320],
+    ['interested_model', 200],
+    ['lost_reason', 500],
+  ]);
+  for (const [key, maximum] of boundedTextFields) {
+    const value = candidateFields[key];
+    if (typeof value === 'string' && value.trim()) fields[key] = value.trim().slice(0, maximum);
+  }
+  if (
+    typeof candidateFields.lifecycle_status === 'string' &&
+    [
+      'New',
+      'Contacted',
+      'Qualified',
+      'Appointment Scheduled',
+      'Transferred to Sales',
+      'Lost',
+    ].includes(candidateFields.lifecycle_status)
+  )
+    fields.lifecycle_status = candidateFields.lifecycle_status;
+  if (
+    typeof candidateFields.temperature === 'string' &&
+    ['HOT', 'WARM', 'COLD', 'DORMANT'].includes(candidateFields.temperature)
+  )
+    fields.temperature = candidateFields.temperature;
+  if (
+    typeof candidateFields.next_followup_at === 'string' &&
+    Number.isFinite(Date.parse(candidateFields.next_followup_at))
+  )
+    fields.next_followup_at = new Date(candidateFields.next_followup_at).toISOString();
+  if (fields.lost_reason && fields.lifecycle_status !== 'Lost') delete fields.lost_reason;
+  const speakerTurns = Array.isArray(parsed.speaker_turns)
+    ? parsed.speaker_turns.flatMap((turn) => {
+        if (!turn || typeof turn !== 'object') return [];
+        const record = turn as { speaker?: unknown; text?: unknown };
+        const speaker =
+          record.speaker === 'AGENT' || record.speaker === 'CUSTOMER' ? record.speaker : 'UNKNOWN';
+        return typeof record.text === 'string' && record.text.trim()
+          ? [{ speaker, text: record.text.trim().slice(0, 12000) }]
+          : [];
+      })
+    : [];
+  return { normalizedTranscript, summary, fields, speakerTurns };
+}
+
+async function reserveCredits(
+  supabase: ReturnType<typeof createClient>,
+  organizationId: string,
+  amount: number,
+  feature: string,
+  referenceId: string,
+) {
+  const reservation = await supabase.rpc('reserve_ai_credits', {
+    target_organization_id: organizationId,
+    target_amount: amount,
+    target_feature: feature,
+    target_reference_id: referenceId,
+  });
+  if (reservation.error || !reservation.data)
+    throw new Error(
+      reservation.error?.message.includes('INSUFFICIENT_CREDITS')
+        ? 'INSUFFICIENT_CREDITS'
+        : 'AI_CREDIT_RESERVATION_FAILED',
+    );
+  return reservation.data as string;
+}
+
+async function commitCredits(supabase: ReturnType<typeof createClient>, reservationId: string) {
+  const result = await supabase.rpc('commit_ai_credit_reservation', {
+    target_reservation_id: reservationId,
+  });
+  if (result.error || !result.data) throw new Error('AI_CREDIT_COMMIT_FAILED');
 }
 
 async function processJob(supabase: ReturnType<typeof createClient>, storage: S3Client, job: Job) {
   const tenantProvider = await findTenantGroq(supabase, job);
   const provider = tenantProvider ?? (await platformGroq());
-  if (provider.billingMode === 'PLATFORM_CREDITS') {
-    const { error } = await supabase.rpc('consume_platform_ai_credits', {
-      target_organization_id: job.organization_id,
-      target_amount: provider.credits,
-      target_feature: 'ai_call_processing',
-      target_reference_id: `ai-call:${job.id}:${job.recording_id}:groq`,
-    });
-    if (error)
-      throw new Error(
-        error.message.includes('INSUFFICIENT_CREDITS')
-          ? 'INSUFFICIENT_CREDITS'
-          : 'AI_CREDIT_RESERVATION_FAILED',
-      );
-  }
   const { data: existingTranscript, error: existingError } = await supabase
     .from('call_transcripts')
-    .select('id,raw_transcript_text,transcript_text')
+    .select('id,raw_transcript_text,transcript_text,status')
     .eq('organization_id', job.organization_id)
     .eq('processing_job_id', job.id)
     .maybeSingle();
   if (existingError) throw existingError;
   let rawTranscript =
     existingTranscript?.raw_transcript_text ?? existingTranscript?.transcript_text ?? null;
+  const transcriptionReference = `ai-call:${job.id}:${job.recording_id}:transcription`;
+  const analysisReference = `ai-call:${job.id}:${job.recording_id}:analysis`;
+  const transcriptionReservation = await reserveCredits(
+    supabase,
+    job.organization_id,
+    provider.transcriptionCredits,
+    'call_transcription',
+    transcriptionReference,
+  );
   if (!rawTranscript) {
     const audioUrl = await getSignedUrl(
       storage,
       new GetObjectCommand({ Bucket: job.object_bucket, Key: job.object_key }),
       { expiresIn: 600 },
     );
-    rawTranscript = await transcribe({
+    const transcription = await transcribe({
       apiKey: provider.apiKey,
       model: provider.transcriptionModel,
       audioUrl,
     });
+    rawTranscript = transcription.text;
+    const saved = await supabase.rpc('save_ai_call_transcription', {
+      target_job_id: job.id,
+      target_lease_token: job.lease_token,
+      target_raw_transcript: rawTranscript,
+      target_provider_reference: `groq:${provider.transcriptionModel}`,
+    });
+    if (saved.error || !saved.data) throw new Error('AI_TRANSCRIPTION_SAVE_FAILED');
   }
-  const analysis = await analyze({
-    apiKey: provider.apiKey,
-    model: provider.analysisModel,
-    transcript: rawTranscript,
-  });
-  const { error: transcriptError } = await supabase.from('call_transcripts').upsert(
-    {
-      organization_id: job.organization_id,
-      call_id: job.call_id,
-      processing_job_id: job.id,
-      raw_transcript_text: rawTranscript,
-      transcript_text: analysis.normalizedTranscript,
-      language: null,
-      provider_reference: `groq:${provider.transcriptionModel}`,
-      analysis_model_reference: provider.analysisModel,
-      status: 'COMPLETED',
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'organization_id,processing_job_id' },
+  await commitCredits(supabase, transcriptionReservation);
+  const analysisReservation = await reserveCredits(
+    supabase,
+    job.organization_id,
+    provider.analysisCredits,
+    'call_summary_and_extraction',
+    analysisReference,
   );
-  if (transcriptError) throw transcriptError;
-  if (analysis.summary) {
-    const { error } = await supabase.from('ai_call_summaries').upsert(
-      {
-        organization_id: job.organization_id,
-        call_id: job.call_id,
-        processing_job_id: job.id,
-        summary: analysis.summary,
-        model_reference: provider.analysisModel,
-      },
-      { onConflict: 'organization_id,processing_job_id' },
-    );
-    if (error) throw error;
-  }
-  if (Object.keys(analysis.fields).length && job.lead_id) {
-    const { error } = await supabase.from('ai_extraction_runs').upsert(
-      {
-        organization_id: job.organization_id,
-        call_id: job.call_id,
-        lead_id: job.lead_id,
-        processing_job_id: job.id,
-        status: 'COMPLETED',
-        suggestions: analysis.fields,
-      },
-      { onConflict: 'organization_id,processing_job_id' },
-    );
-    if (error) throw error;
+  if (existingTranscript?.status === 'COMPLETED') {
+    await commitCredits(supabase, analysisReservation);
+  } else {
+    const analysis = await analyze({
+      apiKey: provider.apiKey,
+      model: provider.analysisModel,
+      transcript: rawTranscript,
+    });
+    const saved = await supabase.rpc('save_ai_call_analysis_result', {
+      target_job_id: job.id,
+      target_lease_token: job.lease_token,
+      target_normalized_transcript: analysis.normalizedTranscript,
+      target_speaker_turns: analysis.speakerTurns,
+      target_separation_method: 'AI_INFERRED_OR_UNKNOWN',
+      target_summary: analysis.summary,
+      target_suggestions: analysis.fields,
+      target_analysis_model_reference: provider.analysisModel,
+    });
+    if (saved.error || !saved.data) throw new Error('AI_ANALYSIS_SAVE_FAILED');
+    await commitCredits(supabase, analysisReservation);
   }
   const { data: completed, error: completeError } = await supabase.rpc(
     'complete_ai_call_processing_job',
@@ -297,7 +367,7 @@ async function processJob(supabase: ReturnType<typeof createClient>, storage: S3
       target_job_id: job.id,
       target_lease_token: job.lease_token,
       target_billing_mode: provider.billingMode,
-      target_credits_consumed: provider.credits,
+      target_credits_consumed: provider.transcriptionCredits + provider.analysisCredits,
     },
   );
   if (completeError || !completed)

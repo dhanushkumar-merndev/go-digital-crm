@@ -9,6 +9,19 @@ import {
 
 const api = readFileSync('src/features/integrations/integration-workspace-api.ts', 'utf8');
 const workspace = readFileSync('src/features/integrations/integration-workspace.tsx', 'utf8');
+const integrationTest = readFileSync('supabase/functions/integration-test/index.ts', 'utf8');
+const telecmiConnect = readFileSync(
+  'supabase/functions/integration-connect-telecmi/index.ts',
+  'utf8',
+);
+const telecmiMigration = readFileSync(
+  'supabase/migrations/202609030001_telecmi_ai_voice_automation.sql',
+  'utf8',
+);
+const telecmiSaveMigration = readFileSync(
+  'supabase/migrations/202609040003_telecmi_connection_atomic_save.sql',
+  'utf8',
+);
 const migration = readFileSync(
   'supabase/migrations/202608150014_integration_workspace.sql',
   'utf8',
@@ -77,6 +90,7 @@ describe('tenant integration workspace contract', () => {
     for (const functionName of [
       'integration-oauth-start',
       'integration-connect-whatsapp',
+      'integration-connect-telecmi',
       'integration-test',
       'integration-assets-list',
       'integration-assets-map',
@@ -84,8 +98,13 @@ describe('tenant integration workspace contract', () => {
       expect(api).toContain(`'${functionName}'`);
     expect(workspace).toContain('type="password"');
     expect(workspace).toContain('autoComplete="new-password"');
+    expect(workspace).toContain('TeleCMI IVR calling & recordings');
+    expect(workspace).toContain('Ring agents in parallel');
+    expect(workspace).toContain('TeleCMI CDR webhook URL');
     expect(workspace).not.toMatch(/localStorage|sessionStorage|indexedDB/i);
     expect(api).not.toContain(".from('integration_credentials')");
+    expect(integrationTest).toContain("connection.provider_key === 'telecmi'");
+    expect(integrationTest).toContain('testTelecmiCredential(credential)');
   });
 
   it('keeps connection detail contextual, actionable and secret-free', () => {
@@ -97,6 +116,41 @@ describe('tenant integration workspace contract', () => {
     expect(workspace).toContain('onView={setDetailConnection}');
     expect(workspace).not.toContain('accessToken: connection');
     expect(workspace).not.toContain('authToken: connection');
+    expect(workspace).not.toContain('appSecret: connection');
+  });
+
+  it('reserves TeleCMI and AI fallback management for Client Admins', () => {
+    expect(workspace).toContain(
+      '<AiVoiceAgentSettingsCard organizationId={permissions.data.organizationId} />',
+    );
+    expect(workspace).toContain("permissions.data.canManage && role === 'client-admin'");
+    expect(workspace).toContain("provider.value !== 'telecmi' || role === 'client-admin'");
+    expect(workspace).toContain(
+      "canManageTelecmi={permissions.data.canManage && role === 'client-admin'}",
+    );
+    expect(telecmiConnect).toContain("rpc('authorize_telecmi_management_scope'");
+    expect(telecmiMigration).toContain('app_private.is_client_admin(target_organization_id)');
+    expect(
+      telecmiMigration.match(/not app_private\.is_client_admin/g)?.length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(telecmiSaveMigration).toContain("actor_role.role_key = 'client_admin'");
+    expect(telecmiSaveMigration).toContain("message = 'CLIENT_ADMIN_REQUIRED'");
+  });
+
+  it('offers all-branch scope only to organization-wide admins and keeps ALL_BRANCHES unmapped', () => {
+    expect(api).toContain('canUseAllBranches: boolean');
+    expect(api).toContain("['ORGANIZATION', 'ALL_BRANCHES'].includes(context.data_scope ?? '')");
+    expect(workspace).toContain("value !== 'ALL_BRANCHES' || canUseAllBranches");
+    expect(telecmiConnect).toContain("input.scope_mode === 'ONE_BRANCH'");
+    expect(telecmiConnect).toContain("input.scope_mode === 'SELECTED_BRANCHES'");
+    expect(telecmiConnect).toContain("input.scope_mode === 'ALL_BRANCHES'");
+    expect(telecmiConnect).toContain('input.branch_ids.length !== 0');
+    expect(telecmiConnect).toContain("rpc('save_telecmi_connection'");
+    expect(telecmiSaveMigration).toContain(
+      "target_scope_mode = 'ALL_BRANCHES' and cardinality(normalized_branch_ids) <> 0",
+    );
+    expect(telecmiSaveMigration).toContain("target_scope_mode <> 'ALL_BRANCHES'");
+    expect(telecmiSaveMigration).toContain("'CONNECTION_SCOPE'");
   });
 
   it('wires only completed tenant admin integration routes', () => {

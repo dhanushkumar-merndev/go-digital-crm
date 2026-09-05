@@ -68,6 +68,7 @@ import {
   salesConsultantDashboardKey,
   type SalesConsultantDashboardResult,
 } from './sales-consultant-dashboard-api';
+import { leadStageVariant } from '@/features/leads/lead-stage-variant';
 import { leadDetailHref } from '@/lib/navigation/record-links';
 import { toneStyles, type Tone } from './dashboard-tone';
 
@@ -292,10 +293,15 @@ function formatDate(value: string, timezone: string) {
   }).format(new Date(`${value}T12:00:00Z`));
 }
 
-function statusVariant(status: string) {
-  if (['COMPLETED', 'DELIVERED', 'Contacted', 'Qualified'].includes(status))
-    return 'success' as const;
-  if (['OVERDUE', 'CANCELLED', 'Lost'].includes(status)) return 'destructive' as const;
+/**
+ * Schedule rows only -- appointments, test drives, follow-ups, deliveries.
+ * Lead stages used to be mixed in here, which is how this page ended up calling
+ * `Transferred to Sales` blue while every other surface called it green. Lead
+ * stages go through `leadStageVariant`; see AGENTS.md 9.8.
+ */
+function scheduleStatusVariant(status: string) {
+  if (['COMPLETED', 'DELIVERED'].includes(status)) return 'success' as const;
+  if (['OVERDUE', 'CANCELLED'].includes(status)) return 'destructive' as const;
   if (['ACTIVE', 'CONFIRMED', 'SENT'].includes(status)) return 'warning' as const;
   return 'info' as const;
 }
@@ -454,7 +460,7 @@ function TodaySchedule({
                               {definition.label}
                             </p>
                             <Badge
-                              variant={statusVariant(item.status)}
+                              variant={scheduleStatusVariant(item.status)}
                               className="px-1.5 py-0 text-[9px] normal-case"
                             >
                               {item.status.replaceAll('_', ' ').toLocaleLowerCase()}
@@ -661,7 +667,7 @@ function RecentLeads({
                   <TableCell className="hidden px-3 py-2 lg:table-cell">{lead.source}</TableCell>
                   <TableCell className="px-3 py-2">
                     <Badge
-                      variant={statusVariant(lead.lifecycle_status)}
+                      variant={leadStageVariant(lead.lifecycle_status)}
                       className="rounded px-1.5 py-0 text-[9px]"
                     >
                       {lead.lifecycle_status}

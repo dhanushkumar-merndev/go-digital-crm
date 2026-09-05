@@ -31,6 +31,7 @@ const runtimeTargets = {
     'TIGRIS_BUCKET',
     'TIGRIS_ACCESS_KEY_ID',
     'TIGRIS_SECRET_ACCESS_KEY',
+    'AI_VOICE_WEBHOOK_SECRET',
   ],
   trigger: [
     'SUPABASE_URL',
@@ -45,6 +46,9 @@ const runtimeTargets = {
     'TIGRIS_SECRET_ACCESS_KEY',
     'TRIGGER_SECRET_KEY',
     'TRIGGER_PROJECT_REF',
+    'PUBLIC_EDGE_FUNCTION_BASE_URL',
+    'AI_VOICE_GATEWAY_URL',
+    'AI_VOICE_GATEWAY_TOKEN',
     'IVR_RECORDING_ALLOWED_HOSTS',
     'MAX_RECORDING_BYTES',
     'GROQ_API_KEY',
@@ -305,6 +309,7 @@ function validateRuntime(target, mode, values) {
     'PUBLIC_EDGE_FUNCTION_BASE_URL',
     'INTEGRATION_OAUTH_CALLBACK_URL',
     'TIGRIS_ENDPOINT',
+    'AI_VOICE_GATEWAY_URL',
   ];
   for (const name of urlNames) {
     if (requiredSet.has(name)) validateUrl(name, values, mode, errors);

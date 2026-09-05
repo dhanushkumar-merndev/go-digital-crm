@@ -75,6 +75,7 @@ function initialQuery(params: URLSearchParams) {
 
 export function AiVoiceCallWorkspace() {
   const pathname = usePathname();
+  const rolePath = pathname.split('/').filter(Boolean)[0] ?? 'sales-consultant';
   const searchParams = useSearchParams();
   const [query, setQuery] = useState(() => initialQuery(searchParams));
   const debouncedSearch = useDebouncedValue(query.search, 300);
@@ -141,11 +142,12 @@ export function AiVoiceCallWorkspace() {
             AI Voice Call Activity
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Verified AI-provider calls only, within your assigned CRM data scope.
+            Automatic fallback calls made when an assigned telecaller did not call within the
+            configured delay, limited to your CRM data scope.
           </p>
         </div>
         <Button asChild variant="outline" size="sm">
-          <Link href="/sales-consultant/calls">
+          <Link href={`/${rolePath}/calls`}>
             <PhoneCall className="size-4" /> Open calls
           </Link>
         </Button>
@@ -154,10 +156,10 @@ export function AiVoiceCallWorkspace() {
       {!result.has_verified_provider ? (
         <Alert className="border-blue-200 bg-blue-50/60 text-blue-950">
           <Bot className="size-4 text-blue-600" />
-          <AlertTitle>No verified AI voice provider is connected</AlertTitle>
+          <AlertTitle>No AI fallback agent is configured</AlertTitle>
           <AlertDescription>
-            A Client Admin must connect and verify an AI voice provider before this page can display
-            provider call activity. Credentials remain server-side.
+            A Client Admin must configure an AI fallback agent for a branch, team, and telecaller
+            before automatic call activity can appear here.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -176,7 +178,7 @@ export function AiVoiceCallWorkspace() {
                 value={query.search}
                 onChange={(event) => update({ search: event.target.value, page: 1 })}
                 className="pl-9"
-                placeholder="Customer, phone, provider..."
+                placeholder="Customer, phone, agent, branch..."
               />
             </div>
             <Select value={query.status} onValueChange={(status) => update({ status, page: 1 })}>
@@ -198,7 +200,9 @@ export function AiVoiceCallWorkspace() {
             <TableHeader>
               <TableRow>
                 <TableHead>Customer</TableHead>
-                <TableHead>AI provider</TableHead>
+                <TableHead>AI fallback agent</TableHead>
+                <TableHead>Branch</TableHead>
+                <TableHead>Assigned telecaller</TableHead>
                 <TableHead>Call status</TableHead>
                 <TableHead>Outcome</TableHead>
                 <TableHead>Started</TableHead>
@@ -216,6 +220,8 @@ export function AiVoiceCallWorkspace() {
                     </p>
                   </TableCell>
                   <TableCell className="font-medium">{record.provider_name}</TableCell>
+                  <TableCell>{record.branch_name}</TableCell>
+                  <TableCell>{record.telecaller_name}</TableCell>
                   <TableCell>
                     <StatusBadge value={record.status} />
                   </TableCell>
@@ -248,7 +254,7 @@ export function AiVoiceCallWorkspace() {
               {!result.records.length ? (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
+                    colSpan={9}
                     className="py-12 text-center text-sm text-muted-foreground"
                   >
                     <AudioLines className="mx-auto mb-3 size-6 text-muted-foreground/70" />

@@ -11,14 +11,15 @@ type Payload = {
   branchId: string;
   callId: string;
   recordingId: string;
-  providerRecordingUrl: string;
+  providerRecordingUrl?: string;
+  providerRecordingFile?: string;
   mimeType: string;
   expectedBytes?: number;
   connectionId?: string;
-  provider?: 'twilio_voice';
+  provider?: 'telecmi';
 };
 
-type TwilioCredential = { account_sid: string; auth_token: string };
+type TelecmiCredential = { app_id: number; app_secret: string };
 
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
@@ -159,9 +160,14 @@ export const providerRecordingIngest = task({
       requiredEnvironment('SUPABASE_SERVICE_ROLE_KEY'),
       { auth: { persistSession: false, autoRefreshToken: false } },
     );
-    let providerHeaders: Record<string, string> = {};
-    if (payload.provider === 'twilio_voice') {
-      if (!payload.connectionId) throw new Error('TWILIO_CONNECTION_ID_REQUIRED');
+    let providerRecordingUrl = payload.providerRecordingUrl;
+    if (payload.provider === 'telecmi') {
+      if (!payload.connectionId) throw new Error('TELECMI_CONNECTION_ID_REQUIRED');
+      if (
+        !payload.providerRecordingFile ||
+        !/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(payload.providerRecordingFile)
+      )
+        throw new Error('TELECMI_RECORDING_FILE_INVALID');
       const { data: credentialRow, error: credentialError } = await supabase
         .from('integration_credentials')
         .select('encrypted_payload')
@@ -169,17 +175,21 @@ export const providerRecordingIngest = task({
         .eq('connected_account_id', payload.connectionId)
         .maybeSingle();
       if (credentialError || !credentialRow)
-        throw credentialError ?? new Error('TWILIO_CREDENTIAL_NOT_FOUND');
-      const credential = await decryptCredential<TwilioCredential>(credentialRow.encrypted_payload);
-      providerHeaders = {
-        authorization: `Basic ${Buffer.from(`${credential.account_sid}:${credential.auth_token}`).toString('base64')}`,
-      };
+        throw credentialError ?? new Error('TELECMI_CREDENTIAL_NOT_FOUND');
+      const credential = await decryptCredential<TelecmiCredential>(
+        credentialRow.encrypted_payload,
+      );
+      const recordingUrl = new URL('https://rest.telecmi.com/v2/play');
+      recordingUrl.searchParams.set('appid', String(credential.app_id));
+      recordingUrl.searchParams.set('secret', credential.app_secret);
+      recordingUrl.searchParams.set('file', payload.providerRecordingFile);
+      providerRecordingUrl = recordingUrl.toString();
     }
+    if (!providerRecordingUrl) throw new Error('PROVIDER_RECORDING_URL_REQUIRED');
     const response = await fetchRecording(
-      payload.providerRecordingUrl,
+      providerRecordingUrl,
       allowedRecordingHosts(),
       AbortSignal.timeout(5 * 60_000),
-      providerHeaders,
     );
     if (!response.ok || !response.body)
       throw new Error(`PROVIDER_RECORDING_DOWNLOAD_${response.status}`);

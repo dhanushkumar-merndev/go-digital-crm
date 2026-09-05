@@ -29,6 +29,7 @@ import { OwnerAiBusinessSummaryWorkspace } from '@/features/dashboards/owner-ai-
 import { SalesConsultantDashboard } from '@/features/dashboards/sales-consultant-dashboard';
 import { TelecallerDashboard } from '@/features/dashboards/telecaller-dashboard';
 import { SalesConsultantActivityTimeline } from '@/features/dashboards/sales-consultant-activity-timeline';
+import { TeamManagerActivityTimeline } from '@/features/dashboards/team-manager-activity-timeline';
 import { SalesConsultantPerformance } from '@/features/dashboards/sales-consultant-performance';
 import { TeamManagerPerformance } from '@/features/dashboards/team-manager-performance';
 import { TeamCallMonitor } from '@/features/dashboards/team-call-monitor';
@@ -308,6 +309,8 @@ export default async function RolePage({ params }: Props) {
     return <LeadAssignmentWorkspace audience="SHOWROOM_MANAGER" />;
   if (role === 'team-manager' && slug[0] === 'team-calls' && !isLocalPreviewMode())
     return <TeamCallMonitor />;
+  if (role === 'team-manager' && slug[0] === 'team-activity' && !isLocalPreviewMode())
+    return <TeamManagerActivityTimeline />;
   if (role === 'showroom-manager' && slug[0] === 'showroom-targets' && !isLocalPreviewMode())
     return <ShowroomTargetWorkspace />;
   if (role === 'showroom-manager' && slug[0] === 'sales-teams' && !isLocalPreviewMode())

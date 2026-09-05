@@ -3,6 +3,11 @@ import { createClient } from '@/lib/supabase/client';
 
 const valueSchema = z.unknown().nullable();
 
+export const speakerTurnSchema = z.object({
+  speaker: z.enum(['AGENT', 'CUSTOMER', 'UNKNOWN']),
+  text: z.string(),
+});
+
 const workspaceSchema = z.object({
   call: z.object({
     id: z.uuid(),
@@ -13,7 +18,15 @@ const workspaceSchema = z.object({
     started_at: z.string(),
     duration_seconds: z.coerce.number().int().nullable(),
   }),
-  transcript: z.object({ text: z.string().nullable(), language: z.string().nullable() }).nullable(),
+  transcript: z
+    .object({
+      text: z.string().nullable(),
+      language: z.string().nullable(),
+      speaker_turns: z.array(speakerTurnSchema),
+      speaker_separation_method: z.string().nullable(),
+      truncated: z.boolean(),
+    })
+    .nullable(),
   summary: z.string().nullable(),
   extraction: z
     .object({

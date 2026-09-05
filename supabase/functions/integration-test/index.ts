@@ -7,6 +7,7 @@ import {
   type StoredOAuthCredential,
 } from '../_shared/provider-oauth.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
+import { testTelecmiCredential, type TelecmiCredential } from '../_shared/telecmi.ts';
 
 const schema = z.object({ organization_id: z.uuid(), connection_id: z.uuid() });
 
@@ -52,10 +53,13 @@ Deno.serve(async (request) => {
         requestId,
         404,
       );
-    if (!['meta', 'google_ads', 'google_business_profile'].includes(connection.provider_key))
+    const isOAuthProvider = ['meta', 'google_ads', 'google_business_profile'].includes(
+      connection.provider_key,
+    );
+    if (!isOAuthProvider && connection.provider_key !== 'telecmi')
       return failure(
         'UNSUPPORTED_PROVIDER',
-        'This provider does not use the OAuth connection test.',
+        'This provider does not use this connection test.',
         requestId,
         422,
       );
@@ -72,11 +76,19 @@ Deno.serve(async (request) => {
         requestId,
         409,
       );
-    const credential = await decryptJson<StoredOAuthCredential>(secret.encrypted_payload);
-    const tested = await testOAuthCredential(
-      connection.provider_key as OAuthProviderKey,
-      credential,
-    );
+    let accountLabel: string;
+    if (connection.provider_key === 'telecmi') {
+      const credential = await decryptJson<TelecmiCredential>(secret.encrypted_payload);
+      await testTelecmiCredential(credential);
+      accountLabel = `TeleCMI App ${credential.app_id}`;
+    } else {
+      const credential = await decryptJson<StoredOAuthCredential>(secret.encrypted_payload);
+      const tested = await testOAuthCredential(
+        connection.provider_key as OAuthProviderKey,
+        credential,
+      );
+      accountLabel = tested.accountLabel;
+    }
     const now = new Date().toISOString();
     await admin
       .from('connected_accounts')
@@ -92,7 +104,7 @@ Deno.serve(async (request) => {
       metadata: { provider_key: connection.provider_key },
     });
     return success(
-      { connection_id: connection.id, account_label: tested.accountLabel, tested_at: now },
+      { connection_id: connection.id, account_label: accountLabel, tested_at: now },
       requestId,
     );
   } catch {

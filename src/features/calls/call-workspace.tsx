@@ -99,6 +99,7 @@ import {
   type CallWorkspaceView,
 } from './call-workspace-query';
 import { recordDetailHref } from '@/lib/navigation/record-links';
+import { SpeakerTranscript } from './speaker-transcript';
 
 const outcomeOptions: Array<{
   value: FinalizeManualCallInput['outcome'];
@@ -229,6 +230,7 @@ function ManualCallDialog({
   const [providerId, setProviderId] = useState('');
   const debouncedPartySearch = useDebouncedValue(partySearch, 300);
   const requestIds = useRef<{ create: string; finalize: string } | null>(null);
+  const providerRequestId = useRef<string | null>(null);
   const scopeOptions = useQuery({
     queryKey: ['call-scope-options', organizationId, ...queryScope],
     queryFn: ({ signal }) => fetchCallScopeOptions(signal),
@@ -255,11 +257,12 @@ function ManualCallDialog({
     mutationFn: () => {
       if (!selectedParty?.lead_id || !selectedProviderId)
         throw new Error('PROVIDER_CALL_SELECTION_REQUIRED');
+      providerRequestId.current ??= globalThis.crypto.randomUUID();
       return startProviderCall({
         organizationId,
         connectionId: selectedProviderId,
         leadId: selectedParty.lead_id,
-        requestId: globalThis.crypto.randomUUID(),
+        requestId: providerRequestId.current,
       });
     },
     onSuccess: () => {
@@ -299,6 +302,7 @@ function ManualCallDialog({
       setTeamId('none');
       setAudioFile(null);
       setProviderId('');
+      providerRequestId.current = null;
       providerCall.reset();
     }
     onOpenChange(nextOpen);
@@ -349,7 +353,15 @@ function ManualCallDialog({
                   {selectedParty.phone ?? 'No phone'} · {selectedParty.context_label}
                 </p>
               </div>
-              <Button type="button" variant="outline" size="sm" onClick={() => setPartyKey('')}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setPartyKey('');
+                  providerRequestId.current = null;
+                }}
+              >
                 Change
               </Button>
             </div>
@@ -378,6 +390,7 @@ function ManualCallDialog({
                       className="flex w-full items-center justify-between gap-3 border-b px-3 py-3 text-left last:border-b-0 hover:bg-slate-50"
                       onClick={() => {
                         setPartyKey(party.key);
+                        providerRequestId.current = null;
                         if (party.branch_id) setBranchId(party.branch_id);
                         if (party.lead_id) setTeamId(party.team_id ?? 'none');
                       }}
@@ -410,22 +423,11 @@ function ManualCallDialog({
                 <div>
                   <p className="text-sm font-semibold">Start a call</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Normal calls open your device dialer. Twilio calls your registered number first,
-                    then securely bridges the customer and records the connected conversation.
+                    The dealership line rings your mapped mobile first. After you answer, it calls
+                    and bridges the customer automatically.
                   </p>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {selectedParty.phone ? (
-                    <Button type="button" variant="outline" asChild>
-                      <a href={`tel:${selectedParty.phone}`}>
-                        <Phone className="size-4" /> Normal phone
-                      </a>
-                    </Button>
-                  ) : (
-                    <Button type="button" variant="outline" disabled>
-                      <Phone className="size-4" /> Phone unavailable
-                    </Button>
-                  )}
+                <div className="grid gap-2">
                   <Button
                     type="button"
                     disabled={
@@ -437,13 +439,19 @@ function ManualCallDialog({
                     onClick={() => providerCall.mutate()}
                   >
                     <RadioTower className="size-4" />
-                    {providerCall.isPending ? 'Starting Twilio…' : 'Call with IVR'}
+                    {providerCall.isPending ? 'Starting call…' : 'Call through CRM'}
                   </Button>
                 </div>
                 {providerOptions.data && providerOptions.data.length > 1 && (
-                  <Select value={selectedProviderId} onValueChange={setProviderId}>
+                  <Select
+                    value={selectedProviderId}
+                    onValueChange={(value) => {
+                      setProviderId(value);
+                      providerRequestId.current = null;
+                    }}
+                  >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select calling provider" />
+                      <SelectValue placeholder="Select dealership line" />
                     </SelectTrigger>
                     <SelectContent>
                       {providerOptions.data.map((provider) => (
@@ -457,19 +465,18 @@ function ManualCallDialog({
                 )}
                 {!selectedParty.lead_id ? (
                   <p className="text-xs text-amber-700">
-                    Link this customer to an authorized lead before using a connected IVR.
+                    Link this customer to an authorized lead before calling through CRM.
                   </p>
                 ) : providerOptions.isSuccess && !providerOptions.data.length ? (
                   <p className="text-xs text-muted-foreground">
-                    No Twilio connection is mapped to this branch yet. A Client Admin or System
-                    Administrator must connect it; normal calling and manual logging remain
-                    available.
+                    Your mobile is not mapped to a dealership line for this branch. Ask a Client
+                    Admin to configure your CRM mobile and calling user ID.
                   </p>
                 ) : null}
                 {providerCall.isError && (
                   <p className="text-xs text-destructive">
-                    Twilio could not start the call. Use normal calling or ask an administrator to
-                    test the connection.
+                    The dealership line could not start the call. Ask a Client Admin to test your
+                    calling configuration.
                   </p>
                 )}
               </div>
@@ -785,24 +792,19 @@ function CallDetailSheet({
           <div className="grid gap-4 xl:grid-cols-12">
             <Card className="shadow-none xl:col-span-3">
               <CardHeader>
-                <CardTitle className="text-sm">Make a call</CardTitle>
+                <CardTitle className="text-sm">Dealership calling</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col items-center text-center">
-                <a
-                  href={data.phone ? `tel:${data.phone}` : undefined}
-                  className="grid size-24 place-items-center rounded-full border-[12px] border-blue-50 bg-blue-600 text-white shadow-sm"
-                >
+                <div className="grid size-24 place-items-center rounded-full border-[12px] border-blue-50 bg-blue-600 text-white shadow-sm">
                   <PhoneCall className="size-9" />
-                </a>
-                <p className="mt-4 font-semibold">Click to call</p>
+                </div>
+                <p className="mt-4 font-semibold">Calls stay inside CRM</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {data.phone ?? 'Phone unavailable'}
                 </p>
-                <Button asChild variant="outline" size="sm" className="mt-4" disabled={!data.phone}>
-                  <a href={data.phone ? `tel:${data.phone}` : undefined}>
-                    <Phone className="size-3.5" /> Open dialer
-                  </a>
-                </Button>
+                <p className="mt-4 text-xs text-muted-foreground">
+                  Use Add call to start a new bridged call through your mapped dealership line.
+                </p>
               </CardContent>
             </Card>
             <Card className="shadow-none xl:col-span-6">
@@ -964,13 +966,13 @@ function CallDetailSheet({
                     : 'Transcript has not been processed for this call.'}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="min-h-72 max-h-72 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
-                {data.transcript?.text ?? 'Transcript processing has not produced text yet.'}
-                {data.transcript?.truncated && (
-                  <p className="mt-3 text-xs font-medium text-amber-700">
-                    This view is truncated to protect response size.
-                  </p>
-                )}
+              <CardContent className="min-h-72 max-h-72 overflow-y-auto">
+                <SpeakerTranscript
+                  turns={data.transcript?.speaker_turns ?? []}
+                  fallbackText={data.transcript?.text ?? null}
+                  separationMethod={data.transcript?.speaker_separation_method ?? null}
+                  truncated={data.transcript?.truncated}
+                />
               </CardContent>
             </Card>
             <Card className="shadow-none xl:col-span-4">
@@ -1230,9 +1232,7 @@ function CallTable({
         cell: ({ getValue }) => {
           const phone = getValue<string | null>();
           return phone ? (
-            <a className="font-medium text-blue-700 hover:underline" href={`tel:${phone}`}>
-              {phone}
-            </a>
+            <span className="font-medium">{phone}</span>
           ) : (
             <span className="text-muted-foreground">—</span>
           );
@@ -1305,13 +1305,6 @@ function CallTable({
         header: 'Action',
         cell: ({ row }) => (
           <div className="flex items-center gap-1">
-            {row.original.phone && (
-              <Button variant="ghost" size="icon" className="size-8" asChild>
-                <a href={`tel:${row.original.phone}`} aria-label="Call customer">
-                  <Phone className="size-4 text-emerald-600" />
-                </a>
-              </Button>
-            )}
             <Button
               size="icon"
               className="size-8"

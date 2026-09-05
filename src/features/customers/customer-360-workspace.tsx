@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   CalendarClock,
@@ -62,11 +62,17 @@ import {
   type Customer360TimelineCursor,
   type CustomerWorkspacePermissions,
 } from './customer-workspace-api';
-import { CustomerDocumentUploadDialog, CustomerEditDialog } from './customer-360-actions';
+import {
+  CustomerDocumentUploadDialog,
+  CustomerEditDialog,
+  CustomerTelecmiCallDialog,
+} from './customer-360-actions';
 
 const customer360Tabs = [
   'overview',
   'leads',
+  'calls',
+  'conversations',
   'followups',
   'appointments',
   'test-drives',
@@ -80,9 +86,10 @@ const customer360Tabs = [
 
 type Customer360Tab = (typeof customer360Tabs)[number];
 
-const customerTabCreateLabel: Record<Customer360Tab, string> = {
+const customerTabCreateLabel: Partial<Record<Customer360Tab, string>> = {
   overview: 'Edit customer',
   leads: 'Add lead',
+  calls: 'Start call',
   followups: 'Add follow-up',
   appointments: 'Add appointment',
   'test-drives': 'Schedule test drive',
@@ -98,6 +105,8 @@ const lazySectionByTab: Partial<
   Record<Exclude<Customer360Tab, 'overview'>, Customer360LazySection>
 > = {
   leads: 'leads',
+  calls: 'calls',
+  conversations: 'conversations',
   followups: 'followups',
   appointments: 'appointments',
   'test-drives': 'test_drives',
@@ -501,6 +510,7 @@ function Customer360Content({
 }) {
   const [localActiveTab, setLocalActiveTab] = useState<Customer360Tab>('overview');
   const activeTab = controlledActiveTab ?? localActiveTab;
+  const createLabel = customerTabCreateLabel[activeTab];
   // Drip is gated on the permission rather than on `section_access`, which is
   // built by the Customer 360 RPC and would need that RPC changed to carry a
   // key the panel does not otherwise use.
@@ -529,6 +539,10 @@ function Customer360Content({
           <TabsList className="h-auto min-w-max justify-start">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             {data.section_access.leads && <TabsTrigger value="leads">Leads</TabsTrigger>}
+            {data.section_access.calls && <TabsTrigger value="calls">Calls</TabsTrigger>}
+            {data.section_access.conversations && (
+              <TabsTrigger value="conversations">Conversations</TabsTrigger>
+            )}
             {data.section_access.followups && (
               <TabsTrigger value="followups">Follow-ups</TabsTrigger>
             )}
@@ -550,9 +564,9 @@ function Customer360Content({
             {data.section_access.timeline && <TabsTrigger value="timeline">Timeline</TabsTrigger>}
           </TabsList>
         </div>
-        {onCreateForTab ? (
+        {onCreateForTab && createLabel ? (
           <Button size="sm" className="shrink-0" onClick={() => onCreateForTab(activeTab)}>
-            <Plus className="size-4" /> {customerTabCreateLabel[activeTab]}
+            <Plus className="size-4" /> {createLabel}
           </Button>
         ) : null}
       </div>
@@ -604,6 +618,46 @@ function Customer360Content({
                   lead.branch_name,
                   lead.assigned_user_name ?? 'Unassigned',
                   formatDate(lead.updated_at),
+                ])}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.calls && (
+            <TabsContent value="calls">
+              <DetailTable
+                headers={[
+                  'Started',
+                  'Direction',
+                  'Status',
+                  'Outcome',
+                  'Duration',
+                  'Owner',
+                  'Recording',
+                ]}
+                emptyLabel="Calls"
+                rows={data.calls.map((call) => [
+                  formatDate(call.started_at),
+                  call.direction,
+                  <StatusBadge key="status" value={call.status} />,
+                  call.outcome ?? '—',
+                  formatDuration(call.duration_seconds),
+                  call.assigned_user_name ?? '—',
+                  call.recording_status ?? 'Not available',
+                ])}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.conversations && (
+            <TabsContent value="conversations">
+              <DetailTable
+                headers={['Channel', 'Status', 'Messages', 'Latest message', 'Owner']}
+                emptyLabel="Conversations"
+                rows={data.conversations.map((conversation) => [
+                  conversation.channel.replaceAll('_', ' '),
+                  <StatusBadge key="status" value={conversation.status} />,
+                  conversation.message_count,
+                  formatDate(conversation.latest_message_at),
+                  conversation.assigned_user_name ?? '—',
                 ])}
               />
             </TabsContent>
@@ -826,9 +880,11 @@ function Customer360Content({
 
 export function Customer360Workspace({ role, customerId }: { role: string; customerId: string }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const returnToPreviousPage = useReturnToList(`/${role}/customers`);
   const [activeTab, setActiveTab] = useState<Customer360Tab>('overview');
   const [editOpen, setEditOpen] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
   const [documentUploadOpen, setDocumentUploadOpen] = useState(false);
   const [sectionPage, setSectionPage] = useState(1);
   const [sectionPageSize, setSectionPageSize] = useState<Customer360SectionPageSize>(25);
@@ -1007,6 +1063,9 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
       case 'leads':
         router.push(`/${role}/my-leads?action=create`);
         return;
+      case 'calls':
+        setCallOpen(true);
+        return;
       case 'followups':
       case 'timeline':
         router.push(`/${role}/follow-ups?action=create`);
@@ -1045,12 +1104,9 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
                 </div>
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                   {data.customer.primary_phone && (
-                    <a
-                      className="inline-flex items-center gap-1.5 font-medium text-foreground hover:text-primary"
-                      href={`tel:${data.customer.primary_phone}`}
-                    >
+                    <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
                       <Phone className="size-4 text-emerald-600" /> {data.customer.primary_phone}
-                    </a>
+                    </span>
                   )}
                   {data.customer.primary_email && <span>{data.customer.primary_email}</span>}
                 </div>
@@ -1080,13 +1136,11 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
               </CustomerHeaderValue>
             </div>
             <div className="flex flex-wrap gap-2 border-t p-3">
-              {data.customer.primary_phone && (
-                <Button size="sm" variant="outline" asChild>
-                  <a href={`tel:${data.customer.primary_phone}`}>
-                    <Phone className="size-3.5 text-emerald-600" /> Call
-                  </a>
+              {data.customer.primary_phone && permissions.canCreateCall ? (
+                <Button size="sm" variant="outline" onClick={() => setCallOpen(true)}>
+                  <Phone className="size-3.5 text-emerald-600" /> Call through CRM
                 </Button>
-              )}
+              ) : null}
               {permissions.canUpdate ? (
                 <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
                   <Pencil className="size-3.5 text-blue-600" /> Edit customer
@@ -1152,6 +1206,22 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
           onSaved={() => {
             if (useSalesHotPath) void salesCore.refetch();
             else void legacyCustomer.refetch();
+          }}
+        />
+      ) : null}
+      {permissions.canCreateCall && callOpen ? (
+        <CustomerTelecmiCallDialog
+          open={callOpen}
+          onOpenChange={setCallOpen}
+          customerId={data.customer.id}
+          organizationId={permissions.organizationId}
+          customerName={data.customer.full_name}
+          customerPhone={data.customer.primary_phone}
+          onStarted={() => {
+            selectCustomerTab('calls');
+            void queryClient.invalidateQueries({
+              queryKey: ['customer-360', ...queryScope, customerId],
+            });
           }}
         />
       ) : null}

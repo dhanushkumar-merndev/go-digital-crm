@@ -6,6 +6,9 @@ function source(path: string) {
 }
 
 const migration = source('supabase/migrations/202608250003_customer_360_edit_and_ai_calls.sql');
+const telecmiMigration = source(
+  'supabase/migrations/202609030002_customer_telecmi_call_options.sql',
+);
 const customerApi = source('src/features/customers/customer-workspace-api.ts');
 const customerWorkspace = source('src/features/customers/customer-360-workspace.tsx');
 const customerActions = source('src/features/customers/customer-360-actions.tsx');
@@ -95,29 +98,31 @@ describe('Customer 360 edit contract', () => {
   });
 });
 
-describe('Customer 360 AI-call branch scope contract', () => {
-  it('only resolves AI-capable Twilio connections mapped to the visible lead branch', () => {
-    expect(migration).toContain('create or replace function public.get_customer_ai_call_options');
-    expect(migration).toContain(
-      'connection_row.connection_config @> \'{"capabilities":["AI_VOICE_CALLING"]}\'::jsonb',
+describe('Customer 360 TeleCMI-call branch scope contract', () => {
+  it('only resolves IVR-capable TeleCMI connections mapped to the visible lead branch', () => {
+    expect(telecmiMigration).toContain(
+      'create or replace function public.get_customer_telecmi_call_options',
     );
-    expect(migration).toContain("connection_row.scope_mode = 'ALL_BRANCHES'");
-    expect(migration).toContain('mapping_row.branch_id = lead_row.branch_id');
-    expect(migration).toContain('app_private.can_access_record(');
-    expect(migration).toContain(
-      'create or replace function public.create_ai_provider_call_request',
+    expect(telecmiMigration).toContain("connection_row.provider_key = 'telecmi'");
+    expect(telecmiMigration).toContain(
+      'connection_row.connection_config @> \'{"capabilities":["IVR_CALLING"]}\'::jsonb',
     );
-    expect(migration).toContain("message = 'AI_CALL_CONNECTION_NOT_AUTHORIZED'");
+    expect(telecmiMigration).toContain("connection_row.scope_mode = 'ALL_BRANCHES'");
+    expect(telecmiMigration).toContain('mapping_row.branch_id = lead_row.branch_id');
+    expect(telecmiMigration).toContain('app_private.can_access_record(');
+    expect(telecmiMigration).toContain(
+      'drop function if exists public.get_customer_ai_call_options(uuid)',
+    );
   });
 
-  it('uses the AI-only provider path from the customer AI call dialog', () => {
-    expect(customerActions).toContain('CustomerAiCallDialog');
-    expect(customerActions).toContain('fetchCustomerAiCallOptions(customerId, signal)');
-    expect(customerActions).toContain('aiMode: true');
-    expect(callApi).toContain('aiMode?: boolean');
-    expect(callStart).toContain('ai_mode: z.boolean().default(false)');
-    expect(callStart).toContain(
-      "'create_ai_provider_call_request' : 'create_provider_call_request'",
-    );
+  it('keeps the human TeleCMI action separate from automated AI voice escalation', () => {
+    expect(customerActions).toContain('CustomerTelecmiCallDialog');
+    expect(customerActions).toContain('fetchCustomerTelecmiCallOptions(customerId, signal)');
+    expect(customerActions).toContain('Call through CRM');
+    expect(customerActions).toContain('options.branch_name');
+    expect(customerActions).not.toContain('aiMode: true');
+    expect(callApi).not.toContain('aiMode?: boolean');
+    expect(callStart).toContain("'create_provider_call_request'");
+    expect(callStart).not.toContain('create_ai_provider_call_request');
   });
 });

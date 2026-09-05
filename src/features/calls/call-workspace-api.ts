@@ -13,6 +13,10 @@ import {
 
 const nullableString = z.string().nullable();
 const nullableUuid = z.uuid().nullable();
+const callSpeakerTurnSchema = z.object({
+  speaker: z.enum(['AGENT', 'CUSTOMER', 'UNKNOWN']),
+  text: z.string(),
+});
 
 export const callRecordSchema = z.object({
   id: z.uuid(),
@@ -56,8 +60,11 @@ const callWorkspaceSchema = z.object({
     average_duration_seconds: z.coerce.number().int().nonnegative(),
     callbacks_required: z.coerce.number().int().nonnegative(),
     recordings_ready: z.coerce.number().int().nonnegative(),
-    not_connected_today: z.coerce.number().int().nonnegative(),
-    talk_time_seconds: z.coerce.number().int().nonnegative(),
+    // Keep the workspace usable while an older RPC response is being rolled
+    // forward. The database migration supplies the authoritative values; these
+    // defaults prevent an additive KPI from blanking the entire Calls page.
+    not_connected_today: z.coerce.number().int().nonnegative().default(0),
+    talk_time_seconds: z.coerce.number().int().nonnegative().default(0),
   }),
   trend: z.array(
     z.object({
@@ -189,7 +196,7 @@ export async function fetchCallScopeOptions(signal?: AbortSignal): Promise<CallS
 
 const callProviderOptionSchema = z.object({
   id: z.uuid(),
-  provider_key: z.literal('twilio_voice'),
+  provider_key: z.literal('telecmi'),
   display_name: z.string(),
   caller_id_label: nullableString,
 });
@@ -212,12 +219,11 @@ export async function startProviderCall(input: {
   connectionId: string;
   leadId: string;
   requestId: string;
-  aiMode?: boolean;
 }) {
   const { data, error } = await createClient().functions.invoke<
     EdgeEnvelope<{
       call_id: string;
-      provider_call_id: string;
+      provider_request_id: string;
       status: string;
     }>
   >('call-provider-start', {
@@ -226,13 +232,12 @@ export async function startProviderCall(input: {
       connection_id: input.connectionId,
       lead_id: input.leadId,
       request_id: input.requestId,
-      ai_mode: input.aiMode ?? false,
     },
   });
   if (error || !data?.ok || !data.data)
     throw error ?? new Error(data?.error?.code ?? 'PROVIDER_CALL_START_FAILED');
   return z
-    .object({ call_id: z.uuid(), provider_call_id: z.string(), status: z.string() })
+    .object({ call_id: z.uuid(), provider_request_id: z.string(), status: z.string() })
     .parse(data.data);
 }
 
@@ -447,6 +452,8 @@ const callDetailSchema = z.object({
       status: z.string(),
       language: nullableString,
       text: nullableString,
+      speaker_turns: z.array(callSpeakerTurnSchema).default([]),
+      speaker_separation_method: nullableString.default(null),
       truncated: z.boolean(),
       created_at: z.string(),
     })
@@ -456,13 +463,38 @@ const callDetailSchema = z.object({
 
 export type CallDetail = z.infer<typeof callDetailSchema>;
 
+const callSpeakerTranscriptSchema = z.object({
+  speaker_turns: z.array(callSpeakerTurnSchema),
+  speaker_separation_method: nullableString,
+  truncated: z.boolean(),
+});
+
 export async function fetchCallDetail(callId: string, signal?: AbortSignal): Promise<CallDetail> {
-  const request = createClient().rpc('get_call_detail', {
+  const supabase = createClient();
+  const detailRequest = supabase.rpc('get_call_detail', {
     target_call_id: callId,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
-  return callDetailSchema.parse(data);
+  const speakerRequest = supabase.rpc('get_call_speaker_transcript', {
+    target_call_id: callId,
+  });
+  const [detailResponse, speakerResponse] = await Promise.all([
+    signal ? detailRequest.abortSignal(signal) : detailRequest,
+    signal ? speakerRequest.abortSignal(signal) : speakerRequest,
+  ]);
+  if (detailResponse.error) throw detailResponse.error;
+  if (speakerResponse.error) throw speakerResponse.error;
+  const detail = callDetailSchema.parse(detailResponse.data);
+  const speakerTranscript = callSpeakerTranscriptSchema.parse(speakerResponse.data);
+  if (!detail.transcript) return detail;
+  return {
+    ...detail,
+    transcript: {
+      ...detail.transcript,
+      speaker_turns: speakerTranscript.speaker_turns,
+      speaker_separation_method: speakerTranscript.speaker_separation_method,
+      truncated: detail.transcript.truncated || speakerTranscript.truncated,
+    },
+  };
 }
 
 type DownloadEnvelope = {

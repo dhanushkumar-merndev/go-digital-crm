@@ -167,6 +167,8 @@ export function getRoleSkeleton(role: string, slug: string = 'dashboard') {
         return <FollowupsSkeleton />;
       case 'team-calls':
         return <TeamCallMonitorSkeleton />;
+      case 'team-activity':
+        return <SalesConsultantTimelineSkeleton />;
       case 'appointments':
         return <AppointmentsSkeleton />;
       case 'test-drives':

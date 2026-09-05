@@ -56,6 +56,7 @@ import {
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { Metric, PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
+import { AiVoiceAgentSettingsCard } from './ai-voice-agent-settings';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
@@ -63,7 +64,7 @@ import {
 } from '@/components/providers/workspace-session-provider';
 import {
   connectAiProvider,
-  connectTwilio,
+  connectTelecmi,
   connectWhatsApp,
   fetchIntegrationOptions,
   fetchIntegrationWorkspace,
@@ -95,7 +96,7 @@ const providerOptions: Array<{ value: IntegrationProviderKey; label: string }> =
   { value: 'openai', label: 'OpenAI AI models' },
   { value: 'gemini', label: 'Google Gemini AI models' },
   { value: 'groq', label: 'Groq transcription & AI analysis' },
-  { value: 'twilio_voice', label: 'Twilio IVR calling & recordings' },
+  { value: 'telecmi', label: 'TeleCMI IVR calling & recordings' },
 ];
 
 const statusLabels: Record<IntegrationStatusFilter, string> = {
@@ -147,12 +148,14 @@ function BranchScopeFields({
   options,
   scopeMode,
   selectedBranchIds,
+  canUseAllBranches,
   onScopeModeChange,
   onSelectedBranchIdsChange,
 }: {
   options: IntegrationOptions;
   scopeMode: IntegrationScopeMode;
   selectedBranchIds: string[];
+  canUseAllBranches: boolean;
   onScopeModeChange: (value: IntegrationScopeMode) => void;
   onSelectedBranchIdsChange: (value: string[]) => void;
 }) {
@@ -178,11 +181,13 @@ function BranchScopeFields({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {Object.entries(scopeLabels).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
+            {Object.entries(scopeLabels)
+              .filter(([value]) => value !== 'ALL_BRANCHES' || canUseAllBranches)
+              .map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
       </label>
@@ -227,7 +232,7 @@ function BranchScopeFields({
 type ConnectRequest =
   | {
       kind: 'oauth';
-      providerKey: Exclude<IntegrationProviderKey, 'whatsapp_cloud' | 'twilio_voice'>;
+      providerKey: Exclude<IntegrationProviderKey, 'whatsapp_cloud' | 'telecmi'>;
       displayName: string;
     }
   | {
@@ -248,24 +253,29 @@ type ConnectRequest =
       apiKey: string;
     }
   | {
-      kind: 'twilio';
+      kind: 'telecmi';
       displayName: string;
-      accountSid: string;
-      apiKeySid: string;
-      apiKeySecret: string;
-      authToken: string;
-      phoneNumber: string;
+      appId: number;
+      appSecret: string;
+      defaultUserId: string;
+      callerId?: string;
+      inboundRoute: 'PARALLEL_USERS' | 'IVR' | 'TEAM';
+      parallelAgents: Array<{ user_id: string; phone: string }>;
+      ivrName?: string;
+      teamName?: string;
     };
 
 function ProviderConnectionDialog({
   organizationId,
   role,
+  canUseAllBranches,
   existing,
   onClose,
   onConnected,
 }: {
   organizationId: string;
   role: string;
+  canUseAllBranches: boolean;
   existing: IntegrationRecord | null;
   onClose: () => void;
   onConnected: () => void;
@@ -275,9 +285,7 @@ function ProviderConnectionDialog({
     queryFn: fetchIntegrationOptions,
   });
   const [providerKey, setProviderKey] = useState<IntegrationProviderKey>(
-    ['whatsapp_cloud', 'openai', 'gemini', 'groq', 'twilio_voice'].includes(
-      existing?.provider_key ?? '',
-    )
+    ['whatsapp_cloud', 'openai', 'gemini', 'groq', 'telecmi'].includes(existing?.provider_key ?? '')
       ? (existing?.provider_key as IntegrationProviderKey)
       : 'meta',
   );
@@ -289,6 +297,13 @@ function ProviderConnectionDialog({
     existing?.default_inbound_branch_id ?? '',
   );
   const [defaultTeamId, setDefaultTeamId] = useState(existing?.default_team_id ?? 'none');
+  const [inboundRoute, setInboundRoute] = useState<'PARALLEL_USERS' | 'IVR' | 'TEAM'>(
+    existing?.connection_config.inbound_route ?? 'PARALLEL_USERS',
+  );
+  const [telecmiSetup, setTelecmiSetup] = useState<{
+    webhook_url: string;
+    call_flow_url: string;
+  } | null>(null);
   const existingModels = existing?.connection_config?.models;
   const inboundBranches =
     options.data?.branches.filter(
@@ -329,20 +344,25 @@ function ProviderConnectionDialog({
         });
         return { authorizationUrl: null };
       }
-      if (request.kind === 'twilio') {
-        await connectTwilio({
+      if (request.kind === 'telecmi') {
+        if (role !== 'client-admin') throw new Error('TELECMI_CLIENT_ADMIN_REQUIRED');
+        const result = await connectTelecmi({
           organizationId,
           connectionId: existing?.id,
           displayName: request.displayName,
           scopeMode,
           branchIds: selectedBranchIds,
-          accountSid: request.accountSid,
-          apiKeySid: request.apiKeySid,
-          apiKeySecret: request.apiKeySecret,
-          authToken: request.authToken,
-          phoneNumber: request.phoneNumber,
+          appId: request.appId,
+          appSecret: request.appSecret,
+          defaultUserId: request.defaultUserId,
+          callerId: request.callerId,
+          inboundRoute: request.inboundRoute,
+          parallelAgents: request.parallelAgents,
+          ivrName: request.ivrName,
+          teamName: request.teamName,
+          aiStreamEnabled: false,
         });
-        return { authorizationUrl: null };
+        return { authorizationUrl: null, telecmiSetup: result };
       }
       await connectWhatsApp({
         organizationId,
@@ -356,14 +376,18 @@ function ProviderConnectionDialog({
         whatsappBusinessAccountId: request.whatsappBusinessAccountId,
         accessToken: request.accessToken,
       });
-      return { authorizationUrl: null };
+      return { authorizationUrl: null, telecmiSetup: null };
     },
-    onSuccess: ({ authorizationUrl }) => {
+    onSuccess: ({ authorizationUrl, telecmiSetup: setup }) => {
       if (authorizationUrl) {
         window.location.assign(authorizationUrl);
         return;
       }
       onConnected();
+      if (setup) {
+        setTelecmiSetup(setup);
+        return;
+      }
       onClose();
     },
   });
@@ -412,15 +436,23 @@ function ProviderConnectionDialog({
                 });
                 return;
               }
-              if (providerKey === 'twilio_voice') {
+              if (providerKey === 'telecmi') {
+                const parallelAgents = String(form.get('parallelAgents') ?? '')
+                  .split(';')
+                  .map((entry) => entry.split(',').map((value) => value.trim()))
+                  .filter((entry) => entry[0] && entry[1])
+                  .map(([user_id, phone]) => ({ user_id, phone }));
                 mutation.mutate({
-                  kind: 'twilio',
+                  kind: 'telecmi',
                   displayName,
-                  accountSid: String(form.get('accountSid') ?? '').trim(),
-                  apiKeySid: String(form.get('apiKeySid') ?? '').trim(),
-                  apiKeySecret: String(form.get('apiKeySecret') ?? '').trim(),
-                  authToken: String(form.get('authToken') ?? '').trim(),
-                  phoneNumber: String(form.get('phoneNumber') ?? '').trim(),
+                  appId: Number(form.get('appId')),
+                  appSecret: String(form.get('appSecret') ?? '').trim(),
+                  defaultUserId: String(form.get('defaultUserId') ?? '').trim(),
+                  callerId: String(form.get('callerId') ?? '').trim() || undefined,
+                  inboundRoute,
+                  parallelAgents,
+                  ivrName: String(form.get('ivrName') ?? '').trim() || undefined,
+                  teamName: String(form.get('teamName') ?? '').trim() || undefined,
                 });
                 return;
               }
@@ -452,11 +484,13 @@ function ProviderConnectionDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {providerOptions.map((provider) => (
-                    <SelectItem key={provider.value} value={provider.value}>
-                      {provider.label}
-                    </SelectItem>
-                  ))}
+                  {providerOptions
+                    .filter((provider) => provider.value !== 'telecmi' || role === 'client-admin')
+                    .map((provider) => (
+                      <SelectItem key={provider.value} value={provider.value}>
+                        {provider.label}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </label>
@@ -476,6 +510,7 @@ function ProviderConnectionDialog({
                 options={options.data}
                 scopeMode={scopeMode}
                 selectedBranchIds={selectedBranchIds}
+                canUseAllBranches={canUseAllBranches}
                 onScopeModeChange={setScopeMode}
                 onSelectedBranchIdsChange={setSelectedBranchIds}
               />
@@ -553,58 +588,128 @@ function ProviderConnectionDialog({
                 </label>
               </div>
             )}
-            {providerKey === 'twilio_voice' && (
+            {providerKey === 'telecmi' && (
               <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
                 <p className="text-xs text-muted-foreground sm:col-span-2">
-                  One Twilio connection may be mapped to one, selected, or all branches. Recordings
-                  are fetched server-side and stored privately in Tigris.
+                  Website calls ring the mapped employee’s normal mobile first, then call and bridge
+                  the customer. Inbound calls can use an IVR, a team, or parallel ringing. Completed
+                  recordings are copied server-side to private Tigris storage.
                 </p>
                 <label className="grid gap-1.5 text-sm font-medium">
-                  Account SID
+                  App ID
                   <Input
-                    name="accountSid"
+                    name="appId"
+                    type="number"
                     required
-                    pattern="AC[a-fA-F0-9]{32}"
+                    min={1}
                     autoComplete="off"
                     defaultValue={existing?.external_account_id ?? ''}
                   />
                 </label>
                 <label className="grid gap-1.5 text-sm font-medium">
-                  Caller number (E.164)
+                  TeleCMI account user ID
                   <Input
-                    name="phoneNumber"
+                    name="defaultUserId"
                     required
-                    placeholder="+919876543210"
+                    placeholder="12345_67890"
                     autoComplete="off"
+                    defaultValue={existing?.connection_config.default_user_id ?? ''}
                   />
                 </label>
                 <label className="grid gap-1.5 text-sm font-medium">
-                  API Key SID
-                  <Input name="apiKeySid" required pattern="SK[a-fA-F0-9]{32}" autoComplete="off" />
+                  Caller ID <span className="font-normal text-muted-foreground">(optional)</span>
+                  <Input
+                    name="callerId"
+                    placeholder="919876543210"
+                    autoComplete="off"
+                    defaultValue={existing?.connection_config.caller_id_label ?? ''}
+                  />
                 </label>
                 <label className="grid gap-1.5 text-sm font-medium">
-                  API Key Secret
+                  App secret
                   <Input
-                    name="apiKeySecret"
+                    name="appSecret"
                     type="password"
                     required
-                    minLength={20}
+                    minLength={8}
                     autoComplete="new-password"
                   />
                 </label>
                 <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
-                  Auth token{' '}
-                  <span className="font-normal text-muted-foreground">(for signed webhooks)</span>
-                  <Input
-                    name="authToken"
-                    type="password"
-                    required
-                    minLength={20}
-                    autoComplete="new-password"
-                  />
+                  Inbound web-flow action
+                  <Select
+                    value={inboundRoute}
+                    onValueChange={(value) => setInboundRoute(value as typeof inboundRoute)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PARALLEL_USERS">Ring agents in parallel</SelectItem>
+                      <SelectItem value="IVR">TeleCMI IVR</SelectItem>
+                      <SelectItem value="TEAM">TeleCMI team</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </label>
+                <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                  Employee mobile mappings
+                  <Input
+                    name="parallelAgents"
+                    required
+                    placeholder="123_456,919876543210; 123_789,919999999999"
+                    defaultValue={(existing?.connection_config.parallel_agents ?? [])
+                      .map((agent) => `${agent.user_id},${agent.phone}`)
+                      .join('; ')}
+                  />
+                  <span className="font-normal text-muted-foreground">
+                    Enter each TeleCMI user ID and that CRM employee’s mobile as user_id,phone
+                    pairs, separated by semicolons. Website calls use the signed-in employee’s exact
+                    mobile mapping; there is no shared-agent fallback.
+                  </span>
+                </label>
+                {inboundRoute === 'IVR' ? (
+                  <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                    IVR name
+                    <Input
+                      name="ivrName"
+                      required
+                      defaultValue={existing?.connection_config.ivr_name ?? ''}
+                    />
+                  </label>
+                ) : null}
+                {inboundRoute === 'TEAM' ? (
+                  <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                    Team name
+                    <Input
+                      name="teamName"
+                      required
+                      defaultValue={existing?.connection_config.team_name ?? ''}
+                    />
+                  </label>
+                ) : null}
               </div>
             )}
+            {telecmiSetup ? (
+              <Alert>
+                <AlertTitle>TeleCMI connection saved</AlertTitle>
+                <AlertDescription className="grid gap-2">
+                  <span>
+                    Copy these authenticated endpoints into TeleCMI now. Credential replacement
+                    keeps the callback token and these URLs stable.
+                  </span>
+                  <Input
+                    readOnly
+                    aria-label="TeleCMI CDR webhook URL"
+                    value={telecmiSetup.webhook_url}
+                  />
+                  <Input
+                    readOnly
+                    aria-label="TeleCMI HTTP web-flow URL"
+                    value={telecmiSetup.call_flow_url}
+                  />
+                </AlertDescription>
+              </Alert>
+            ) : null}
             {(providerKey === 'openai' || providerKey === 'gemini' || providerKey === 'groq') && (
               <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
@@ -695,30 +800,32 @@ function ProviderConnectionDialog({
             )}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
+                {telecmiSetup ? 'Done' : 'Cancel'}
               </Button>
-              <Button
-                type="submit"
-                disabled={
-                  mutation.isPending ||
-                  options.isPending ||
-                  !options.data ||
-                  !validScope ||
-                  (providerKey === 'whatsapp_cloud' && !selectedInboundBranch)
-                }
-              >
-                <Link2 className="size-4" />
-                {mutation.isPending
-                  ? 'Connecting…'
-                  : providerKey === 'whatsapp_cloud'
-                    ? 'Test and save'
-                    : providerKey === 'openai' ||
-                        providerKey === 'gemini' ||
-                        providerKey === 'groq' ||
-                        providerKey === 'twilio_voice'
-                      ? 'Verify and save'
-                      : 'Continue with provider'}
-              </Button>
+              {!telecmiSetup ? (
+                <Button
+                  type="submit"
+                  disabled={
+                    mutation.isPending ||
+                    options.isPending ||
+                    !options.data ||
+                    !validScope ||
+                    (providerKey === 'whatsapp_cloud' && !selectedInboundBranch)
+                  }
+                >
+                  <Link2 className="size-4" />
+                  {mutation.isPending
+                    ? 'Connecting…'
+                    : providerKey === 'whatsapp_cloud'
+                      ? 'Test and save'
+                      : providerKey === 'openai' ||
+                          providerKey === 'gemini' ||
+                          providerKey === 'groq' ||
+                          providerKey === 'telecmi'
+                        ? 'Verify and save'
+                        : 'Continue with provider'}
+                </Button>
+              ) : null}
             </div>
           </form>
         )}
@@ -949,6 +1056,7 @@ function ProviderAssetMappingDialog({
 function ConnectionDetailSheet({
   connection,
   canManage,
+  canManageTelecmi,
   testing,
   onClose,
   onTest,
@@ -957,6 +1065,7 @@ function ConnectionDetailSheet({
 }: {
   connection: IntegrationRecord;
   canManage: boolean;
+  canManageTelecmi: boolean;
   testing: boolean;
   onClose: () => void;
   onTest: () => void;
@@ -1084,7 +1193,8 @@ function ConnectionDetailSheet({
             </Button>
           )}
           {canManage &&
-            ['whatsapp_cloud', 'twilio_voice', 'openai', 'gemini', 'groq'].includes(
+            (connection.provider_key !== 'telecmi' || canManageTelecmi) &&
+            ['whatsapp_cloud', 'telecmi', 'openai', 'gemini', 'groq'].includes(
               connection.provider_key,
             ) && <Button onClick={onReplace}>Replace credential</Button>}
         </SheetFooter>
@@ -1099,6 +1209,7 @@ function IntegrationTable({
   query,
   isFetching,
   canManage,
+  canManageTelecmi,
   testingId,
   onQueryChange,
   onTest,
@@ -1111,6 +1222,7 @@ function IntegrationTable({
   query: IntegrationQuery;
   isFetching: boolean;
   canManage: boolean;
+  canManageTelecmi: boolean;
   testingId: string | null;
   onQueryChange: (value: Partial<IntegrationQuery>) => void;
   onTest: (record: IntegrationRecord) => void;
@@ -1208,7 +1320,7 @@ function IntegrationTable({
                   Replace credential
                 </Button>
               )}
-              {record.provider_key === 'twilio_voice' && (
+              {record.provider_key === 'telecmi' && canManageTelecmi && (
                 <Button size="sm" variant="outline" onClick={() => onReplace(record)}>
                   Replace credential
                 </Button>
@@ -1234,7 +1346,7 @@ function IntegrationTable({
         },
       },
     ],
-    [canManage, onMap, onReplace, onTest, onView, testingId],
+    [canManage, canManageTelecmi, onMap, onReplace, onTest, onView, testingId],
   );
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({ data: records, columns, getCoreRowModel: getCoreRowModel() });
@@ -1404,6 +1516,9 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
       ? {
           organizationId: workspaceSession.organizationId,
           canManage: hasWorkspacePermission(workspaceSession, 'integration.manage'),
+          canUseAllBranches: ['ORGANIZATION', 'ALL_BRANCHES'].includes(
+            workspaceSession.dataScope ?? '',
+          ),
         }
       : undefined;
   const permissions = {
@@ -1510,12 +1625,16 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
         </Alert>
       )}
       <KpiGrid metrics={toMetrics(workspace.data.kpis)} />
+      {permissions.data.canManage && role === 'client-admin' ? (
+        <AiVoiceAgentSettingsCard organizationId={permissions.data.organizationId} />
+      ) : null}
       <IntegrationTable
         records={workspace.data.records}
         total={workspace.data.total}
         query={query}
         isFetching={workspace.isFetching}
         canManage={permissions.data.canManage}
+        canManageTelecmi={permissions.data.canManage && role === 'client-admin'}
         testingId={testConnection.isPending ? (testConnection.variables?.id ?? null) : null}
         onQueryChange={changeQuery}
         onTest={(record) => {
@@ -1530,6 +1649,7 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
         <ProviderConnectionDialog
           organizationId={permissions.data.organizationId}
           role={role}
+          canUseAllBranches={permissions.data.canUseAllBranches}
           existing={null}
           onClose={() => setConnectOpen(false)}
           onConnected={refresh}
@@ -1539,6 +1659,7 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
         <ProviderConnectionDialog
           organizationId={permissions.data.organizationId}
           role={role}
+          canUseAllBranches={permissions.data.canUseAllBranches}
           existing={replaceConnection}
           onClose={() => setReplaceConnection(null)}
           onConnected={refresh}
@@ -1556,6 +1677,7 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
         <ConnectionDetailSheet
           connection={detailConnection}
           canManage={permissions.data.canManage}
+          canManageTelecmi={permissions.data.canManage && role === 'client-admin'}
           testing={testConnection.isPending && testConnection.variables?.id === detailConnection.id}
           onClose={() => setDetailConnection(null)}
           onTest={() => {
