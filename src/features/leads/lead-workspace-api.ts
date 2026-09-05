@@ -523,4 +523,3 @@ export async function fetchLeadPhone(
   if (error || !data) return null;
   return data as { id: string; phone: string };
 }
-

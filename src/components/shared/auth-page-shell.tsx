@@ -8,7 +8,9 @@ export function AuthPageShell({ children }: { children: React.ReactNode }) {
       <section className="relative hidden w-1/2 flex-col justify-between bg-[#17233d] p-6 lg:p-8 xl:p-12 2xl:p-14 text-white lg:flex h-full overflow-hidden shrink-0 select-none">
         {/* TOP: Tagline text */}
         <div className="relative z-10 max-w-md xl:max-w-xl shrink-0">
-          <p className="text-xs xl:text-sm font-semibold text-blue-300">One connected customer journey</p>
+          <p className="text-xs xl:text-sm font-semibold text-blue-300">
+            One connected customer journey
+          </p>
           <h1 className="mt-2 xl:mt-3 text-2xl lg:text-3xl xl:text-4xl font-bold leading-tight tracking-tight">
             Turn every dealership enquiry into a well-managed relationship.
           </h1>
@@ -24,7 +26,9 @@ export function AuthPageShell({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* BOTTOM: Copyright */}
-        <p className="relative z-10 text-[11px] xl:text-xs text-slate-400 shrink-0">© 2026 Go Digital Marketing</p>
+        <p className="relative z-10 text-[11px] xl:text-xs text-slate-400 shrink-0">
+          © 2026 Go Digital Marketing
+        </p>
       </section>
 
       {/* ── Right panel (Light background with centered auth card) ── */}
@@ -41,8 +45,12 @@ export function AuthPageShell({ children }: { children: React.ReactNode }) {
               priority
             />
             <div>
-              <p className="text-sm xl:text-base font-bold text-[#17233d]">Go Digital Marketing CRM</p>
-              <p className="text-[11px] xl:text-xs text-[#17233d]/70">Automobile dealership workspace</p>
+              <p className="text-sm xl:text-base font-bold text-[#17233d]">
+                Go Digital Marketing CRM
+              </p>
+              <p className="text-[11px] xl:text-xs text-[#17233d]/70">
+                Automobile dealership workspace
+              </p>
             </div>
           </div>
 
