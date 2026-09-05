@@ -59,7 +59,7 @@ using (
 );
 
 insert into app_private.retention_table_allowlist (table_name, disposition, delete_order)
-values ('lead_bulk_imports', 'DELETE', 640)
+values ('lead_bulk_imports', 'DELETE', 641)
 on conflict (table_name) do update
 set disposition = excluded.disposition,
     delete_order = excluded.delete_order;
