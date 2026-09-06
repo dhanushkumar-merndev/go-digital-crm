@@ -529,7 +529,6 @@ function salesLeadMetricCards(kpis: LeadWorkspaceResult['kpis']): SalesLeadMetri
   ];
 }
 
-
 function SalesLeadMetricCard({
   card,
   active,
@@ -3151,10 +3150,10 @@ export function LeadWorkspace({
     (role === 'sales-consultant' && slug === 'my-leads') ||
     Boolean(
       slug &&
-        (slug === 'team-leads' ||
-          slug === 'showroom-leads' ||
-          slug === 'sales-leads' ||
-          slug === 'leads'),
+      (slug === 'team-leads' ||
+        slug === 'showroom-leads' ||
+        slug === 'sales-leads' ||
+        slug === 'leads'),
     );
   // Quick add navigates to `?action=create` on a route this workspace may already
   // be mounted on. A lazy useState initialiser only runs at mount, so the param

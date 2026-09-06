@@ -10,13 +10,18 @@ const migration = source('supabase/migrations/202609060003_customer_drip_dispatc
 const worker = source('trigger/drip-dispatch.ts');
 const enrollment = source('supabase/migrations/202608260005_customer_drip_messaging.sql');
 const config = source('trigger.config.ts');
+const dispatcher = source('trigger/marketing-dispatch.ts');
 
 describe('customer drip dispatch contract', () => {
   it('supplies the dispatcher the enrollment schema was always indexed for', () => {
     // The due index and its comment predate any worker; nothing consumed it.
     expect(enrollment).toContain("The dispatcher's only query");
     expect(migration).toContain('claim_due_drip_messages');
-    expect(worker).toContain("id: 'drip-dispatch'");
+    expect(worker).toContain('export async function runDripDispatch(');
+    // The four marketing queues share one cron slot; the project's schedule
+    // limit is 10 and eight were already in use.
+    expect(dispatcher).toContain("id: 'marketing-dispatch'");
+    expect(dispatcher).toContain('runDripDispatch(supabase)');
     // Tasks are auto-discovered from ./trigger, so no registration is needed.
     expect(config).toContain("dirs: ['./trigger']");
   });
@@ -37,6 +42,8 @@ describe('customer drip dispatch contract', () => {
     expect(migration).toContain('lease_token');
     expect(migration).toContain('release_stalled_drip_messages');
     expect(worker).toContain("rpc('release_stalled_drip_messages'");
+    // One queue failing must not stop the other three.
+    expect(dispatcher).toContain('Promise.allSettled');
   });
 
   it('sends every channel as an approved template, which is why drip could not deliver', () => {

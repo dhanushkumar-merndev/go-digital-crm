@@ -2,7 +2,6 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 import { createClient } from '@supabase/supabase-js';
-import { schedules } from '@trigger.dev/sdk';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -166,51 +165,43 @@ async function publish(supabase: ReturnType<typeof createClient>, post: SocialPo
     : publishFacebook(credential, post, mediaUrl);
 }
 
-export const socialPostPublish = schedules.task({
-  id: 'social-post-publish',
-  cron: { pattern: '* * * * *', timezone: 'UTC' },
-  queue: { concurrencyLimit: 1 },
-  retry: { maxAttempts: 3, factor: 2, minTimeoutInMs: 1000, maxTimeoutInMs: 30_000 },
-  run: async () => {
-    const supabase = createClient(
-      requiredEnvironment('SUPABASE_URL'),
-      requiredEnvironment('SUPABASE_SERVICE_ROLE_KEY'),
-      { auth: { persistSession: false, autoRefreshToken: false } },
-    );
-    const { data: released } = await supabase.rpc('release_stalled_social_posts', {
-      target_stale_minutes: 20,
-    });
-    const { data, error } = await supabase.rpc<SocialPost[]>('claim_due_social_posts', {
-      target_worker_id: `trigger:social-post-publish:${crypto.randomUUID()}`,
-      target_batch_size: 5,
-    });
-    if (error) throw error;
-    let published = 0;
-    let retried = 0;
-    for (const post of data ?? []) {
-      try {
-        const providerPostId = await publish(supabase, post);
-        const { error: completeError } = await supabase.rpc('complete_social_post', {
-          target_post_id: post.id,
-          target_lease_token: post.lease_token,
-          target_provider_post_id: providerPostId,
-        });
-        if (completeError) throw completeError;
-        published += 1;
-      } catch (error) {
-        const safeCode =
-          error instanceof Error && /^[A-Z0-9_]{3,100}$/.test(error.message)
-            ? error.message
-            : 'SOCIAL_PUBLISH_RETRY';
-        const { error: retryError } = await supabase.rpc('retry_social_post', {
-          target_post_id: post.id,
-          target_lease_token: post.lease_token,
-          target_safe_error_code: safeCode,
-        });
-        if (retryError) throw retryError;
-        retried += 1;
-      }
+/** One step of the marketing dispatch pass. Scheduling lives in
+ * trigger/marketing-dispatch.ts so the four queues share a single cron
+ * slot rather than four. */
+export async function runSocialPostPublish(supabase: ReturnType<typeof createClient>) {
+  const { data: released } = await supabase.rpc('release_stalled_social_posts', {
+    target_stale_minutes: 20,
+  });
+  const { data, error } = await supabase.rpc<SocialPost[]>('claim_due_social_posts', {
+    target_worker_id: `trigger:social-post-publish:${crypto.randomUUID()}`,
+    target_batch_size: 5,
+  });
+  if (error) throw error;
+  let published = 0;
+  let retried = 0;
+  for (const post of data ?? []) {
+    try {
+      const providerPostId = await publish(supabase, post);
+      const { error: completeError } = await supabase.rpc('complete_social_post', {
+        target_post_id: post.id,
+        target_lease_token: post.lease_token,
+        target_provider_post_id: providerPostId,
+      });
+      if (completeError) throw completeError;
+      published += 1;
+    } catch (error) {
+      const safeCode =
+        error instanceof Error && /^[A-Z0-9_]{3,100}$/.test(error.message)
+          ? error.message
+          : 'SOCIAL_PUBLISH_RETRY';
+      const { error: retryError } = await supabase.rpc('retry_social_post', {
+        target_post_id: post.id,
+        target_lease_token: post.lease_token,
+        target_safe_error_code: safeCode,
+      });
+      if (retryError) throw retryError;
+      retried += 1;
     }
-    return { released: released ?? 0, claimed: data?.length ?? 0, published, retried };
-  },
-});
+  }
+  return { released: released ?? 0, claimed: data?.length ?? 0, published, retried };
+}

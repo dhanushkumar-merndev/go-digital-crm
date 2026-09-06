@@ -2,7 +2,6 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 import { createClient } from '@supabase/supabase-js';
-import { schedules } from '@trigger.dev/sdk';
 
 type DripMessage = {
   id: string;
@@ -159,51 +158,43 @@ async function deliver(supabase: ReturnType<typeof createClient>, message: DripM
   throw new Error('DRIP_SMS_PROVIDER_NOT_CONFIGURED');
 }
 
-export const dripDispatch = schedules.task({
-  id: 'drip-dispatch',
-  cron: { pattern: '* * * * *', timezone: 'UTC' },
-  queue: { concurrencyLimit: 1 },
-  retry: { maxAttempts: 3, factor: 2, minTimeoutInMs: 1000, maxTimeoutInMs: 30_000 },
-  run: async () => {
-    const supabase = createClient(
-      requiredEnvironment('SUPABASE_URL'),
-      requiredEnvironment('SUPABASE_SERVICE_ROLE_KEY'),
-      { auth: { persistSession: false, autoRefreshToken: false } },
-    );
-    const { data: released } = await supabase.rpc('release_stalled_drip_messages', {
-      target_stale_minutes: 15,
-    });
-    const { data, error } = await supabase.rpc<DripMessage[]>('claim_due_drip_messages', {
-      target_worker_id: `trigger:drip-dispatch:${crypto.randomUUID()}`,
-      target_batch_size: 20,
-    });
-    if (error) throw error;
-    let sent = 0;
-    let retried = 0;
-    for (const message of data ?? []) {
-      try {
-        const providerMessageId = await deliver(supabase, message);
-        const { error: completeError } = await supabase.rpc('complete_drip_message', {
-          target_message_id: message.id,
-          target_lease_token: message.lease_token,
-          target_provider_message_id: providerMessageId,
-        });
-        if (completeError) throw completeError;
-        sent += 1;
-      } catch (error) {
-        const safeCode =
-          error instanceof Error && /^[A-Z0-9_]{3,100}$/.test(error.message)
-            ? error.message
-            : 'DRIP_SEND_RETRY';
-        const { error: retryError } = await supabase.rpc('retry_drip_message', {
-          target_message_id: message.id,
-          target_lease_token: message.lease_token,
-          target_safe_error_code: safeCode,
-        });
-        if (retryError) throw retryError;
-        retried += 1;
-      }
+/** One step of the marketing dispatch pass. Scheduling lives in
+ * trigger/marketing-dispatch.ts so the four queues share a single cron
+ * slot rather than four. */
+export async function runDripDispatch(supabase: ReturnType<typeof createClient>) {
+  const { data: released } = await supabase.rpc('release_stalled_drip_messages', {
+    target_stale_minutes: 15,
+  });
+  const { data, error } = await supabase.rpc<DripMessage[]>('claim_due_drip_messages', {
+    target_worker_id: `trigger:drip-dispatch:${crypto.randomUUID()}`,
+    target_batch_size: 20,
+  });
+  if (error) throw error;
+  let sent = 0;
+  let retried = 0;
+  for (const message of data ?? []) {
+    try {
+      const providerMessageId = await deliver(supabase, message);
+      const { error: completeError } = await supabase.rpc('complete_drip_message', {
+        target_message_id: message.id,
+        target_lease_token: message.lease_token,
+        target_provider_message_id: providerMessageId,
+      });
+      if (completeError) throw completeError;
+      sent += 1;
+    } catch (error) {
+      const safeCode =
+        error instanceof Error && /^[A-Z0-9_]{3,100}$/.test(error.message)
+          ? error.message
+          : 'DRIP_SEND_RETRY';
+      const { error: retryError } = await supabase.rpc('retry_drip_message', {
+        target_message_id: message.id,
+        target_lease_token: message.lease_token,
+        target_safe_error_code: safeCode,
+      });
+      if (retryError) throw retryError;
+      retried += 1;
     }
-    return { released: released ?? 0, claimed: data?.length ?? 0, sent, retried };
-  },
-});
+  }
+  return { released: released ?? 0, claimed: data?.length ?? 0, sent, retried };
+}
