@@ -23,6 +23,8 @@ import { DeliveryFeedbackWorkspace } from '@/features/delivery/delivery-feedback
 import { MarketingWorkspace } from '@/features/marketing/marketing-workspace';
 import { MarketingAutomationWorkspace } from '@/features/marketing/marketing-automation-workspace';
 import { AiImageCreationWorkspace } from '@/features/marketing/ai-image-creation-workspace';
+import { BulkCampaignWorkspace } from '@/features/marketing/bulk-campaign-workspace';
+import { AssetLibraryWorkspace } from '@/features/marketing/asset-library-workspace';
 import { ReportExportWorkspace } from '@/features/reports/report-export-workspace';
 import { TenantDashboard } from '@/features/dashboards/tenant-dashboard';
 import { OwnerAiBusinessSummaryWorkspace } from '@/features/dashboards/owner-ai-business-summary';
@@ -41,6 +43,7 @@ import { RoleWorkspace } from '@/features/administration/role-workspace';
 import { UserWorkspace } from '@/features/administration/users/user-workspace';
 import { IntegrationWorkspace } from '@/features/integrations/integration-workspace';
 import { InventoryWorkspace } from '@/features/inventory/inventory-workspace';
+import { AccessoriesWorkspace } from '@/features/inventory/accessories-workspace';
 import { InboxWorkspace } from '@/features/inbox/inbox-workspace';
 import { LeadAssignmentWorkspace } from '@/features/leads/lead-assignment-workspace';
 import { DuplicateLeadDeletionWorkspace } from '@/features/leads/duplicate-lead-deletion-workspace';
@@ -231,6 +234,12 @@ export default async function RolePage({ params }: Props) {
   )
     return <InventoryWorkspace key={`${role}:${slug[0]}`} spec={spec} role={role} slug={slug[0]} />;
   if (
+    (role === 'inventory' || role === 'inventory-executive') &&
+    slug[0] === 'accessories' &&
+    !isLocalPreviewMode()
+  )
+    return <AccessoriesWorkspace spec={spec} />;
+  if (
     role === 'customer-care' &&
     [
       'dashboard',
@@ -262,6 +271,10 @@ export default async function RolePage({ params }: Props) {
     );
   if (role === 'digital-marketing' && slug[0] === 'ai-content-image' && !isLocalPreviewMode())
     return <AiImageCreationWorkspace spec={spec} />;
+  if (role === 'digital-marketing' && slug[0] === 'bulk-campaigns' && !isLocalPreviewMode())
+    return <BulkCampaignWorkspace spec={spec} />;
+  if (role === 'digital-marketing' && slug[0] === 'asset-library' && !isLocalPreviewMode())
+    return <AssetLibraryWorkspace spec={spec} />;
   if (role === 'gm-sales' && slug[0] === 'lead-source-performance' && !isLocalPreviewMode())
     return <MarketingWorkspace spec={spec} slug={slug[0]} />;
   if (role === 'gm-sales' && slug[0] === 'targets' && !isLocalPreviewMode())

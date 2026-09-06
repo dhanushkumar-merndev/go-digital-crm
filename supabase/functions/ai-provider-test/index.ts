@@ -44,7 +44,7 @@ Deno.serve(async (request) => {
       .select('id,provider_key,connection_config')
       .eq('id', input.connection_id)
       .eq('organization_id', input.organization_id)
-      .in('provider_key', ['openai', 'gemini', 'groq'])
+      .in('provider_key', ['openrouter', 'groq'])
       .is('deleted_at', null)
       .maybeSingle();
     if (!connection)

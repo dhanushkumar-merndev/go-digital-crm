@@ -104,6 +104,12 @@ verify_jwt = true
 [functions.send-message]
 verify_jwt = true
 
+[functions.personal-whatsapp-link-start]
+verify_jwt = true
+
+[functions.personal-whatsapp-disconnect]
+verify_jwt = true
+
 [functions.support-session-accept]
 verify_jwt = true
 

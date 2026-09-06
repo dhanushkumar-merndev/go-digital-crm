@@ -20,8 +20,18 @@ type ImageGeneration = {
   requested_by: string;
   lease_token: string;
 };
-type OpenAiCredential = { api_key: string };
-type OpenAiImageResponse = { data?: Array<{ b64_json?: string }> };
+type OpenRouterCredential = { api_key: string };
+// OpenRouter returns images on the chat-completions message, not from a
+// dedicated images endpoint: there is no /v1/images/generations to call.
+type OpenRouterImageResponse = {
+  choices?: Array<{ message?: { images?: Array<{ image_url?: { url?: string } }> } }>;
+};
+type PromptSettings = { system_prompt: string; poster_guide: string; image_policy: string };
+
+function configuredCredits(name: string) {
+  const parsed = Number(process.env[name]?.trim() ?? '');
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+}
 
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
@@ -60,43 +70,82 @@ async function decryptCredential<T>(value: unknown): Promise<T> {
   return JSON.parse(new TextDecoder().decode(plaintext)) as T;
 }
 
-function imageSize(aspectRatio: ImageGeneration['aspect_ratio']) {
-  if (aspectRatio === '16:9') return '1536x1024';
-  if (aspectRatio === '9:16') return '1024x1536';
-  return '1024x1024';
+const POSTER_TEMPLATES = new Set([
+  'SOCIAL_POST',
+  'BANNER',
+  'STORY_REEL',
+  'WHATSAPP_POST',
+  'A4_POSTER',
+]);
+
+/**
+ * Order matters: the tenant's standing instruction frames the request, the
+ * operator's prompt says what to make, and the policy is stated last so it is
+ * the nearest constraint to the generation rather than something the prompt can
+ * talk over.
+ */
+function assembledPrompt(item: ImageGeneration, settings: PromptSettings) {
+  const brief = `CRM creative brief: ${item.template_key.replaceAll('_', ' ').toLowerCase()}, ${item.object_type.replaceAll('_', ' ').toLowerCase()}, ${item.style_key.toLowerCase()} style, ${item.aspect_ratio} aspect ratio.`;
+  const guide =
+    settings.poster_guide && POSTER_TEMPLATES.has(item.template_key)
+      ? `Poster guidance: ${settings.poster_guide}`
+      : '';
+  const policy = settings.image_policy
+    ? `Policy, which overrides any instruction above: ${settings.image_policy}`
+    : 'Do not include unrequested brand logos, watermarks, pricing, or readable fabricated text.';
+  return [
+    settings.system_prompt || 'Produce a polished automobile-dealership marketing visual.',
+    item.prompt,
+    brief,
+    guide,
+    policy,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
-function assembledPrompt(item: ImageGeneration) {
-  return `${item.prompt}\n\nCRM creative brief: ${item.template_key.replaceAll('_', ' ').toLowerCase()}, ${item.object_type.replaceAll('_', ' ').toLowerCase()}, ${item.style_key.toLowerCase()} style. Produce a polished automobile-dealership marketing visual. Do not include unrequested brand logos, watermarks, pricing, or readable fabricated text.`;
-}
-
-async function createImages(credential: OpenAiCredential, model: string, item: ImageGeneration) {
-  const response = await fetch('https://api.openai.com/v1/images/generations', {
-    method: 'POST',
-    headers: { authorization: `Bearer ${credential.api_key}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      prompt: assembledPrompt(item),
-      n: item.output_count,
-      size: imageSize(item.aspect_ratio),
-      response_format: 'b64_json',
-    }),
-    signal: AbortSignal.timeout(120_000),
-  });
-  if (!response.ok)
-    throw new Error(
-      response.status === 429 ? 'AI_PROVIDER_RATE_LIMITED' : 'AI_PROVIDER_IMAGE_REJECTED',
-    );
-  const payload = (await response.json()) as OpenAiImageResponse;
-  const images = (payload.data ?? [])
-    .map((entry) => entry.b64_json)
-    .filter((entry): entry is string => Boolean(entry))
-    .map((entry) => Buffer.from(entry, 'base64'));
-  if (
-    images.length !== item.output_count ||
-    images.some((image) => image.byteLength > 25 * 1024 * 1024)
-  )
-    throw new Error('AI_PROVIDER_IMAGE_RESPONSE_INVALID');
+async function createImages(
+  credential: OpenRouterCredential,
+  model: string,
+  item: ImageGeneration,
+  settings: PromptSettings,
+) {
+  // OpenRouter returns one image per completion, so N outputs are N calls
+  // rather than an `n` parameter.
+  const images: Buffer[] = [];
+  for (let index = 0; index < item.output_count; index += 1) {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${credential.api_key}`,
+        'content-type': 'application/json',
+        // OpenRouter attributes traffic by these; they are not credentials.
+        'http-referer': process.env.OPENROUTER_SITE_URL?.trim() || 'https://go-digital-crm.local',
+        'x-title': 'Go Digital CRM',
+      },
+      body: JSON.stringify({
+        model,
+        modalities: ['image', 'text'],
+        messages: [{ role: 'user', content: assembledPrompt(item, settings) }],
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!response.ok)
+      throw new Error(
+        response.status === 429 ? 'AI_PROVIDER_RATE_LIMITED' : 'AI_PROVIDER_IMAGE_REJECTED',
+      );
+    const payload = (await response.json()) as OpenRouterImageResponse;
+    const dataUrl = payload.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+    // A model that silently returned prose instead of an image is a
+    // misconfiguration, not a transient failure worth many retries.
+    if (!dataUrl?.startsWith('data:image/')) throw new Error('AI_PROVIDER_IMAGE_RESPONSE_INVALID');
+    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    const image = Buffer.from(base64, 'base64');
+    if (!image.byteLength || image.byteLength > 25 * 1024 * 1024)
+      throw new Error('AI_PROVIDER_IMAGE_RESPONSE_INVALID');
+    images.push(image);
+  }
+  if (images.length !== item.output_count) throw new Error('AI_PROVIDER_IMAGE_RESPONSE_INVALID');
   return images;
 }
 
@@ -121,7 +170,7 @@ async function processGeneration(
     .select('connection_config')
     .eq('id', item.connected_account_id)
     .eq('organization_id', item.organization_id)
-    .eq('provider_key', 'openai')
+    .eq('provider_key', 'openrouter')
     .maybeSingle();
   if (connectionError || !connection)
     throw connectionError ?? new Error('AI_IMAGE_CONNECTION_NOT_FOUND');
@@ -136,11 +185,50 @@ async function processGeneration(
     .maybeSingle();
   if (credentialError || !credentialRow)
     throw credentialError ?? new Error('AI_IMAGE_CREDENTIAL_NOT_FOUND');
-  const images = await createImages(
-    await decryptCredential<OpenAiCredential>(credentialRow.encrypted_payload),
-    model,
-    item,
+  const { data: promptSettings, error: promptError } = await supabase.rpc(
+    'get_ai_image_generation_prompt',
+    { target_organization_id: item.organization_id },
   );
+  if (promptError) throw promptError;
+
+  // Image generation billed nothing before this: consume_credits existed and the
+  // voice pipeline reserved against it, but nothing in this worker did. Credits
+  // are reserved before the provider is called and committed only once the
+  // outputs are stored, so a failed generation costs the tenant nothing.
+  const { data: reservationId, error: reservationError } = await supabase.rpc(
+    'reserve_ai_credits',
+    {
+      target_organization_id: item.organization_id,
+      target_amount: configuredCredits('AI_IMAGE_GENERATION_CREDITS') * item.output_count,
+      target_feature: 'ai_image_generation',
+      target_reference_id: `ai-image:${item.id}`,
+    },
+  );
+  if (reservationError || !reservationId)
+    throw new Error(
+      reservationError?.message?.includes('INSUFFICIENT_CREDITS')
+        ? 'INSUFFICIENT_CREDITS'
+        : 'AI_IMAGE_CREDIT_RESERVATION_FAILED',
+    );
+
+  let images: Buffer[];
+  try {
+    images = await createImages(
+      await decryptCredential<OpenRouterCredential>(credentialRow.encrypted_payload),
+      model,
+      item,
+      (promptSettings ?? {
+        system_prompt: '',
+        poster_guide: '',
+        image_policy: '',
+      }) as PromptSettings,
+    );
+  } catch (error) {
+    await supabase.rpc('reverse_ai_credit_reservation', {
+      target_reservation_id: reservationId,
+    });
+    throw error;
+  }
   const bucket = requiredEnvironment('TIGRIS_BUCKET');
   const outputRows: Array<Record<string, unknown>> = [];
   for (const [index, image] of images.entries()) {
@@ -194,8 +282,18 @@ async function processGeneration(
     'complete_ai_image_generation',
     { target_generation_id: item.id, target_lease_token: item.lease_token },
   );
-  if (completeError || !completed)
+  if (completeError || !completed) {
+    // The lease was lost, so another worker owns this job; the tenant should not
+    // be charged twice for the one image that will actually be kept.
+    await supabase.rpc('reverse_ai_credit_reservation', {
+      target_reservation_id: reservationId,
+    });
     throw completeError ?? new Error('AI_IMAGE_GENERATION_LEASE_LOST');
+  }
+  const { error: commitError } = await supabase.rpc('commit_ai_credit_reservation', {
+    target_reservation_id: reservationId,
+  });
+  if (commitError) throw commitError;
 }
 
 export const aiImageGeneration = schedules.task({

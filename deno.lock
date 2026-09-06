@@ -332,6 +332,7 @@
         "npm:@aws-sdk/lib-storage@3.1110.0",
         "npm:@aws-sdk/s3-request-presigner@3.1110.0",
         "npm:@base-ui/react@^1.7.0",
+        "npm:@electric-sql/pglite@0.5.8",
         "npm:@hookform/resolvers@latest",
         "npm:@lottiefiles/dotlottie-react@~0.19.14",
         "npm:@radix-ui/react-alert-dialog@latest",
@@ -406,6 +407,18 @@
             "npm:react-native@0.86.3",
             "npm:react@19.2.3",
             "npm:typescript@^6.0.3"
+          ]
+        }
+      },
+      "services/whatsapp-gateway": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@supabase/supabase-js@^2.99.0",
+            "npm:@types/node@24",
+            "npm:@whiskeysockets/baileys@6.7.24",
+            "npm:pino@^9.6.0",
+            "npm:typescript@5",
+            "npm:zod@4"
           ]
         }
       }

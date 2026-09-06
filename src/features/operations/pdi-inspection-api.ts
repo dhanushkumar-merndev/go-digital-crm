@@ -1,0 +1,118 @@
+import { z } from 'zod';
+import { createClient } from '@/lib/supabase/client';
+
+export const pdiItemCategoryEnum = z.enum([
+  'EXTERIOR',
+  'INTERIOR',
+  'MECHANICAL',
+  'ELECTRICAL',
+  'WHEELS_TYRES',
+]);
+export type PdiItemCategory = z.infer<typeof pdiItemCategoryEnum>;
+
+export const pdiItemStatusEnum = z.enum([
+  'PENDING',
+  'PASSED',
+  'FAILED',
+  'RECTIFIED',
+  'NOT_APPLICABLE',
+]);
+export type PdiItemStatus = z.infer<typeof pdiItemStatusEnum>;
+
+export const pdiInspectionStatusEnum = z.enum([
+  'PENDING',
+  'IN_PROGRESS',
+  'DEFECTS_FOUND',
+  'PASSED',
+]);
+export type PdiInspectionStatus = z.infer<typeof pdiInspectionStatusEnum>;
+
+export const pdiItemSchema = z.object({
+  id: z.uuid(),
+  category: pdiItemCategoryEnum,
+  item_name: z.string(),
+  status: pdiItemStatusEnum,
+  defect_notes: z.string().nullable(),
+  photo_url: z.string().nullable(),
+  inspected_at: z.string().nullable(),
+});
+export type PdiChecklistItem = z.infer<typeof pdiItemSchema>;
+
+export const pdiInspectionSchema = z.object({
+  id: z.uuid(),
+  delivery_id: z.uuid(),
+  booking_id: z.uuid(),
+  status: pdiInspectionStatusEnum,
+  inspector_id: z.uuid().nullable(),
+  overall_notes: z.string().nullable(),
+  completed_at: z.string().nullable(),
+});
+export type PdiInspection = z.infer<typeof pdiInspectionSchema>;
+
+export const pdiDetailResponseSchema = z.object({
+  inspection: pdiInspectionSchema,
+  items: z.array(pdiItemSchema),
+  stats: z.object({
+    total_items: z.coerce.number().int().nonnegative(),
+    passed: z.coerce.number().int().nonnegative(),
+    failed: z.coerce.number().int().nonnegative(),
+    pending: z.coerce.number().int().nonnegative(),
+  }),
+});
+export type PdiDetailResponse = z.infer<typeof pdiDetailResponseSchema>;
+
+export async function fetchOrCreatePdiInspection(deliveryId: string): Promise<PdiDetailResponse> {
+  const { data, error } = await createClient().rpc('get_or_create_pdi_inspection', {
+    target_delivery_id: deliveryId,
+  });
+  if (error) throw error;
+  return pdiDetailResponseSchema.parse(data);
+}
+
+export async function updatePdiItemResult(input: {
+  itemId: string;
+  status: PdiItemStatus;
+  notes?: string | null;
+  photoUrl?: string | null;
+}): Promise<{
+  item: { id: string; status: PdiItemStatus };
+  inspection_status: PdiInspectionStatus;
+}> {
+  const { data, error } = await createClient().rpc('update_pdi_item_result', {
+    target_item_id: input.itemId,
+    target_status: input.status,
+    target_notes: input.notes ?? null,
+    target_photo_url: input.photoUrl ?? null,
+  });
+  if (error) throw error;
+  return z
+    .object({
+      item: z.object({ id: z.uuid(), status: pdiItemStatusEnum }),
+      inspection_status: pdiInspectionStatusEnum,
+    })
+    .parse(data);
+}
+
+export async function completePdiInspection(input: {
+  inspectionId: string;
+  notes?: string;
+}): Promise<{
+  id: string;
+  delivery_id: string;
+  status: PdiInspectionStatus;
+  completed_at: string;
+}> {
+  const { data, error } = await createClient().rpc('complete_pdi_inspection', {
+    target_inspection_id: input.inspectionId,
+    target_notes: input.notes ?? null,
+  });
+  if (error) throw error;
+  return z
+    .object({
+      id: z.uuid(),
+      delivery_id: z.uuid(),
+      status: pdiInspectionStatusEnum,
+      completed_at: z.string(),
+    })
+    .parse(data);
+}

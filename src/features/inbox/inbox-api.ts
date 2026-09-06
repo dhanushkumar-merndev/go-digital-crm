@@ -79,18 +79,22 @@ export async function sendInboxWhatsAppMessage(input: {
   organizationId: string;
   conversationId: string;
   body: string;
+  applicationMessageId?: string;
 }) {
   const { data, error } = await createClient().functions.invoke<
-    EdgeEnvelope<{ message_id: string }>
+    EdgeEnvelope<{ message_id: string; status?: string }>
   >('send-message', {
     body: {
       organization_id: input.organizationId,
       conversation_id: input.conversationId,
-      application_message_id: crypto.randomUUID(),
+      application_message_id: input.applicationMessageId ?? crypto.randomUUID(),
       content: { type: 'text', body: input.body },
     },
   });
-  if (error) throw error;
+  if (error) {
+    const envelope = await (error as { context?: Response }).context?.json().catch(() => null);
+    throw new Error(envelope?.error?.code ?? 'MESSAGE_SEND_FAILED');
+  }
   if (!data?.ok) throw new Error(data?.error?.code ?? 'MESSAGE_SEND_FAILED');
   return data.data;
 }

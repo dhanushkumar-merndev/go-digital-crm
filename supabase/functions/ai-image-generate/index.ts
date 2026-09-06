@@ -62,7 +62,7 @@ Deno.serve(async (request) => {
       .select('id,scope_mode,connection_config')
       .eq('id', input.connection_id)
       .eq('organization_id', input.organization_id)
-      .eq('provider_key', 'openai')
+      .eq('provider_key', 'openrouter')
       .eq('status', 'CONNECTED')
       .is('deleted_at', null)
       .maybeSingle();
@@ -77,7 +77,7 @@ Deno.serve(async (request) => {
     )
       return failure(
         'IMAGE_PROVIDER_NOT_CONFIGURED',
-        'Choose an active OpenAI image provider connection.',
+        'Choose an active OpenRouter image provider connection.',
         requestId,
         409,
       );

@@ -12,6 +12,14 @@ const workspace = source('src/features/marketing/marketing-automation-workspace.
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
 
 describe('marketing automation contract', () => {
+  it('scopes cached customer and branch pickers to the acting tenant and user', () => {
+    expect(workspace).toContain(
+      "['marketing-review-customer-options', ...queryScope, debouncedSearch]",
+    );
+    expect(workspace).toContain("['marketing-automation-scope-options', ...queryScope]");
+    expect(workspace).toContain('queryKey: [...workspaceKey, ...queryScope]');
+    expect(workspace).not.toContain('queryKeys: [workspaceKey]');
+  });
   it('keeps drip campaigns and review requests tenant-scoped, permissioned and private', () => {
     expect(migration).toContain("('marketing.automation.view', 'marketing'");
     expect(migration).toContain("('marketing.automation.manage', 'marketing'");

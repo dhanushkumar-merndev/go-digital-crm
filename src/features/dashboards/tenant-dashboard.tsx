@@ -8,12 +8,17 @@ import {
   ArrowRight,
   CalendarCheck2,
   CalendarClock,
+  CarFront,
   CircleAlert,
   Clock3,
+  FileText,
+  PackageSearch,
   PhoneCall,
+  Plus,
   RefreshCw,
   Route,
   UserCheck,
+  UserRoundPlus,
   UsersRound,
 } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
@@ -744,6 +749,38 @@ export function TenantDashboard({
               </div>
             )}
           </CardContent>
+          {data.capabilities.leads && (
+            <div className="border-t p-3">
+              <p className="mb-2 text-xs font-semibold text-muted-foreground">Quick actions</p>
+              <div className="grid grid-cols-4 sm:grid-cols-5 gap-1.5">
+                {[
+                  ['Add lead', UserRoundPlus, `${leadsHref || `/${role}/leads`}?action=create`, 'bg-blue-50 text-blue-600'],
+                  ['Test drives', CarFront, `/${role}/test-drives`, 'bg-violet-50 text-violet-600'],
+                  ['Quotations', FileText, `/${role}/quotations`, 'bg-indigo-50 text-indigo-600'],
+                  ['Stock check', PackageSearch, `/${role}/stock-check`, 'bg-emerald-50 text-emerald-600'],
+                  ['Bookings', Plus, `/${role}/bookings`, 'bg-orange-50 text-orange-600'],
+                ].map(([label, Icon, href, tone]) => (
+                  <Link
+                    key={label as string}
+                    href={href as string}
+                    className="group flex min-w-0 flex-col items-center rounded-lg p-1.5 text-center hover:bg-slate-50"
+                  >
+                    <span
+                      className={cn(
+                        'grid size-8 place-items-center rounded-lg transition-transform group-hover:-translate-y-0.5',
+                        tone as string,
+                      )}
+                    >
+                      <Icon className="size-4" />
+                    </span>
+                    <span className="mt-1.5 text-[10px] font-medium leading-3 text-[#263550]">
+                      {label as string}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </Card>
 
         <Card className="shadow-none xl:col-span-7">

@@ -88,13 +88,13 @@ import {
   type IntegrationStatusFilter,
 } from './integration-workspace-query';
 
-const providerOptions: Array<{ value: IntegrationProviderKey; label: string }> = [
+type AdminIntegrationProviderKey = Exclude<IntegrationProviderKey, 'whatsapp_personal_baileys'>;
+const providerOptions: Array<{ value: AdminIntegrationProviderKey; label: string }> = [
   { value: 'meta', label: 'Meta / Facebook / Instagram' },
   { value: 'google_ads', label: 'Google Ads' },
   { value: 'google_business_profile', label: 'Google Business Profile' },
   { value: 'whatsapp_cloud', label: 'WhatsApp Business Platform' },
-  { value: 'openai', label: 'OpenAI AI models' },
-  { value: 'gemini', label: 'Google Gemini AI models' },
+  { value: 'openrouter', label: 'OpenRouter text, image & analysis models' },
   { value: 'groq', label: 'Groq transcription & AI analysis' },
   { value: 'telecmi', label: 'TeleCMI IVR calling & recordings' },
 ];
@@ -113,6 +113,7 @@ const scopeLabels: Record<IntegrationScopeMode, string> = {
 };
 
 function providerLabel(value: string) {
+  if (value === 'whatsapp_personal_baileys') return 'Personal WhatsApp (pilot)';
   return providerOptions.find((provider) => provider.value === value)?.label ?? value;
 }
 
@@ -232,7 +233,10 @@ function BranchScopeFields({
 type ConnectRequest =
   | {
       kind: 'oauth';
-      providerKey: Exclude<IntegrationProviderKey, 'whatsapp_cloud' | 'telecmi'>;
+      providerKey: Exclude<
+        IntegrationProviderKey,
+        'whatsapp_cloud' | 'telecmi' | 'whatsapp_personal_baileys'
+      >;
       displayName: string;
     }
   | {
@@ -244,7 +248,7 @@ type ConnectRequest =
     }
   | {
       kind: 'ai';
-      providerKey: Extract<IntegrationProviderKey, 'openai' | 'gemini' | 'groq'>;
+      providerKey: Extract<IntegrationProviderKey, 'openrouter' | 'groq'>;
       displayName: string;
       textModel?: string;
       imageModel?: string;
@@ -284,9 +288,9 @@ function ProviderConnectionDialog({
     queryKey: ['integration-options', organizationId],
     queryFn: fetchIntegrationOptions,
   });
-  const [providerKey, setProviderKey] = useState<IntegrationProviderKey>(
-    ['whatsapp_cloud', 'openai', 'gemini', 'groq', 'telecmi'].includes(existing?.provider_key ?? '')
-      ? (existing?.provider_key as IntegrationProviderKey)
+  const [providerKey, setProviderKey] = useState<AdminIntegrationProviderKey>(
+    ['whatsapp_cloud', 'openrouter', 'groq', 'telecmi'].includes(existing?.provider_key ?? '')
+      ? (existing?.provider_key as AdminIntegrationProviderKey)
       : 'meta',
   );
   const [scopeMode, setScopeMode] = useState<IntegrationScopeMode>(
@@ -456,7 +460,7 @@ function ProviderConnectionDialog({
                 });
                 return;
               }
-              if (providerKey === 'openai' || providerKey === 'gemini' || providerKey === 'groq') {
+              if (providerKey === 'openrouter' || providerKey === 'groq') {
                 mutation.mutate({
                   kind: 'ai',
                   providerKey,
@@ -478,7 +482,7 @@ function ProviderConnectionDialog({
               <Select
                 value={providerKey}
                 disabled={Boolean(existing)}
-                onValueChange={(value) => setProviderKey(value as IntegrationProviderKey)}
+                onValueChange={(value) => setProviderKey(value as AdminIntegrationProviderKey)}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -710,7 +714,7 @@ function ProviderConnectionDialog({
                 </AlertDescription>
               </Alert>
             ) : null}
-            {(providerKey === 'openai' || providerKey === 'gemini' || providerKey === 'groq') && (
+            {(providerKey === 'openrouter' || providerKey === 'groq') && (
               <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
                   <p className="text-sm font-medium">AI capabilities</p>
@@ -726,10 +730,7 @@ function ProviderConnectionDialog({
                       name="textModel"
                       minLength={2}
                       maxLength={120}
-                      defaultValue={
-                        existingModels?.text_model ??
-                        (providerKey === 'openai' ? 'gpt-5.4-mini' : 'gemini-3.7-flash')
-                      }
+                      defaultValue={existingModels?.text_model ?? 'openai/gpt-5.4-mini'}
                       autoComplete="off"
                     />
                   </label>
@@ -742,10 +743,7 @@ function ProviderConnectionDialog({
                       name="imageModel"
                       minLength={2}
                       maxLength={120}
-                      defaultValue={
-                        existingModels?.image_model ??
-                        (providerKey === 'openai' ? 'gpt-image-2' : '')
-                      }
+                      defaultValue={existingModels?.image_model ?? 'google/gemini-3.7-flash-image'}
                       placeholder="Provider image model ID"
                       autoComplete="off"
                     />
@@ -818,8 +816,7 @@ function ProviderConnectionDialog({
                     ? 'Connecting…'
                     : providerKey === 'whatsapp_cloud'
                       ? 'Test and save'
-                      : providerKey === 'openai' ||
-                          providerKey === 'gemini' ||
+                      : providerKey === 'openrouter' ||
                           providerKey === 'groq' ||
                           providerKey === 'telecmi'
                         ? 'Verify and save'
@@ -1075,7 +1072,7 @@ function ConnectionDetailSheet({
   const isOAuth = ['meta', 'google_ads', 'google_business_profile'].includes(
     connection.provider_key,
   );
-  const isAi = ['openai', 'gemini', 'groq'].includes(connection.provider_key);
+  const isAi = ['openrouter', 'groq'].includes(connection.provider_key);
   const models = connection.connection_config.models;
   const capabilities = connection.connection_config.capabilities ?? [];
   const branchScope =
@@ -1194,7 +1191,7 @@ function ConnectionDetailSheet({
           )}
           {canManage &&
             (connection.provider_key !== 'telecmi' || canManageTelecmi) &&
-            ['whatsapp_cloud', 'telecmi', 'openai', 'gemini', 'groq'].includes(
+            ['whatsapp_cloud', 'telecmi', 'openrouter', 'groq'].includes(
               connection.provider_key,
             ) && <Button onClick={onReplace}>Replace credential</Button>}
         </SheetFooter>
@@ -1291,7 +1288,7 @@ function IntegrationTable({
           const oauth = ['meta', 'google_ads', 'google_business_profile'].includes(
             record.provider_key,
           );
-          const aiProvider = ['openai', 'gemini', 'groq'].includes(record.provider_key);
+          const aiProvider = ['openrouter', 'groq'].includes(record.provider_key);
           return (
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" onClick={() => onView(record)}>
@@ -1543,7 +1540,7 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
   });
   const testConnection = useMutation({
     mutationFn: (record: IntegrationRecord) =>
-      ['openai', 'gemini', 'groq'].includes(record.provider_key)
+      ['openrouter', 'groq'].includes(record.provider_key)
         ? testAiProviderConnection(record.organization_id, record.id)
         : testIntegrationConnection(record.organization_id, record.id),
     onSuccess: () => {

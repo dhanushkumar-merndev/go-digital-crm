@@ -14,11 +14,14 @@ const workspace = source('src/features/integrations/integration-workspace.tsx');
 const contracts = source('src/lib/providers/contracts.ts');
 
 describe('tenant AI provider connection contract', () => {
-  it('limits tenant AI connections to verified OpenAI, Gemini, and Groq providers', () => {
-    expect(connectFunction).toContain("z.enum(['openai', 'gemini', 'groq'])");
-    expect(provider).toContain("type AiProviderKey = 'openai' | 'gemini' | 'groq'");
-    expect(workspace).toContain("{ value: 'openai', label: 'OpenAI AI models' }");
-    expect(workspace).toContain("{ value: 'gemini', label: 'Google Gemini AI models' }");
+  it('routes text, image and analysis through OpenRouter and keeps Groq for audio', () => {
+    // OpenRouter exposes chat completions and image modalities only; it does not
+    // proxy speech-to-text, so transcription stays on Groq.
+    expect(connectFunction).toContain("z.enum(['openrouter', 'groq'])");
+    expect(provider).toContain("type AiProviderKey = 'openrouter' | 'groq'");
+    expect(workspace).toContain(
+      "{ value: 'openrouter', label: 'OpenRouter text, image & analysis models' }",
+    );
     expect(workspace).toContain("{ value: 'groq', label: 'Groq transcription & AI analysis' }");
   });
 
@@ -27,8 +30,8 @@ describe('tenant AI provider connection contract', () => {
     expect(connectFunction).toContain('authorize_integration_scope');
     expect(connectFunction).toContain('authorize_integration_connection_action');
     expect(connectFunction).toContain('testAiProviderCredential(');
-    expect(provider).toContain('https://api.openai.com/v1/models');
-    expect(provider).toContain('https://generativelanguage.googleapis.com/v1beta/models');
+    expect(provider).toContain('https://openrouter.ai/api/v1/models');
+    expect(provider).toContain('https://api.groq.com/openai/v1/models');
     expect(provider).toContain('AI_MODEL_UNAVAILABLE');
   });
 

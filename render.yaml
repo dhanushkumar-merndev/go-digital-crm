@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: go-digital-whatsapp-pilot
+    runtime: node
+    plan: free
+    buildCommand: pnpm install --frozen-lockfile --prod=false --filter @go-digital/whatsapp-gateway && pnpm --filter @go-digital/whatsapp-gateway build
+    startCommand: pnpm --filter @go-digital/whatsapp-gateway start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: PERSONAL_WHATSAPP_ENCRYPTION_KEY
+        sync: false
+      - key: PERSONAL_WHATSAPP_SIGNING_SECRET
+        sync: false
+      - key: PERSONAL_WHATSAPP_MAX_SESSIONS
+        value: 5
+      - key: PERSONAL_WHATSAPP_MEMORY_MB
+        value: 512

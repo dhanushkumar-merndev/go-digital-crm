@@ -10,8 +10,8 @@ export type IntegrationProviderKey =
   | 'google_ads'
   | 'google_business_profile'
   | 'whatsapp_cloud'
-  | 'openai'
-  | 'gemini'
+  | 'whatsapp_personal_baileys'
+  | 'openrouter'
   | 'groq'
   | 'telecmi';
 export type IntegrationScopeMode = 'ONE_BRANCH' | 'SELECTED_BRANCHES' | 'ALL_BRANCHES';
@@ -208,7 +208,10 @@ async function invokeIntegrationFunction<T>(name: string, body: Record<string, u
 
 export function startOAuthConnection(input: {
   organizationId: string;
-  providerKey: Exclude<IntegrationProviderKey, 'whatsapp_cloud' | 'telecmi'>;
+  providerKey: Exclude<
+    IntegrationProviderKey,
+    'whatsapp_cloud' | 'telecmi' | 'whatsapp_personal_baileys'
+  >;
   displayName: string;
   scopeMode: IntegrationScopeMode;
   branchIds: string[];
@@ -300,7 +303,7 @@ export function connectTelecmi(input: {
 export function connectAiProvider(input: {
   organizationId: string;
   connectionId?: string;
-  providerKey: Extract<IntegrationProviderKey, 'openai' | 'gemini' | 'groq'>;
+  providerKey: Extract<IntegrationProviderKey, 'openrouter' | 'groq'>;
   displayName: string;
   scopeMode: IntegrationScopeMode;
   branchIds: string[];

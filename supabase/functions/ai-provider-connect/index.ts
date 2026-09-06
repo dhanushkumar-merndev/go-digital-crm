@@ -18,7 +18,7 @@ const schema = z
   .object({
     organization_id: z.uuid(),
     connection_id: z.uuid().optional(),
-    provider_key: z.enum(['openai', 'gemini', 'groq']),
+    provider_key: z.enum(['openrouter', 'groq']),
     display_name: z.string().trim().min(2).max(120),
     scope_mode: z.enum(['ONE_BRANCH', 'SELECTED_BRANCHES', 'ALL_BRANCHES']),
     branch_ids: z.array(z.uuid()).max(100).default([]),

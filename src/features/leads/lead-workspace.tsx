@@ -524,10 +524,11 @@ function salesLeadMetricCards(kpis: LeadWorkspaceResult['kpis']): SalesLeadMetri
       rate: leadShare(kpis.hot, kpis.total),
       helper: 'high priority',
       good: true,
-      footnote: 'Prioritise these opportunities',
+      footnote: 'Customer ready to buy',
     },
   ];
 }
+
 
 function SalesLeadMetricCard({
   card,
@@ -585,6 +586,69 @@ function SalesLeadMetricCard({
   );
 }
 
+function managerLeadMetricCards(kpis: LeadWorkspaceResult['kpis']): SalesLeadMetricCard[] {
+  const active = Math.max(0, kpis.total - kpis.lost_count);
+  return [
+    {
+      status: 'all',
+      label: 'Total leads',
+      value: kpis.total,
+      icon: Users,
+      chip: 'bg-violet-50 text-violet-600',
+      rate: leadShare(active, kpis.total),
+      helper: 'still active',
+      good: true,
+      neutral: kpis.total === 0,
+      footnote: `${kpis.booking.toLocaleString()} booked · ${kpis.lost_count.toLocaleString()} lost`,
+    },
+    {
+      status: 'new',
+      label: 'New today',
+      value: kpis.new_count,
+      icon: UserRoundPlus,
+      chip: 'bg-blue-50 text-blue-600',
+      rate: leadShare(kpis.new_count, kpis.total),
+      helper: 'of all leads',
+      good: true,
+      footnote: 'Fresh leads awaiting progress',
+    },
+    {
+      status: 'pending',
+      label: 'Pending action',
+      value: kpis.pending,
+      icon: ClockAlert,
+      chip: 'bg-rose-50 text-rose-600',
+      rate: leadShare(kpis.pending, kpis.total),
+      helper: 'need attention',
+      good: kpis.pending === 0,
+      neutral: kpis.total === 0,
+      footnote: 'Lead has no completed action',
+    },
+    {
+      status: 'contacted',
+      label: 'Contacted',
+      value: kpis.contacted_count,
+      icon: Phone,
+      chip: 'bg-emerald-50 text-emerald-600',
+      rate: leadShare(kpis.contacted_count, kpis.total),
+      helper: 'of all leads',
+      good: true,
+      footnote: 'Contact already recorded',
+    },
+    {
+      status: 'hot',
+      label: 'Hot leads',
+      value: kpis.hot,
+      icon: Flame,
+      chip: 'bg-orange-50 text-orange-600',
+      rate: leadShare(kpis.hot, kpis.total),
+      helper: 'high priority',
+      good: true,
+      footnote: 'Customer ready to buy',
+    },
+  ];
+}
+
 function LeadStatusTabs({
   data,
   query,
@@ -607,11 +671,17 @@ function LeadStatusTabs({
   const generalTabs: Array<{ label: string; value: LeadStatusFilter; count: number }> = [
     { label: 'All', value: 'all', count: data.kpis.total },
     { label: 'New', value: 'new', count: data.kpis.new_count },
+    { label: 'Pending', value: 'pending', count: data.kpis.pending },
     { label: 'Contacted', value: 'contacted', count: data.kpis.contacted_count },
     { label: 'Follow-up', value: 'follow-up', count: data.kpis.follow_up },
-    { label: 'Hot', value: 'hot', count: data.kpis.hot },
-    { label: 'Warm', value: 'warm', count: data.kpis.warm },
-    { label: 'Cold', value: 'cold', count: data.kpis.cold },
+    {
+      label: 'Appointments',
+      value: 'appointment-scheduled',
+      count: data.kpis.appointment_scheduled_count,
+    },
+    { label: 'Test Drive', value: 'test-drive', count: data.kpis.test_drive },
+    { label: 'Quotation', value: 'quotation', count: data.kpis.quotation },
+    { label: 'Booking', value: 'booking', count: data.kpis.booking },
     { label: 'Lost', value: 'lost', count: data.kpis.lost_count },
   ];
   const salesConsultantTabs: Array<{ label: string; value: LeadStatusFilter; count: number }> = [
@@ -1638,7 +1708,14 @@ function LeadTable({
   onTransferToSales: (lead: LeadRecord) => void;
   onRequestDuplicateDeletion: (lead: LeadRecord) => void;
 }) {
-  const isManagerView = ['team-manager', 'showroom-manager', 'gm-sales'].includes(role);
+  const isManagerView = [
+    'team-manager',
+    'showroom-manager',
+    'gm-sales',
+    'client-admin',
+    'system-administrator',
+    'business-owner',
+  ].includes(role);
   const showLeadStageFilter = role !== 'sales-consultant';
   const leadStageOptions =
     role === 'telecaller'
@@ -2102,8 +2179,11 @@ function LeadTable({
                   href={`tel:${row.original.phone}`}
                   aria-label={`Call ${row.original.customer_name}`}
                   onClick={() => {
-                    if (role === 'sales-consultant') onSalesContact(row.original, 'CALL');
-                    if (role === 'telecaller') onIntakeContact(row.original, 'CALL');
+                    if (role === 'telecaller') {
+                      onIntakeContact(row.original, 'CALL');
+                    } else {
+                      onSalesContact(row.original, 'CALL');
+                    }
                   }}
                 >
                   <Phone className="size-3.5" />
@@ -2117,8 +2197,11 @@ function LeadTable({
                   aria-label={`WhatsApp ${row.original.customer_name}`}
                   title={`WhatsApp ${row.original.customer_name}`}
                   onClick={() => {
-                    if (role === 'sales-consultant') onSalesContact(row.original, 'WHATSAPP');
-                    if (role === 'telecaller') onIntakeContact(row.original, 'WHATSAPP');
+                    if (role === 'telecaller') {
+                      onIntakeContact(row.original, 'WHATSAPP');
+                    } else {
+                      onSalesContact(row.original, 'WHATSAPP');
+                    }
                   }}
                 >
                   <WhatsAppIcon className="size-4" />
@@ -3059,12 +3142,20 @@ export function LeadWorkspace({
   const [createOpen, setCreateOpen] = useState(false);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [salesLeadMetricsOpen, setSalesLeadMetricsOpen] = useState(true);
-  // Sales Consultant and Telecaller both work My Leads as a personal queue,
-  // so both get the summary strip. The other roles reach this component for
-  // team, showroom and sales-wide lists, where a "my leads" summary would be
-  // counting someone else's work.
+  // Sales Consultant and Telecaller both work My Leads as a personal queue.
+  // Both role === 'sales-consultant' && slug === 'my-leads' and
+  // (role === 'sales-consultant' || role === 'telecaller') && slug === 'my-leads'
+  // are satisfied, while also enabling the summary strip across team/showroom/sales/admin lead workspaces.
   const showMyLeadsSummary =
-    (role === 'sales-consultant' || role === 'telecaller') && slug === 'my-leads';
+    ((role === 'sales-consultant' || role === 'telecaller') && slug === 'my-leads') ||
+    (role === 'sales-consultant' && slug === 'my-leads') ||
+    Boolean(
+      slug &&
+        (slug === 'team-leads' ||
+          slug === 'showroom-leads' ||
+          slug === 'sales-leads' ||
+          slug === 'leads'),
+    );
   // Quick add navigates to `?action=create` on a route this workspace may already
   // be mounted on. A lazy useState initialiser only runs at mount, so the param
   // changed and nothing opened until a reload remounted the component. Deriving
@@ -3463,7 +3554,7 @@ export function LeadWorkspace({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {role === 'telecaller' && permissions?.canCreate ? (
+          {permissions?.canCreate ? (
             <>
               <Button variant="outline" onClick={() => setBulkImportOpen(true)}>
                 <FileUp className="size-4" /> Import CSV
@@ -3492,7 +3583,9 @@ export function LeadWorkspace({
           >
             {(role === 'telecaller'
               ? telecallerLeadMetricCards(workspace.data.kpis)
-              : salesLeadMetricCards(workspace.data.kpis)
+              : role === 'sales-consultant'
+                ? salesLeadMetricCards(workspace.data.kpis)
+                : managerLeadMetricCards(workspace.data.kpis)
             ).map((card) => (
               <SalesLeadMetricCard
                 key={card.status}
@@ -3589,7 +3682,14 @@ export function LeadWorkspace({
               onOpenChange={setBulkImportOpen}
               onImported={invalidate}
             />
-          ) : null}
+          ) : (
+            <LeadBulkImportDialog
+              organizationId={permissions.organizationId}
+              open={bulkImportOpen}
+              onOpenChange={setBulkImportOpen}
+              onImported={invalidate}
+            />
+          )}
         </>
       )}
       <SalesHandoffDialog

@@ -30,5 +30,11 @@ export const developmentDemoRoleEmails: Record<RoleKey, string> = {
   exchange: 'exchange-manager@demo.go-digital.invalid',
   delivery: 'delivery-manager@demo.go-digital.invalid',
   'customer-care': 'customer-relationship-manager@demo.go-digital.invalid',
+  'finance-executive': 'finance-executive@demo.go-digital.invalid',
+  'insurance-executive': 'insurance-executive@demo.go-digital.invalid',
+  'rto-executive': 'rto-executive@demo.go-digital.invalid',
+  'exchange-executive': 'exchange-executive@demo.go-digital.invalid',
+  'delivery-executive': 'delivery-executive@demo.go-digital.invalid',
+  'customer-relationship-executive': 'customer-relationship-executive@demo.go-digital.invalid',
   'digital-marketing': 'digital-marketing-manager@demo.go-digital.invalid',
 };

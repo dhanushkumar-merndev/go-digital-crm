@@ -16,6 +16,15 @@ export type RoleKey =
   | 'exchange'
   | 'delivery'
   | 'customer-care'
+  // Executive tiers. The access gate maps a manager role_key to a short route
+  // ('finance_manager' -> 'finance') but falls through to a dashed role_key for
+  // anything else, so these keys must match `replace(role_key, '_', '-')`.
+  | 'finance-executive'
+  | 'insurance-executive'
+  | 'rto-executive'
+  | 'exchange-executive'
+  | 'delivery-executive'
+  | 'customer-relationship-executive'
   | 'digital-marketing';
 
 export type NavigationCapability = 'users.manage.delegated';

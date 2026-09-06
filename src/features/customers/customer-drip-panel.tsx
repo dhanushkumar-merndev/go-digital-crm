@@ -53,6 +53,9 @@ import {
   type DripEnrollment,
   type DripMessage,
   type DripStepDraft,
+  type DripTemplateOption,
+  customerDripTemplateOptionsKey,
+  fetchCustomerDripTemplateOptions,
 } from './customer-drip-api';
 
 const channelIcon: Record<DripChannel, typeof Mail> = {
@@ -90,7 +93,7 @@ function delayLabel(hours: number) {
 }
 
 function blankStep(channel: DripChannel = 'WHATSAPP'): DripStepDraft {
-  return { channel, delayHours: 0, messageBody: '' };
+  return { channel, delayHours: 0, messageBody: '', templateId: null, templateVariables: {} };
 }
 
 function messageTone(status: DripMessage['status']) {
@@ -106,13 +109,18 @@ function StepRow({
   onChange,
   onRemove,
   removable,
+  templateOptions,
 }: {
   index: number;
   step: DripStepDraft;
   onChange: (patch: Partial<DripStepDraft>) => void;
   onRemove: () => void;
   removable: boolean;
+  templateOptions: DripTemplateOption[];
 }) {
+  // A template belongs to one channel, so switching channel invalidates the
+  // chosen template rather than silently sending it on the wrong one.
+  const available = templateOptions.filter((option) => option.channel === step.channel);
   return (
     <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -121,7 +129,7 @@ function StepRow({
         </span>
         <Select
           value={step.channel}
-          onValueChange={(value) => onChange({ channel: value as DripChannel })}
+          onValueChange={(value) => onChange({ channel: value as DripChannel, templateId: null })}
         >
           <SelectTrigger className="h-9 w-36" aria-label={`Step ${index + 1} channel`}>
             <SelectValue />
@@ -162,14 +170,40 @@ function StepRow({
           </Button>
         ) : null}
       </div>
+      {available.length ? (
+        <Select
+          value={step.templateId ?? ''}
+          onValueChange={(value) => onChange({ templateId: value })}
+        >
+          <SelectTrigger className="h-9" aria-label={`Step ${index + 1} approved template`}>
+            <SelectValue placeholder="Choose an approved template" />
+          </SelectTrigger>
+          <SelectContent>
+            {available.map((option) => (
+              <SelectItem key={option.id} value={option.id}>
+                {option.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <p className="rounded-md border border-dashed p-2 text-xs text-muted-foreground">
+          No approved {dripChannelLabel[step.channel]} template yet. A sequence step sends long
+          after the conversation starts, so the provider only accepts an approved template. Ask an
+          administrator to approve one under Templates.
+        </p>
+      )}
       <Textarea
         value={step.messageBody}
         maxLength={DRIP_MAX_BODY_LENGTH}
         rows={3}
-        placeholder="Write the message this customer will receive."
+        placeholder="Write the copy as the customer will read it."
         aria-label={`Step ${index + 1} message`}
         onChange={(event) => onChange({ messageBody: event.target.value })}
       />
+      <p className="text-xs text-muted-foreground">
+        Saved as the reviewed copy of this step. The provider sends the approved template.
+      </p>
     </div>
   );
 }
@@ -190,6 +224,12 @@ function StartDripDialog({
   const [sourceName, setSourceName] = useState('');
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [steps, setSteps] = useState<DripStepDraft[]>(() => [blankStep()]);
+  const templateOptions = useQuery({
+    queryKey: customerDripTemplateOptionsKey,
+    queryFn: ({ signal }) => fetchCustomerDripTemplateOptions(signal),
+    staleTime: 300_000,
+  });
+  const options = templateOptions.data ?? [];
   const [chosen, setChosen] = useState(false);
   const requestId = useRef<string | null>(null);
 
@@ -241,11 +281,13 @@ function StartDripDialog({
         channel: step.channel,
         delayHours: step.delay_hours,
         messageBody: step.message_body,
+        templateId: step.template_id,
+        templateVariables: step.template_variables,
       })),
     );
   }
 
-  const emptyStep = steps.some((step) => !step.messageBody.trim());
+  const emptyStep = steps.some((step) => !step.messageBody.trim() || !step.templateId);
   const validationMessage = !sourceName.trim()
     ? 'Name this sequence so it is recognisable on the timeline.'
     : emptyStep
@@ -344,6 +386,7 @@ function StartDripDialog({
                   index={index}
                   step={step}
                   removable={steps.length > 1}
+                  templateOptions={options}
                   onChange={(patch) => {
                     requestId.current = null;
                     setSteps((current) =>

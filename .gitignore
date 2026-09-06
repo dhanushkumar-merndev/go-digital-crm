@@ -1,6 +1,7 @@
 # dependencies
 /node_modules
 /mobile/node_modules
+/services/whatsapp-gateway/node_modules
 
 # next / expo
 /.next
@@ -22,3 +23,5 @@ pnpm-debug.log*
 # local Supabase CLI link state
 /supabase/.temp/
 .vercel
+.whatsapp-auth/
+services/whatsapp-gateway/dist/

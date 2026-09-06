@@ -8,6 +8,9 @@
     "build:vercel": "pnpm env:check:web && next build --webpack",
     "build:webpack": "next build --webpack",
     "start": "next start",
+    "whatsapp:local:init": "node services/whatsapp-gateway/scripts/local.mjs --init",
+    "whatsapp:local:check": "node services/whatsapp-gateway/scripts/local.mjs --check",
+    "whatsapp:local": "pnpm --filter @go-digital/whatsapp-gateway build && node services/whatsapp-gateway/scripts/local.mjs --start",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
     "typecheck:mobile": "pnpm --dir mobile typecheck",
@@ -89,6 +92,7 @@
     "zustand": "latest"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@tailwindcss/postcss": "^4",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^20",
@@ -109,6 +113,7 @@
   "packageManager": "pnpm@11.21.0",
   "workspaces": [
     ".",
-    "mobile"
+    "mobile",
+    "services/whatsapp-gateway"
   ]
 }

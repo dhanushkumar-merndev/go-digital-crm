@@ -1,8 +1,9 @@
 'use client';
 
 import { useRef, useState, type FormEvent } from 'react';
-import { Download, FileUp, Loader2 } from 'lucide-react';
+import { ClipboardCheck, Download, FileUp, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { PdiInspectionDialog } from './pdi-inspection-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -415,6 +416,7 @@ export function OperationalCaseDetailSheet({
   onDownload: (id: string) => Promise<void>;
 }) {
   const [nextStatus, setNextStatus] = useState(detail?.status ?? '');
+  const [pdiOpen, setPdiOpen] = useState(false);
   const requestId = useRef(crypto.randomUUID());
   const choices = detail ? operationalCaseNextStatuses(detail.department, detail.status) : [];
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -453,6 +455,27 @@ export function OperationalCaseDetailSheet({
 
             {detail.department === 'DELIVERY' ? (
               <section className="space-y-3">
+                <div className="flex items-center justify-between rounded-lg border p-3.5 bg-muted/20">
+                  <div className="space-y-0.5">
+                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                      <ClipboardCheck className="size-4 text-primary" />
+                      Pre-Delivery Inspection (PDI)
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      20-point OEM quality verification, defect notes & handover certification
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => setPdiOpen(true)}
+                  >
+                    Open PDI Sheet
+                  </Button>
+                </div>
+
                 <h3 className="text-sm font-semibold">Delivery checklist</h3>
                 {detail.checklist.map((item) => (
                   <label
@@ -643,6 +666,15 @@ export function OperationalCaseDetailSheet({
           </div>
         )}
       </SheetContent>
+      {detail?.department === 'DELIVERY' && (
+        <PdiInspectionDialog
+          open={pdiOpen}
+          onOpenChange={setPdiOpen}
+          deliveryId={detail.id}
+          bookingNumber={detail.booking_number ?? undefined}
+          customerName={detail.customer_name}
+        />
+      )}
     </Sheet>
   );
 }

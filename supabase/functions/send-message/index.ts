@@ -2,6 +2,11 @@ import { z } from 'npm:zod@4';
 import { decryptJson, sha256Base64Url } from '../_shared/crypto.ts';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
+import {
+  personalError,
+  personalGateway,
+  personalWhatsAppActor,
+} from '../_shared/personal-whatsapp.ts';
 
 type WhatsAppCredential = {
   access_token: string;
@@ -43,6 +48,52 @@ Deno.serve(async (request) => {
     const { data: auth } = await client.auth.getUser();
     if (!auth.user)
       return failure('UNAUTHENTICATED', 'Authentication is required.', requestId, 401);
+    const personal = await client
+      .from('personal_whatsapp_conversations')
+      .select('id')
+      .eq('organization_id', input.organization_id)
+      .eq('id', input.conversation_id)
+      .maybeSingle();
+    if (personal.data) {
+      let prepared:
+        | {
+            message_id: string;
+            connection_id: string;
+            generation: string;
+            status: string;
+            duplicate: boolean;
+          }
+        | undefined;
+      try {
+        await personalWhatsAppActor(request);
+        if (input.content.type !== 'text') throw new Error('PERSONAL_WHATSAPP_TEXT_ONLY');
+        const { data, error } = await client.rpc('personal_whatsapp_send_prepare', {
+          target_conversation_id: input.conversation_id,
+          target_application_message_id: input.application_message_id,
+          target_body: input.content.body,
+        });
+        if (error) throw error;
+        prepared = data;
+        if (prepared?.duplicate) return success(prepared, requestId, 202);
+        const result = await personalGateway('POST', '/v1/messages', prepared);
+        return success(result, requestId, 202);
+      } catch (error) {
+        if (prepared) {
+          await serviceClient().rpc('personal_whatsapp_send_result', {
+            target_connection_id: prepared.connection_id,
+            target_message_id: prepared.message_id,
+            target_status: 'UNKNOWN',
+          });
+          return success({ message_id: prepared.message_id, status: 'UNKNOWN' }, requestId, 202);
+        }
+        return failure(
+          personalError(error),
+          'Personal WhatsApp reply is unavailable.',
+          requestId,
+          409,
+        );
+      }
+    }
     const { data: conversation } = await client
       .from('conversations')
       .select(

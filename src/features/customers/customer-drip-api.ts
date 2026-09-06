@@ -19,6 +19,8 @@ const stepTemplateSchema = z.object({
   delay_hours: z.coerce.number().int().nonnegative(),
   channel: z.enum(dripChannels),
   message_body: z.string(),
+  template_id: z.uuid().nullable().default(null),
+  template_variables: z.record(z.string(), z.string()).default({}),
 });
 
 const templateSchema = z.object({
@@ -94,7 +96,31 @@ export type DripStepDraft = {
   channel: DripChannel;
   delayHours: number;
   messageBody: string;
+  /**
+   * A step sends hours to a year later, which is outside WhatsApp's 24h service
+   * window and past any free-form email body this system can send, so it must
+   * name a template the provider already approved. `messageBody` stays the
+   * rendered copy the consultant reviewed.
+   */
+  templateId: string | null;
+  templateVariables: Record<string, string>;
 };
+
+const templateOptionSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  channel: z.enum(dripChannels),
+  body: z.string().nullable(),
+});
+export type DripTemplateOption = z.infer<typeof templateOptionSchema>;
+export const customerDripTemplateOptionsKey = ['customer-drip-template-options'] as const;
+
+export async function fetchCustomerDripTemplateOptions(signal?: AbortSignal) {
+  const request = createClient().rpc('get_customer_drip_template_options');
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return z.array(templateOptionSchema).parse(data);
+}
 
 export async function createCustomerDripEnrollment(input: {
   customerId: string;
@@ -114,6 +140,8 @@ export async function createCustomerDripEnrollment(input: {
       delay_hours: step.delayHours,
       channel: step.channel,
       message_body: step.messageBody,
+      template_id: step.templateId,
+      template_variables: step.templateVariables,
     })),
     target_request_id: input.requestId,
   });
@@ -157,8 +185,12 @@ export function getDripErrorMessage(error: unknown) {
     return 'This sequence changed after you opened it. Refresh and try again.';
   if (message.includes('CUSTOMER_DRIP_TEMPLATE_NOT_FOUND'))
     return 'That sequence template is no longer available. Pick another or start from blank.';
+  if (message.includes('CUSTOMER_DRIP_TEMPLATE_CHANNEL_MISMATCH'))
+    return 'That approved template belongs to a different channel than the step it is used on.';
+  if (message.includes('CUSTOMER_DRIP_TEMPLATE_NOT_APPROVED'))
+    return 'That template is no longer approved by the provider. Pick another approved template.';
   if (message.includes('INVALID_CUSTOMER_DRIP_STEP'))
-    return 'Every step needs a channel and a message of 1 to 4000 characters.';
+    return 'Every step needs an approved template, a channel, and a message of 1 to 4000 characters.';
   if (message.includes('INVALID_CUSTOMER_DRIP_INPUT'))
     return 'Give the sequence a name and between 1 and 12 steps.';
   if (message.includes('CUSTOMER_NOT_FOUND')) return 'This customer record is no longer available.';

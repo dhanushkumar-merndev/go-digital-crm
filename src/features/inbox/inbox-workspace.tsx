@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronLeft,
   LoaderCircle,
@@ -11,7 +11,13 @@ import {
   UserRound,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { PersonalWhatsAppDialog } from './personal-whatsapp-dialog';
+import {
+  acknowledgeUnknownWhatsAppMessage,
+  fetchPersonalWhatsAppStatus,
+  personalWhatsAppReason,
+} from './personal-whatsapp-api';
 import { InboxSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import {
   hasWorkspacePermission,
@@ -50,7 +56,8 @@ function formatTime(value: string | null) {
 }
 
 function channelLabel(channel: string) {
-  if (channel === 'WHATSAPP_BUSINESS') return 'WhatsApp';
+  if (channel === 'WHATSAPP_BUSINESS') return 'Official WhatsApp';
+  if (channel === 'WHATSAPP_PERSONAL') return 'My WhatsApp';
   if (channel === 'INSTAGRAM_MESSAGING') return 'Instagram';
   if (channel === 'FACEBOOK_MESSENGER') return 'Messenger';
   if (channel === 'SMS') return 'SMS';
@@ -59,6 +66,7 @@ function channelLabel(channel: string) {
 }
 
 function channelTone(channel: string) {
+  if (channel === 'WHATSAPP_PERSONAL') return 'bg-teal-50 text-teal-700';
   if (channel === 'WHATSAPP_BUSINESS') return 'bg-emerald-50 text-emerald-700';
   if (channel === 'INSTAGRAM_MESSAGING') return 'bg-fuchsia-50 text-fuchsia-700';
   if (channel === 'FACEBOOK_MESSENGER') return 'bg-blue-50 text-blue-700';
@@ -127,6 +135,10 @@ export function InboxWorkspace({ role }: { role: string }) {
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [draftConversation, setDraftConversation] = useState<string | null>(null);
+  const sendKey = useRef<{ context: string; id: string } | null>(null);
+  const queryClient = useQueryClient();
+  const refreshes = useRef<number[]>([]);
   const debouncedSearch = useDebouncedValue(search, 300);
   const conversations = useQuery({
     queryKey: ['shared-inbox', ...queryScope, debouncedSearch, channel, page],
@@ -138,37 +150,86 @@ export function InboxWorkspace({ role }: { role: string }) {
     const rows = conversations.data?.records ?? [];
     return rows.find((item) => item.id === selectedId) ?? rows[0] ?? null;
   }, [conversations.data?.records, selectedId]);
-  const messages = useQuery({
+  const messages = useInfiniteQuery({
     queryKey: ['shared-inbox-messages', ...queryScope, activeConversation?.id],
-    queryFn: ({ signal }) =>
-      fetchInboxMessagePage({ conversationId: activeConversation!.id }, signal),
+    initialPageParam: { beforeAt: null as string | null, beforeId: null as string | null },
+    queryFn: ({ signal, pageParam }) =>
+      fetchInboxMessagePage({ conversationId: activeConversation!.id, ...pageParam }, signal),
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more
+        ? { beforeAt: lastPage.next_before_at, beforeId: lastPage.next_before_id }
+        : undefined,
     enabled: Boolean(activeConversation),
     staleTime: 30_000,
   });
+  const personalConversation = activeConversation?.channel === 'WHATSAPP_PERSONAL';
+  const personalStatus = useQuery({
+    queryKey: ['personal-whatsapp-status', ...queryScope, activeConversation?.id],
+    queryFn: ({ signal }) => fetchPersonalWhatsAppStatus(activeConversation?.id, signal),
+    enabled: personalConversation,
+    refetchInterval: personalConversation ? 5000 : false,
+    staleTime: 0,
+    gcTime: 0,
+    meta: { persist: false },
+  });
+  const messageRows =
+    messages.data?.pages
+      .slice()
+      .reverse()
+      .flatMap((item) => item.records) ?? [];
+  const visibleDraft = draftConversation === activeConversation?.id ? draft : '';
   useTenantRealtimeInvalidation(session?.organizationId, [
-    { resource: 'communications', queryKeys: [['shared-inbox'], ['shared-inbox-messages']] },
+    {
+      resource: 'communications',
+      queryKeys: [
+        ['shared-inbox', ...queryScope],
+        ['shared-inbox-messages', ...queryScope],
+      ],
+    },
   ]);
   const canSend =
     Boolean(session?.organizationId) &&
     hasWorkspacePermission(session, 'message.send') &&
-    activeConversation?.channel === 'WHATSAPP_BUSINESS' &&
+    (activeConversation?.channel === 'WHATSAPP_BUSINESS' ||
+      (personalConversation &&
+        personalStatus.isSuccess &&
+        personalStatus.data &&
+        !personalStatus.data.send_disabled_reason)) &&
     activeConversation.status === 'OPEN';
   const send = useMutation({
     mutationFn: () => {
       if (!session?.organizationId || !activeConversation) throw new Error('INBOX_NOT_READY');
+      const context = `${activeConversation.id}:${visibleDraft.trim()}`;
+      if (sendKey.current?.context !== context)
+        sendKey.current = { context, id: crypto.randomUUID() };
       return sendInboxWhatsAppMessage({
         organizationId: session.organizationId,
         conversationId: activeConversation.id,
-        body: draft.trim(),
+        body: visibleDraft.trim(),
+        applicationMessageId: sendKey.current.id,
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       setDraft('');
+      sendKey.current = null;
       await salesConsultantCache.settle('inbox.message.sent');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['shared-inbox', ...queryScope] }),
+        queryClient.invalidateQueries({ queryKey: ['shared-inbox-messages', ...queryScope] }),
+        queryClient.invalidateQueries({ queryKey: ['personal-whatsapp-status', ...queryScope] }),
+      ]);
       toast.add({
-        type: 'success',
-        title: 'Message sent',
-        description: 'The provider accepted the WhatsApp message.',
+        type: result?.status === 'UNKNOWN' ? 'error' : 'success',
+        title:
+          result?.status === 'UNKNOWN'
+            ? 'Send result unconfirmed'
+            : result?.status === 'PENDING'
+              ? 'Message pending'
+              : 'Message sent',
+        description:
+          result?.status === 'UNKNOWN'
+            ? 'Check WhatsApp on your phone. This message will not be resent automatically.'
+            : 'The latest delivery status appears beside the message.',
       });
     },
     onError: (error) => {
@@ -176,12 +237,28 @@ export function InboxWorkspace({ role }: { role: string }) {
       toast.add({
         type: 'error',
         title: 'Message was not sent',
-        description:
-          code === 'WHATSAPP_TEMPLATE_REQUIRED'
+        description: code.startsWith('PERSONAL_WHATSAPP_')
+          ? (personalWhatsAppReason(code) ?? 'Reply unavailable.')
+          : code === 'WHATSAPP_TEMPLATE_REQUIRED'
             ? 'The WhatsApp service window has closed. Use an approved template.'
             : 'Check the connected channel and try again.',
       });
     },
+  });
+  const acknowledge = useMutation({
+    mutationFn: acknowledgeUnknownWhatsAppMessage,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['shared-inbox-messages', ...queryScope] });
+      await queryClient.invalidateQueries({
+        queryKey: ['personal-whatsapp-status', ...queryScope],
+      });
+    },
+    onError: () =>
+      toast.add({
+        type: 'error',
+        title: 'Unable to acknowledge message',
+        description: 'Please try again.',
+      }),
   });
 
   if (!hasWorkspacePermission(session, 'message.view')) {
@@ -202,15 +279,37 @@ export function InboxWorkspace({ role }: { role: string }) {
             Manage authorized customer conversations across connected channels.
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void conversations.refetch()}
-          disabled={conversations.isFetching}
-        >
-          <RefreshCw className={`size-4 ${conversations.isFetching ? 'animate-spin' : ''}`} />{' '}
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Linking is a personal-channel action, so it belongs with that
+              channel rather than on top of Official WhatsApp or Messenger. */}
+          {channel === 'WHATSAPP_PERSONAL' &&
+            ['telecaller', 'sales-consultant'].includes(role) &&
+            hasWorkspacePermission(session, 'message.send') && (
+              <PersonalWhatsAppDialog scope={queryScope} />
+            )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const now = Date.now();
+              refreshes.current = refreshes.current.filter((time) => now - time < 60_000);
+              if (refreshes.current.length >= 3) {
+                toast.add({
+                  type: 'error',
+                  title: 'Refresh limit reached',
+                  description: 'Please wait a minute before refreshing again.',
+                });
+                return;
+              }
+              refreshes.current.push(now);
+              void conversations.refetch();
+            }}
+            disabled={conversations.isFetching}
+          >
+            <RefreshCw className={`size-4 ${conversations.isFetching ? 'animate-spin' : ''}`} />{' '}
+            Refresh
+          </Button>
+        </div>
       </div>
       <Card className="sales-consultant-list-card overflow-hidden shadow-none">
         <div className="grid min-h-[calc(100vh-230px)] lg:grid-cols-[320px_minmax(0,1fr)_300px]">
@@ -240,7 +339,8 @@ export function InboxWorkspace({ role }: { role: string }) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All connected channels</SelectItem>
-                  <SelectItem value="WHATSAPP_BUSINESS">WhatsApp</SelectItem>
+                  <SelectItem value="WHATSAPP_BUSINESS">Official WhatsApp</SelectItem>
+                  <SelectItem value="WHATSAPP_PERSONAL">My WhatsApp</SelectItem>
                   <SelectItem value="INSTAGRAM_MESSAGING">Instagram</SelectItem>
                   <SelectItem value="FACEBOOK_MESSENGER">Facebook Messenger</SelectItem>
                 </SelectContent>
@@ -249,6 +349,10 @@ export function InboxWorkspace({ role }: { role: string }) {
             <div className="min-h-0 flex-1 overflow-y-auto">
               {conversations.isPending ? (
                 <div className="p-5 text-sm text-muted-foreground">Loading conversations…</div>
+              ) : conversations.isError ? (
+                <p role="alert" className="p-4 text-sm text-destructive">
+                  Conversations could not be loaded. Try Refresh.
+                </p>
               ) : conversations.data?.records.length ? (
                 conversations.data.records.map((conversation) => (
                   <ConversationListItem
@@ -307,10 +411,24 @@ export function InboxWorkspace({ role }: { role: string }) {
                   </span>
                 </div>
                 <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+                  {messages.hasNextPage && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={messages.isFetchingNextPage}
+                      onClick={() => void messages.fetchNextPage()}
+                    >
+                      Load earlier messages
+                    </Button>
+                  )}
                   {messages.isPending ? (
                     <p className="text-sm text-muted-foreground">Loading messages…</p>
-                  ) : messages.data?.records.length ? (
-                    messages.data.records.map((message) => (
+                  ) : messages.isError ? (
+                    <p role="alert" className="text-sm text-destructive">
+                      Messages could not be loaded.
+                    </p>
+                  ) : messageRows.length ? (
+                    messageRows.map((message) => (
                       <div
                         key={message.id}
                         className={`flex ${message.direction === 'OUTBOUND' ? 'justify-end' : 'justify-start'}`}
@@ -321,6 +439,17 @@ export function InboxWorkspace({ role }: { role: string }) {
                           <p className="whitespace-pre-wrap">
                             {message.body ?? 'Attachment or provider event'}
                           </p>
+                          {personalConversation && message.delivery_status === 'UNKNOWN' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="mt-2"
+                              disabled={acknowledge.isPending}
+                              onClick={() => acknowledge.mutate(message.id)}
+                            >
+                              I checked this message on my phone
+                            </Button>
+                          )}
                           <p className="mt-1 text-right text-[10px] text-muted-foreground">
                             {new Intl.DateTimeFormat('en-IN', {
                               hour: '2-digit',
@@ -336,24 +465,49 @@ export function InboxWorkspace({ role }: { role: string }) {
                   )}
                 </div>
                 <div className="border-t bg-white p-3">
+                  {personalConversation && (
+                    <div className="mb-2 space-y-1 text-xs text-muted-foreground">
+                      <p>
+                        My WhatsApp · Reply only · {personalStatus.data?.daily_sent ?? '—'} / 50
+                        replies in 24 hours
+                      </p>
+                      {personalStatus.data?.reply_window_expires_at && (
+                        <p>
+                          Reply window ends{' '}
+                          {new Date(personalStatus.data.reply_window_expires_at).toLocaleString()}
+                        </p>
+                      )}
+                      {personalStatus.data?.next_send_at &&
+                        personalStatus.data.send_disabled_reason ===
+                          'PERSONAL_WHATSAPP_RATE_LIMITED' && (
+                          <p>
+                            Next reply available{' '}
+                            {new Date(personalStatus.data.next_send_at).toLocaleTimeString()}
+                          </p>
+                        )}
+                    </div>
+                  )}
                   {canSend ? (
                     <div className="flex items-end gap-2">
                       <Textarea
-                        value={draft}
-                        onChange={(event) => setDraft(event.target.value)}
+                        value={visibleDraft}
+                        onChange={(event) => {
+                          setDraftConversation(activeConversation.id);
+                          setDraft(event.target.value);
+                        }}
                         placeholder="Type a WhatsApp message…"
-                        maxLength={4096}
+                        maxLength={personalConversation ? 1500 : 4096}
                         className="min-h-10 resize-none"
                         onKeyDown={(event) => {
                           if (event.key === 'Enter' && !event.shiftKey) {
                             event.preventDefault();
-                            if (draft.trim()) send.mutate();
+                            if (visibleDraft.trim() && !send.isPending && canSend) send.mutate();
                           }
                         }}
                       />
                       <Button
                         size="icon"
-                        disabled={!draft.trim() || send.isPending}
+                        disabled={!visibleDraft.trim() || send.isPending}
                         onClick={() => send.mutate()}
                       >
                         {send.isPending ? (
@@ -365,9 +519,14 @@ export function InboxWorkspace({ role }: { role: string }) {
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      {activeConversation.channel === 'WHATSAPP_BUSINESS'
-                        ? 'You do not have permission to send from this conversation.'
-                        : `${channelLabel(activeConversation.channel)} replies become available after its server-side provider adapter is connected.`}
+                      {personalConversation
+                        ? personalStatus.isError
+                          ? 'Connection status is unavailable. Sending is disabled until it can be verified.'
+                          : (personalWhatsAppReason(personalStatus.data?.send_disabled_reason) ??
+                            'Checking your connection…')
+                        : activeConversation.channel === 'WHATSAPP_BUSINESS'
+                          ? 'You do not have permission to send from this conversation.'
+                          : `${channelLabel(activeConversation.channel)} replies become available after its server-side provider adapter is connected.`}
                     </p>
                   )}
                 </div>

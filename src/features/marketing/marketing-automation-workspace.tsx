@@ -77,6 +77,7 @@ function ChannelIcon({ channel }: { channel: Channel | 'MANUAL' }) {
 }
 
 function CreateDripCampaignDialog({ onComplete }: { onComplete: () => void }) {
+  const queryScope = workspaceQueryScope(useWorkspaceSession());
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -86,7 +87,7 @@ function CreateDripCampaignDialog({ onComplete }: { onComplete: () => void }) {
   const [steps, setSteps] = useState([{ delay: '0', body: '' }]);
   const [requestId, setRequestId] = useState(newRequestId);
   const scopeOptions = useQuery({
-    queryKey: ['marketing-automation-scope-options'],
+    queryKey: ['marketing-automation-scope-options', ...queryScope],
     queryFn: ({ signal }) => fetchMarketingAutomationScopeOptions(signal),
     enabled: open,
     staleTime: 5 * 60_000,
@@ -316,6 +317,7 @@ function CreateDripCampaignDialog({ onComplete }: { onComplete: () => void }) {
 }
 
 function CreateReviewRequestDialog({ onComplete }: { onComplete: () => void }) {
+  const queryScope = workspaceQueryScope(useWorkspaceSession());
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [bookingId, setBookingId] = useState('');
@@ -326,7 +328,7 @@ function CreateReviewRequestDialog({ onComplete }: { onComplete: () => void }) {
   const [requestId, setRequestId] = useState(newRequestId);
   const debouncedSearch = useDebouncedValue(search, 300);
   const options = useQuery({
-    queryKey: ['marketing-review-customer-options', debouncedSearch],
+    queryKey: ['marketing-review-customer-options', ...queryScope, debouncedSearch],
     queryFn: ({ signal }) => fetchMarketingReviewCustomerOptions(debouncedSearch, signal),
     enabled: open,
   });
@@ -488,9 +490,10 @@ export function MarketingAutomationWorkspace({
   });
   const permissions = bootstrapPermissions ?? legacyPermissions.data;
   useTenantRealtimeInvalidation(workspace.data?.organization_id, [
-    { resource: 'marketing', queryKeys: [workspaceKey] },
+    { resource: 'marketing', queryKeys: [[...workspaceKey, ...queryScope]] },
   ]);
-  const invalidate = () => void queryClient.invalidateQueries({ queryKey: workspaceKey });
+  const invalidate = () =>
+    void queryClient.invalidateQueries({ queryKey: [...workspaceKey, ...queryScope] });
   const dripMetrics = useMemo(
     () =>
       workspace.data

@@ -106,3 +106,41 @@ export async function captureDeliveryFeedback(input: {
   if (error) throw error;
   return mutationSchema.parse(data);
 }
+
+export async function submitCustomerFeedbackWithSentimentRouting(input: {
+  feedbackId: string;
+  rating: number;
+  comments?: string;
+}): Promise<{
+  feedback_id: string;
+  rating: number;
+  status: string;
+  outcome: 'POSITIVE_REVIEW' | 'DETRACTOR_ESCALATED';
+  redirect_review_url?: string;
+  complaint_id?: string;
+}> {
+  const { data, error } = await createClient().rpc('submit_customer_feedback', {
+    target_feedback_id: input.feedbackId,
+    target_rating: input.rating,
+    target_comments: input.comments?.trim() || null,
+  });
+  if (error) throw error;
+  return z
+    .object({
+      feedback_id: z.uuid(),
+      rating: z.coerce.number().int().min(1).max(5),
+      status: z.string(),
+      outcome: z.enum(['POSITIVE_REVIEW', 'DETRACTOR_ESCALATED']),
+      redirect_review_url: z.string().optional(),
+      complaint_id: z.uuid().optional(),
+    })
+    .parse(data);
+}
+
+export async function setGoogleReviewUrl(url: string): Promise<boolean> {
+  const { error } = await createClient().rpc('set_organization_google_review_url', {
+    target_url: url.trim(),
+  });
+  if (error) throw error;
+  return true;
+}

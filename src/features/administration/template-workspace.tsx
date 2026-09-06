@@ -1,7 +1,17 @@
 'use client';
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, FileText, Mail, MessageCircle, Plus, Search, Smartphone } from 'lucide-react';
+import {
+  Archive,
+  Ban,
+  BadgeCheck,
+  FileText,
+  Mail,
+  MessageCircle,
+  Plus,
+  Search,
+  Smartphone,
+} from 'lucide-react';
 import { useState } from 'react';
 import {
   useWorkspaceSession,
@@ -41,9 +51,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import type { Metric, PageSpec } from '@/lib/domain';
 import {
+  approveTemplate,
   archiveTemplate,
   createDraftTemplate,
   fetchTemplateWorkspace,
+  rejectTemplate,
+  type TemplateRecord,
   type TemplateWorkspaceQuery,
 } from './template-workspace-api';
 
@@ -153,6 +166,186 @@ function CreateTemplateDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+// Brevo identifies a template by a numeric id; Meta identifies one by the
+// lowercase snake-case name it approved. Both are rejected server-side when they
+// do not match, so the hint here is what stops an admin from discovering the rule
+// through a failed send days later.
+function providerIdRules(channel: string) {
+  if (channel === 'EMAIL')
+    return {
+      label: 'Brevo template ID',
+      placeholder: '42',
+      pattern: '[0-9]{1,18}',
+      hint: 'The numeric ID shown on the template in Brevo.',
+    };
+  if (channel === 'SMS')
+    return {
+      label: 'Provider template ID',
+      placeholder: 'sms_welcome_v1',
+      pattern: '.{1,512}',
+      hint: 'The ID your SMS provider issued for this approved template.',
+    };
+  return {
+    label: 'Meta template name',
+    placeholder: 'new_lead_welcome',
+    pattern: '[a-z0-9_]{1,512}',
+    hint: 'Lowercase letters, numbers and underscores, exactly as approved in Meta.',
+  };
+}
+
+function RejectTemplateDialog({
+  template,
+  onClose,
+}: {
+  template: TemplateRecord;
+  onClose: () => void;
+}) {
+  const client = useQueryClient();
+  const reject = useMutation({
+    mutationFn: rejectTemplate,
+    onSuccess: () => {
+      toast.add({
+        type: 'success',
+        title: 'Template rejected',
+        description: 'Its provider ID is cleared so a replacement can reuse it.',
+      });
+      client.invalidateQueries({ queryKey: ['template-workspace'] });
+      onClose();
+    },
+    onError: () =>
+      toast.add({
+        type: 'error',
+        title: 'Template was not rejected',
+        description: 'Try again or check administrator access.',
+      }),
+  });
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reject template</DialogTitle>
+          <DialogDescription>
+            The template stays visible for audit and its provider ID is released.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            reject.mutate({
+              templateId: template.id,
+              reason: String(form.get('reason') ?? ''),
+              requestId: globalThis.crypto.randomUUID(),
+            });
+          }}
+        >
+          <label className="grid gap-1.5 text-sm font-medium">
+            Reason
+            <Textarea
+              name="reason"
+              required
+              minLength={3}
+              maxLength={500}
+              rows={4}
+              placeholder="Meta rejected this template for policy reasons."
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button disabled={reject.isPending}>
+              {reject.isPending ? 'Rejecting…' : 'Reject template'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ApproveTemplateDialog({
+  template,
+  onClose,
+}: {
+  template: TemplateRecord;
+  onClose: () => void;
+}) {
+  const client = useQueryClient();
+  const rules = providerIdRules(template.channel.toUpperCase());
+  const approve = useMutation({
+    mutationFn: approveTemplate,
+    onSuccess: (result) => {
+      toast.add({
+        type: 'success',
+        title: result.replayed ? 'Template already approved' : 'Template approved',
+        description: `Sending can now use ${result.provider_template_id}.`,
+      });
+      client.invalidateQueries({ queryKey: ['template-workspace'] });
+      onClose();
+    },
+    onError: (error: { message?: string }) =>
+      toast.add({
+        type: 'error',
+        title: 'Template was not approved',
+        description: error?.message?.includes('IN_USE')
+          ? 'Another approved template already uses that provider ID.'
+          : 'Check the provider ID format and your administrator access.',
+      }),
+  });
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Record provider approval</DialogTitle>
+          <DialogDescription>
+            Approve the template in {template.channel.toUpperCase() === 'EMAIL' ? 'Brevo' : 'Meta'}{' '}
+            first, then record the ID it issued. This does not request approval.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            approve.mutate({
+              templateId: template.id,
+              providerTemplateId: String(form.get('provider_template_id') ?? ''),
+              requestId: globalThis.crypto.randomUUID(),
+            });
+          }}
+        >
+          <div className="rounded-md border bg-muted/40 p-3 text-sm">
+            <p className="font-medium">{template.name}</p>
+            <p className="text-xs text-muted-foreground">{template.channel.replaceAll('_', ' ')}</p>
+          </div>
+          <label className="grid gap-1.5 text-sm font-medium">
+            {rules.label}
+            <Input
+              name="provider_template_id"
+              required
+              maxLength={512}
+              pattern={rules.pattern}
+              placeholder={rules.placeholder}
+              defaultValue={template.provider_template_id ?? ''}
+            />
+            <span className="text-xs font-normal text-muted-foreground">{rules.hint}</span>
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button disabled={approve.isPending}>
+              {approve.isPending ? 'Recording…' : 'Record approval'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
   const [query, setQuery] = useState<TemplateWorkspaceQuery>({
@@ -163,6 +356,8 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
     status: 'ALL',
   });
   const [open, setOpen] = useState(false);
+  const [approving, setApproving] = useState<TemplateRecord | null>(null);
+  const [rejecting, setRejecting] = useState<TemplateRecord | null>(null);
   const client = useQueryClient();
   const workspace = useQuery({
     queryKey: ['template-workspace', ...workspaceQueryScope(session), query],
@@ -317,14 +512,26 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
                       </TableCell>
                       <TableCell>{formatDate(item.updated_at)}</TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={archive.isPending}
-                          onClick={() => archive.mutate(item.id)}
-                        >
-                          <Archive /> Archive
-                        </Button>
+                        <div className="flex justify-end gap-2">
+                          {['DRAFT', 'REJECTED'].includes(item.status.toUpperCase()) && (
+                            <Button size="sm" onClick={() => setApproving(item)}>
+                              <BadgeCheck /> Approve
+                            </Button>
+                          )}
+                          {['DRAFT', 'APPROVED'].includes(item.status.toUpperCase()) && (
+                            <Button size="sm" variant="outline" onClick={() => setRejecting(item)}>
+                              <Ban /> Reject
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={archive.isPending}
+                            onClick={() => archive.mutate(item.id)}
+                          >
+                            <Archive /> Archive
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -365,6 +572,12 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
         </div>
       </Card>
       {open && <CreateTemplateDialog onClose={() => setOpen(false)} />}
+      {approving && (
+        <ApproveTemplateDialog template={approving} onClose={() => setApproving(null)} />
+      )}
+      {rejecting && (
+        <RejectTemplateDialog template={rejecting} onClose={() => setRejecting(null)} />
+      )}
     </div>
   );
 }

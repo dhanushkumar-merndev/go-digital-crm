@@ -67,3 +67,44 @@ export async function archiveTemplate(templateId: string) {
   });
   if (error) throw error;
 }
+
+const approvalSchema = z.object({
+  id: z.uuid(),
+  status: z.literal('APPROVED'),
+  provider_template_id: z.string(),
+  replayed: z.boolean(),
+});
+
+/**
+ * Records an approval the provider already granted. `providerTemplateId` is the
+ * id from Brevo or Meta, not one this system mints: send-email and send-message
+ * both look a template up by it, so an inaccurate value here is only discovered
+ * at send time.
+ */
+export async function approveTemplate(input: {
+  templateId: string;
+  providerTemplateId: string;
+  requestId: string;
+}) {
+  const { data, error } = await createClient().rpc('approve_template', {
+    target_template_id: input.templateId,
+    target_provider_template_id: input.providerTemplateId.trim(),
+    target_request_id: input.requestId,
+  });
+  if (error) throw error;
+  return approvalSchema.parse(data);
+}
+
+export async function rejectTemplate(input: {
+  templateId: string;
+  reason: string;
+  requestId: string;
+}) {
+  const { data, error } = await createClient().rpc('reject_template', {
+    target_template_id: input.templateId,
+    target_reason: input.reason.trim(),
+    target_request_id: input.requestId,
+  });
+  if (error) throw error;
+  return z.object({ id: z.uuid(), status: z.literal('REJECTED') }).parse(data);
+}
