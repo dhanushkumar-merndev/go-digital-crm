@@ -57,22 +57,29 @@ export function useTenantRealtimeInvalidation(
           }, REALTIME_INVALIDATION_DEBOUNCE_MS),
         );
       };
-      return supabase
+      const channel = supabase
         .channel(tenantRealtimeTopic(organizationId, subscription.resource), {
           config: { private: true },
         })
         .on('broadcast', { event: 'insert' }, invalidate)
         .on('broadcast', { event: 'update' }, invalidate);
+      return { channel, invalidate };
     });
     let cancelled = false;
     void supabase.realtime.setAuth().then(() => {
-      if (!cancelled) channels.forEach((channel) => channel.subscribe());
+      if (!cancelled)
+        channels.forEach(({ channel, invalidate }) =>
+          channel.subscribe((status) => {
+            // Catch changes missed before subscribing or during a reconnect.
+            if (status === 'SUBSCRIBED') invalidate();
+          }),
+        );
     });
     return () => {
       cancelled = true;
       timers.forEach((timer) => clearTimeout(timer));
       timers.clear();
-      channels.forEach((channel) => void supabase.removeChannel(channel));
+      channels.forEach(({ channel }) => void supabase.removeChannel(channel));
     };
   }, [organizationId, queryClient, stableItems]);
 }

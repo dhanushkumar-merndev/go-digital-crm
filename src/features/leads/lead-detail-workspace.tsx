@@ -6,11 +6,9 @@ import {
   CalendarClock,
   CalendarDays,
   CircleAlert,
-  Clock3,
   Flame,
   History,
   Mail,
-  MessageCircle,
   Phone,
   RotateCcw,
   UserRound,
@@ -36,13 +34,16 @@ import { LeadDetailSkeleton } from '@/components/skeletons';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
+  workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { roleHasNavigationSlug, roleLeadListHref } from '@/config/navigation';
 import { useReturnToList } from '@/lib/navigation/use-return-to-list';
-import { toWhatsAppClickToChatUrl } from '@/lib/phone';
+import { InboxWorkspace } from '@/features/inbox/inbox-workspace';
+import { LeadActivityPanel } from './lead-activity-panel';
+import { CustomerTelecmiCallDialog } from '@/features/customers/customer-360-actions';
 import { WorkCreateDialog } from '@/features/work/workspace-dialogs';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import {
@@ -58,11 +59,6 @@ function formatDate(value: string | null | undefined, includeTime = true) {
     'en-IN',
     includeTime ? { dateStyle: 'medium', timeStyle: 'short' } : { dateStyle: 'medium' },
   ).format(new Date(value));
-}
-
-function formatDuration(seconds: number | null) {
-  if (seconds == null) return '—';
-  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
 }
 
 function temperatureLabel(value: LeadDetail['lead']['temperature']) {
@@ -239,65 +235,6 @@ function Timeline({ items }: { items: LeadDetail['timeline'] }) {
   );
 }
 
-function Calls({ calls }: { calls: LeadDetail['calls'] }) {
-  if (!calls.length)
-    return (
-      <p className="py-12 text-center text-sm text-muted-foreground">
-        No calls recorded for this lead.
-      </p>
-    );
-  return (
-    <div className="divide-y">
-      {calls.map((call) => (
-        <div key={call.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-          <div>
-            <p className="text-sm font-semibold">
-              {call.direction === 'OUTBOUND' ? 'Outbound call' : 'Inbound call'}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {formatDate(call.started_at)} · {formatDuration(call.duration_seconds)}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {call.outcome && <Badge variant="secondary">{call.outcome}</Badge>}
-            <StatusBadge value={call.status} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Followups({ followups }: { followups: LeadDetail['followups'] }) {
-  if (!followups.length)
-    return (
-      <p className="py-12 text-center text-sm text-muted-foreground">
-        No follow-ups scheduled for this lead.
-      </p>
-    );
-  return (
-    <div className="divide-y">
-      {followups.map((followup) => (
-        <div
-          key={followup.id}
-          className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
-        >
-          <div>
-            <p className="text-sm font-semibold">{followup.reason}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Due {formatDate(followup.due_at)} · {followup.assigned_user_name ?? 'Unassigned'}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary">{followup.priority}</Badge>
-            <StatusBadge value={followup.status} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: string }) {
   const router = useRouter();
   const returnToLeads = useReturnToList(roleLeadListHref(role));
@@ -306,11 +243,14 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
   const salesConsultantCache = useSalesConsultantCache();
   const canOpenAppointments = roleHasNavigationSlug(role, 'appointments');
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [appointmentOpen, setAppointmentOpen] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
+  const [tab, setTab] = useState('overview');
   const [lostOpen, setLostOpen] = useState(false);
   const [customerMatchOpen, setCustomerMatchOpen] = useState(false);
   const [lostReason, setLostReason] = useState('');
   const detail = useQuery({
-    queryKey: ['lead-detail', leadId],
+    queryKey: ['lead-detail', leadId, ...workspaceQueryScope(workspaceSession)],
     queryFn: ({ signal }) => fetchLeadDetail(leadId, signal),
     staleTime: 60_000,
   });
@@ -407,15 +347,21 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
             <div className="flex flex-wrap gap-2 border-t p-3">
               {!data.access.read_only && (
                 <>
-                  <Button asChild size="sm" variant="outline">
-                    <a href={`tel:${lead.phone}`}>
-                      <Phone className="size-3.5 text-emerald-600" /> Call
-                    </a>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!hasWorkspacePermission(workspaceSession, 'call.create')}
+                    onClick={() => setCallOpen(true)}
+                  >
+                    <Phone className="size-3.5 text-emerald-600" /> Call through CRM
                   </Button>
-                  <Button asChild size="sm" variant="outline">
-                    <a href={toWhatsAppClickToChatUrl(lead.phone)} target="_blank" rel="noreferrer">
-                      <WhatsAppIcon className="size-3.5 text-emerald-600" /> WhatsApp
-                    </a>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setTab('messages')}
+                    disabled={!data.access.can_messages}
+                  >
+                    <WhatsAppIcon className="size-3.5 text-emerald-600" /> Conversations
                   </Button>
                   {lead.email && (
                     <Button asChild size="sm" variant="outline">
@@ -439,11 +385,13 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
                   <Link href={`/${role}/customers/${lead.customer_id}`}>Open customer 360</Link>
                 </Button>
               )}
-              {data.access.can_followups && !data.access.read_only && (
-                <Button size="sm" className="sm:ml-auto" onClick={() => setScheduleOpen(true)}>
-                  <CalendarClock className="size-3.5" /> Schedule follow-up
-                </Button>
-              )}
+              {data.access.can_followups &&
+                !data.access.read_only &&
+                hasWorkspacePermission(workspaceSession, 'followup.create') && (
+                  <Button size="sm" className="sm:ml-auto" onClick={() => setScheduleOpen(true)}>
+                    <CalendarClock className="size-3.5" /> Schedule follow-up
+                  </Button>
+                )}
               {data.access.can_update && lead.lifecycle_status !== 'Lost' && (
                 <Button
                   variant="outline"
@@ -458,7 +406,7 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
           </CardContent>
         </Card>
       </div>
-      <Tabs defaultValue="overview">
+      <Tabs value={tab} onValueChange={setTab}>
         <div className="overflow-x-auto pb-1">
           <TabsList className="h-auto min-w-max justify-start">
             <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -471,14 +419,7 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
                 </Badge>
               </TabsTrigger>
             )}
-            {data.access.can_messages && (
-              <TabsTrigger value="messages">
-                Messages{' '}
-                <Badge variant="secondary" className="ml-1.5">
-                  {data.counts.messages}
-                </Badge>
-              </TabsTrigger>
-            )}
+            {data.access.can_messages && <TabsTrigger value="messages">Conversations</TabsTrigger>}
             {data.access.can_followups && (
               <TabsTrigger value="followups">
                 Follow-ups{' '}
@@ -507,57 +448,29 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
         </TabsContent>
         {data.access.can_calls && (
           <TabsContent value="calls">
-            <Card className="shadow-none">
-              <Calls calls={data.calls} />
-            </Card>
+            <LeadActivityPanel key={leadId} leadId={leadId} kind="calls" />
           </TabsContent>
         )}
         {data.access.can_messages && (
           <TabsContent value="messages">
-            <Card className="shadow-none">
-              <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
-                <MessageCircle className="size-6 text-blue-600" />
-                <p className="font-semibold">
-                  {data.counts.messages
-                    ? `${data.counts.messages} linked conversations`
-                    : 'No linked conversations'}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Conversation messages are shown in the shared inbox once the approved provider
-                  channel is connected.
-                </p>
-              </CardContent>
-            </Card>
+            <InboxWorkspace role={role} leadId={leadId} embedded readOnly={data.access.read_only} />
           </TabsContent>
         )}
         {data.access.can_followups && (
           <TabsContent value="followups">
-            <Card className="shadow-none">
-              <Followups followups={data.followups} />
-            </Card>
+            <LeadActivityPanel key={leadId} leadId={leadId} kind="followups" />
           </TabsContent>
         )}
         {data.access.can_appointments && (
-          <TabsContent value="appointments">
-            <Card className="shadow-none">
-              <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
-                <Clock3 className="size-6 text-blue-600" />
-                <p className="font-semibold">
-                  {data.counts.appointments
-                    ? `${data.counts.appointments} linked appointments`
-                    : 'No linked appointments'}
-                </p>
-                {canOpenAppointments ? (
-                  <Button asChild variant="outline">
-                    <Link href={`/${role}/appointments`}>Open appointments</Link>
-                  </Button>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Appointment details remain available in this scoped lead view.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+          <TabsContent value="appointments" className="space-y-3">
+            {canOpenAppointments &&
+              !data.access.read_only &&
+              hasWorkspacePermission(workspaceSession, 'appointment.create') && (
+                <Button size="sm" onClick={() => setAppointmentOpen(true)}>
+                  <CalendarDays className="size-4" /> New appointment for this lead
+                </Button>
+              )}
+            <LeadActivityPanel key={leadId} leadId={leadId} kind="appointments" />
           </TabsContent>
         )}
       </Tabs>
@@ -573,18 +486,59 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
       />
       <WorkCreateDialog
         kind="followups"
+        lockInitialEntity
         open={scheduleOpen}
         onOpenChange={setScheduleOpen}
         initialEntity={{
           leadId: lead.id,
           customerId: lead.customer_id,
           branchId: lead.branch_id,
+          teamId: lead.team_id,
+          customerName: lead.customer_name,
+          phone: lead.phone,
+          interestedModel: lead.interested_model,
           assignedUserId: lead.assigned_user_id,
         }}
         onCreated={() => {
           salesConsultantCache.invalidate('lead.updated', { leadId });
+          void queryClient.invalidateQueries({ queryKey: ['lead-activity'] });
         }}
       />
+      <WorkCreateDialog
+        kind="appointments"
+        open={appointmentOpen}
+        onOpenChange={setAppointmentOpen}
+        lockInitialEntity
+        initialEntity={{
+          leadId: lead.id,
+          customerId: lead.customer_id,
+          branchId: lead.branch_id,
+          teamId: lead.team_id,
+          assignedUserId: lead.assigned_user_id,
+          customerName: lead.customer_name,
+          phone: lead.phone,
+          interestedModel: lead.interested_model,
+        }}
+        onCreated={() => {
+          salesConsultantCache.invalidate('lead.updated', { leadId });
+          void queryClient.invalidateQueries({ queryKey: ['lead-activity'] });
+        }}
+      />
+      {workspaceSession?.organizationId && (
+        <CustomerTelecmiCallDialog
+          key={lead.id}
+          open={callOpen}
+          onOpenChange={setCallOpen}
+          organizationId={workspaceSession.organizationId}
+          customerId={lead.customer_id ?? ''}
+          leadId={lead.id}
+          customerName={lead.customer_name}
+          customerPhone={lead.phone}
+          onStarted={() => {
+            void queryClient.invalidateQueries({ queryKey: ['lead-activity'] });
+          }}
+        />
+      )}
       <Dialog open={lostOpen} onOpenChange={setLostOpen}>
         <DialogContent>
           <DialogHeader>

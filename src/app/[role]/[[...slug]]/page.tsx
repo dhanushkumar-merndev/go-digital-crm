@@ -27,6 +27,7 @@ import { BulkCampaignWorkspace } from '@/features/marketing/bulk-campaign-worksp
 import { AssetLibraryWorkspace } from '@/features/marketing/asset-library-workspace';
 import { ReportExportWorkspace } from '@/features/reports/report-export-workspace';
 import { TenantDashboard } from '@/features/dashboards/tenant-dashboard';
+import { ReviewApprovalWorkspace } from '@/features/customer-care/review-approval-workspace';
 import {
   BusinessOperationsOverview,
   BusinessSalesOverview,
@@ -244,13 +245,21 @@ export default async function RolePage({ params }: Props) {
     !isLocalPreviewMode()
   )
     return <AccessoriesWorkspace spec={spec} />;
+  // Reviews is its own queue: submitted feedback awaiting a Google review
+  // invitation. It shared the generic case list before, which could never show a
+  // promoter because only low ratings create a case.
+  if (
+    (role === 'customer-care' || role === 'customer-relationship-executive') &&
+    slug[0] === 'reviews' &&
+    !isLocalPreviewMode()
+  )
+    return <ReviewApprovalWorkspace spec={spec} />;
   if (
     (role === 'customer-care' || role === 'customer-relationship-executive') &&
     [
       'dashboard',
       'customer-cases',
       'feedback',
-      'reviews',
       'complaints-escalations',
       'my-performance',
     ].includes(slug[0]) &&

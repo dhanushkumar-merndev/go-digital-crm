@@ -215,3 +215,109 @@ describe('public feedback form', () => {
     );
   });
 });
+
+describe('review approval queue', () => {
+  let db2: PGlite;
+  const org2 = randomUUID();
+  const staff2 = randomUUID();
+  const branch2 = randomUUID();
+  const customer2 = randomUUID();
+
+  async function claims2(user: string | null) {
+    await db2.query("select set_config('request.jwt.claims',$1,false)", [
+      user ? JSON.stringify({ sub: user, role: 'authenticated', aal: 'aal2' }) : '',
+    ]);
+  }
+  async function rpc2<T = Record<string, unknown>>(name: string, values: unknown[] = []) {
+    const result = await db2.query<{ result: T }>(
+      `select public.${name}(${values.map((_, i) => `$${i + 1}`).join(',')}) as result`,
+      values,
+    );
+    return result.rows[0].result;
+  }
+  async function completed(rating: number) {
+    const row = await db2.query<{ id: string }>(
+      "insert into feedback_requests(organization_id,branch_id,customer_id,status,rating,completed_at) values($1,$2,$3,'COMPLETED',$4,now()) returning id",
+      [org2, branch2, customer2, rating],
+    );
+    return row.rows[0].id;
+  }
+
+  beforeAll(async () => {
+    db2 = new PGlite();
+    await db2.exec(source('tests/api/fixtures/public-feedback-base.sql'));
+    await db2.exec(source('supabase/migrations/202609070202_public_feedback_forms.sql'));
+    await db2.exec(source('supabase/migrations/202609070204_review_approval_queue.sql'));
+    await db2.query("insert into organizations(id,name) values($1,'Demo')", [org2]);
+    await db2.query('insert into profiles(id,organization_id) values($1,$2)', [staff2, org2]);
+    await db2.query("insert into branches(id,organization_id,name) values($1,$2,'MG Road')", [
+      branch2,
+      org2,
+    ]);
+    await db2.query('insert into customers(id,organization_id) values($1,$2)', [customer2, org2]);
+  }, 30_000);
+  beforeEach(async () => {
+    await db2.exec('begin');
+    await claims2(staff2);
+  });
+  afterEach(async () => {
+    await db2.exec('rollback; reset role');
+  });
+  afterAll(async () => {
+    await db2?.close();
+  });
+
+  it('surfaces a promoter, which previously produced no visible record at all', async () => {
+    await completed(5);
+    const queue = (await rpc2('get_review_approval_queue', ['AWAITING', 1, 25])) as {
+      total: number;
+      records: Array<{ rating: number; customer: string; branch: string }>;
+    };
+    expect(queue.total).toBe(1);
+    expect(queue.records[0]).toMatchObject({ rating: 5, customer: 'Asha', branch: 'MG Road' });
+  });
+
+  it('lists low ratings too rather than hiding them from the queue', async () => {
+    await completed(2);
+    const queue = (await rpc2('get_review_approval_queue', ['AWAITING', 1, 25])) as {
+      total: number;
+    };
+    expect(queue.total).toBe(1);
+  });
+
+  it('moves a row out of AWAITING once it has been invited', async () => {
+    const id = await completed(5);
+    await rpc2('approve_feedback_review_invite', [id, 'Thanks!', randomUUID()]);
+    const awaiting = (await rpc2('get_review_approval_queue', ['AWAITING', 1, 25])) as {
+      total: number;
+    };
+    const invited = (await rpc2('get_review_approval_queue', ['INVITED', 1, 25])) as {
+      total: number;
+    };
+    expect(awaiting.total).toBe(0);
+    expect(invited.total).toBe(1);
+  });
+
+  it('counts both tabs in one pass', async () => {
+    const id = await completed(5);
+    await completed(4);
+    await rpc2('approve_feedback_review_invite', [id, 'Thanks!', randomUUID()]);
+    const queue = (await rpc2('get_review_approval_queue', ['ALL', 1, 25])) as {
+      counts: { awaiting: number; invited: number };
+    };
+    expect(queue.counts).toMatchObject({ awaiting: 1, invited: 1 });
+  });
+
+  it('rejects an unsupported page size instead of scanning everything', async () => {
+    await expect(rpc2('get_review_approval_queue', ['AWAITING', 1, 5000])).rejects.toThrow(
+      /INVALID_REVIEW_QUEUE_PAGE/,
+    );
+  });
+
+  it('refuses a caller with no tenant context', async () => {
+    await claims2(randomUUID());
+    await expect(rpc2('get_review_approval_queue', ['AWAITING', 1, 25])).rejects.toThrow(
+      /REVIEW_QUEUE_ACCESS_REQUIRED/,
+    );
+  });
+});

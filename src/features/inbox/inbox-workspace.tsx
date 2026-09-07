@@ -13,6 +13,8 @@ import {
 import Link from 'next/link';
 import { useMemo, useRef, useState } from 'react';
 import { PersonalWhatsAppDialog } from './personal-whatsapp-dialog';
+import { InboxLeadContext } from './inbox-lead-context';
+import { InboxMessageScroller } from './inbox-message-scroller';
 import {
   acknowledgeUnknownWhatsAppMessage,
   fetchPersonalWhatsAppStatus,
@@ -126,13 +128,24 @@ function InboxEmpty({ label }: { label: string }) {
   );
 }
 
-export function InboxWorkspace({ role }: { role: string }) {
+export function InboxWorkspace({
+  role,
+  leadId,
+  customerId,
+  embedded = false,
+  readOnly = false,
+}: {
+  role: string;
+  leadId?: string;
+  customerId?: string;
+  embedded?: boolean;
+  readOnly?: boolean;
+}) {
   const session = useWorkspaceSession();
   const salesConsultantCache = useSalesConsultantCache();
   const queryScope = workspaceQueryScope(session);
   const [search, setSearch] = useState('');
   const [channel, setChannel] = useState('all');
-  const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [draftConversation, setDraftConversation] = useState<string | null>(null);
@@ -140,21 +153,43 @@ export function InboxWorkspace({ role }: { role: string }) {
   const queryClient = useQueryClient();
   const refreshes = useRef<number[]>([]);
   const debouncedSearch = useDebouncedValue(search, 300);
-  const conversations = useQuery({
-    queryKey: ['shared-inbox', ...queryScope, debouncedSearch, channel, page],
-    queryFn: ({ signal }) =>
-      fetchInboxConversationPage({ search: debouncedSearch, channel, page }, signal),
+  const conversations = useInfiniteQuery({
+    queryKey: ['shared-inbox', ...queryScope, leadId, customerId, debouncedSearch, channel],
+    initialPageParam: 1,
+    queryFn: ({ signal, pageParam }) =>
+      fetchInboxConversationPage(
+        { search: debouncedSearch, channel, page: pageParam, leadId, customerId },
+        signal,
+      ),
+    getNextPageParam: (lastPage, _pages, lastPageParam) =>
+      lastPage.records.length && lastPageParam * 25 < lastPage.total
+        ? lastPageParam + 1
+        : undefined,
     staleTime: 60_000,
   });
+  const conversationRows = useMemo(
+    () => [
+      ...new Map(
+        (conversations.data?.pages.flatMap((page) => page.records) ?? []).map((row) => [
+          row.id,
+          row,
+        ]),
+      ).values(),
+    ],
+    [conversations.data?.pages],
+  );
   const activeConversation = useMemo(() => {
-    const rows = conversations.data?.records ?? [];
+    const rows = conversationRows;
     return rows.find((item) => item.id === selectedId) ?? rows[0] ?? null;
-  }, [conversations.data?.records, selectedId]);
+  }, [conversationRows, selectedId]);
   const messages = useInfiniteQuery({
-    queryKey: ['shared-inbox-messages', ...queryScope, activeConversation?.id],
+    queryKey: ['shared-inbox-messages', ...queryScope, activeConversation?.id, leadId],
     initialPageParam: { beforeAt: null as string | null, beforeId: null as string | null },
     queryFn: ({ signal, pageParam }) =>
-      fetchInboxMessagePage({ conversationId: activeConversation!.id, ...pageParam }, signal),
+      fetchInboxMessagePage(
+        { conversationId: activeConversation!.id, leadId, ...pageParam },
+        signal,
+      ),
     getNextPageParam: (lastPage) =>
       lastPage.has_more
         ? { beforeAt: lastPage.next_before_at, beforeId: lastPage.next_before_id }
@@ -177,17 +212,21 @@ export function InboxWorkspace({ role }: { role: string }) {
       .slice()
       .reverse()
       .flatMap((item) => item.records) ?? [];
-  const visibleDraft = draftConversation === activeConversation?.id ? draft : '';
+  const draftContext = `${activeConversation?.id}:${activeConversation?.lead_id}`;
+  const visibleDraft = draftConversation === draftContext ? draft : '';
   useTenantRealtimeInvalidation(session?.organizationId, [
     {
       resource: 'communications',
       queryKeys: [
         ['shared-inbox', ...queryScope],
         ['shared-inbox-messages', ...queryScope],
+        ['personal-whatsapp-status', ...queryScope],
       ],
     },
   ]);
   const canSend =
+    !readOnly &&
+    (!leadId || activeConversation?.lead_id === leadId) &&
     Boolean(session?.organizationId) &&
     hasWorkspacePermission(session, 'message.send') &&
     (activeConversation?.channel === 'WHATSAPP_BUSINESS' ||
@@ -199,12 +238,13 @@ export function InboxWorkspace({ role }: { role: string }) {
   const send = useMutation({
     mutationFn: () => {
       if (!session?.organizationId || !activeConversation) throw new Error('INBOX_NOT_READY');
-      const context = `${activeConversation.id}:${visibleDraft.trim()}`;
+      const context = `${draftContext}:${visibleDraft.trim()}`;
       if (sendKey.current?.context !== context)
         sendKey.current = { context, id: crypto.randomUUID() };
       return sendInboxWhatsAppMessage({
         organizationId: session.organizationId,
         conversationId: activeConversation.id,
+        expectedLeadId: activeConversation.lead_id,
         body: visibleDraft.trim(),
         applicationMessageId: sendKey.current.id,
       });
@@ -237,11 +277,14 @@ export function InboxWorkspace({ role }: { role: string }) {
       toast.add({
         type: 'error',
         title: 'Message was not sent',
-        description: code.startsWith('PERSONAL_WHATSAPP_')
-          ? (personalWhatsAppReason(code) ?? 'Reply unavailable.')
-          : code === 'WHATSAPP_TEMPLATE_REQUIRED'
-            ? 'The WhatsApp service window has closed. Use an approved template.'
-            : 'Check the connected channel and try again.',
+        description:
+          code === 'LEAD_CONTEXT_CHANGED'
+            ? 'The working lead changed. Check the selected lead before sending again.'
+            : code.startsWith('PERSONAL_WHATSAPP_')
+              ? (personalWhatsAppReason(code) ?? 'Reply unavailable.')
+              : code === 'WHATSAPP_TEMPLATE_REQUIRED'
+                ? 'The WhatsApp service window has closed. Use an approved template.'
+                : 'Check the connected channel and try again.',
       });
     },
   });
@@ -265,18 +308,20 @@ export function InboxWorkspace({ role }: { role: string }) {
     return <InboxEmpty label="Messages are not available for your role" />;
   }
 
-  const totalPages = Math.max(1, Math.ceil((conversations.data?.total ?? 0) / 25));
-
   if (conversations.isPending) return <InboxSkeleton />;
 
   return (
     <div className="mx-auto max-w-[1800px] space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="mb-2 text-xs text-muted-foreground">Workspace / Inbox</div>
-          <h1 className="text-2xl font-bold tracking-tight">Customer inbox</h1>
+          {!embedded && <div className="mb-2 text-xs text-muted-foreground">Workspace / Inbox</div>}
+          <h2 className={embedded ? 'text-lg font-semibold' : 'text-2xl font-bold tracking-tight'}>
+            {leadId ? 'This lead’s conversations' : 'Customer inbox'}
+          </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Manage authorized customer conversations across connected channels.
+            {leadId
+              ? 'Only messages assigned to this enquiry are shown.'
+              : 'All accessible customer conversations. Older messages load as you scroll up.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -303,6 +348,8 @@ export function InboxWorkspace({ role }: { role: string }) {
               }
               refreshes.current.push(now);
               void conversations.refetch();
+              if (activeConversation) void messages.refetch();
+              if (personalConversation) void personalStatus.refetch();
             }}
             disabled={conversations.isFetching}
           >
@@ -312,8 +359,10 @@ export function InboxWorkspace({ role }: { role: string }) {
         </div>
       </div>
       <Card className="sales-consultant-list-card overflow-hidden shadow-none">
-        <div className="grid min-h-[calc(100vh-230px)] lg:grid-cols-[320px_minmax(0,1fr)_300px]">
-          <aside className="flex min-h-0 flex-col border-r">
+        <div
+          className={`grid ${embedded ? 'h-[680px]' : 'h-[calc(100vh-230px)] min-h-[560px]'} lg:grid-cols-[280px_minmax(0,1fr)_280px]`}
+        >
+          <aside className={`${selectedId ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col border-r`}>
             <div className="space-y-2 border-b p-3">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -321,7 +370,7 @@ export function InboxWorkspace({ role }: { role: string }) {
                   value={search}
                   onChange={(event) => {
                     setSearch(event.target.value);
-                    setPage(1);
+                    setSelectedId(null);
                   }}
                   className="pl-9"
                   placeholder="Search customer or mobile"
@@ -331,7 +380,7 @@ export function InboxWorkspace({ role }: { role: string }) {
                 value={channel}
                 onValueChange={(value) => {
                   setChannel(value);
-                  setPage(1);
+                  setSelectedId(null);
                 }}
               >
                 <SelectTrigger>
@@ -346,15 +395,27 @@ export function InboxWorkspace({ role }: { role: string }) {
                 </SelectContent>
               </Select>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div
+              key={`${debouncedSearch}:${channel}`}
+              className="min-h-0 flex-1 overflow-y-auto"
+              onScroll={(event) => {
+                const node = event.currentTarget;
+                if (
+                  node.scrollHeight - node.scrollTop - node.clientHeight < 100 &&
+                  conversations.hasNextPage &&
+                  !conversations.isFetching
+                )
+                  void conversations.fetchNextPage();
+              }}
+            >
               {conversations.isPending ? (
                 <div className="p-5 text-sm text-muted-foreground">Loading conversations…</div>
               ) : conversations.isError ? (
                 <p role="alert" className="p-4 text-sm text-destructive">
                   Conversations could not be loaded. Try Refresh.
                 </p>
-              ) : conversations.data?.records.length ? (
-                conversations.data.records.map((conversation) => (
+              ) : conversationRows.length ? (
+                conversationRows.map((conversation) => (
                   <ConversationListItem
                     key={conversation.id}
                     conversation={conversation}
@@ -367,36 +428,37 @@ export function InboxWorkspace({ role }: { role: string }) {
               )}
             </div>
             <div className="flex items-center justify-between border-t p-3 text-xs text-muted-foreground">
-              <span>{conversations.data?.total ?? 0} conversations</span>
-              <div className="flex items-center gap-1">
+              <span>
+                {conversationRows.length} of {conversations.data?.pages[0]?.total ?? 0}{' '}
+                conversations
+              </span>
+              {conversations.hasNextPage && (
                 <Button
                   variant="outline"
-                  size="icon"
-                  className="size-7"
-                  disabled={page <= 1}
-                  onClick={() => setPage((value) => value - 1)}
+                  size="sm"
+                  disabled={conversations.isFetching}
+                  onClick={() => void conversations.fetchNextPage()}
                 >
-                  <ChevronLeft className="size-3.5" />
+                  {conversations.isFetchingNextPage ? 'Loading…' : 'Load more'}
                 </Button>
-                <span>
-                  {page}/{totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-7"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((value) => value + 1)}
-                >
-                  <ChevronLeft className="size-3.5 rotate-180" />
-                </Button>
-              </div>
+              )}
             </div>
           </aside>
-          <main className="flex min-h-0 flex-col bg-slate-50/30">
+          <main
+            className={`${selectedId ? 'flex' : 'hidden lg:flex'} min-h-0 flex-col bg-slate-50/30`}
+          >
             {activeConversation ? (
               <>
                 <div className="flex items-center justify-between gap-3 border-b bg-white p-4">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="lg:hidden"
+                    aria-label="Back to conversations"
+                    onClick={() => setSelectedId(null)}
+                  >
+                    <ChevronLeft className="size-4" />
+                  </Button>
                   <div className="min-w-0">
                     <p className="truncate font-semibold">{activeConversation.customer_name}</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
@@ -410,17 +472,23 @@ export function InboxWorkspace({ role }: { role: string }) {
                     {activeConversation.status}
                   </span>
                 </div>
-                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-                  {messages.hasNextPage && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={messages.isFetchingNextPage}
-                      onClick={() => void messages.fetchNextPage()}
-                    >
-                      Load earlier messages
-                    </Button>
-                  )}
+                <div className="max-h-48 overflow-y-auto px-4 pb-3 lg:hidden">
+                  <InboxLeadContext
+                    key={activeConversation.id}
+                    conversation={activeConversation}
+                    leadId={leadId}
+                    disabled={send.isPending || readOnly}
+                  />
+                </div>
+                <InboxMessageScroller
+                  key={`${activeConversation.id}:${leadId ?? 'all'}`}
+                  identity={`${activeConversation.id}:${leadId ?? 'all'}`}
+                  count={messageRows.length}
+                  newestId={messageRows.at(-1)?.id}
+                  hasMore={messages.hasNextPage}
+                  fetching={messages.isFetching}
+                  loadMore={() => messages.fetchNextPage()}
+                >
                   {messages.isPending ? (
                     <p className="text-sm text-muted-foreground">Loading messages…</p>
                   ) : messages.isError ? (
@@ -439,6 +507,14 @@ export function InboxWorkspace({ role }: { role: string }) {
                           <p className="whitespace-pre-wrap">
                             {message.body ?? 'Attachment or provider event'}
                           </p>
+                          {!leadId && typeof message.metadata.lead_id === 'string' && (
+                            <Link
+                              className="mt-1 block text-[10px] text-muted-foreground underline"
+                              href={`/${role}/leads/${message.metadata.lead_id}`}
+                            >
+                              Lead {message.metadata.lead_id.slice(0, 8)}
+                            </Link>
+                          )}
                           {personalConversation && message.delivery_status === 'UNKNOWN' && (
                             <Button
                               variant="outline"
@@ -463,7 +539,7 @@ export function InboxWorkspace({ role }: { role: string }) {
                   ) : (
                     <InboxEmpty label="No messages in this conversation" />
                   )}
-                </div>
+                </InboxMessageScroller>
                 <div className="border-t bg-white p-3">
                   {personalConversation && (
                     <div className="mb-2 space-y-1 text-xs text-muted-foreground">
@@ -492,7 +568,7 @@ export function InboxWorkspace({ role }: { role: string }) {
                       <Textarea
                         value={visibleDraft}
                         onChange={(event) => {
-                          setDraftConversation(activeConversation.id);
+                          setDraftConversation(draftContext);
                           setDraft(event.target.value);
                         }}
                         placeholder="Type a WhatsApp message…"
@@ -519,14 +595,16 @@ export function InboxWorkspace({ role }: { role: string }) {
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      {personalConversation
-                        ? personalStatus.isError
-                          ? 'Connection status is unavailable. Sending is disabled until it can be verified.'
-                          : (personalWhatsAppReason(personalStatus.data?.send_disabled_reason) ??
-                            'Checking your connection…')
-                        : activeConversation.channel === 'WHATSAPP_BUSINESS'
-                          ? 'You do not have permission to send from this conversation.'
-                          : `${channelLabel(activeConversation.channel)} replies become available after its server-side provider adapter is connected.`}
+                      {leadId && activeConversation.lead_id !== leadId
+                        ? 'This is earlier history for this lead. Choose “Work on this lead” before sending new messages here.'
+                        : personalConversation
+                          ? personalStatus.isError
+                            ? 'Connection status is unavailable. Sending is disabled until it can be verified.'
+                            : (personalWhatsAppReason(personalStatus.data?.send_disabled_reason) ??
+                              'Checking your connection…')
+                          : activeConversation.channel === 'WHATSAPP_BUSINESS'
+                            ? 'You do not have permission to send from this conversation.'
+                            : `${channelLabel(activeConversation.channel)} replies become available after its server-side provider adapter is connected.`}
                     </p>
                   )}
                 </div>
@@ -535,7 +613,7 @@ export function InboxWorkspace({ role }: { role: string }) {
               <InboxEmpty label="Select a conversation" />
             )}
           </main>
-          <aside className="hidden border-l bg-white lg:block">
+          <aside className="hidden overflow-y-auto border-l bg-white lg:block">
             {activeConversation ? (
               <div className="space-y-5 p-5">
                 <div>
@@ -554,6 +632,12 @@ export function InboxWorkspace({ role }: { role: string }) {
                     </div>
                   </div>
                 </div>
+                <InboxLeadContext
+                  key={activeConversation.id}
+                  conversation={activeConversation}
+                  leadId={leadId}
+                  disabled={send.isPending || readOnly}
+                />
                 <div className="space-y-3 border-t pt-4">
                   <Detail label="Channel" value={channelLabel(activeConversation.channel)} />
                   <Detail

@@ -559,6 +559,7 @@ export function CustomerTelecmiCallDialog({
   organizationId,
   customerName,
   customerPhone,
+  leadId,
   onStarted,
 }: {
   open: boolean;
@@ -567,11 +568,12 @@ export function CustomerTelecmiCallDialog({
   organizationId: string;
   customerName: string;
   customerPhone: string | null;
+  leadId?: string;
   onStarted: () => void;
 }) {
   const optionsQuery = useQuery({
-    queryKey: ['customer-telecmi-call-options', customerId],
-    queryFn: ({ signal }) => fetchCustomerTelecmiCallOptions(customerId, signal),
+    queryKey: ['customer-telecmi-call-options', organizationId, customerId, leadId],
+    queryFn: ({ signal }) => fetchCustomerTelecmiCallOptions(customerId, signal, leadId),
     enabled: open,
     staleTime: 60_000,
   });

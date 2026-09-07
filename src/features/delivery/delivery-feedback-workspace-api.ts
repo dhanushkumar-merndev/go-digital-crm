@@ -144,3 +144,35 @@ export async function setGoogleReviewUrl(url: string): Promise<boolean> {
   if (error) throw error;
   return true;
 }
+
+/**
+ * Issues the customer-facing link for a feedback request. The token is returned
+ * once and is not stored anywhere the browser can re-read, so a lost link is
+ * reissued rather than recovered — which also invalidates the previous one.
+ */
+export async function issueFeedbackFormLink(input: {
+  feedbackRequestId: string;
+  validDays?: number;
+}) {
+  const { data, error } = await createClient().rpc('issue_feedback_form_link', {
+    target_feedback_id: input.feedbackRequestId,
+    target_valid_days: input.validDays ?? 30,
+  });
+  if (error) throw error;
+  const parsed = z.object({ feedback_id: z.uuid(), token: z.string() }).parse(data);
+  return {
+    ...parsed,
+    url: `${globalThis.location?.origin ?? ''}/feedback/${parsed.token}`,
+  };
+}
+
+export function getFeedbackLinkErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (message.includes('FEEDBACK_ALREADY_COMPLETED'))
+    return 'This customer has already submitted their feedback.';
+  if (message.includes('FEEDBACK_SCOPE_DENIED'))
+    return 'This delivery is outside your assigned branch scope.';
+  if (message.includes('FEEDBACK_ACCESS_REQUIRED'))
+    return 'You are not allowed to issue feedback links.';
+  return 'The feedback link could not be created. Try again in a moment.';
+}

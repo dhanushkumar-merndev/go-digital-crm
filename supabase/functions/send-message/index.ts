@@ -27,6 +27,7 @@ const schema = z.object({
   organization_id: z.uuid(),
   conversation_id: z.uuid(),
   application_message_id: z.uuid(),
+  expected_lead_id: z.uuid().nullable().optional(),
   content,
 });
 
@@ -67,11 +68,19 @@ Deno.serve(async (request) => {
       try {
         await personalWhatsAppActor(request);
         if (input.content.type !== 'text') throw new Error('PERSONAL_WHATSAPP_TEXT_ONLY');
-        const { data, error } = await client.rpc('personal_whatsapp_send_prepare', {
-          target_conversation_id: input.conversation_id,
-          target_application_message_id: input.application_message_id,
-          target_body: input.content.body,
-        });
+        const { data, error } = await client.rpc(
+          input.expected_lead_id === undefined
+            ? 'personal_whatsapp_send_prepare'
+            : 'personal_whatsapp_send_for_lead',
+          {
+            target_conversation_id: input.conversation_id,
+            target_application_message_id: input.application_message_id,
+            target_body: input.content.body,
+            ...(input.expected_lead_id === undefined
+              ? {}
+              : { expected_lead_id: input.expected_lead_id }),
+          },
+        );
         if (error) throw error;
         prepared = data;
         if (prepared?.duplicate) return success(prepared, requestId, 202);
@@ -252,19 +261,30 @@ Deno.serve(async (request) => {
           request_hash: requestHash,
           attempt_count: 1,
           last_attempt_at: sentAt,
-          metadata:
-            input.content.type === 'template'
+          metadata: {
+            ...(input.expected_lead_id === undefined
+              ? {}
+              : { expected_lead_id: input.expected_lead_id }),
+            ...(input.content.type === 'template'
               ? {
                   message_type: 'template',
                   template_name: input.content.name,
                   language_code: input.content.language_code,
                   components: input.content.components,
                 }
-              : { message_type: 'text' },
+              : { message_type: 'text' }),
+          },
         })
         .select('id')
         .single();
       if (messageError) {
+        if (messageError.message === 'LEAD_CONTEXT_CHANGED')
+          return failure(
+            'LEAD_CONTEXT_CHANGED',
+            'The working lead changed. Review it before sending.',
+            requestId,
+            409,
+          );
         if (messageError.code === '23505')
           return success({ duplicate: true, status: 'PENDING' }, requestId, 202);
         throw messageError;

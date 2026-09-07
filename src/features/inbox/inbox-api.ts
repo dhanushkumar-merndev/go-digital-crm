@@ -44,10 +44,12 @@ export type InboxConversation = z.infer<typeof conversationSchema>;
 export type InboxMessagePage = z.infer<typeof messagePageSchema>;
 
 export async function fetchInboxConversationPage(
-  input: { search: string; channel: string; page: number },
+  input: { search: string; channel: string; page: number; leadId?: string; customerId?: string },
   signal?: AbortSignal,
 ) {
-  const request = createClient().rpc('get_inbox_conversation_page', {
+  const request = createClient().rpc('get_context_inbox_page', {
+    target_lead_id: input.leadId ?? null,
+    target_customer_id: input.customerId ?? null,
     target_search: input.search,
     target_channel: input.channel,
     target_page: input.page,
@@ -59,14 +61,20 @@ export async function fetchInboxConversationPage(
 }
 
 export async function fetchInboxMessagePage(
-  input: { conversationId: string; beforeAt?: string | null; beforeId?: string | null },
+  input: {
+    conversationId: string;
+    leadId?: string;
+    beforeAt?: string | null;
+    beforeId?: string | null;
+  },
   signal?: AbortSignal,
 ) {
-  const request = createClient().rpc('get_inbox_message_page', {
+  const request = createClient().rpc('get_context_inbox_messages', {
     target_conversation_id: input.conversationId,
+    target_lead_id: input.leadId ?? null,
     target_before_at: input.beforeAt ?? null,
     target_before_id: input.beforeId ?? null,
-    target_page_size: 100,
+    target_page_size: 25,
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
@@ -80,6 +88,7 @@ export async function sendInboxWhatsAppMessage(input: {
   conversationId: string;
   body: string;
   applicationMessageId?: string;
+  expectedLeadId: string | null;
 }) {
   const { data, error } = await createClient().functions.invoke<
     EdgeEnvelope<{ message_id: string; status?: string }>
@@ -87,6 +96,7 @@ export async function sendInboxWhatsAppMessage(input: {
     body: {
       organization_id: input.organizationId,
       conversation_id: input.conversationId,
+      expected_lead_id: input.expectedLeadId,
       application_message_id: input.applicationMessageId ?? crypto.randomUUID(),
       content: { type: 'text', body: input.body },
     },
@@ -97,4 +107,42 @@ export async function sendInboxWhatsAppMessage(input: {
   }
   if (!data?.ok) throw new Error(data?.error?.code ?? 'MESSAGE_SEND_FAILED');
   return data.data;
+}
+
+const leadOptionSchema = z.object({
+  id: z.uuid(),
+  customer_id: nullableUuid,
+  branch_id: z.uuid(),
+  team_id: nullableUuid,
+  assigned_user_id: nullableUuid,
+  customer_name: z.string(),
+  phone: z.string(),
+  interested_model: nullableString,
+  lifecycle_status: z.string(),
+  created_at: z.string(),
+});
+export async function fetchInboxLeadOptions(
+  conversationId: string,
+  search: string,
+  signal?: AbortSignal,
+) {
+  const request = createClient().rpc('get_inbox_lead_options', {
+    target_conversation_id: conversationId,
+    target_search: search,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return z.array(leadOptionSchema).parse(data);
+}
+export async function setInboxWorkingLead(input: {
+  conversationId: string;
+  leadId: string;
+  expectedLeadId: string | null;
+}) {
+  const { error } = await createClient().rpc('set_inbox_working_lead', {
+    target_conversation_id: input.conversationId,
+    target_lead_id: input.leadId,
+    expected_lead_id: input.expectedLeadId,
+  });
+  if (error) throw error;
 }

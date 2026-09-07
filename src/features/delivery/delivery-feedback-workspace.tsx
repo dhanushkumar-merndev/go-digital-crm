@@ -4,6 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   ChevronLeft,
   ChevronRight,
+  Link as LinkIcon,
   MessageSquarePlus,
   RefreshCw,
   Search,
@@ -56,6 +57,8 @@ import {
   deliveryFeedbackStatuses,
   fetchDeliveryFeedbackWorkspace,
   requestDeliveryFeedback,
+  issueFeedbackFormLink,
+  getFeedbackLinkErrorMessage,
   type DeliveryFeedbackPageSize,
   type DeliveryFeedbackRecord,
   type DeliveryFeedbackStatus,
@@ -126,6 +129,33 @@ export function DeliveryFeedbackWorkspace({ spec }: { spec: PageSpec }) {
         type: 'error',
         title: 'Feedback follow-up was not created',
         description: requestError(error),
+      }),
+  });
+  const linkMutation = useMutation({
+    mutationFn: issueFeedbackFormLink,
+    onSuccess: async (result) => {
+      // Copying is best-effort: clipboard access is denied in some browsers and
+      // over plain HTTP, so the link is always shown as well.
+      let copied = false;
+      try {
+        await globalThis.navigator?.clipboard?.writeText(result.url);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+      toast.add({
+        type: 'success',
+        title: copied ? 'Form link copied' : 'Form link ready',
+        description: copied
+          ? 'Send it to the customer. It works once and expires in 30 days.'
+          : result.url,
+      });
+    },
+    onError: (error) =>
+      toast.add({
+        type: 'error',
+        title: 'Form link was not created',
+        description: getFeedbackLinkErrorMessage(error),
       }),
   });
   const captureMutation = useMutation({
@@ -329,17 +359,35 @@ export function DeliveryFeedbackWorkspace({ spec }: { spec: PageSpec }) {
                         </Button>
                       ) : null}
                       {record.status === 'PENDING' ? (
-                        <Button
-                          size="sm"
-                          disabled={captureMutation.isPending}
-                          onClick={() => {
-                            setCaptureTarget(record);
-                            setRating('5');
-                            setComments('');
-                          }}
-                        >
-                          Capture feedback
-                        </Button>
+                        <div className="flex justify-end gap-2">
+                          {/* The customer fills this in themselves; capturing it
+                              by phone stays available for those who will not. */}
+                          {record.feedback_request_id ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={linkMutation.isPending}
+                              onClick={() =>
+                                linkMutation.mutate({
+                                  feedbackRequestId: record.feedback_request_id as string,
+                                })
+                              }
+                            >
+                              <LinkIcon className="size-4" /> Get form link
+                            </Button>
+                          ) : null}
+                          <Button
+                            size="sm"
+                            disabled={captureMutation.isPending}
+                            onClick={() => {
+                              setCaptureTarget(record);
+                              setRating('5');
+                              setComments('');
+                            }}
+                          >
+                            Capture feedback
+                          </Button>
+                        </div>
                       ) : null}
                       {record.status === 'COMPLETED' ? (
                         <span className="text-xs text-muted-foreground">Recorded</span>

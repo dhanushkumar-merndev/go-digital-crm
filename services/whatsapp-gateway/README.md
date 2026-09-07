@@ -95,9 +95,9 @@ The migration test runs the complete CRM migration history in an isolated PGlite
 database, then links, ingests and claims a reply with real access predicates.
 Focused database tests cover policy/rate boundaries. Gateway tests mock Baileys;
 they do not prove a real WhatsApp account can link or that upstream protocol
-compatibility will remain stable. The stable legacy Baileys 6.7.24 line is pinned;
-its libsignal dependency resolves to the same maintainer's published 6.0.0 package
-instead of installing a Git dependency. Revalidate upstream changes before upgrades.
+compatibility will remain stable. Baileys 7.0.0-rc14 is pinned for its current LID
+and phone-number mapping support; its libsignal dependency resolves to the same
+maintainer's published 6.0.0 package. Revalidate upstream changes before upgrades.
 
 Before admitting pilot users, manually check both eligible roles: QR rotation and
 expiry, scanning, connected status, a matched new inbound, a human reply, discarded

@@ -1,5 +1,7 @@
 'use client';
 
+import { InboxWorkspace } from '@/features/inbox/inbox-workspace';
+
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -106,7 +108,6 @@ const lazySectionByTab: Partial<
 > = {
   leads: 'leads',
   calls: 'calls',
-  conversations: 'conversations',
   followups: 'followups',
   appointments: 'appointments',
   'test-drives': 'test_drives',
@@ -649,17 +650,7 @@ function Customer360Content({
           )}
           {data.section_access.conversations && (
             <TabsContent value="conversations">
-              <DetailTable
-                headers={['Channel', 'Status', 'Messages', 'Latest message', 'Owner']}
-                emptyLabel="Conversations"
-                rows={data.conversations.map((conversation) => [
-                  conversation.channel.replaceAll('_', ' '),
-                  <StatusBadge key="status" value={conversation.status} />,
-                  conversation.message_count,
-                  formatDate(conversation.latest_message_at),
-                  conversation.assigned_user_name ?? '—',
-                ])}
-              />
+              <InboxWorkspace role={role} customerId={data.customer.id} embedded />
             </TabsContent>
           )}
           {data.section_access.followups && (

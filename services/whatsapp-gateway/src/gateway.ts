@@ -184,9 +184,11 @@ export class Gateway {
     socket.ev.on('messages.upsert', ({ messages, type }) => {
       if (type !== 'notify') return;
       for (const message of messages) {
-        const normalized = normalizeMessage(message, session.linkedAt);
-        if (!normalized) continue;
         this.enqueue(session, async () => {
+          const normalized = await normalizeMessage(message, session.linkedAt, (lid) =>
+            socket.signalRepository.lidMapping.getPNForLID(lid),
+          );
+          if (!normalized) return;
           await this.deps.rpc('personal_whatsapp_ingest', {
             target_connection_id: session.identity.connection_id,
             target_generation: session.identity.generation,

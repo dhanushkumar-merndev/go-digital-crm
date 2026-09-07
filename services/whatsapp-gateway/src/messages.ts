@@ -1,12 +1,25 @@
 import { jidDecode, type WAMessage } from '@whiskeysockets/baileys';
 
+export type ResolvePhoneJid = (lid: string) => Promise<string | null>;
+
 // LID values are opaque identities, never phone numbers. Only a provider-supplied
-// PN alternative may be used; no contact/profile harvesting is performed.
-export function normalizeMessage(message: WAMessage, linkedAt: number) {
+// PN alternative or the socket's persisted LID mapping may be used; no
+// contact/profile harvesting is performed.
+export async function normalizeMessage(
+  message: WAMessage,
+  linkedAt: number,
+  resolvePhoneJid?: ResolvePhoneJid,
+) {
   const jid = message.key.remoteJid;
   if (!jid || (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid'))) return null;
-  const alternate = (message.key as typeof message.key & { remoteJidAlt?: string }).remoteJidAlt;
-  const phoneJid = jid.endsWith('@s.whatsapp.net') ? jid : alternate;
+  let phoneJid = jid.endsWith('@s.whatsapp.net') ? jid : message.key.remoteJidAlt;
+  if (!phoneJid && jid.endsWith('@lid') && resolvePhoneJid) {
+    try {
+      phoneJid = (await resolvePhoneJid(jid)) ?? undefined;
+    } catch {
+      return null;
+    }
+  }
   if (!phoneJid?.endsWith('@s.whatsapp.net')) return null;
   const phone = jidDecode(phoneJid)?.user;
   if (!phone || !/^\d{7,15}$/.test(phone)) return null;

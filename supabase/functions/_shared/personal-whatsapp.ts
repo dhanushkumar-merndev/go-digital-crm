@@ -73,7 +73,9 @@ export async function personalGateway(method: 'POST' | 'DELETE', path: string, d
 export function personalError(error: unknown) {
   const message = error instanceof Error ? error.message : (error as { message?: string })?.message;
   return message &&
-    /^(PERSONAL_WHATSAPP_[A-Z_]+|UNAUTHENTICATED|IDEMPOTENCY_PAYLOAD_MISMATCH)$/.test(message)
+    /^(PERSONAL_WHATSAPP_[A-Z_]+|UNAUTHENTICATED|IDEMPOTENCY_PAYLOAD_MISMATCH|LEAD_CONTEXT_CHANGED)$/.test(
+      message,
+    )
     ? message
     : 'PERSONAL_WHATSAPP_REQUEST_FAILED';
 }

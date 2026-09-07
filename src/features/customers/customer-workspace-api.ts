@@ -390,10 +390,16 @@ const customerTelecmiCallOptionsSchema = z.object({
 
 export type CustomerTelecmiCallOptions = z.infer<typeof customerTelecmiCallOptionsSchema>;
 
-export async function fetchCustomerTelecmiCallOptions(customerId: string, signal?: AbortSignal) {
-  const request = createClient().rpc('get_customer_telecmi_call_options', {
-    target_customer_id: customerId,
-  });
+export async function fetchCustomerTelecmiCallOptions(
+  customerId: string,
+  signal?: AbortSignal,
+  leadId?: string,
+) {
+  const request = leadId
+    ? createClient().rpc('get_lead_telecmi_call_options', { target_lead_id: leadId })
+    : createClient().rpc('get_customer_telecmi_call_options', {
+        target_customer_id: customerId,
+      });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return customerTelecmiCallOptionsSchema.parse(data);

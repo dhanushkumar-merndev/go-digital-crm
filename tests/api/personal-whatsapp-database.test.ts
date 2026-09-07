@@ -63,6 +63,7 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
     await db.exec(source('tests/api/fixtures/personal-whatsapp-base.sql'));
     await db.exec(source('supabase/migrations/202608220009_shared_inbox_workspace.sql'));
     await db.exec(source('supabase/migrations/202609060001_personal_whatsapp_pilot.sql'));
+    await db.exec(source('supabase/migrations/202609070203_personal_whatsapp_phone_matching.sql'));
     await db.query('insert into organizations(id) values($1)', [org]);
     for (const id of [actor, other, manager])
       await db.query('insert into profiles(id,organization_id) values($1,$2)', [id, org]);
@@ -81,7 +82,7 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
     }
     await db.query(
       'insert into leads(id,organization_id,branch_id,assigned_user_id,normalized_phone,customer_name) values($1,$2,$3,$4,$5,$6)',
-      [lead, org, branch, actor, '919876543210', 'CRM customer'],
+      [lead, org, branch, actor, '9876543210', 'CRM customer'],
     );
   }, 30_000);
   beforeEach(async () => {
@@ -122,6 +123,9 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
     );
     expect(counts.rows[0].count).toBe(2);
     expect((await db.query('select * from conversation_messages')).rows).toHaveLength(0);
+  });
+  it('does not use arbitrary international suffixes as CRM phone matches', async () => {
+    expect(await incoming('449876543210')).toMatchObject({ ignored: true });
   });
   it('drops ambiguous phone matches and records outside owner scope', async () => {
     await db.query(

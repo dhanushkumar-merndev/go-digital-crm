@@ -61,26 +61,47 @@ describe('personal WhatsApp security', () => {
     expect(hasCapacity(5, 100, 100 * 1024 * 1024, 512)).toBe(false);
     expect(hasCapacity(1, 5, 400 * 1024 * 1024, 512)).toBe(false);
   });
-  it('discards groups, old history, opaque LIDs, and view-once content', () => {
+  it('discards groups, old history, unresolved LIDs, and view-once content', async () => {
     const base = {
       key: { id: 'message', remoteJid: '919876543210@s.whatsapp.net' },
       messageTimestamp: Math.floor(Date.now() / 1000),
       message: { conversation: 'Hello' },
     };
-    expect(normalizeMessage(base, Date.now() - 10_000)?.body).toBe('Hello');
+    expect((await normalizeMessage(base, Date.now() - 10_000))?.body).toBe('Hello');
     expect(
-      normalizeMessage({ ...base, key: { ...base.key, remoteJid: '123@g.us' } }, 0),
+      await normalizeMessage({ ...base, key: { ...base.key, remoteJid: '123@g.us' } }, 0),
     ).toBeNull();
     expect(
-      normalizeMessage({ ...base, key: { ...base.key, remoteJid: '1234567890@lid' } }, 0),
+      await normalizeMessage({ ...base, key: { ...base.key, remoteJid: '1234567890@lid' } }, 0),
     ).toBeNull();
-    expect(normalizeMessage(base, Date.now() + 1000)).toBeNull();
+    expect(await normalizeMessage(base, Date.now() + 1000)).toBeNull();
     expect(
-      normalizeMessage(
+      await normalizeMessage(
         { ...base, message: { viewOnceMessage: { message: { conversation: 'Private' } } } },
         0,
       ),
     ).toBeNull();
+  });
+  it('resolves modern LID contacts from message metadata or the encrypted mapping store', async () => {
+    const base = {
+      key: { id: 'message', remoteJid: '1234567890@lid' },
+      messageTimestamp: Math.floor(Date.now() / 1000),
+      message: { conversation: 'Hello' },
+    };
+    expect(
+      (
+        await normalizeMessage(
+          {
+            ...base,
+            key: { ...base.key, remoteJidAlt: '919876543210@s.whatsapp.net' },
+          },
+          0,
+        )
+      )?.phone,
+    ).toBe('919876543210');
+    const resolve = vi.fn().mockResolvedValue('919876543210@s.whatsapp.net');
+    expect((await normalizeMessage(base, 0, resolve))?.phone).toBe('919876543210');
+    expect(resolve).toHaveBeenCalledWith('1234567890@lid');
   });
   it('restores persisted credential and Signal buffers without local auth files', async () => {
     const values: Record<string, string> = {};
@@ -117,6 +138,9 @@ describe('Baileys gateway lifecycle with simulated sockets', () => {
     const socket = {
       ev,
       user: { id: '919876543210:1@s.whatsapp.net' },
+      signalRepository: {
+        lidMapping: { getPNForLID: vi.fn().mockResolvedValue('919876543210@s.whatsapp.net') },
+      },
       end: vi.fn(),
       logout: vi.fn(),
       sendMessage: vi.fn().mockResolvedValue({ key: { id: 'provider' } }),
@@ -167,6 +191,29 @@ describe('Baileys gateway lifecycle with simulated sockets', () => {
       .map(([, args]) => args.target_operation);
     expect(operations.filter((op) => op === 'qr')).toHaveLength(2);
     expect(operations).toContain('connected');
+  });
+  it('ingests a live LID message by resolving its phone-number mapping', async () => {
+    const { gateway, ev, rpc, socket, identity } = setup();
+    await gateway.connect(identity);
+    ev.emit('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: { id: 'message', remoteJid: '1234567890@lid' },
+          messageTimestamp: Math.floor(Date.now() / 1000),
+          message: { conversation: 'Hello' },
+        },
+      ],
+    });
+    await drain();
+    expect(socket.signalRepository.lidMapping.getPNForLID).toHaveBeenCalledWith('1234567890@lid');
+    expect(
+      rpc.mock.calls.some(
+        ([name, args]) =>
+          name === 'personal_whatsapp_ingest' &&
+          (args.target_data as { phone?: string }).phone === '919876543210',
+      ),
+    ).toBe(true);
   });
   it('does not send twice and never retries an uncertain provider response', async () => {
     const { gateway, rpc, socket, identity } = setup();
