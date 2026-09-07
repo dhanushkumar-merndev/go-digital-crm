@@ -880,7 +880,7 @@ function StockCheckTable({
               alt={`${row.original.model_name} demo vehicle`}
               width={36}
               height={36}
-              className="size-9 shrink-0 rounded-full border border-slate-100 bg-slate-100 object-cover"
+              className="size-9 shrink-0 rounded-md border border-slate-200 bg-slate-100 object-cover"
             />
             <div>
               <p className="font-medium">{row.original.model_name}</p>
