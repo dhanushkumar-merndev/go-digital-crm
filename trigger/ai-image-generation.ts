@@ -4,7 +4,6 @@
 import { createHash } from 'node:crypto';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { createClient } from '@supabase/supabase-js';
-import { schedules } from '@trigger.dev/sdk';
 
 type ImageGeneration = {
   id: string;
@@ -296,43 +295,35 @@ async function processGeneration(
   if (commitError) throw commitError;
 }
 
-export const aiImageGeneration = schedules.task({
-  id: 'ai-image-generation',
-  cron: { pattern: '* * * * *', timezone: 'UTC' },
-  queue: { concurrencyLimit: 1 },
-  retry: { maxAttempts: 3, factor: 2, minTimeoutInMs: 1000, maxTimeoutInMs: 30_000 },
-  run: async () => {
-    const supabase = createClient(
-      requiredEnvironment('SUPABASE_URL'),
-      requiredEnvironment('SUPABASE_SERVICE_ROLE_KEY'),
-      { auth: { persistSession: false, autoRefreshToken: false } },
-    );
-    const { data, error } = await supabase.rpc<ImageGeneration[]>('claim_ai_image_generations', {
-      target_worker_id: `trigger:ai-image-generation:${crypto.randomUUID()}`,
-      target_batch_size: 2,
-    });
-    if (error) throw error;
-    const storage = storageClient();
-    let completed = 0;
-    let retried = 0;
-    for (const item of data ?? []) {
-      try {
-        await processGeneration(supabase, storage, item);
-        completed += 1;
-      } catch (error) {
-        const safeCode =
-          error instanceof Error && /^[A-Z0-9_]{3,100}$/.test(error.message)
-            ? error.message
-            : 'AI_IMAGE_GENERATION_RETRY';
-        const { error: retryError } = await supabase.rpc('retry_ai_image_generation', {
-          target_generation_id: item.id,
-          target_lease_token: item.lease_token,
-          target_safe_error_code: safeCode,
-        });
-        if (retryError) throw retryError;
-        retried += 1;
-      }
+/** One step of the per-minute pass. Scheduling lives in
+ * trigger/minute-dispatch.ts: the project allows 10 schedules and six
+ * tasks shared this same cron, so they share one slot instead. */
+export async function runAiImageGeneration(supabase: ReturnType<typeof createClient>) {
+  const { data, error } = await supabase.rpc<ImageGeneration[]>('claim_ai_image_generations', {
+    target_worker_id: `trigger:ai-image-generation:${crypto.randomUUID()}`,
+    target_batch_size: 2,
+  });
+  if (error) throw error;
+  const storage = storageClient();
+  let completed = 0;
+  let retried = 0;
+  for (const item of data ?? []) {
+    try {
+      await processGeneration(supabase, storage, item);
+      completed += 1;
+    } catch (error) {
+      const safeCode =
+        error instanceof Error && /^[A-Z0-9_]{3,100}$/.test(error.message)
+          ? error.message
+          : 'AI_IMAGE_GENERATION_RETRY';
+      const { error: retryError } = await supabase.rpc('retry_ai_image_generation', {
+        target_generation_id: item.id,
+        target_lease_token: item.lease_token,
+        target_safe_error_code: safeCode,
+      });
+      if (retryError) throw retryError;
+      retried += 1;
     }
-    return { claimed: data?.length ?? 0, completed, retried };
-  },
-});
+  }
+  return { claimed: data?.length ?? 0, completed, retried };
+}

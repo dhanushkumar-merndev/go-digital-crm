@@ -1,5 +1,4 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { schedules } from '@trigger.dev/sdk';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 type OutboxEvent = {
   id: string;
@@ -266,49 +265,42 @@ async function dispatch(supabase: SupabaseClient, event: OutboxEvent) {
   throw new Error('UNSUPPORTED_OUTBOX_EVENT');
 }
 
-export const providerOutbox = schedules.task({
-  id: 'provider-outbox-dispatch',
-  cron: { pattern: '* * * * *', timezone: 'UTC' },
-  retry: { maxAttempts: 3, factor: 2, minTimeoutInMs: 1000, maxTimeoutInMs: 30_000 },
-  run: async () => {
-    const supabase = createClient(
-      requiredEnvironment('SUPABASE_URL'),
-      requiredEnvironment('SUPABASE_SERVICE_ROLE_KEY'),
-      { auth: { persistSession: false, autoRefreshToken: false } },
-    );
-    const workerId = `trigger:${crypto.randomUUID()}`;
-    const { data, error } = await supabase.rpc('claim_domain_outbox', {
-      target_worker_id: workerId,
-      target_batch_size: 50,
-    });
-    if (error) throw error;
-    let completed = 0;
-    let retried = 0;
-    for (const event of (data ?? []) as OutboxEvent[]) {
-      try {
-        await dispatch(supabase, event);
-        const { error: completeError } = await supabase.rpc('complete_domain_outbox', {
-          target_event_id: event.id,
-          target_worker_id: workerId,
-        });
-        if (completeError) throw completeError;
-        completed += 1;
-      } catch (dispatchError) {
-        const safeCode =
-          dispatchError instanceof Error && dispatchError.message === 'UNSUPPORTED_OUTBOX_EVENT'
-            ? 'UNSUPPORTED_OUTBOX_EVENT'
-            : 'PROVIDER_OUTBOX_RETRY';
-        const delaySeconds = Math.min(3600, 30 * 2 ** Math.min(event.attempts, 7));
-        const { error: retryError } = await supabase.rpc('retry_domain_outbox', {
-          target_event_id: event.id,
-          target_worker_id: workerId,
-          target_safe_error_code: safeCode,
-          target_delay_seconds: delaySeconds,
-        });
-        if (retryError) throw retryError;
-        retried += 1;
-      }
+/** One step of the per-minute pass. Scheduling lives in
+ * trigger/minute-dispatch.ts: the project allows 10 schedules and six
+ * tasks shared this same cron, so they share one slot instead. */
+export async function runProviderOutbox(supabase: SupabaseClient) {
+  const workerId = `trigger:${crypto.randomUUID()}`;
+  const { data, error } = await supabase.rpc('claim_domain_outbox', {
+    target_worker_id: workerId,
+    target_batch_size: 50,
+  });
+  if (error) throw error;
+  let completed = 0;
+  let retried = 0;
+  for (const event of (data ?? []) as OutboxEvent[]) {
+    try {
+      await dispatch(supabase, event);
+      const { error: completeError } = await supabase.rpc('complete_domain_outbox', {
+        target_event_id: event.id,
+        target_worker_id: workerId,
+      });
+      if (completeError) throw completeError;
+      completed += 1;
+    } catch (dispatchError) {
+      const safeCode =
+        dispatchError instanceof Error && dispatchError.message === 'UNSUPPORTED_OUTBOX_EVENT'
+          ? 'UNSUPPORTED_OUTBOX_EVENT'
+          : 'PROVIDER_OUTBOX_RETRY';
+      const delaySeconds = Math.min(3600, 30 * 2 ** Math.min(event.attempts, 7));
+      const { error: retryError } = await supabase.rpc('retry_domain_outbox', {
+        target_event_id: event.id,
+        target_worker_id: workerId,
+        target_safe_error_code: safeCode,
+        target_delay_seconds: delaySeconds,
+      });
+      if (retryError) throw retryError;
+      retried += 1;
     }
-    return { claimed: data?.length ?? 0, completed, retried };
-  },
-});
+  }
+  return { claimed: data?.length ?? 0, completed, retried };
+}

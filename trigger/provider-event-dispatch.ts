@@ -1,5 +1,5 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { idempotencyKeys, schedules, tasks } from '@trigger.dev/sdk';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { idempotencyKeys, tasks } from '@trigger.dev/sdk';
 import { normalizeGoogleLead } from '../src/lib/providers/google-lead-form-adapter';
 import { normalizeMetaLead } from '../src/lib/providers/meta-lead-adapter';
 import {
@@ -959,42 +959,33 @@ async function processEvent(
   }
 }
 
-export const providerEventDispatch = schedules.task({
-  id: 'provider-event-dispatch',
-  cron: { pattern: '* * * * *', timezone: 'UTC' },
-  queue: { concurrencyLimit: 1 },
-  ttl: '5m',
-  retry: { maxAttempts: 3, factor: 2, minTimeoutInMs: 1000, maxTimeoutInMs: 30_000 },
-  run: async () => {
-    const supabase = createClient(
-      requiredEnvironment('SUPABASE_URL'),
-      requiredEnvironment('SUPABASE_SERVICE_ROLE_KEY'),
-      { auth: { persistSession: false, autoRefreshToken: false } },
+/** One step of the per-minute pass. Scheduling lives in
+ * trigger/minute-dispatch.ts: the project allows 10 schedules and six
+ * tasks shared this same cron, so they share one slot instead. */
+export async function runProviderEventDispatch(supabase: SupabaseClient) {
+  const workerId = `trigger:${crypto.randomUUID()}`;
+  const { data, error } = await supabase.rpc('claim_provider_events', {
+    target_worker_id: workerId,
+    target_batch_size: configuredBatchSize(),
+  });
+  if (error) throw error;
+  const claimed = (data ?? []) as ProviderEvent[];
+  const outcomes: ProcessingResult[] = [];
+  const concurrency = configuredConcurrency();
+  for (let offset = 0; offset < claimed.length; offset += concurrency) {
+    outcomes.push(
+      ...(await Promise.all(
+        claimed
+          .slice(offset, offset + concurrency)
+          .map((event) => processEvent(supabase, workerId, event)),
+      )),
     );
-    const workerId = `trigger:${crypto.randomUUID()}`;
-    const { data, error } = await supabase.rpc('claim_provider_events', {
-      target_worker_id: workerId,
-      target_batch_size: configuredBatchSize(),
-    });
-    if (error) throw error;
-    const claimed = (data ?? []) as ProviderEvent[];
-    const outcomes: ProcessingResult[] = [];
-    const concurrency = configuredConcurrency();
-    for (let offset = 0; offset < claimed.length; offset += concurrency) {
-      outcomes.push(
-        ...(await Promise.all(
-          claimed
-            .slice(offset, offset + concurrency)
-            .map((event) => processEvent(supabase, workerId, event)),
-        )),
-      );
-    }
-    return {
-      claimed: claimed.length,
-      completed: outcomes.filter((outcome) => outcome === 'completed').length,
-      retried: outcomes.filter((outcome) => outcome === 'retried').length,
-      failed: outcomes.filter((outcome) => outcome === 'failed').length,
-      lease_lost: outcomes.filter((outcome) => outcome === 'lease_lost').length,
-    };
-  },
-});
+  }
+  return {
+    claimed: claimed.length,
+    completed: outcomes.filter((outcome) => outcome === 'completed').length,
+    retried: outcomes.filter((outcome) => outcome === 'retried').length,
+    failed: outcomes.filter((outcome) => outcome === 'failed').length,
+    lease_lost: outcomes.filter((outcome) => outcome === 'lease_lost').length,
+  };
+}

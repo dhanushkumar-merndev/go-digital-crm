@@ -11,6 +11,7 @@ const worker = source('trigger/drip-dispatch.ts');
 const enrollment = source('supabase/migrations/202608260005_customer_drip_messaging.sql');
 const config = source('trigger.config.ts');
 const dispatcher = source('trigger/marketing-dispatch.ts');
+const minute = source('trigger/minute-dispatch.ts');
 
 describe('customer drip dispatch contract', () => {
   it('supplies the dispatcher the enrollment schema was always indexed for', () => {
@@ -20,8 +21,11 @@ describe('customer drip dispatch contract', () => {
     expect(worker).toContain('export async function runDripDispatch(');
     // The four marketing queues share one cron slot; the project's schedule
     // limit is 10 and eight were already in use.
-    expect(dispatcher).toContain("id: 'marketing-dispatch'");
+    expect(dispatcher).toContain('export async function runMarketingDispatch(');
     expect(dispatcher).toContain('runDripDispatch(supabase)');
+    // The single per-minute schedule that drives it.
+    expect(minute).toContain("id: 'minute-dispatch'");
+    expect(minute).toContain('runMarketingDispatch');
     // Tasks are auto-discovered from ./trigger, so no registration is needed.
     expect(config).toContain("dirs: ['./trigger']");
   });

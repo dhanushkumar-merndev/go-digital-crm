@@ -16,6 +16,7 @@ function source(relativePath: string) {
 
 const migration = source('supabase/migrations/202608150009_provider_event_dispatch.sql');
 const worker = source('trigger/provider-event-dispatch.ts');
+const minute = source('trigger/minute-dispatch.ts');
 const metaIngress = source('supabase/functions/provider-webhook-meta/index.ts');
 const googleIngress = source('supabase/functions/provider-webhook-generic/index.ts');
 const whatsappIngress = source('supabase/functions/provider-webhook-whatsapp/index.ts');
@@ -187,9 +188,16 @@ describe('durable provider event dispatch contract', () => {
       'TELECMI_CALL_EVENT',
     ])
       expect(worker).toContain(`event.event_type === '${eventType}'`);
-    expect(worker).toContain("id: 'provider-event-dispatch'");
-    expect(worker).toContain('queue: { concurrencyLimit: 1 }');
-    expect(worker).toContain("ttl: '5m'");
+    // Scheduling moved to trigger/minute-dispatch.ts, which carries the
+    // bounded-worker guarantees this test is really asserting: one run at a
+    // time, and a stale run dropped rather than piling up behind the next.
+    expect(worker).toContain('export async function runProviderEventDispatch(');
+    expect(minute).toContain('runProviderEventDispatch');
+    expect(minute).toContain("id: 'minute-dispatch'");
+    expect(minute).toContain('queue: { concurrencyLimit: 1 }');
+    expect(minute).toContain("ttl: '5m'");
+    // One queue failing must not stop the other five.
+    expect(minute).toContain('Promise.allSettled');
     expect(worker).toContain("supabase.rpc('claim_provider_events'");
     expect(worker).toContain("supabase.rpc('complete_provider_event'");
     expect(worker).toContain("supabase.rpc('retry_provider_event'");

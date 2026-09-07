@@ -10,6 +10,7 @@ const migration = source('supabase/migrations/202608220025_ai_image_generation_w
 const queueFunction = source('supabase/functions/ai-image-generate/index.ts');
 const downloadFunction = source('supabase/functions/ai-image-download/index.ts');
 const worker = source('trigger/ai-image-generation.ts');
+const dispatcher = source('trigger/minute-dispatch.ts');
 const api = source('src/features/marketing/ai-image-creation-api.ts');
 const workspace = source('src/features/marketing/ai-image-creation-workspace.tsx');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
@@ -34,8 +35,12 @@ describe('AI image generation workflow contract', () => {
   });
 
   it('runs external generation asynchronously and stores the completed outputs in private object storage', () => {
-    expect(worker).toContain('schedules.task');
-    expect(worker).toContain('/v1/images/generations');
+    // Scheduling moved into trigger/minute-dispatch.ts: six tasks shared this
+    // cron and the project allows only 10 schedules.
+    expect(worker).toContain('export async function runAiImageGeneration(');
+    expect(dispatcher).toContain('runAiImageGeneration');
+    expect(dispatcher).toContain('schedules.task');
+    expect(worker).toContain('openrouter.ai/api/v1/chat/completions');
     expect(worker).toContain('claim_ai_image_generations');
     expect(worker).toContain('PutObjectCommand');
     expect(worker).toContain('complete_ai_image_generation');

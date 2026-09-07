@@ -192,35 +192,48 @@ describe('scheduled customer date and five-minute lead alerts', () => {
     await expect(dispatch()).rejects.toThrow('SERVICE_ROLE_REQUIRED');
   });
 
-  it('does not change the lifecycle while reporting an SLA breach',async () => {
+  it('does not change the lifecycle while reporting an SLA breach', async () => {
     await dispatch();
-    expect((await db.query('select lifecycle_status from leads where id=$1',[lead])).rows).toEqual([{lifecycle_status:'New'}]);
+    expect((await db.query('select lifecycle_status from leads where id=$1', [lead])).rows).toEqual(
+      [{ lifecycle_status: 'New' }],
+    );
   });
-  it('does not treat a future call time as an already completed call attempt',async () => {
-    await db.query("insert into calls(organization_id,lead_id,started_at) values($1,$2,'2026-09-08T04:30:00Z')",[org,lead]);
+  it('does not treat a future call time as an already completed call attempt', async () => {
+    await db.query(
+      "insert into calls(organization_id,lead_id,started_at) values($1,$2,'2026-09-08T04:30:00Z')",
+      [org, lead],
+    );
     expect((await dispatch()).lead_sla).toBe(2);
   });
-  it('does not notify for dates that have not happened yet',async () => {
-    await db.query("update custom_field_values set value='\"2027-09-07\"'");
+  it('does not notify for dates that have not happened yet', async () => {
+    await db.query('update custom_field_values set value=\'"2027-09-07"\'');
     expect((await dispatch()).customer_dates).toBe(0);
   });
-  it('ignores deactivated customer date fields',async () => {
-    await db.query('update custom_field_definitions set active=false where id=$1',[field]);
+  it('ignores deactivated customer date fields', async () => {
+    await db.query('update custom_field_definitions set active=false where id=$1', [field]);
     expect((await dispatch()).customer_dates).toBe(0);
   });
-  it('suppresses recipients whose account has been deactivated',async () => {
-    await db.query('update profiles set active=false where id=$1',[owner]);
-    expect(await dispatch()).toEqual({lead_sla:1,customer_dates:0});
+  it('suppresses recipients whose account has been deactivated', async () => {
+    await db.query('update profiles set active=false where id=$1', [owner]);
+    expect(await dispatch()).toEqual({ lead_sla: 1, customer_dates: 0 });
   });
-  it('rejects a stale reminder-setting edit',async () => {
-    await claims(owner,'authenticated');
-    await expect(db.query('select public.set_customer_date_reminder($1,false,2)',[field])).rejects.toThrow('CUSTOM_FIELD_VERSION_CONFLICT');
+  it('rejects a stale reminder-setting edit', async () => {
+    await claims(owner, 'authenticated');
+    await expect(
+      db.query('select public.set_customer_date_reminder($1,false,2)', [field]),
+    ).rejects.toThrow('CUSTOM_FIELD_VERSION_CONFLICT');
   });
-  it('rejects a foreign-tenant reminder-setting edit',async () => {
-    const otherOrg=randomUUID(),otherActor=randomUUID();
-    await db.query('insert into organizations(id) values($1)',[otherOrg]);
-    await db.query('insert into profiles(id,organization_id) values($1,$2)',[otherActor,otherOrg]);
-    await claims(otherActor,'authenticated');
-    await expect(db.query('select public.set_customer_date_reminder($1,false,1)',[field])).rejects.toThrow('CUSTOM_FIELD_NOT_FOUND');
+  it('rejects a foreign-tenant reminder-setting edit', async () => {
+    const otherOrg = randomUUID(),
+      otherActor = randomUUID();
+    await db.query('insert into organizations(id) values($1)', [otherOrg]);
+    await db.query('insert into profiles(id,organization_id) values($1,$2)', [
+      otherActor,
+      otherOrg,
+    ]);
+    await claims(otherActor, 'authenticated');
+    await expect(
+      db.query('select public.set_customer_date_reminder($1,false,1)', [field]),
+    ).rejects.toThrow('CUSTOM_FIELD_NOT_FOUND');
   });
 });

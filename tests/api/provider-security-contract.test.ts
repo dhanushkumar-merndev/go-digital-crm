@@ -13,6 +13,7 @@ const googleWebhook = source('supabase/functions/provider-webhook-generic/index.
 const whatsAppWebhook = source('supabase/functions/provider-webhook-whatsapp/index.ts');
 const supabaseConfig = source('supabase/config.toml');
 const providerOutbox = source('trigger/provider-outbox.ts');
+const minuteDispatch = source('trigger/minute-dispatch.ts');
 const providerEventDispatch = source('trigger/provider-event-dispatch.ts');
 const providerEventMigration = source(
   'supabase/migrations/202608150009_provider_event_dispatch.sql',
@@ -69,7 +70,9 @@ describe('provider integration security and delivery contract', () => {
   });
 
   it('has a durable worker for provider retries and unknown-result reconciliation', () => {
-    expect(providerOutbox).toContain("id: 'provider-outbox-dispatch'");
+    expect(providerOutbox).toContain('export async function runProviderOutbox(');
+    expect(minuteDispatch).toContain('runProviderOutbox');
+    expect(minuteDispatch).toContain("id: 'minute-dispatch'");
     expect(providerOutbox).toContain("supabase.rpc('claim_domain_outbox'");
     expect(providerOutbox).toContain("supabase.rpc('complete_domain_outbox'");
     expect(providerOutbox).toContain("supabase.rpc('retry_domain_outbox'");
