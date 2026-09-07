@@ -11,6 +11,7 @@ import {
   Search,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { notificationDetailHref } from '@/lib/navigation/record-links';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -118,10 +119,11 @@ export function NotificationCenterSheet({
     },
   });
 
-  const openRelatedCustomer = (resourceType: string | null, resourceId: string | null) => {
-    if (resourceType !== 'customer' || !resourceId) return;
+  const openRelatedRecord = (resourceType: string | null, resourceId: string | null) => {
+    const href = notificationDetailHref(role, resourceType, resourceId);
+    if (!href) return;
     onOpenChange(false);
-    router.push(`/${role}/customers/${resourceId}`);
+    router.push(href);
   };
 
   return (
@@ -198,16 +200,16 @@ export function NotificationCenterSheet({
                           <CheckCheck className="size-3.5" /> Mark read
                         </Button>
                       ) : null}
-                      {record.resource_type === 'customer' && record.resource_id ? (
+                      {notificationDetailHref(role, record.resource_type, record.resource_id) ? (
                         <Button
                           variant="ghost"
                           size="sm"
                           className="h-7 px-2 text-xs text-blue-700 hover:text-blue-800"
                           onClick={() =>
-                            openRelatedCustomer(record.resource_type, record.resource_id)
+                            openRelatedRecord(record.resource_type, record.resource_id)
                           }
                         >
-                          Open customer
+                          Open {record.resource_type === 'lead' ? 'lead' : 'customer'}
                         </Button>
                       ) : null}
                     </div>

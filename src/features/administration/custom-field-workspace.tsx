@@ -50,6 +50,7 @@ import {
   customFieldTypes,
   fetchCustomFieldPage,
   setCustomFieldActive,
+  setCustomerDateReminder,
   type CustomerFieldTemplateKey,
   type CustomFieldPageSize,
   type CustomFieldStatus,
@@ -348,6 +349,17 @@ export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
         description: 'The definition may have changed. Refresh and try again.',
       }),
   });
+  const reminder = useMutation({
+    mutationFn: setCustomerDateReminder,
+    onSuccess: () =>
+      void queryClient.invalidateQueries({ queryKey: ['custom-field-administration'] }),
+    onError: () =>
+      toast.add({
+        type: 'error',
+        title: 'Could not change date reminder',
+        description: 'Refresh the field list and try again.',
+      }),
+  });
   if (query.isPending) return <CustomFieldsSkeleton />;
   if (query.isError || !query.data)
     return (
@@ -450,6 +462,7 @@ export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
                 <TableHead>Type</TableHead>
                 <TableHead>Required</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Annual reminder</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
@@ -470,11 +483,32 @@ export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
                       {record.active ? 'Active' : 'Inactive'}
                     </Badge>
                   </TableCell>
+                  <TableCell>
+                    {record.module === 'CUSTOMERS' && record.field_type === 'DATE' ? (
+                      <Button
+                        size="sm"
+                        variant={record.annual_reminder ? 'secondary' : 'outline'}
+                        disabled={reminder.isPending || toggle.isPending || query.isPlaceholderData}
+                        aria-label={`${record.annual_reminder ? 'Disable' : 'Enable'} annual reminder for ${record.label}`}
+                        onClick={() =>
+                          reminder.mutate({
+                            id: record.id,
+                            enabled: !record.annual_reminder,
+                            version: record.version,
+                          })
+                        }
+                      >
+                        {record.annual_reminder ? 'On' : 'Off'}
+                      </Button>
+                    ) : (
+                      '—'
+                    )}
+                  </TableCell>
                   <TableCell className="text-right">
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={toggle.isPending}
+                      disabled={toggle.isPending || reminder.isPending || query.isPlaceholderData}
                       onClick={() =>
                         toggle.mutate({
                           id: record.id,
@@ -490,7 +524,7 @@ export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
               ))}
               {!query.data.records.length ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-32 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={7} className="h-32 text-center text-sm text-muted-foreground">
                     No custom field definitions match this filter.
                   </TableCell>
                 </TableRow>

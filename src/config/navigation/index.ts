@@ -210,7 +210,6 @@ export const roleNavigation: Record<RoleKey, RoleNavigation> = {
       ['Security', 'security', 'LockKeyhole'],
       ['Audit Logs', 'audit-logs', 'ScrollText'],
       ['Data Retention & Deletion', 'data-retention', 'ArchiveX'],
-      ['Platform Settings', 'platform-settings', 'Settings2'],
       ['Reports', 'reports', 'FileChartColumn'],
     ]),
   },

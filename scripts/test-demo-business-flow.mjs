@@ -101,12 +101,15 @@ async function main() {
   if (!salesContext.user_id || !salesContext.organization_id)
     throw new Error('sales access context missing');
 
+  // A Lost lead is rejected by `create_test_drive` further down, so the flow
+  // has to start from a lead every stage will accept.
   const [lead] = await rows(salesToken, 'leads', {
     select: 'id,customer_id,branch_id,team_id,assigned_user_id,updated_at',
     organization_id: `eq.${salesContext.organization_id}`,
     assigned_user_id: `eq.${salesContext.user_id}`,
     customer_id: 'not.is.null',
     deleted_at: 'is.null',
+    lifecycle_status: 'neq.Lost',
     order: 'updated_at.desc',
     limit: '1',
   });
@@ -129,15 +132,17 @@ async function main() {
     });
   });
 
+  // Test drives are their own module with their own tables and RPCs, exercised
+  // below; `create_appointment` stopped accepting the type in 202608260001.
   let createdAppointment;
-  await stage('sales test-drive appointment', async () => {
+  await stage('sales showroom-visit appointment', async () => {
     createdAppointment = await rpc(salesToken, 'create_appointment', {
       target_lead_id: lead.id,
       target_customer_id: lead.customer_id,
       target_branch_id: lead.branch_id,
       target_team_id: lead.team_id,
       target_assigned_user_id: salesContext.user_id,
-      target_appointment_type: 'Test Drive',
+      target_appointment_type: 'Showroom Visit',
       target_scheduled_at: testDriveScheduledAt,
       target_notes: MARKER,
       target_request_id: requestId(),
@@ -148,7 +153,7 @@ async function main() {
     const result = await rpc(salesToken, 'get_appointment_workspace_page', {
       target_search: '',
       target_status: 'all',
-      target_appointment_type: 'Test Drive',
+      target_appointment_type: 'Showroom Visit',
       target_branch_id: null,
       target_team_id: null,
       target_owner_id: null,

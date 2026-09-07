@@ -1,6 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { notificationDetailHref } from '@/lib/navigation/record-links';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellRing, CheckCheck, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { NotificationWorkspaceSkeleton } from '@/components/skeletons';
@@ -206,7 +208,25 @@ export function NotificationWorkspace({ spec }: { spec: PageSpec }) {
                         </Badge>
                       </TableCell>
                       <TableCell className="min-w-80">
-                        <p className="font-medium text-[#17233d]">{record.title}</p>
+                        {workspaceSession &&
+                        notificationDetailHref(
+                          workspaceSession.roleKey,
+                          record.resource_type,
+                          record.resource_id,
+                        ) ? (
+                          <Link
+                            className="font-medium text-primary hover:underline"
+                            href={notificationDetailHref(
+                              workspaceSession.roleKey,
+                              record.resource_type,
+                              record.resource_id,
+                            )!}
+                          >
+                            {record.title}
+                          </Link>
+                        ) : (
+                          <p className="font-medium text-[#17233d]">{record.title}</p>
+                        )}
                         <p className="mt-0.5 max-w-2xl text-xs leading-5 text-muted-foreground">
                           {record.body}
                         </p>

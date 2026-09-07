@@ -395,8 +395,6 @@ export function getRoleSkeleton(role: string, slug: string = 'dashboard') {
         return <AuditLogWorkspaceSkeleton />;
       case 'data-retention':
         return <RetentionWorkspaceSkeleton />;
-      case 'platform-settings':
-        return <MasterDataSkeleton />;
       case 'reports':
         return <ReportExportWorkspaceSkeleton />;
       default:

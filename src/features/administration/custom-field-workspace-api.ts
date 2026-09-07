@@ -15,6 +15,7 @@ const recordSchema = z.object({
   required: z.boolean(),
   active: z.boolean(),
   version: z.coerce.number().int().positive(),
+  annual_reminder: z.boolean().default(false),
 });
 const pageSchema = z.object({
   records: z.array(recordSchema),
@@ -91,6 +92,19 @@ export async function setCustomFieldActive(input: {
   });
   if (error) throw error;
   return mutationResultSchema.parse(data);
+}
+
+export async function setCustomerDateReminder(input: {
+  id: string;
+  enabled: boolean;
+  version: number;
+}) {
+  const { error } = await createClient().rpc('set_customer_date_reminder', {
+    target_definition_id: input.id,
+    target_enabled: input.enabled,
+    expected_version: input.version,
+  });
+  if (error) throw error;
 }
 
 /**

@@ -198,8 +198,23 @@ const routeMap: Partial<Record<RoleKey, Record<string, OperationalCaseRoute>>> =
   },
 };
 
+// The operations executives introduced in 202609060016 work the same desk as
+// their manager and hold the same module permissions, so they reach the same
+// case pages. What separates them is enforced server-side by their permission
+// preset (no report export), not by withholding the workspace here -- without
+// this mapping every operational item in their menu falls through the catch-all
+// route to `ProductionDataUnavailable`.
+const executiveDesks = {
+  'finance-executive': 'finance',
+  'insurance-executive': 'insurance',
+  'rto-executive': 'rto',
+  'exchange-executive': 'exchange',
+  'delivery-executive': 'delivery',
+} as const satisfies Partial<Record<RoleKey, RoleKey>>;
+
 export function operationalCaseRoute(role: RoleKey, slug: string) {
-  return routeMap[role]?.[slug] ?? null;
+  const desk = role in executiveDesks ? executiveDesks[role as keyof typeof executiveDesks] : role;
+  return routeMap[desk]?.[slug] ?? null;
 }
 
 export type OperationalCaseQuery = {

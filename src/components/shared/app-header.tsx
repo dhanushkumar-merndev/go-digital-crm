@@ -56,6 +56,7 @@ import {
   markHeaderNotificationRead,
 } from '@/features/notifications/notification-api';
 import { NotificationCenterSheet } from '@/features/notifications/notification-center-sheet';
+import { notificationDetailHref } from '@/lib/navigation/record-links';
 
 function getInitials(value: string) {
   const initials = value
@@ -291,7 +292,13 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
                       key={notification.id}
                       className="relative block cursor-pointer whitespace-normal rounded-md px-3 py-3 focus:bg-blue-50"
                       onSelect={(event) => {
-                        event.preventDefault();
+                        const href = notificationDetailHref(
+                          role,
+                          notification.resource_type,
+                          notification.resource_id,
+                        );
+                        if (href) router.push(href);
+                        else event.preventDefault();
                         if (!notification.read_at) markRead.mutate(notification.id);
                       }}
                     >

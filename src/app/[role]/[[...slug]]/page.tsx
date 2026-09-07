@@ -240,7 +240,7 @@ export default async function RolePage({ params }: Props) {
   )
     return <AccessoriesWorkspace spec={spec} />;
   if (
-    role === 'customer-care' &&
+    (role === 'customer-care' || role === 'customer-relationship-executive') &&
     [
       'dashboard',
       'customer-cases',
@@ -279,6 +279,10 @@ export default async function RolePage({ params }: Props) {
     return <MarketingWorkspace spec={spec} slug={slug[0]} />;
   if (role === 'gm-sales' && slug[0] === 'targets' && !isLocalPreviewMode())
     return <GmTargetWorkspace />;
+  // GM Sales holds booking.view, so this reads the same bookings the Business
+  // Owner sees rather than a dashboard of its own.
+  if (role === 'gm-sales' && slug[0] === 'bookings-overview' && !isLocalPreviewMode())
+    return <SalesDocumentWorkspace kind="bookings" spec={spec} role={role} />;
   if (
     role === 'gm-sales' &&
     [

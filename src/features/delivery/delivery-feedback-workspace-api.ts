@@ -116,8 +116,8 @@ export async function submitCustomerFeedbackWithSentimentRouting(input: {
   rating: number;
   status: string;
   outcome: 'POSITIVE_REVIEW' | 'DETRACTOR_ESCALATED';
-  redirect_review_url?: string;
-  complaint_id?: string;
+  redirect_review_url?: string | null;
+  complaint_id?: string | null;
 }> {
   const { data, error } = await createClient().rpc('submit_customer_feedback', {
     target_feedback_id: input.feedbackId,
@@ -131,8 +131,8 @@ export async function submitCustomerFeedbackWithSentimentRouting(input: {
       rating: z.coerce.number().int().min(1).max(5),
       status: z.string(),
       outcome: z.enum(['POSITIVE_REVIEW', 'DETRACTOR_ESCALATED']),
-      redirect_review_url: z.string().optional(),
-      complaint_id: z.uuid().optional(),
+      redirect_review_url: z.string().nullish(),
+      complaint_id: z.uuid().nullish(),
     })
     .parse(data);
 }

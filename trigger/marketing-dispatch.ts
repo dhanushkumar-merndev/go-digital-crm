@@ -7,6 +7,7 @@ import { runBulkCampaignDispatch } from './bulk-campaign-dispatch';
 import { runDripAutoMatch } from './drip-auto-match';
 import { runDripDispatch } from './drip-dispatch';
 import { runSocialPostPublish } from './social-post-publish';
+import { runCrmAlerts } from './crm-alerts';
 
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
@@ -39,11 +40,12 @@ export const marketingDispatch = schedules.task({
     // this per-minute pass rather than earning a schedule of its own.
     const runAutoMatch = new Date().getUTCMinutes() === 7;
 
-    const [drip, bulk, social, autoMatch] = await Promise.allSettled([
+    const [drip, bulk, social, autoMatch, alerts] = await Promise.allSettled([
       runDripDispatch(supabase),
       runBulkCampaignDispatch(supabase),
       runSocialPostPublish(supabase),
       runAutoMatch ? runDripAutoMatch(supabase) : Promise.resolve(null),
+      runCrmAlerts(supabase),
     ]);
 
     const settled = (result: PromiseSettledResult<unknown>) =>
@@ -56,6 +58,7 @@ export const marketingDispatch = schedules.task({
       bulk: settled(bulk),
       social: settled(social),
       auto_match: runAutoMatch ? settled(autoMatch) : 'skipped',
+      alerts: settled(alerts),
     };
   },
 });

@@ -1,7 +1,8 @@
 'use client';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CarFront, Database, Filter, Plus, Search, Tag, ToggleLeft } from 'lucide-react';
+import { CarFront, Database, Filter, Pencil, Plus, Search, Tag, ToggleLeft } from 'lucide-react';
 import { useState } from 'react';
+import { getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -23,6 +24,8 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SearchSelect } from '@/components/ui/search-select';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import {
   Select,
   SelectContent,
@@ -43,14 +46,15 @@ import type { Metric, PageSpec } from '@/lib/domain';
 import {
   fetchMasterDataWorkspace,
   setMasterDataActive,
-  upsertMasterModel,
-  upsertMasterVariant,
+  saveVehicleMaster,
   type MasterDataCategory,
+  type MasterDataRecord,
 } from './master-data-workspace-api';
 
 const categories: Array<{ value: MasterDataCategory; label: string }> = [
   { value: 'MODELS', label: 'Models' },
   { value: 'VARIANTS', label: 'Variants' },
+  { value: 'COLOURS', label: 'Colours' },
   { value: 'BRANDS', label: 'Brands' },
   { value: 'LEAD_SOURCES', label: 'Lead sources' },
 ];
@@ -61,6 +65,12 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editing, setEditing] = useState<MasterDataRecord | null>(null);
+  const [parentSearch, setParentSearch] = useState('');
+  const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedParentSearch = useDebouncedValue(parentSearch, 300);
+  const [specifications, setSpecifications] = useState<Record<string, unknown>>({});
 
   // Form State for Model / Variant creation
   const [nameInput, setNameInput] = useState('');
@@ -70,24 +80,42 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
 
   const client = useQueryClient();
   const data = useQuery({
-    queryKey: ['master-data', ...workspaceQueryScope(session), category, page, search],
-    queryFn: ({ signal }) => fetchMasterDataWorkspace(category, page, search, signal),
+    queryKey: [
+      'master-data',
+      ...workspaceQueryScope(session),
+      category,
+      page,
+      pageSize,
+      debouncedSearch,
+    ],
+    queryFn: ({ signal }) =>
+      fetchMasterDataWorkspace(category, page, debouncedSearch, signal, pageSize),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
 
   // Query brands when creating a model
   const brandsQuery = useQuery({
-    queryKey: ['master-data-brands-list', ...workspaceQueryScope(session)],
-    queryFn: ({ signal }) => fetchMasterDataWorkspace('BRANDS', 1, '', signal),
+    queryKey: [
+      'master-data',
+      ...workspaceQueryScope(session),
+      'brand-options',
+      debouncedParentSearch,
+    ],
+    queryFn: ({ signal }) => fetchMasterDataWorkspace('BRANDS', 1, debouncedParentSearch, signal),
     enabled: isAddOpen && category === 'MODELS',
     staleTime: 60_000,
   });
 
   // Query models when creating a variant
   const modelsQuery = useQuery({
-    queryKey: ['master-data-models-list', ...workspaceQueryScope(session)],
-    queryFn: ({ signal }) => fetchMasterDataWorkspace('MODELS', 1, '', signal),
+    queryKey: [
+      'master-data',
+      ...workspaceQueryScope(session),
+      'model-options',
+      debouncedParentSearch,
+    ],
+    queryFn: ({ signal }) => fetchMasterDataWorkspace('MODELS', 1, debouncedParentSearch, signal),
     enabled: isAddOpen && category === 'VARIANTS',
     staleTime: 60_000,
   });
@@ -102,6 +130,8 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
         description: 'The status change is recorded in the audit log.',
       });
       client.invalidateQueries({ queryKey: ['master-data'] });
+      client.invalidateQueries({ queryKey: ['vehicle-colour-options'] });
+      client.invalidateQueries({ queryKey: ['inventory-variant-options'] });
     },
     onError: () =>
       toast.add({
@@ -113,38 +143,96 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (category === 'MODELS') {
-        return upsertMasterModel({
-          brandId: selectedParentId,
-          name: nameInput,
-        });
-      }
-      if (category === 'VARIANTS') {
-        return upsertMasterVariant({
-          modelId: selectedParentId,
-          name: nameInput,
-          specifications: { fuel_type: fuelType, transmission },
-        });
-      }
+      if (category === 'LEAD_SOURCES') throw new Error('Select a vehicle category.');
+      return saveVehicleMaster({
+        category,
+        id: editing?.id,
+        parentId: selectedParentId,
+        name: nameInput,
+        active: editing?.active ?? true,
+        specifications:
+          category === 'VARIANTS' ? { ...specifications, fuel_type: fuelType, transmission } : {},
+      });
     },
     onSuccess: () => {
       toast.add({
         type: 'success',
-        title: `${category === 'MODELS' ? 'Model' : 'Variant'} created`,
-        description: `${nameInput} has been added to vehicle master records.`,
+        title: 'Vehicle master saved',
+        description: `${nameInput} has been ${editing ? 'updated' : 'added'}.`,
       });
       setIsAddOpen(false);
       setNameInput('');
       setSelectedParentId('');
       client.invalidateQueries({ queryKey: ['master-data'] });
+      client.invalidateQueries({ queryKey: ['vehicle-colour-options'] });
+      client.invalidateQueries({ queryKey: ['inventory-variant-options'] });
     },
     onError: (err: unknown) => {
       toast.add({
         type: 'error',
-        title: 'Creation failed',
+        title: 'Save failed',
         description: err instanceof Error ? err.message : 'Please check your input values.',
       });
     },
+  });
+
+  const openEditor = (row: MasterDataRecord | null) => {
+    setEditing(row);
+    setNameInput(row?.name ?? '');
+    setSelectedParentId(row?.brand_id ?? row?.model_id ?? '');
+    setParentSearch('');
+    setSpecifications(row?.specifications ?? {});
+    setFuelType(String(row?.specifications?.fuel_type ?? 'PETROL'));
+    setTransmission(String(row?.specifications?.transmission ?? 'MANUAL'));
+    setIsAddOpen(true);
+  };
+  const parentQuery = category === 'MODELS' ? brandsQuery : modelsQuery;
+  const parentOptions = (parentQuery.data?.records ?? []).map((row) => ({
+    value: row.id,
+    label: row.name,
+    description: row.brand_name,
+  }));
+  const existingParentId = editing?.brand_id ?? editing?.model_id;
+  if (existingParentId && !parentOptions.some((row) => row.value === existingParentId)) {
+    parentOptions.unshift({
+      value: existingParentId,
+      label:
+        editing?.brand_name && category === 'MODELS'
+          ? editing.brand_name
+          : (editing?.model_name ?? 'Current selection'),
+      description: undefined,
+    });
+  }
+  const needsParent = category === 'MODELS' || category === 'VARIANTS';
+  const categoryLabel =
+    category === 'MODELS'
+      ? 'Model'
+      : category === 'VARIANTS'
+        ? 'Variant'
+        : category === 'COLOURS'
+          ? 'Colour'
+          : 'Brand';
+
+  const columns: ColumnDef<MasterDataRecord>[] = [
+    { accessorKey: 'name' },
+    ...(category === 'MODELS' ? [{ accessorKey: 'brand_name' }] : []),
+    ...(category === 'VARIANTS'
+      ? [{ accessorKey: 'model_name' }, { accessorKey: 'brand_name' }]
+      : []),
+    ...(category === 'LEAD_SOURCES' ? [{ accessorKey: 'canonical_source' }] : []),
+    { accessorKey: 'active' },
+    { accessorKey: 'created_at' },
+    { id: 'actions' },
+  ];
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const table = useReactTable({
+    data: data.data?.records ?? [],
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    rowCount: data.data?.total ?? 0,
+    state: { pagination: { pageIndex: page - 1, pageSize } },
+    getRowId: (row) => row.id,
   });
 
   if (data.isPending) return <MasterDataSkeleton />;
@@ -156,7 +244,7 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
     { label: 'Variants', value: String(k.variants), icon: Database },
     { label: 'Lead sources', value: String(k.lead_sources), icon: Tag },
   ];
-  const pages = Math.max(1, Math.ceil(data.data.total / 25));
+  const pages = Math.max(1, Math.ceil(data.data.total / pageSize));
 
   return (
     <div className="mx-auto max-w-[1800px] space-y-5">
@@ -202,17 +290,9 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
                 <Badge variant="outline" className="h-9 gap-2 px-3 font-medium">
                   <Filter className="size-4" /> Server filtered
                 </Badge>
-                {(category === 'MODELS' || category === 'VARIANTS') && (
-                  <Button
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => {
-                      setNameInput('');
-                      setSelectedParentId('');
-                      setIsAddOpen(true);
-                    }}
-                  >
-                    <Plus className="size-4" /> Add {category === 'MODELS' ? 'Model' : 'Variant'}
+                {category !== 'LEAD_SOURCES' && (
+                  <Button size="sm" className="gap-1.5" onClick={() => openEditor(null)}>
+                    <Plus className="size-4" /> Add {categoryLabel}
                   </Button>
                 )}
               </div>
@@ -238,7 +318,7 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
               </TableHeader>
               <TableBody>
                 {data.data.records.length ? (
-                  data.data.records.map((row) => (
+                  table.getRowModel().rows.map(({ original: row }) => (
                     <TableRow key={row.id}>
                       <TableCell className="font-medium">{row.name}</TableCell>
                       {category === 'MODELS' && <TableCell>{row.brand_name}</TableCell>}
@@ -262,10 +342,20 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
+                        {category !== 'LEAD_SOURCES' && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={toggle.isPending || data.isPlaceholderData}
+                            onClick={() => openEditor(row)}
+                          >
+                            <Pencil className="mr-1 size-3.5" /> Edit
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={toggle.isPending}
+                          disabled={toggle.isPending || data.isPlaceholderData}
                           onClick={() => toggle.mutate({ id: row.id, active: !row.active })}
                         >
                           <ToggleLeft className="size-3.5 mr-1" />{' '}
@@ -276,7 +366,10 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={columns.length}
+                      className="h-24 text-center text-muted-foreground"
+                    >
                       No records found.
                     </TableCell>
                   </TableRow>
@@ -287,6 +380,24 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
           <div className="flex justify-between border-t p-3 text-sm">
             <span>{data.data.total} records</span>
             <div className="flex gap-2">
+              <Select
+                value={String(pageSize)}
+                onValueChange={(value) => {
+                  setPageSize(Number(value) as 25 | 50 | 100);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="w-24" aria-label="Rows per page">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[25, 50, 100].map((size) => (
+                    <SelectItem key={size} value={String(size)}>
+                      {size} rows
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
                 size="sm"
                 variant="outline"
@@ -312,14 +423,20 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
       </div>
 
       {/* Add Model / Variant Dialog */}
-      <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog
+        open={isAddOpen}
+        onOpenChange={(open) => {
+          if (!createMutation.isPending) setIsAddOpen(open);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              Add New {category === 'MODELS' ? 'Vehicle Model' : 'Vehicle Variant'}
+              {editing ? 'Edit' : 'Add'} {categoryLabel}
             </DialogTitle>
             <DialogDescription>
-              Add a new record to the vehicle catalog for inventory and quotation assignment.
+              Manage the dealership vehicle catalog. Saved stock colours and sales document
+              snapshots are preserved.
             </DialogDescription>
           </DialogHeader>
 
@@ -330,50 +447,34 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
             }}
             className="space-y-4 py-2"
           >
-            {category === 'MODELS' ? (
+            {needsParent && (
               <div className="space-y-2">
-                <Label htmlFor="model-brand">Select Brand</Label>
-                <Select value={selectedParentId} onValueChange={setSelectedParentId} required>
-                  <SelectTrigger id="model-brand">
-                    <SelectValue placeholder="Choose manufacturer brand" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {brandsQuery.data?.records.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>
-                        {b.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <Label htmlFor="variant-model">Select Vehicle Model</Label>
-                <Select value={selectedParentId} onValueChange={setSelectedParentId} required>
-                  <SelectTrigger id="variant-model">
-                    <SelectValue placeholder="Choose vehicle model" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {modelsQuery.data?.records.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.name} ({m.brand_name})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="master-parent">
+                  {category === 'MODELS' ? 'Brand' : 'Vehicle model'}
+                </Label>
+                <SearchSelect
+                  key={`${category}-${editing?.id ?? 'new'}`}
+                  id="master-parent"
+                  value={selectedParentId}
+                  onValueChange={setSelectedParentId}
+                  options={parentOptions}
+                  search={parentSearch}
+                  onSearchChange={setParentSearch}
+                  isPending={parentQuery.isPending}
+                  isFetching={parentQuery.isFetching}
+                  isError={parentQuery.isError}
+                  placeholder={category === 'MODELS' ? 'Choose brand' : 'Choose model'}
+                />
               </div>
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="master-name">
-                {category === 'MODELS' ? 'Model Name' : 'Variant Name'}
-              </Label>
+              <Label htmlFor="master-name">{categoryLabel} name</Label>
               <Input
                 id="master-name"
                 required
-                placeholder={
-                  category === 'MODELS' ? 'e.g. Elevate, City, Creta' : 'e.g. ZX CVT, SX(O) Turbo'
-                }
+                maxLength={80}
+                placeholder={category === 'COLOURS' ? 'e.g. Platinum White Pearl' : 'Name'}
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
               />
@@ -413,15 +514,56 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
               </div>
             )}
 
+            {category === 'VARIANTS' && (
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  ['engine_cc', 'Engine capacity (cc)'],
+                  ['max_power_bhp', 'Power (bhp)'],
+                  ['mileage_kmpl', 'Mileage (km/l)'],
+                  ['seating_capacity', 'Seats'],
+                  ['range_km', 'EV range (km)'],
+                  ['boot_space_litres', 'Boot space (litres)'],
+                ].map(([key, label]) => (
+                  <div className="space-y-2" key={key}>
+                    <Label htmlFor={`spec-${key}`}>{label}</Label>
+                    <Input
+                      id={`spec-${key}`}
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={String(specifications[key] ?? '')}
+                      onChange={(event) =>
+                        setSpecifications((current) => {
+                          const next = { ...current };
+                          if (event.target.value === '') delete next[key];
+                          else next[key] = Number(event.target.value);
+                          return next;
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
             <DialogFooter className="pt-3">
-              <Button type="button" variant="outline" onClick={() => setIsAddOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={createMutation.isPending}
+                onClick={() => setIsAddOpen(false)}
+              >
                 Cancel
               </Button>
               <Button
                 type="submit"
-                disabled={!selectedParentId || !nameInput.trim() || createMutation.isPending}
+                disabled={
+                  (needsParent && !selectedParentId) ||
+                  !nameInput.trim() ||
+                  createMutation.isPending
+                }
               >
-                {createMutation.isPending ? 'Adding...' : 'Add Record'}
+                {createMutation.isPending ? 'Saving…' : 'Save record'}
               </Button>
             </DialogFooter>
           </form>

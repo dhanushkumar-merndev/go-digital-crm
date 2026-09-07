@@ -20,10 +20,11 @@ const workspaceSchema = z.object({
     brands: z.coerce.number().int().nonnegative(),
     models: z.coerce.number().int().nonnegative(),
     variants: z.coerce.number().int().nonnegative(),
+    colours: z.coerce.number().int().nonnegative().default(0),
     lead_sources: z.coerce.number().int().nonnegative(),
   }),
 });
-export type MasterDataCategory = 'MODELS' | 'BRANDS' | 'LEAD_SOURCES' | 'VARIANTS';
+export type MasterDataCategory = 'MODELS' | 'BRANDS' | 'LEAD_SOURCES' | 'VARIANTS' | 'COLOURS';
 export type MasterDataRecord = z.infer<typeof recordSchema>;
 
 export async function fetchMasterDataWorkspace(
@@ -31,11 +32,12 @@ export async function fetchMasterDataWorkspace(
   page: number,
   search: string,
   signal?: AbortSignal,
+  pageSize: 25 | 50 | 100 = 25,
 ) {
   const request = createClient().rpc('get_master_data_workspace', {
     target_category: category,
     target_page: page,
-    target_page_size: 25,
+    target_page_size: pageSize,
     target_search: search.trim().slice(0, 100) || null,
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
@@ -54,6 +56,40 @@ export async function setMasterDataActive(
     target_active: active,
   });
   if (error) throw error;
+}
+
+export async function saveVehicleMaster(input: {
+  category: Exclude<MasterDataCategory, 'LEAD_SOURCES'>;
+  id?: string;
+  parentId?: string;
+  name: string;
+  specifications?: Record<string, unknown>;
+  active: boolean;
+}) {
+  const { data, error } = await createClient().rpc('save_vehicle_master', {
+    target_category: input.category,
+    target_id: input.id ?? null,
+    target_parent_id: input.parentId || null,
+    target_name: input.name.trim(),
+    target_specifications: input.specifications ?? {},
+    target_active: input.active,
+  });
+  if (error) throw error;
+  return recordSchema.parse(data);
+}
+
+export async function fetchVehicleColourOptions(search: string, signal?: AbortSignal) {
+  const request = createClient()
+    .from('vehicle_colours')
+    .select('id,name')
+    .eq('active', true)
+    .ilike('name', `%${search.trim().slice(0, 80)}%`)
+    .order('name')
+    .order('id')
+    .limit(25);
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return z.array(z.object({ id: z.uuid(), name: z.string() })).parse(data);
 }
 
 export async function upsertMasterModel(input: {

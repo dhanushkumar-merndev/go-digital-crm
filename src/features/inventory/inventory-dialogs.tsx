@@ -28,6 +28,7 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { VehicleColourInput } from '@/components/domain/vehicle-colour-input';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import {
   allocateStockUnit,
@@ -211,7 +212,7 @@ export function StockIntakeDialog({
             </label>
             <label className="grid gap-1.5 text-sm font-medium">
               Colour <span className="font-normal text-muted-foreground">(optional)</span>
-              <Input name="color" maxLength={80} />
+              <VehicleColourInput />
             </label>
           </div>
           <label className="grid gap-1.5 text-sm font-medium sm:max-w-xs">
@@ -415,12 +416,7 @@ export function StockUnitDetailSheet({
                         defaultValue={data.engine_number ?? ''}
                         placeholder="Engine number"
                       />
-                      <Input
-                        name="color"
-                        maxLength={80}
-                        defaultValue={data.color ?? ''}
-                        placeholder="Colour"
-                      />
+                      <VehicleColourInput defaultValue={data.color ?? ''} />
                       <Input
                         name="receivedAt"
                         type="datetime-local"

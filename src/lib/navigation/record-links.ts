@@ -33,3 +33,14 @@ export function customerDetailHref(role: string, customerId: string) {
 export function leadDetailHref(role: string, leadId: string) {
   return `/${role}/leads/${leadId}`;
 }
+
+export function notificationDetailHref(
+  role: string,
+  resourceType: string | null,
+  resourceId: string | null,
+) {
+  if (!resourceId) return null;
+  if (resourceType === 'lead') return leadDetailHref(role, resourceId);
+  if (resourceType === 'customer') return customerDetailHref(role, resourceId);
+  return null;
+}
