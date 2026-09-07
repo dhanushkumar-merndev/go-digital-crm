@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/table';
 import type { PageSpec } from '@/lib/domain';
 import { leadStageVariant } from '@/features/leads/lead-stage-variant';
+import { focusRowHref } from '@/lib/navigation/focus-row';
 import { leadDetailHref } from '@/lib/navigation/record-links';
 import { ManualDashboardRefreshLimitError } from '@/lib/query/cached-dashboard-api';
 import {
@@ -428,8 +429,13 @@ function OverdueQueue({ data, className }: { data: TenantDashboardResult; classN
           <ScrollArea type="always" className="min-h-0 flex-1 pr-1" aria-label="Overdue follow-ups">
             <div className="relative space-y-2 pr-2 before:absolute before:bottom-5 before:left-[52px] before:top-5 before:w-px before:bg-slate-200">
               {items.map((item) => {
+                // The card is a follow-up, so it opens the follow-up list with
+                // that lead's row marked. Jumping to the lead record instead
+                // dropped the caller out of the queue they were working.
                 const href = item.lead_id
-                  ? leadDetailHref(DASHBOARD_ROLE, item.lead_id)
+                  ? focusRowHref(`/${DASHBOARD_ROLE}/follow-ups`, item.lead_id, {
+                      status: 'overdue',
+                    })
                   : `/${DASHBOARD_ROLE}/follow-ups?status=overdue`;
                 return (
                   <div key={item.id} className="relative grid grid-cols-[48px_1fr] gap-3">
@@ -439,7 +445,7 @@ function OverdueQueue({ data, className }: { data: TenantDashboardResult; classN
                     <span className="absolute left-[49px] top-4 z-10 size-2 rounded-full border-2 border-white bg-blue-600" />
                     <Link
                       href={href}
-                      aria-label={`Open the overdue follow-up for ${item.title}`}
+                      aria-label={`Show the overdue follow-up for ${item.title} in the follow-up list`}
                       className="ml-2 rounded-lg border bg-white p-2.5 transition-colors hover:border-blue-200 hover:bg-blue-50/30"
                     >
                       <div className="flex items-start gap-2.5">

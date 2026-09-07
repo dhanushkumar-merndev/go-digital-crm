@@ -27,6 +27,11 @@ import { BulkCampaignWorkspace } from '@/features/marketing/bulk-campaign-worksp
 import { AssetLibraryWorkspace } from '@/features/marketing/asset-library-workspace';
 import { ReportExportWorkspace } from '@/features/reports/report-export-workspace';
 import { TenantDashboard } from '@/features/dashboards/tenant-dashboard';
+import {
+  BusinessOperationsOverview,
+  BusinessSalesOverview,
+  BusinessShowroomPerformance,
+} from '@/features/dashboards/business-overview-workspaces';
 import { OwnerAiBusinessSummaryWorkspace } from '@/features/dashboards/owner-ai-business-summary';
 import { SalesConsultantDashboard } from '@/features/dashboards/sales-consultant-dashboard';
 import { TelecallerDashboard } from '@/features/dashboards/telecaller-dashboard';
@@ -349,17 +354,17 @@ export default async function RolePage({ params }: Props) {
   if (role === 'sales-consultant' && slug[0] === 'exchange' && !isLocalPreviewMode())
     return <SalesExchangeWorkspace role={role} />;
   if (role === 'business-owner' && slug[0] === 'sales-overview' && !isLocalPreviewMode())
-    return <TenantDashboard spec={spec} role={role} heading="Sales Overview" />;
+    return <BusinessSalesOverview spec={spec} />;
   if (role === 'business-owner' && slug[0] === 'targets-performance' && !isLocalPreviewMode())
     return <TenantTargetConfigurationWorkspace spec={spec} readOnly />;
   if (role === 'business-owner' && slug[0] === 'bookings-delivery' && !isLocalPreviewMode())
     return <SalesDocumentWorkspace kind="bookings" spec={spec} role={role} />;
-  if (
-    role === 'business-owner' &&
-    ['showroom-performance', 'operations-overview'].includes(slug[0]) &&
-    !isLocalPreviewMode()
-  )
-    return <TenantDashboard spec={spec} role={role} />;
+  // These three were one shared TenantDashboard behind three navigation entries,
+  // so every page rendered the same screen.
+  if (role === 'business-owner' && slug[0] === 'showroom-performance' && !isLocalPreviewMode())
+    return <BusinessShowroomPerformance spec={spec} />;
+  if (role === 'business-owner' && slug[0] === 'operations-overview' && !isLocalPreviewMode())
+    return <BusinessOperationsOverview spec={spec} />;
   if (
     (role === 'sales-consultant' || role === 'telecaller') &&
     slug[0] === 'messages' &&
