@@ -106,7 +106,11 @@ export async function proxy(request: NextRequest) {
     },
   });
   const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-  const isPublicAuthPath = publicAuthPaths.has(pathname);
+  // The customer feedback form is the one page a customer opens without an
+  // account. It carries a signed single-use token in the path, so it cannot be
+  // an exact-match entry in publicAuthPaths.
+  const isPublicFeedbackForm = /^\/feedback\/[0-9a-f]{64}$/.test(pathname);
+  const isPublicAuthPath = publicAuthPaths.has(pathname) || isPublicFeedbackForm;
   if (claimsError || !claimsData?.claims?.sub) {
     return isPublicAuthPath
       ? privateNoStore(response)

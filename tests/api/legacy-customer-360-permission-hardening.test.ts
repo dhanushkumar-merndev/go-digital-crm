@@ -43,15 +43,20 @@ describe('legacy Customer 360 permission hardening', () => {
   });
 
   it('reconciles demo Telecaller permissions to its frozen role preset', () => {
-    for (const permission of [
-      'followup.view',
-      'appointment.view',
-      'document.upload',
-      'email.send',
-    ]) {
+    for (const permission of ['followup.view', 'document.upload', 'email.send']) {
       expect(telecallerPreset).toContain(`'${permission}'`);
     }
-    for (const unsupported of ['test_drive.', 'quotation.', 'booking.', 'approval.']) {
+    // 202609020002 removed appointments from this role and enforces it with a
+    // trigger raising TELECALLER_APPOINTMENT_PERMISSION_NOT_ALLOWED, so seeding
+    // them makes the whole demo seed fail. This preset froze the pre-migration
+    // shape and has to follow the database rather than the other way round.
+    for (const unsupported of [
+      'appointment.',
+      'test_drive.',
+      'quotation.',
+      'booking.',
+      'approval.',
+    ]) {
       expect(telecallerPreset).not.toContain(unsupported);
     }
     expect(seed).toContain("role.role_key === 'telecaller_bdc'");
