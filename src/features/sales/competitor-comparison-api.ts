@@ -1,31 +1,59 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
-const ourSchema = z.object({
-  id: z.uuid(),
-  brand: z.string(),
-  model: z.string(),
-  variant: z.string(),
-  specifications: z.record(z.string(), z.unknown()),
+const sharingSchema = z.object({
+  enabled: z.boolean(),
+  version: z.number().int(),
+  can_manage: z.boolean(),
 });
-const competitorSchema = z.object({
+const vehicleSchema = z.object({
   id: z.uuid(),
   manufacturer: z.string(),
   model: z.string(),
   variant: z.string(),
-  fuel_type: z.string().nullable(),
-  ex_showroom_price: z.coerce.number().nonnegative().nullable(),
-  specifications: z.record(z.string(), z.unknown()),
-  advantages: z.array(z.string()),
+  dealership_name: z.string(),
+  is_own: z.boolean(),
 });
-const optionsSchema = z.object({
-  our_variants: z.array(ourSchema),
-  competitors: z.array(competitorSchema),
-});
-export type OurComparisonVariant = z.infer<typeof ourSchema>;
-export type CompetitorComparisonProfile = z.infer<typeof competitorSchema>;
-export async function fetchCompetitorComparisonOptions(signal?: AbortSignal) {
-  const request = createClient().rpc('get_sales_competitor_comparison_options');
+const detailSchema = vehicleSchema.extend({ specifications: z.record(z.string(), z.unknown()) });
+export type ComparisonVehicle = z.infer<typeof detailSchema>;
+export async function fetchCatalogSharing(signal?: AbortSignal) {
+  const request = createClient().rpc('get_vehicle_catalog_sharing');
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
-  return optionsSchema.parse(data);
+  return sharingSchema.parse(data);
+}
+export async function setCatalogSharing(enabled: boolean, version: number) {
+  const { data, error } = await createClient().rpc('set_vehicle_catalog_sharing', {
+    target_enabled: enabled,
+    expected_version: version,
+    accepted_consent: enabled ? 'vehicle-catalog-v1' : null,
+  });
+  if (error) throw error;
+  return sharingSchema.parse(data);
+}
+export async function searchComparisonVehicles(
+  search: string,
+  ownOnly: boolean,
+  page: number,
+  signal?: AbortSignal,
+) {
+  const request = createClient().rpc('search_comparison_vehicles', {
+    target_search: search,
+    own_only: ownOnly,
+    target_page: page,
+    target_page_size: 25,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return z
+    .object({ records: z.array(vehicleSchema), total: z.number(), sharing_enabled: z.boolean() })
+    .parse(data);
+}
+export async function fetchVehicleComparison(ourId: string, otherId: string, signal?: AbortSignal) {
+  const request = createClient().rpc('get_vehicle_comparison', {
+    target_our_id: ourId,
+    target_other_id: otherId,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return z.object({ ours: detailSchema, other: detailSchema }).parse(data);
 }

@@ -263,6 +263,31 @@ export async function fetchQuotationVehicleOptions(branchId: string, signal?: Ab
   return quotationVehicleOptionsSchema.parse(data);
 }
 
+const quotationVariantPricingSchema = z.object({
+  ex_showroom_price: z.coerce.number().nullable().optional(),
+  insurance_amount: z.coerce.number().nullable().optional(),
+  registration_amount: z.coerce.number().nullable().optional(),
+});
+export type QuotationVariantPricing = z.infer<typeof quotationVariantPricingSchema>;
+
+/** Price-list defaults for one variant; `{}` when the tenant has not set any. */
+export async function fetchQuotationVariantPricing(
+  branchId: string,
+  model: string,
+  variant: string,
+  signal?: AbortSignal,
+) {
+  if (!branchId || !model.trim() || !variant.trim()) return {};
+  const request = createClient().rpc('get_quotation_variant_pricing', {
+    target_branch_id: branchId,
+    target_model: model.trim(),
+    target_variant: variant.trim(),
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return quotationVariantPricingSchema.parse(data);
+}
+
 const bookingQuotationOptionSchema = z.object({
   quotation_id: z.uuid(),
   quotation_number: z.string(),

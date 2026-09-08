@@ -134,12 +134,16 @@ export function CompetitorCatalogWorkspace({ spec }: { spec: PageSpec }) {
       />
       <Card className="overflow-hidden shadow-none">
         <CardHeader className="flex-row items-center justify-between">
-          <CardTitle className="text-base">Competitor vehicle catalog</CardTitle>
+          <CardTitle className="text-base">Private competitor reference notes</CardTitle>
           <Button onClick={() => open()}>
             <Plus className="size-4" /> Add profile
           </Button>
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
+          <p className="px-5 pb-4 text-sm text-muted-foreground">
+            These reference profiles stay private. Competitor Compare now uses vehicle models and
+            variants from CRM Configuration, shared only with Business Owner consent.
+          </p>
           <Table>
             <TableHeader>
               <TableRow>

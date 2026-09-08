@@ -43,11 +43,14 @@ import {
 } from '@/features/auth/profile-settings-api';
 import { ProfileSettingsDialog } from '@/features/auth/profile-settings-dialog';
 import { GlobalCustomerSearch } from '@/components/shared/global-customer-search';
+import { RecentLeadsMenu } from '@/features/leads/recent-leads';
+import { HeaderCreditBalance } from '@/components/shared/header-credit-balance';
 import { canLinkMobileApp } from '@/lib/auth/mobile-link-policy';
 import { getSafeAuthErrorMessage } from '@/lib/auth/safe-errors';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
 import {
   hasWorkspacePermission,
+  workspaceQueryScope,
   useWorkspaceSession,
 } from '@/components/providers/workspace-session-provider';
 import {
@@ -55,6 +58,7 @@ import {
   headerNotificationsKey,
   markHeaderNotificationRead,
 } from '@/features/notifications/notification-api';
+import { FollowupReminderManager } from '@/features/notifications/followup-reminder-manager';
 import { NotificationCenterSheet } from '@/features/notifications/notification-center-sheet';
 import { notificationDetailHref } from '@/lib/navigation/record-links';
 
@@ -202,6 +206,8 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
           </div>
         )}
         <div className="ml-auto flex items-center gap-2">
+          {!previewMode && <HeaderCreditBalance />}
+          <RecentLeadsMenu role={role} />
           {salesWorkspace && (
             <>
               <span
@@ -477,6 +483,11 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
           }}
         />
       ) : null}
+      {!previewMode &&
+        salesWorkspace &&
+        hasWorkspacePermission(workspaceSession, 'followup.view') && (
+          <FollowupReminderManager key={workspaceQueryScope(workspaceSession).join(':')} />
+        )}
       <NotificationCenterSheet
         open={notificationCenterOpen}
         onOpenChange={setNotificationCenterOpen}

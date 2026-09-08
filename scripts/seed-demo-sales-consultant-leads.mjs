@@ -16,7 +16,12 @@ const CLIENT_ADMIN_EMAIL = `client-admin@${DEMO_DOMAIN}`;
 const BRANCH_CODE = 'BLR-01';
 const TEAM_NAME = 'Demo Sales Team';
 const DEFAULT_LEAD_COUNT = 100;
-const MAX_LEAD_COUNT = 100;
+// The ceiling exists so a typo cannot flood the shared demo tenant, not because
+// the fixture breaks above 100. Raised for load-testing the Sales Consultant
+// queues, which need enough rows to page and sort like a real book of business.
+// The default stays at 100 so the plain `pnpm seed:demo:sales-consultant-leads`
+// is unchanged; a bigger set has to be asked for explicitly with --count.
+const MAX_LEAD_COUNT = 1000;
 const FIXTURE_PREFIX = 'demo-sales-consultant-volume';
 const FIXTURE_MARKER = 'Demo Sales Consultant volume fixture';
 const ASSIGNMENT_REASON = 'Demo volume fixture assignment';
@@ -95,10 +100,20 @@ const headers = {
 async function request(url, options = {}) {
   const response = await fetch(url, { ...options, headers: { ...headers, ...options.headers } });
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
+  // A gateway rejection (an over-long URL, say) answers with plain text, not
+  // JSON. Parsing that unconditionally replaced the real status with a JSON
+  // syntax error and hid what actually went wrong.
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = text;
+    }
+  }
   if (!response.ok)
     throw new Error(
-      `${options.method ?? 'GET'} ${url}: ${response.status} ${JSON.stringify(payload)}`,
+      `${options.method ?? 'GET'} ${url.slice(0, 200)}: ${response.status} ${JSON.stringify(payload)}`,
     );
   return payload;
 }
@@ -118,13 +133,37 @@ async function select(table, query) {
   return request(restUrl(table, query));
 }
 
+// PostgREST carries `in.(...)` in the query string, so filtering on a thousand
+// ids builds a URL tens of kilobytes long and the gateway rejects it outright.
+// Chunk the id list and merge, so the fixture scales with --count instead of
+// falling over once the set is big enough to be worth load-testing with.
+const IN_FILTER_CHUNK = 50;
+
+async function selectIn(table, query, column, values) {
+  const unique = [...new Set(values)];
+  const rows = [];
+  for (let index = 0; index < unique.length; index += IN_FILTER_CHUNK) {
+    const chunk = unique.slice(index, index + IN_FILTER_CHUNK);
+    rows.push(...(await select(table, { ...query, [column]: inFilter(chunk) })));
+  }
+  return rows;
+}
+
+const INSERT_CHUNK = 200;
+
 async function insert(table, rows) {
   if (rows.length === 0) return [];
-  return request(restUrl(table), {
-    method: 'POST',
-    headers: { Prefer: 'return=representation' },
-    body: JSON.stringify(rows),
-  });
+  const created = [];
+  for (let index = 0; index < rows.length; index += INSERT_CHUNK) {
+    created.push(
+      ...(await request(restUrl(table), {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify(rows.slice(index, index + INSERT_CHUNK)),
+      })),
+    );
+  }
+  return created;
 }
 
 async function patch(table, query, row) {
@@ -342,12 +381,16 @@ async function main() {
     // failing every subsequent one.
     const liveLeadIds = liveLeads.map((lead) => lead.id);
     const openFollowups = liveLeadIds.length
-      ? await select('followups', {
-          select: 'id',
-          organization_id: `eq.${target.organizationId}`,
-          status: 'in.(OPEN,OVERDUE)',
-          lead_id: inFilter(liveLeadIds),
-        })
+      ? await selectIn(
+          'followups',
+          {
+            select: 'id',
+            organization_id: `eq.${target.organizationId}`,
+            status: 'in.(OPEN,OVERDUE)',
+          },
+          'lead_id',
+          liveLeadIds,
+        )
       : [];
     console.log(`Cancelling ${openFollowups.length} open follow-up(s).`);
     for (const followup of openFollowups) {
@@ -364,12 +407,16 @@ async function main() {
     }
 
     const openAppointments = liveLeadIds.length
-      ? await select('appointments', {
-          select: 'id',
-          organization_id: `eq.${target.organizationId}`,
-          status: 'eq.SCHEDULED',
-          lead_id: inFilter(liveLeadIds),
-        })
+      ? await selectIn(
+          'appointments',
+          {
+            select: 'id',
+            organization_id: `eq.${target.organizationId}`,
+            status: 'eq.SCHEDULED',
+          },
+          'lead_id',
+          liveLeadIds,
+        )
       : [];
     console.log(`Cancelling ${openAppointments.length} scheduled appointment(s).`);
     for (const appointment of openAppointments) {
@@ -398,11 +445,12 @@ async function main() {
   const emails = fixtures.map((fixture) => fixture.email);
   const externalLeadIds = fixtures.map((fixture) => fixture.externalLeadId);
 
-  const existingCustomers = await select('customers', {
-    select: 'id,primary_email,deleted_at',
-    organization_id: `eq.${target.organizationId}`,
-    primary_email: inFilter(emails),
-  });
+  const existingCustomers = await selectIn(
+    'customers',
+    { select: 'id,primary_email,deleted_at', organization_id: `eq.${target.organizationId}` },
+    'primary_email',
+    emails,
+  );
   const customerByEmail = new Map();
   for (const customer of existingCustomers) {
     if (customer.deleted_at) continue;
@@ -430,13 +478,17 @@ async function main() {
   );
   for (const customer of createdCustomers) customerByEmail.set(customer.primary_email, customer);
 
-  const existingLeads = await select('leads', {
-    select:
-      'id,external_lead_id,customer_id,branch_id,team_id,assigned_user_id,lifecycle_status,deleted_at',
-    organization_id: `eq.${target.organizationId}`,
-    connection_id: 'is.null',
-    external_lead_id: inFilter(externalLeadIds),
-  });
+  const existingLeads = await selectIn(
+    'leads',
+    {
+      select:
+        'id,external_lead_id,customer_id,branch_id,team_id,assigned_user_id,lifecycle_status,deleted_at',
+      organization_id: `eq.${target.organizationId}`,
+      connection_id: 'is.null',
+    },
+    'external_lead_id',
+    externalLeadIds,
+  );
   const leadByExternalId = new Map();
   for (const lead of existingLeads) {
     if (lead.deleted_at)
@@ -517,12 +569,16 @@ async function main() {
   // Sales Consultants receive qualified handoffs, never raw intake leads.  The
   // list RPC enforces that history, so volume fixtures must model the same
   // journey instead of bypassing it with a plain `assigned_user_id` update.
-  const existingHandoffs = await select('lead_stage_history', {
-    select: 'lead_id',
-    organization_id: `eq.${target.organizationId}`,
-    lead_id: inFilter(leadIds),
-    to_status: 'eq.Transferred to Sales',
-  });
+  const existingHandoffs = await selectIn(
+    'lead_stage_history',
+    {
+      select: 'lead_id',
+      organization_id: `eq.${target.organizationId}`,
+      to_status: 'eq.Transferred to Sales',
+    },
+    'lead_id',
+    leadIds,
+  );
   const handoffLeadIds = new Set(existingHandoffs.map((history) => history.lead_id));
   const fixtureByExternalId = new Map(fixtures.map((fixture) => [fixture.externalLeadId, fixture]));
   const handoffRows = allLeads
@@ -562,12 +618,16 @@ async function main() {
     );
   }
 
-  const activeAssignments = await select('lead_assignments', {
-    select: 'lead_id,assigned_user_id',
-    organization_id: `eq.${target.organizationId}`,
-    lead_id: inFilter(leadIds),
-    active: 'eq.true',
-  });
+  const activeAssignments = await selectIn(
+    'lead_assignments',
+    {
+      select: 'lead_id,assigned_user_id',
+      organization_id: `eq.${target.organizationId}`,
+      active: 'eq.true',
+    },
+    'lead_id',
+    leadIds,
+  );
   const assignmentByLeadId = new Map();
   for (const assignment of activeAssignments) {
     if (
@@ -586,7 +646,11 @@ async function main() {
       branch_id: target.branchId,
       team_id: target.teamId,
       assigned_user_id: target.salesConsultantId,
-      assignment_type: 'FRESH',
+      // The handoff history above marks these leads as transferred to Sales, and
+      // once that row exists the assignment trigger added by 202608250008 rejects
+      // anything but QUALIFIED. 'FRESH' is for raw intake going to a Telecaller,
+      // which is not the journey this fixture models.
+      assignment_type: 'QUALIFIED',
       method: 'MANUAL_ASSIGNMENT',
       assigned_by: target.clientAdminId,
       reason: ASSIGNMENT_REASON,
@@ -594,13 +658,17 @@ async function main() {
     }));
   await insert('lead_assignments', assignmentRows);
 
-  const assignmentHistory = await select('lead_assignment_history', {
-    select: 'lead_id',
-    organization_id: `eq.${target.organizationId}`,
-    lead_id: inFilter(leadIds),
-    new_owner_id: `eq.${target.salesConsultantId}`,
-    reason: `eq.${ASSIGNMENT_REASON}`,
-  });
+  const assignmentHistory = await selectIn(
+    'lead_assignment_history',
+    {
+      select: 'lead_id',
+      organization_id: `eq.${target.organizationId}`,
+      new_owner_id: `eq.${target.salesConsultantId}`,
+      reason: `eq.${ASSIGNMENT_REASON}`,
+    },
+    'lead_id',
+    leadIds,
+  );
   const historyLeadIds = new Set(assignmentHistory.map((entry) => entry.lead_id));
   const historyRows = allLeads
     .filter((lead) => !historyLeadIds.has(lead.id))
@@ -626,12 +694,16 @@ async function main() {
     return fixture?.state === 'FOLLOW_UP' && fixture.nextFollowupAt ? [{ lead, fixture }] : [];
   });
   const existingOpenFollowups = followupFixtures.length
-    ? await select('followups', {
-        select: 'lead_id',
-        organization_id: `eq.${target.organizationId}`,
-        lead_id: inFilter(followupFixtures.map(({ lead }) => lead.id)),
-        status: 'eq.OPEN',
-      })
+    ? await selectIn(
+        'followups',
+        {
+          select: 'lead_id',
+          organization_id: `eq.${target.organizationId}`,
+          status: 'eq.OPEN',
+        },
+        'lead_id',
+        followupFixtures.map(({ lead }) => lead.id),
+      )
     : [];
   const openFollowupLeadIds = new Set(existingOpenFollowups.map((followup) => followup.lead_id));
   const followupRows = followupFixtures
@@ -653,18 +725,22 @@ async function main() {
     }));
   await insert('followups', followupRows);
 
-  const existingActivities = await select('activities', {
-    select: 'lead_id,activity_type',
-    organization_id: `eq.${target.organizationId}`,
-    lead_id: inFilter(leadIds),
-    activity_type: inFilter([
-      ACTIVITY_TYPE,
-      'LEAD_RECEIVED',
-      'FIRST_CONTACTED',
-      'LEAD_QUALIFIED',
-      'LEAD_TRANSFERRED_TO_SALES',
-    ]),
-  });
+  const existingActivities = await selectIn(
+    'activities',
+    {
+      select: 'lead_id,activity_type',
+      organization_id: `eq.${target.organizationId}`,
+      activity_type: inFilter([
+        ACTIVITY_TYPE,
+        'LEAD_RECEIVED',
+        'FIRST_CONTACTED',
+        'LEAD_QUALIFIED',
+        'LEAD_TRANSFERRED_TO_SALES',
+      ]),
+    },
+    'lead_id',
+    leadIds,
+  );
   const activityKeys = new Set(
     existingActivities.map((entry) => `${entry.lead_id}:${entry.activity_type}`),
   );
@@ -694,13 +770,17 @@ async function main() {
   });
   await insert('activities', activityRows);
 
-  const verifiedLeads = await select('leads', {
-    select: 'id,customer_id,branch_id,team_id,assigned_user_id',
-    organization_id: `eq.${target.organizationId}`,
-    connection_id: 'is.null',
-    external_lead_id: inFilter(externalLeadIds),
-    deleted_at: 'is.null',
-  });
+  const verifiedLeads = await selectIn(
+    'leads',
+    {
+      select: 'id,customer_id,branch_id,team_id,assigned_user_id',
+      organization_id: `eq.${target.organizationId}`,
+      connection_id: 'is.null',
+      deleted_at: 'is.null',
+    },
+    'external_lead_id',
+    externalLeadIds,
+  );
   if (
     verifiedLeads.length !== targetCount ||
     verifiedLeads.some(

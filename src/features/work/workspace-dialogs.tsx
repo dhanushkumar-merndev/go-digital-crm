@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -80,12 +80,23 @@ function safeMutationMessage(error: unknown) {
     const message = (error as { message?: string }).message;
     const safeMessages: Record<string, string> = {
       NO_CHANGES: 'No changes were made.',
+      WORK_REQUEST_TIMEOUT:
+        'The request is taking too long. The result is not yet confirmed. Retry with the same reason to safely check the cancellation.',
+      CANCELLATION_REASON_REQUIRED: 'Enter a cancellation reason between 3 and 500 characters.',
       ASSIGNEE_SCOPE_DENIED: 'The selected user cannot receive this work item.',
       ASSIGN_PERMISSION_REQUIRED: 'You are not allowed to reassign this work item.',
       APPOINTMENT_NOT_DUE: 'A future appointment cannot be marked as no-show.',
       APPOINTMENT_TERMINAL: 'This appointment is already closed.',
       FOLLOWUP_TERMINAL: 'This follow-up is already closed.',
       SCOPE_DENIED: 'This record is outside your current data scope.',
+      PERMISSION_DENIED:
+        'You no longer have permission to change this work item. Refresh the list.',
+      WORK_LEAD_NOT_IN_ORGANIZATION:
+        'The linked lead is no longer available. Close this dialog and refresh the list.',
+      INVALID_FOLLOWUP_DUE_AT: 'Choose a follow-up time from now to within the next two years.',
+      INVALID_FOLLOWUP_REASON: 'Enter a follow-up reason between 3 and 240 characters.',
+      INVALID_APPOINTMENT_TIME: 'Choose an appointment time from now to within the next two years.',
+      INVALID_DATE_TIME: 'Enter a valid date and time.',
     };
     if (message && safeMessages[message]) return safeMessages[message];
   }
@@ -582,12 +593,15 @@ export function WorkEditDialog({
   const mutation = useMutation({
     mutationFn: () => {
       const requestId = crypto.randomUUID();
+      if (!scheduledAt || !Number.isFinite(new Date(scheduledAt).getTime()))
+        throw new Error('INVALID_DATE_TIME');
       const nextIso = new Date(scheduledAt).toISOString();
       if (followup) {
         const patch: Parameters<typeof updateFollowup>[0]['patch'] = {};
         if (reason.trim() !== followup.reason) patch.reason = reason;
-        if (new Date(nextIso).getTime() !== new Date(followup.due_at).getTime())
-          patch.due_at = nextIso;
+        // datetime-local displays minutes. Do not turn an unchanged timestamp
+        // with seconds into a reschedule, especially on an overdue follow-up.
+        if (scheduledAt !== toLocalDateTime(followup.due_at)) patch.due_at = nextIso;
         if (priority !== followup.priority) patch.priority = priority;
         if (!isSalesConsultant && assignedUserId !== followup.assigned_user_id)
           patch.assigned_user_id = assignedUserId;
@@ -603,8 +617,7 @@ export function WorkEditDialog({
       const patch: Parameters<typeof updateAppointment>[0]['patch'] = {};
       if (appointmentType !== appointment.appointment_type)
         patch.appointment_type = appointmentType as AppointmentType;
-      if (new Date(nextIso).getTime() !== new Date(appointment.scheduled_at).getTime())
-        patch.scheduled_at = nextIso;
+      if (scheduledAt !== toLocalDateTime(appointment.scheduled_at)) patch.scheduled_at = nextIso;
       if (notes.trim() !== (appointment.notes ?? '')) patch.notes = notes;
       if (!isSalesConsultant && assignedUserId !== appointment.assigned_user_id)
         patch.assigned_user_id = assignedUserId;
@@ -632,7 +645,9 @@ export function WorkEditDialog({
         <DialogHeader>
           <DialogTitle>{isFollowup ? 'Reschedule follow-up' : 'Update appointment'}</DialogTitle>
           <DialogDescription>
-            Saving uses version {record.version}; stale edits are rejected safely.
+            {isFollowup
+              ? 'Update the follow-up time, reason or priority.'
+              : 'Update the appointment details and schedule.'}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -802,13 +817,17 @@ export function WorkActionDialog({
   onCompleted: () => void;
 }) {
   const [note, setNote] = useState('');
+  const attempt = useRef<{ fingerprint: string; requestId: string } | null>(null);
   const mutation = useMutation({
     mutationFn: () => {
+      const fingerprint = JSON.stringify([kind, action, record.id, record.version, note.trim()]);
+      if (attempt.current?.fingerprint !== fingerprint)
+        attempt.current = { fingerprint, requestId: crypto.randomUUID() };
       const input = {
         kind,
         id: record.id,
         expectedVersion: record.version,
-        requestId: crypto.randomUUID(),
+        requestId: attempt.current.requestId,
       };
       return action === 'complete'
         ? completeWork({ ...input, note })
@@ -826,10 +845,17 @@ export function WorkActionDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {action === 'complete' ? 'Complete work item' : 'Cancel work item'}
+            {action === 'complete'
+              ? 'Complete work item'
+              : kind === 'followups'
+                ? 'Cancel follow-up'
+                : 'Cancel appointment'}
           </DialogTitle>
           <DialogDescription>
-            {record.customer_name} · Version {record.version}. This action is audited.
+            {record.customer_name}.{' '}
+            {action === 'cancel'
+              ? 'This will close the scheduled work and keep its history.'
+              : 'Record the outcome of this work.'}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-4 space-y-2">
@@ -838,6 +864,7 @@ export function WorkActionDialog({
           </Label>
           <Textarea
             id={`${action}-work-note`}
+            disabled={mutation.isPending}
             value={note}
             onChange={(event) => setNote(event.target.value)}
             maxLength={action === 'complete' ? 1000 : 500}

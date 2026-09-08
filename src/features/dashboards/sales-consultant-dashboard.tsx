@@ -95,7 +95,10 @@ const metricDefinitions: Array<{
     label: 'Hot leads',
     icon: Flame,
     tone: 'rose',
-    href: '/sales-consultant/my-leads',
+    // `temperature` is the dropdown filter; there is no Hot status tab for this
+    // role. `status=all` is required as well -- without a status param the
+    // My Leads default-status pass runs on first load and replaces the query.
+    href: '/sales-consultant/my-leads?status=all&temperature=HOT',
   },
   {
     key: 'followups_today',
@@ -151,7 +154,10 @@ const attentionDefinitions: Record<
     action: 'View leads',
     icon: PhoneCall,
     tone: 'rose',
-    href: '/sales-consultant/my-leads',
+    // "Never contacted" has no filter of its own, so this lands on the hot
+    // leads that contain them rather than on an unfiltered list. Deliberately a
+    // superset: a narrower tab (Pending) would hide the ones handed off today.
+    href: '/sales-consultant/my-leads?status=all&temperature=HOT',
   },
   OVERDUE_FOLLOWUPS: {
     label: 'Overdue follow-up',

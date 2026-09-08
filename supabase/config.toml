@@ -95,6 +95,9 @@ verify_jwt = true
 [functions.sales-consultant-ai-summary]
 verify_jwt = true
 
+[functions.vehicle-comparison-ai]
+verify_jwt = true
+
 [functions.presign-upload]
 verify_jwt = true
 
@@ -107,7 +110,13 @@ verify_jwt = true
 [functions.personal-whatsapp-link-start]
 verify_jwt = true
 
+[functions.personal-whatsapp-availability]
+verify_jwt = true
+
 [functions.personal-whatsapp-disconnect]
+verify_jwt = true
+
+[functions.personal-whatsapp-sync]
 verify_jwt = true
 
 [functions.support-session-accept]

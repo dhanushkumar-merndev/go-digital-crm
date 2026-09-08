@@ -9,6 +9,7 @@ import { runAiVoiceEscalation } from './ai-voice-escalation';
 import { runMarketingDispatch } from './marketing-dispatch';
 import { runProviderEventDispatch } from './provider-event-dispatch';
 import { runProviderOutbox } from './provider-outbox';
+import { runVehicleComparisonAiExpiry } from './vehicle-comparison-ai-expiry';
 
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
@@ -47,6 +48,7 @@ export const minuteDispatch = schedules.task({
       provider_events: runProviderEventDispatch,
       provider_outbox: runProviderOutbox,
       marketing: runMarketingDispatch,
+      comparison_expiry: runVehicleComparisonAiExpiry,
     } as const;
 
     const names = Object.keys(steps) as Array<keyof typeof steps>;

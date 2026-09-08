@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LoaderCircle, QrCode, ShieldAlert, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { toast } from '@/components/ui/toast';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +19,7 @@ import {
   fetchPersonalWhatsAppStatus,
   personalWhatsAppReason,
   startPersonalWhatsApp,
+  checkPersonalWhatsAppAvailability,
 } from './personal-whatsapp-api';
 
 function QrCanvas({ value }: { value: string }) {
@@ -40,15 +42,22 @@ function QrCanvas({ value }: { value: string }) {
 
 export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] }) {
   const [open, setOpen] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const queryClient = useQueryClient();
   const status = useQuery({
     queryKey: ['personal-whatsapp-link', ...scope],
     queryFn: ({ signal }) => fetchPersonalWhatsAppStatus(undefined, signal),
     enabled: open,
-    refetchInterval: open ? 3000 : false,
-    staleTime: 0,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!open || !data?.enabled || query.state.error) return false;
+      if (data.status === 'CONNECTED') return 15000;
+      return Date.parse(data.attempt_expires_at) > Date.now() || data.masked_phone ? 2000 : false;
+    },
+    staleTime: 10000,
     gcTime: 0,
+    retry: false,
     meta: { persist: false },
   });
   useEffect(() => {
@@ -64,6 +73,22 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
     ]);
   };
   const link = useMutation({ mutationFn: startPersonalWhatsApp, onSuccess: refresh });
+  const availability = useMutation({
+    mutationFn: checkPersonalWhatsAppAvailability,
+    retry: false,
+    onSuccess: (data) => {
+      queryClient.setQueryData(['personal-whatsapp-link', ...scope], data);
+      setNow(Date.now());
+      setShowDetails(false);
+      setOpen(true);
+    },
+    onError: () =>
+      toast.add({
+        type: 'error',
+        title: 'WhatsApp is unavailable',
+        description: 'Connection service is offline or still starting. Try again shortly.',
+      }),
+  });
   const disconnect = useMutation({
     mutationFn: () => disconnectPersonalWhatsApp(status.data!.connection_id),
     onSuccess: async () => {
@@ -82,8 +107,18 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
   const error = link.error ?? disconnect.error;
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <Smartphone className="size-4" /> Connect my WhatsApp
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={availability.isPending}
+        onClick={() => availability.mutate()}
+      >
+        {availability.isPending ? (
+          <LoaderCircle className="size-4 animate-spin" />
+        ) : (
+          <Smartphone className="size-4" />
+        )}
+        {availability.isPending ? 'Checking…' : 'Connect my WhatsApp'}
       </Button>
       <Dialog
         open={open}
@@ -106,12 +141,9 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
             </DialogTitle>
             <DialogDescription>Your number, connected to your customer inbox.</DialogDescription>
           </DialogHeader>
-          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-            <div className="mb-1 flex items-center gap-2 font-medium">
-              <ShieldAlert className="size-4" /> Unofficial connection
-            </div>
-            WhatsApp may restrict or ban your number even with reply limits. Use the official
-            Business Platform for production reliability.
+          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <ShieldAlert className="mt-0.5 size-3.5 shrink-0" />
+            <span>Unofficial connection. WhatsApp may restrict or ban this number.</span>
           </div>
           {status.isPending ? (
             <p className="flex items-center gap-2 text-sm">
@@ -119,7 +151,7 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
             </p>
           ) : status.isError ? (
             <div className="space-y-2 text-sm">
-              <p>Connection status is unavailable. Personal WhatsApp may not be deployed yet.</p>
+              <p>Connection status is unavailable.</p>
               <Button variant="outline" onClick={() => void status.refetch()}>
                 Try again
               </Button>
@@ -137,9 +169,8 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
                 Last connection check:{' '}
                 {data.heartbeat_at ? new Date(data.heartbeat_at).toLocaleTimeString() : 'Waiting'}
               </p>
-              <p className="text-sm">
-                New messages from your CRM contacts appear in My WhatsApp. Earlier chat history is
-                not imported.
+              <p className="text-xs text-muted-foreground">
+                Text-only sync · CRM contacts · Up to 30 days
               </p>
             </div>
           ) : working ? (
@@ -160,30 +191,17 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
                   </p>
                 </div>
               )}
-              <p className="text-sm">
-                On your phone, open WhatsApp → Linked devices → Link a device, then scan the QR
-                code.
-              </p>
               <p className="text-xs text-muted-foreground">
-                The pilot server can take about a minute to wake up.
+                WhatsApp → Linked devices → Link a device
               </p>
             </div>
           ) : (
             <div className="space-y-3 text-sm">
               {expired && (
-                <p className="font-medium text-amber-800">
-                  This link attempt expired. Scan again to start a fresh attempt.
-                </p>
+                <p className="text-xs text-amber-800">QR expired. Generate a new code below.</p>
               )}
-              <p>
-                Only new one-to-one messages with contacts already in your accessible CRM records
-                are saved. Unrelated personal chats and groups are discarded. Attachments are shown
-                as placeholders.
-              </p>
-              <p>
-                You can reply for 24 hours after a customer messages you. No first messages, bulk
-                sends, campaigns, or automatic replies. Limit: 50 CRM replies per day, with
-                additional cooldowns.
+              <p className="text-xs text-muted-foreground">
+                Text only · CRM contacts only · 50 replies/day
               </p>
               <Button className="w-full" disabled={busy} onClick={() => link.mutate()}>
                 <QrCode className="size-4" />
@@ -210,11 +228,36 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
               </Button>
             </div>
           )}
-          <p className="text-xs text-muted-foreground">
-            Disconnect stops CRM access and clears saved session keys. You can also remove this
-            device in WhatsApp → Linked devices. Saved CRM messages remain under your account’s
-            retention policy.
-          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-auto justify-start px-0 text-xs text-muted-foreground"
+            aria-expanded={showDetails}
+            aria-controls="whatsapp-connection-details"
+            onClick={() => setShowDetails((value) => !value)}
+          >
+            {showDetails ? 'Hide details' : 'Connection details'}
+          </Button>
+          {showDetails && (
+            <div
+              id="whatsapp-connection-details"
+              className="space-y-2 text-xs text-muted-foreground"
+            >
+              <p>
+                Replies are available for 24 hours after a customer messages you. No first messages,
+                campaigns, or automatic replies.
+              </p>
+              <p>
+                Only accessible CRM contacts are saved. Groups and media are skipped. Available
+                history up to 30 days appears in All enquiries; keep your phone online.
+              </p>
+              <p>
+                Disconnect removes saved session keys. Existing CRM messages follow your account’s
+                retention policy.
+              </p>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </>

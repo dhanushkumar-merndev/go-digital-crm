@@ -49,11 +49,18 @@ for an unreviewed test.
   10-second heartbeat and generation fence prevent stale processes from writing.
   Restoration is sequential; expired/unavailable sockets recover on a bounded
   30-second reconciliation cycle.
-- Only new one-to-one messages matching exactly one accessible CRM identity are
+- Only text messages matching exactly one accessible CRM identity are
   stored. Unmatched, inaccessible and ambiguous conversations are discarded;
   phone matches never merge customers. Opaque WhatsApp LIDs without an explicit
-  phone alternative are discarded. Group, history, status and private ephemeral
+  phone alternative are discarded. Groups, media, status and private ephemeral
   payloads are ignored. No media download or contact harvesting occurs.
+- Available offline/initial history is imported automatically, limited to the last
+  30 days and 1,000 messages per provider batch. History has no guessed lead assignment.
+  The authenticated Sync text history action requests up to 100 older messages for
+  one existing conversation, at most once per minute. It requires a stored message
+  anchor and a connected phone; WhatsApp may return no history. This is a request,
+  not a guarantee of complete chat recovery. Deploy the text-history migration,
+  personal-whatsapp-sync Edge Function, gateway, and web UI together.
 - Personal messages use dedicated owner-only tables, unioned into the shared
   inbox. Legacy manager/Customer 360 reports cannot accidentally include them.
   Session keys and QR storage have no browser table grants. The owner status RPC

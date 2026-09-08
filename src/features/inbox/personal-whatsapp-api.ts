@@ -26,9 +26,10 @@ export async function fetchPersonalWhatsAppStatus(conversationId?: string, signa
   if (error) throw error;
   return statusSchema.nullable().parse(data);
 }
-async function invoke(name: string, body: unknown) {
+async function invoke(name: string, body: unknown, signal?: AbortSignal) {
   const { data, error } = await createClient().functions.invoke(name, {
     body: body as Record<string, unknown>,
+    signal,
   });
   if (error) {
     const response = (error as { context?: Response }).context;
@@ -40,8 +41,15 @@ async function invoke(name: string, body: unknown) {
 }
 export const startPersonalWhatsApp = () =>
   invoke('personal-whatsapp-link-start', { consent_version: 'pilot-v1' });
+export async function checkPersonalWhatsAppAvailability() {
+  const result = await invoke('personal-whatsapp-availability', {}, AbortSignal.timeout(7000));
+  if (result?.available !== true) throw new Error('PERSONAL_WHATSAPP_GATEWAY_UNAVAILABLE');
+  return statusSchema.nullable().parse(result.status);
+}
 export const disconnectPersonalWhatsApp = (connectionId: string) =>
   invoke('personal-whatsapp-disconnect', { connection_id: connectionId });
+export const syncPersonalWhatsApp = (conversationId: string) =>
+  invoke('personal-whatsapp-sync', { conversation_id: conversationId });
 export async function acknowledgeUnknownWhatsAppMessage(messageId: string) {
   const { error } = await createClient().rpc('personal_whatsapp_resolve_unknown', {
     target_message_id: messageId,
@@ -51,6 +59,10 @@ export async function acknowledgeUnknownWhatsAppMessage(messageId: string) {
 
 export function personalWhatsAppReason(code: string | null | undefined) {
   const reasons: Record<string, string> = {
+    PERSONAL_WHATSAPP_GATEWAY_UNAVAILABLE: 'WhatsApp is unavailable. Try again shortly.',
+    PERSONAL_WHATSAPP_SYNC_NO_ANCHOR:
+      'No recent message is available to request older history. Keep your phone online and reconnect to receive available chats.',
+    PERSONAL_WHATSAPP_SYNC_RATE_LIMITED: 'Wait a minute before requesting history again.',
     PERSONAL_WHATSAPP_DISCONNECTED: 'Your WhatsApp is disconnected. Open My WhatsApp to reconnect.',
     PERSONAL_WHATSAPP_REPLY_WINDOW_CLOSED:
       'Wait for a new customer message. Replies are available for 24 hours after they contact you.',

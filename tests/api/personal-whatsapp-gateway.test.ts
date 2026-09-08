@@ -215,6 +215,33 @@ describe('Baileys gateway lifecycle with simulated sockets', () => {
       ),
     ).toBe(true);
   });
+  it('recovers offline and initial text history while discarding media', async () => {
+    const { gateway, ev, rpc, identity } = setup();
+    await gateway.connect(identity);
+    const base = {
+      key: { id: 'offline', remoteJid: '919876543210@s.whatsapp.net' },
+      messageTimestamp: Math.floor(Date.now() / 1000) - 3600,
+      message: { conversation: 'Offline hello' },
+    };
+    ev.emit('messages.upsert', { type: 'append', messages: [base] });
+    await drain();
+    ev.emit('messaging-history.set', {
+      messages: [
+        { ...base, key: { ...base.key, id: 'history' } },
+        {
+          ...base,
+          key: { ...base.key, id: 'image' },
+          message: { imageMessage: { caption: 'Skip' } },
+        },
+      ],
+    });
+    await drain();
+    const ingested = rpc.mock.calls
+      .filter(([name]) => name === 'personal_whatsapp_ingest')
+      .map(([, args]) => args.target_data as { provider_message_id: string; is_history: boolean });
+    expect(ingested.map((item) => item.provider_message_id)).toEqual(['offline', 'history']);
+    expect(ingested.every((item) => item.is_history)).toBe(true);
+  });
   it('does not send twice and never retries an uncertain provider response', async () => {
     const { gateway, rpc, socket, identity } = setup();
     await gateway.connect(identity);

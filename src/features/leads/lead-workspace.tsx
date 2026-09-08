@@ -36,6 +36,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { focusRowHref, focusedRowClassName } from '@/lib/navigation/focus-row';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { SummaryToggle } from '@/components/domain/summary-toggle';
 import { LeadWorkspaceSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
@@ -789,31 +790,12 @@ function LeadStatusTabs({
         })}
       </div>
       {typeof summaryOpen === 'boolean' && onSummaryToggle ? (
-        <div className="flex shrink-0 items-center pl-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="size-7 rounded-full bg-background shadow-none"
-                aria-expanded={summaryOpen}
-                aria-controls="my-leads-summary-kpis"
-                aria-label={summaryOpen ? 'Hide lead summary cards' : 'Show lead summary cards'}
-                onClick={onSummaryToggle}
-              >
-                {summaryOpen ? (
-                  <ChevronUp className="size-4" />
-                ) : (
-                  <ChevronDown className="size-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {summaryOpen ? 'Hide lead summary' : 'Show lead summary'}
-            </TooltipContent>
-          </Tooltip>
-        </div>
+        <SummaryToggle
+          open={summaryOpen}
+          onToggle={onSummaryToggle}
+          controls="my-leads-summary-kpis"
+          label="lead summary"
+        />
       ) : null}
     </div>
   );
@@ -1948,15 +1930,25 @@ function LeadTable({
         cell: ({ row }) => {
           const { customer_id: customerId, customer_name: customerName, id } = row.original;
           const isHistoryLead = historyLeadIds.has(id);
+          // `title` keeps the full name reachable once it ellipsizes.
           if (isHistoryLead) {
-            return <span className="font-normal text-slate-500">{customerName}</span>;
+            return (
+              <span className="block truncate font-normal text-slate-500" title={customerName}>
+                {customerName}
+              </span>
+            );
           }
           if (!customerId)
-            return <span className="font-semibold text-foreground">{customerName}</span>;
+            return (
+              <span className="block truncate font-semibold text-foreground" title={customerName}>
+                {customerName}
+              </span>
+            );
           return (
             <Link
               href={customerDetailHref(role, customerId)}
-              className="font-semibold text-foreground hover:text-primary hover:underline"
+              title={customerName}
+              className="block truncate font-semibold text-foreground hover:text-primary hover:underline"
             >
               {customerName}
             </Link>
@@ -2152,7 +2144,7 @@ function LeadTable({
       },
       {
         id: 'actions',
-        header: () => <div className="text-right">Actions</div>,
+        header: 'Actions',
         cell: ({ row }) => {
           if (row.original.read_only || historyLeadIds.has(row.original.id)) {
             return null; // Read only leads have no direct actions in table
@@ -2764,13 +2756,13 @@ function LeadTable({
                     <TableHead
                       key={header.id}
                       className={cn(
-                        'h-11 whitespace-nowrap bg-slate-50 px-5 text-[10px] font-semibold uppercase tracking-wide text-[#263550]',
+                        'h-11 whitespace-nowrap bg-slate-50 px-4 text-[10px] font-semibold uppercase tracking-wide text-[#263550]',
                         // Actions sits last, so without this it inherits the
                         // table's leftover width and opens a gap between the
                         // icons and the right edge. w-px collapses the column to
                         // its content and hands the slack back to the text
                         // columns, which are the ones that benefit from it.
-                        header.column.id === 'actions' && 'w-px !pr-2 text-right',
+                        header.column.id === 'actions' && 'w-px !pr-0',
                       )}
                     >
                       {header.isPlaceholder
@@ -2823,8 +2815,9 @@ function LeadTable({
                         <TableCell
                           key={cell.id}
                           className={cn(
-                            'whitespace-nowrap px-5 py-4 text-xs text-[#263550]',
+                            'whitespace-nowrap px-4 py-4 text-xs text-[#263550]',
                             cell.column.id === 'lead_id' && 'relative',
+                            cell.column.id === 'customer_name' && 'max-w-[190px]',
                             cell.column.id === 'actions' && 'w-px !pr-0',
                           )}
                         >
@@ -2885,8 +2878,9 @@ function LeadTable({
                               <TableCell
                                 key={`history-${cell.id}`}
                                 className={cn(
-                                  'whitespace-nowrap px-5 py-4 text-xs text-slate-500',
+                                  'whitespace-nowrap px-4 py-4 text-xs text-slate-500',
                                   cell.column.id === 'lead_id' && 'relative',
+                                  cell.column.id === 'customer_name' && 'max-w-[190px]',
                                   cell.column.id === 'actions' && 'w-px !pr-0',
                                 )}
                               >

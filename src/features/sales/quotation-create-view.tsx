@@ -12,7 +12,7 @@ import {
   Tags,
   Wrench,
 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -34,6 +34,7 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { optionQueryOptions } from '@/lib/query/option-query';
 import {
   fetchQuotationLeadOptions,
+  fetchQuotationVariantPricing,
   fetchQuotationVehicleOptions,
   saveQuotation,
   type QuotationItem,
@@ -182,6 +183,39 @@ export function QuotationCreateView({
       enabled: Boolean(branchId),
     }),
   );
+  // Price-list defaults for the chosen variant. Only when creating: editing an
+  // existing quotation must never silently restate its saved figures as today's
+  // list price, which is what makes a re-sent quote disagree with the first one.
+  const pricing = useQuery(
+    optionQueryOptions({
+      queryKey: ['quotation-variant-pricing', ...queryScope, branchId, model, variant],
+      queryFn: ({ signal }) => fetchQuotationVariantPricing(branchId, model, variant, signal),
+      enabled: Boolean(!record && branchId && model && variant),
+    }),
+  );
+  // Applied once per model/variant pair, so switching variant refills but
+  // editing a filled-in figure is not undone by the next refetch. Only unset
+  // columns are written, so a tenant with no price list keeps manual entry.
+  const appliedPricingKey = useRef('');
+  useEffect(() => {
+    if (record) return;
+    const key = `${branchId}|${model}|${variant}`;
+    if (!pricing.data || appliedPricingKey.current === key) return;
+    appliedPricingKey.current = key;
+    const defaults = pricing.data;
+    setPrices((current) => ({
+      ...current,
+      vehicle:
+        defaults.ex_showroom_price != null ? String(defaults.ex_showroom_price) : current.vehicle,
+      insurance:
+        defaults.insurance_amount != null ? String(defaults.insurance_amount) : current.insurance,
+      registration:
+        defaults.registration_amount != null
+          ? String(defaults.registration_amount)
+          : current.registration,
+    }));
+  }, [record, branchId, model, variant, pricing.data]);
+
   const mutation = useMutation({ mutationFn: saveQuotation, onSuccess: onSaved });
 
   const additions =
@@ -370,6 +404,7 @@ export function QuotationCreateView({
                   label="Model"
                   value={model}
                   options={vehicleOptions.data?.models ?? []}
+                  awaitingCustomer={!branchId}
                   onChange={setModel}
                   required
                 />
@@ -377,12 +412,14 @@ export function QuotationCreateView({
                   label="Variant"
                   value={variant}
                   options={vehicleOptions.data?.variants ?? []}
+                  awaitingCustomer={!branchId}
                   onChange={setVariant}
                 />
                 <VehicleSelect
                   label="Colour"
                   value={colour}
                   options={vehicleOptions.data?.colors ?? []}
+                  awaitingCustomer={!branchId}
                   onChange={setColour}
                 />
                 <div className="space-y-2">
@@ -501,12 +538,14 @@ function VehicleSelect({
   options,
   onChange,
   required,
+  awaitingCustomer,
 }: {
   label: string;
   value: string;
   options: string[];
   onChange: (value: string) => void;
   required?: boolean;
+  awaitingCustomer?: boolean;
 }) {
   const values = value && !options.includes(value) ? [value, ...options] : options;
   return (
@@ -515,7 +554,11 @@ function VehicleSelect({
         {label}
         {required && <span className="text-destructive"> *</span>}
       </Label>
-      {values.length ? (
+      {awaitingCustomer && !value ? (
+        <div className="flex h-10 items-center truncate rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground">
+          Select customer first
+        </div>
+      ) : values.length ? (
         <Select value={value} onValueChange={onChange}>
           <SelectTrigger>
             <SelectValue placeholder={`Select ${label.toLowerCase()}`} />

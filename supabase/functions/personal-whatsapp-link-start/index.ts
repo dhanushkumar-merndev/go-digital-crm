@@ -3,6 +3,7 @@ import {
   personalError,
   personalGateway,
   personalWhatsAppActor,
+  checkPersonalGateway,
 } from '../_shared/personal-whatsapp.ts';
 import { serviceClient } from '../_shared/supabase.ts';
 
@@ -21,6 +22,7 @@ Deno.serve(async (request) => {
       !Deno.env.get('PERSONAL_WHATSAPP_SIGNING_SECRET')
     )
       throw new Error('PERSONAL_WHATSAPP_NOT_CONFIGURED');
+    await checkPersonalGateway();
     const { data, error } = await serviceClient().rpc('personal_whatsapp_link_authorize', {
       target_actor: userId,
       target_org: organizationId,

@@ -185,7 +185,12 @@ export function SearchSelect({
               <LoaderCircle className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
             ) : null}
           </div>
-          <div id={listId} role="listbox" className="max-h-64 overflow-y-auto p-1">
+          {/* Five rows, then scroll. A row with a description is 54px (py-2 plus
+              a 20px label, 2px gap and a 16px description line), so five is
+              270px inside the 8px of container padding. The old max-h-64 (256px)
+              cut the fifth row in half; the extra 2px here keeps a sliver of the
+              sixth visible so it reads as scrollable rather than complete. */}
+          <div id={listId} role="listbox" className="max-h-[17.5rem] overflow-y-auto p-1">
             {isError ? (
               <p className="px-3 py-6 text-center text-sm text-muted-foreground">{errorMessage}</p>
             ) : isPending ? (

@@ -19,22 +19,19 @@ const workWorkspace = source('src/features/work/workspace.tsx');
 
 describe('Customer 360 edit contract', () => {
   it('provides a contextual creation action for each editable Customer 360 tab', () => {
-    // Calls and Conversations are no longer Customer 360 tabs, so neither has
-    // a contextual create action here any more.
+    // Calls, conversations, follow-ups and appointments belong to the lead.
     for (const label of [
       'Add lead',
       'Add follow-up',
-      'Add appointment',
       'Schedule test drive',
       'Create quotation',
       'Create booking',
-      'Add vehicle',
       'Upload document',
     ]) {
       expect(customerWorkspace).toContain(label);
     }
     expect(customerWorkspace).toContain('router.push(`/${role}/follow-ups?action=create`)');
-    expect(customerWorkspace).toContain('router.push(`/${role}/appointments?action=create`)');
+    expect(customerWorkspace).not.toContain('<TabsTrigger value="appointments">');
     expect(customerWorkspace).toContain('router.push(`/${role}/test-drives?action=create`)');
     expect(customerWorkspace).toContain('router.push(`/${role}/quotations?action=create`)');
     expect(customerWorkspace).toContain('router.push(`/${role}/bookings?action=create`)');
@@ -117,7 +114,15 @@ describe('Customer 360 TeleCMI-call branch scope contract', () => {
 
   it('keeps the human TeleCMI action separate from automated AI voice escalation', () => {
     expect(customerActions).toContain('CustomerTelecmiCallDialog');
-    expect(customerActions).toContain('fetchCustomerTelecmiCallOptions(customerId, signal)');
+    // A Customer 360 screen can be opened from one of several leads for the
+    // same customer. Pass that lead through so the provider picker uses its
+    // branch mapping rather than selecting an arbitrary customer lead.
+    expect(customerActions).toContain(
+      'fetchCustomerTelecmiCallOptions(customerId, signal, leadId)',
+    );
+    expect(customerApi).toContain(
+      "rpc('get_lead_telecmi_call_options', { target_lead_id: leadId })",
+    );
     expect(customerActions).toContain('Call through CRM');
     expect(customerActions).toContain('options.branch_name');
     expect(customerActions).not.toContain('aiMode: true');

@@ -64,6 +64,11 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
     await db.exec(source('supabase/migrations/202608220009_shared_inbox_workspace.sql'));
     await db.exec(source('supabase/migrations/202609060001_personal_whatsapp_pilot.sql'));
     await db.exec(source('supabase/migrations/202609070203_personal_whatsapp_phone_matching.sql'));
+    await db.exec('alter table personal_whatsapp_messages add column lead_id uuid');
+    await db.exec(source('supabase/migrations/202609080003_personal_whatsapp_text_history.sql'));
+    await db.exec(
+      `create trigger personal_message_lead_snapshot before insert or update of lead_id,conversation_id,organization_id on personal_whatsapp_messages for each row execute function app_private.snapshot_message_lead()`,
+    );
     await db.query('insert into organizations(id) values($1)', [org]);
     for (const id of [actor, other, manager])
       await db.query('insert into profiles(id,organization_id) values($1,$2)', [id, org]);
@@ -104,6 +109,56 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
     await db?.close();
   });
 
+  it('imports recent text history once without assigning an old message to the current lead', async () => {
+    const payload = {
+      phone: '919876543210',
+      provider_message_id: randomUUID(),
+      from_me: false,
+      message_type: 'text',
+      body: 'Offline text',
+      sent_at: new Date(Date.now() - 86400000).toISOString(),
+      is_history: true,
+    };
+    const args = [session.connection_id, session.generation, worker, JSON.stringify(payload)];
+    const result = await rpc('personal_whatsapp_ingest', args);
+    expect(result.message_id).toBeTruthy();
+    expect((await rpc('personal_whatsapp_ingest', args)).message_id).toBeNull();
+    const rows = await db.query<{ lead_id: string | null }>(
+      'select lead_id from personal_whatsapp_messages where id=$1',
+      [result.message_id],
+    );
+    expect(rows.rows[0].lead_id).toBeNull();
+    await claims(actor);
+    expect(await rpc('personal_whatsapp_sync_authorize', [result.conversation_id])).toMatchObject({
+      connection_id: session.connection_id,
+    });
+    await expect(rpc('personal_whatsapp_sync_authorize', [result.conversation_id])).rejects.toThrow(
+      /SYNC_RATE_LIMITED/,
+    );
+  });
+  it('rejects media and history older than thirty days', async () => {
+    for (const extra of [
+      { message_type: 'image' },
+      { sent_at: new Date(Date.now() - 31 * 86400000).toISOString() },
+    ]) {
+      expect(
+        await rpc('personal_whatsapp_ingest', [
+          session.connection_id,
+          session.generation,
+          worker,
+          JSON.stringify({
+            phone: '919876543210',
+            provider_message_id: randomUUID(),
+            body: 'caption',
+            message_type: 'text',
+            is_history: true,
+            sent_at: new Date().toISOString(),
+            ...extra,
+          }),
+        ]),
+      ).toMatchObject({ ignored: true });
+    }
+  });
   it('ingests only accessible CRM contacts and deduplicates phone events', async () => {
     expect(await incoming('919999999999')).toMatchObject({ ignored: true });
     const id = randomUUID();

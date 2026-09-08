@@ -24,6 +24,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator';
 import type { Metric, PageSpec } from '@/lib/domain';
 import { fetchCompanyComplianceWorkspace } from './company-compliance-workspace-api';
+import { CatalogSharingCard } from '@/features/sales/catalog-sharing-card';
 
 const documentLabels = {
   OWNER_IDENTITY: 'Business Owner identity evidence',
@@ -112,6 +113,7 @@ export function CompanyComplianceWorkspace({ spec }: { spec: PageSpec }) {
     <div className="mx-auto max-w-[1500px] space-y-5">
       <PageHeader spec={{ ...spec, primaryAction: undefined, readOnly: true }} />
       <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
+      <CatalogSharingCard />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]">
         <Card className="shadow-none">

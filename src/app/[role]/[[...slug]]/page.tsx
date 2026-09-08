@@ -324,7 +324,11 @@ export default async function RolePage({ params }: Props) {
     return <SalesConsultantActivityTimeline role={role} />;
   if (role === 'sales-consultant' && slug[0] === 'ai-voice-calls' && !isLocalPreviewMode())
     return <AiVoiceCallWorkspace />;
-  if (role === 'sales-consultant' && slug[0] === 'competitor-compare' && !isLocalPreviewMode())
+  if (
+    ['sales-consultant', 'business-owner', 'client-admin'].includes(role) &&
+    slug[0] === 'competitor-compare' &&
+    !isLocalPreviewMode()
+  )
     return <CompetitorComparisonWorkspace spec={spec} />;
   if ((role === 'sales-consultant' || role === 'telecaller') && slug[0] === 'performance')
     return <SalesConsultantPerformance role={role} />;

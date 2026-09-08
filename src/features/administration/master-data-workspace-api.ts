@@ -12,6 +12,12 @@ const recordSchema = z.object({
   model_name: z.string().optional(),
   specifications: z.record(z.string(), z.unknown()).optional(),
   canonical_source: z.string().optional(),
+  // numeric(14,2) arrives as a string over PostgREST, and is null until a
+  // dealership loads its price list. `.nullable()` short-circuits before the
+  // coercion, so a null stays null instead of becoming 0.
+  ex_showroom_price: z.coerce.number().nullable().optional(),
+  insurance_amount: z.coerce.number().nullable().optional(),
+  registration_amount: z.coerce.number().nullable().optional(),
 });
 const workspaceSchema = z.object({
   records: z.array(recordSchema),
@@ -76,6 +82,22 @@ export async function saveVehicleMaster(input: {
   });
   if (error) throw error;
   return recordSchema.parse(data);
+}
+
+export async function setVariantPricing(input: {
+  variantId: string;
+  exShowroomPrice: number | null;
+  insuranceAmount: number | null;
+  registrationAmount: number | null;
+}) {
+  const { data, error } = await createClient().rpc('set_variant_pricing', {
+    target_variant_id: input.variantId,
+    target_ex_showroom_price: input.exShowroomPrice,
+    target_insurance_amount: input.insuranceAmount,
+    target_registration_amount: input.registrationAmount,
+  });
+  if (error) throw error;
+  return data;
 }
 
 export async function fetchVehicleColourOptions(search: string, signal?: AbortSignal) {

@@ -121,7 +121,7 @@ export class Gateway {
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
       syncFullHistory: false,
-      shouldSyncHistoryMessage: () => false,
+      shouldSyncHistoryMessage: () => true,
       markOnlineOnConnect: false,
       generateHighQualityLinkPreview: false,
       shouldIgnoreJid: (jid) =>
@@ -181,22 +181,30 @@ export class Gateway {
         }
       }),
     );
-    socket.ev.on('messages.upsert', ({ messages, type }) => {
-      if (type !== 'notify') return;
-      for (const message of messages) {
-        this.enqueue(session, async () => {
-          const normalized = await normalizeMessage(message, session.linkedAt, (lid) =>
-            socket.signalRepository.lidMapping.getPNForLID(lid),
+    const ingest = (messages: Parameters<typeof normalizeMessage>[0][], history: boolean) => {
+      // One bounded queue item per provider batch, without media downloads.
+      this.enqueue(session, async () => {
+        for (const message of messages.slice(-1000)) {
+          if (session.socket !== socket || session.stopped) return;
+          const normalized = await normalizeMessage(
+            message,
+            session.linkedAt,
+            (lid) => socket.signalRepository.lidMapping.getPNForLID(lid),
+            history,
           );
-          if (!normalized) return;
+          if (!normalized) continue;
           await this.deps.rpc('personal_whatsapp_ingest', {
             target_connection_id: session.identity.connection_id,
             target_generation: session.identity.generation,
             target_worker: this.worker,
             target_data: normalized,
           });
-        });
-      }
+        }
+      });
+    };
+    socket.ev.on('messaging-history.set', ({ messages }) => ingest(messages, true));
+    socket.ev.on('messages.upsert', ({ messages, type }) => {
+      ingest(messages, type === 'append');
     });
     socket.ev.on('messages.update', (updates) => {
       for (const { key, update } of updates) {
@@ -248,6 +256,34 @@ export class Gateway {
     }
     await this.result(identity.connection_id, messageId, 'SENT');
     return { message_id: messageId, status: 'SENT' };
+  }
+
+  async sync(identity: SessionIdentity, conversationId: string) {
+    const session = this.sessions.get(identity.connection_id);
+    if (!session?.socket || session.stopped || session.identity.generation !== identity.generation)
+      throw new Error('PERSONAL_WHATSAPP_DISCONNECTED');
+    await session.store('heartbeat');
+    const anchor = await this.deps.rpc<{
+      phone: string;
+      provider_message_id: string;
+      from_me: boolean;
+      timestamp_ms: number;
+    }>('personal_whatsapp_sync_anchor', {
+      target_connection_id: identity.connection_id,
+      target_generation: identity.generation,
+      target_worker: this.worker,
+      target_conversation_id: conversationId,
+    });
+    await session.socket.fetchMessageHistory(
+      100,
+      {
+        remoteJid: `${anchor.phone}@s.whatsapp.net`,
+        id: anchor.provider_message_id,
+        fromMe: anchor.from_me,
+      },
+      anchor.timestamp_ms,
+    );
+    return { requested: true };
   }
 
   private result(connectionId: string, messageId: string, status: string) {

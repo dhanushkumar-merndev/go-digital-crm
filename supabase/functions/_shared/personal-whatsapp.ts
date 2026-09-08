@@ -15,7 +15,12 @@ export async function personalWhatsAppActor(request: Request) {
   return { client, userId: auth.user.id, organizationId: context.organization_id as string };
 }
 
-export async function personalGateway(method: 'POST' | 'DELETE', path: string, data: unknown = {}) {
+export async function personalGateway(
+  method: 'GET' | 'POST' | 'DELETE',
+  path: string,
+  data: unknown = {},
+  timeoutMs = 25_000,
+) {
   const base = Deno.env.get('PERSONAL_WHATSAPP_GATEWAY_URL');
   const secret = Deno.env.get('PERSONAL_WHATSAPP_SIGNING_SECRET');
   if (!base || !secret || secret.length < 32) throw new Error('PERSONAL_WHATSAPP_NOT_CONFIGURED');
@@ -49,7 +54,7 @@ export async function personalGateway(method: 'POST' | 'DELETE', path: string, d
   const response = await fetch(url, {
     method,
     redirect: 'error',
-    signal: AbortSignal.timeout(25_000),
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
       'content-type': 'application/json',
       'x-gateway-timestamp': timestamp,
@@ -58,7 +63,7 @@ export async function personalGateway(method: 'POST' | 'DELETE', path: string, d
         n.toString(16).padStart(2, '0'),
       ).join(''),
     },
-    body,
+    body: method === 'GET' ? undefined : body,
   });
   const result = await response.json();
   if (!response.ok)
@@ -68,6 +73,15 @@ export async function personalGateway(method: 'POST' | 'DELETE', path: string, d
         : 'PERSONAL_WHATSAPP_GATEWAY_UNAVAILABLE',
     );
   return result;
+}
+
+export async function checkPersonalGateway() {
+  try {
+    const result = await personalGateway('GET', '/health', {}, 4000);
+    if (result?.ok !== true) throw new Error('UNHEALTHY');
+  } catch {
+    throw new Error('PERSONAL_WHATSAPP_GATEWAY_UNAVAILABLE');
+  }
 }
 
 export function personalError(error: unknown) {

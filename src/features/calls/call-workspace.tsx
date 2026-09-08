@@ -31,6 +31,7 @@ import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
+import { SummaryToggle } from '@/components/domain/summary-toggle';
 import { CallsSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import {
@@ -1556,6 +1557,7 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState<CallQuery>(() => parseCallQuery(searchParams));
+  const [summaryOpen, setSummaryOpen] = useState(true);
   const [createOpen, setCreateOpen] = useState(() => searchParams.get('action') === 'create');
   const [manualTimes, setManualTimes] = useState({ startedAt: '', endedAt: '' });
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
@@ -1701,26 +1703,36 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
           </Button>
         )}
       </div>
-      <div className="mt-6 flex h-10 gap-2 overflow-x-auto border-b">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            className={`relative h-full shrink-0 px-3 text-xs font-semibold ${
-              activeTab === tab.id ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
-            }`}
-            style={activeTab === tab.id ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
-            onClick={() => {
-              setActiveTab(tab.id);
-              onQueryChange({ page: 1 });
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="mt-6 flex h-10 border-b">
+        <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              className={`relative h-full shrink-0 px-3 text-xs font-semibold ${
+                activeTab === tab.id ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
+              }`}
+              style={activeTab === tab.id ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
+              onClick={() => {
+                setActiveTab(tab.id);
+                onQueryChange({ page: 1 });
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <SummaryToggle
+          open={summaryOpen}
+          onToggle={() => setSummaryOpen((open) => !open)}
+          controls="call-summary-kpis"
+          label="call summary"
+        />
       </div>
       <div className="mt-6 space-y-6">
-        <CallKpis data={workspace.data} />
+        <div id="call-summary-kpis" hidden={!summaryOpen}>
+          <CallKpis data={workspace.data} />
+        </div>
         <CallTable
           data={displayedWorkspace}
           query={query}

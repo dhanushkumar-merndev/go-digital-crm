@@ -17,6 +17,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useTrackRecentLead } from './recent-leads';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import { Badge } from '@/components/ui/badge';
@@ -282,6 +283,7 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
       }),
   });
 
+  useTrackRecentLead(detail.data?.lead);
   if (detail.isPending) return <LeadDetailSkeleton />;
   if (detail.isError || !detail.data) {
     return (

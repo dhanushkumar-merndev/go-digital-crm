@@ -105,6 +105,9 @@ const server = createServer(async (request, response) => {
     if (method === 'POST' && path === '/v1/sessions') {
       await gateway.connect(identity.parse(JSON.parse(body)));
       reply(202, { ok: true });
+    } else if (method === 'POST' && path === '/v1/history') {
+      const input = identity.extend({ conversation_id: z.uuid() }).parse(JSON.parse(body));
+      reply(202, await gateway.sync(input, input.conversation_id));
     } else if (method === 'POST' && path === '/v1/messages') {
       const input = identity.extend({ message_id: z.uuid() }).parse(JSON.parse(body));
       reply(200, await gateway.send(input, input.message_id));

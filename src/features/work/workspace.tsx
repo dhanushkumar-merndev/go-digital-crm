@@ -34,6 +34,7 @@ import {
   FollowupsSkeleton,
   AppointmentsSkeleton,
 } from '@/components/skeletons/sales-consultant-skeletons';
+import { SummaryToggle } from '@/components/domain/summary-toggle';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import {
@@ -297,10 +298,14 @@ function FollowupStatusTabs({
   statusCounts,
   status,
   onStatusChange,
+  summaryOpen,
+  onSummaryToggle,
 }: {
   statusCounts: FollowupWorkspaceResult['status_counts'];
   status: WorkStatusFilter;
   onStatusChange: (status: WorkStatusFilter) => void;
+  summaryOpen: boolean;
+  onSummaryToggle: () => void;
 }) {
   const tabs: Array<{ label: string; value: WorkStatusFilter; count: number }> = [
     { label: 'All', value: 'all', count: statusCounts.all },
@@ -311,36 +316,44 @@ function FollowupStatusTabs({
     { label: 'Cancelled', value: 'cancelled', count: statusCounts.cancelled },
   ];
   return (
-    <div
-      role="tablist"
-      aria-label="Follow-up quick views"
-      className="flex h-10 gap-2 overflow-x-auto border-b"
-    >
-      {tabs.map((tab) => {
-        const active = status === tab.value;
-        return (
-          <button
-            key={tab.value}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onStatusChange(tab.value)}
-            style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
-            className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
-              active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
-            }`}
-          >
-            <span>{tab.label}</span>
-            <span
-              className={`grid min-w-5 place-items-center rounded px-1 py-0.5 text-[10px] leading-none ${
-                active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+    <div className="flex h-10 border-b">
+      <div
+        role="tablist"
+        aria-label="Follow-up quick views"
+        className="flex min-w-0 flex-1 gap-2 overflow-x-auto"
+      >
+        {tabs.map((tab) => {
+          const active = status === tab.value;
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onStatusChange(tab.value)}
+              style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
+              className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
+                active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
               }`}
             >
-              {tab.count.toLocaleString()}
-            </span>
-          </button>
-        );
-      })}
+              <span>{tab.label}</span>
+              <span
+                className={`grid min-w-5 place-items-center rounded px-1 py-0.5 text-[10px] leading-none ${
+                  active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {tab.count.toLocaleString()}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <SummaryToggle
+        open={summaryOpen}
+        onToggle={onSummaryToggle}
+        controls="followup-summary-kpis"
+        label="follow-up summary"
+      />
     </div>
   );
 }
@@ -396,14 +409,14 @@ function WorkTable({
           cell: ({ row }) => {
             const followup = row.original as FollowupRecord;
             return (
-              <div className={followup.display_status === 'OVERDUE' ? 'text-red-600' : ''}>
-                <p className="whitespace-nowrap font-semibold">
+              <div className={followup.display_status === 'OVERDUE' ? 'text-rose-700' : ''}>
+                <p className="whitespace-nowrap font-medium">
                   {new Intl.DateTimeFormat('en-IN', {
                     hour: '2-digit',
                     minute: '2-digit',
                   }).format(new Date(followup.due_at))}
                 </p>
-                <p className="mt-0.5 whitespace-nowrap text-[10px]">
+                <p className="mt-0.5 whitespace-nowrap text-[11px] text-muted-foreground">
                   {new Intl.DateTimeFormat('en-IN', {
                     day: '2-digit',
                     month: 'short',
@@ -426,18 +439,29 @@ function WorkTable({
             // for a destination and link whenever it has one.
             const href = recordDetailHref(role, followup);
             return href ? (
-              <Link href={href} className="font-semibold hover:text-blue-700 hover:underline">
+              <Link
+                href={href}
+                title={followup.customer_name}
+                className="block max-w-[190px] truncate font-semibold text-foreground hover:text-primary hover:underline"
+              >
                 {followup.customer_name}
               </Link>
             ) : (
-              <span className="font-semibold">{followup.customer_name}</span>
+              <span
+                title={followup.customer_name}
+                className="block max-w-[190px] truncate font-semibold text-foreground"
+              >
+                {followup.customer_name}
+              </span>
             );
           },
         },
         {
           id: 'phone',
           header: 'Mobile',
-          cell: ({ row }) => (row.original as FollowupRecord).phone ?? '—',
+          cell: ({ row }) => (
+            <span className="font-medium">{(row.original as FollowupRecord).phone ?? '—'}</span>
+          ),
         },
         {
           id: 'model',
@@ -467,9 +491,9 @@ function WorkTable({
                       ? 'warning'
                       : 'success'
                 }
-                className="rounded px-2 py-0 text-[10px]"
+                className="px-2.5 py-0.5 text-[11px] font-medium"
               >
-                {priority}
+                {priority.charAt(0) + priority.slice(1).toLowerCase()}
               </Badge>
             );
           },
@@ -512,8 +536,8 @@ function WorkTable({
                     ? 'secondary'
                     : 'outline';
             return (
-              <Badge variant={variant} className="rounded px-2 py-0 text-[10px]">
-                {status.replaceAll('_', ' ')}
+              <Badge variant={variant} className="px-2.5 py-0.5 text-[11px] font-medium">
+                {status.charAt(0) + status.slice(1).toLowerCase().replaceAll('_', ' ')}
               </Badge>
             );
           },
@@ -556,23 +580,23 @@ function WorkTable({
               permissions.canComplete &&
               (followup.assigned_user_id === permissions.userId || permissions.canOverrideComplete);
             return (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center justify-end gap-0.5">
                 {followup.phone && (
-                  <Button variant="ghost" size="icon" className="size-8 text-blue-600" asChild>
+                  <Button variant="ghost" size="icon" className="size-7 text-emerald-600" asChild>
                     <a href={`tel:${followup.phone}`} aria-label={`Call ${followup.customer_name}`}>
-                      <Phone className="size-4" />
+                      <Phone className="size-3.5" />
                     </a>
                   </Button>
                 )}
                 {followup.phone && (
-                  <Button variant="ghost" size="icon" className="size-8 text-emerald-600" asChild>
+                  <Button variant="ghost" size="icon" className="size-7 text-emerald-600" asChild>
                     <a
                       href={toWhatsAppClickToChatUrl(followup.phone)}
                       target="_blank"
                       rel="noreferrer"
                       aria-label={`WhatsApp ${followup.customer_name}`}
                     >
-                      <WhatsAppIcon className="size-5" />
+                      <WhatsAppIcon className="size-4" />
                     </a>
                   </Button>
                 )}
@@ -580,11 +604,11 @@ function WorkTable({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="size-8 text-violet-600"
+                    className="size-7 text-violet-600"
                     onClick={() => onEdit(followup)}
                     aria-label="Reschedule follow-up"
                   >
-                    <CalendarDays className="size-4" />
+                    <CalendarDays className="size-3.5" />
                   </Button>
                 )}
                 {canComplete && (
@@ -1140,26 +1164,21 @@ function WorkTable({
                 <TableBody>
                   {table.getRowModel().rows.length ? (
                     table.getRowModel().rows.map((row) => {
-                      const overdue =
-                        kind === 'followups' &&
-                        (row.original as FollowupRecord).display_status === 'OVERDUE';
                       const focused = focusedRowIds.has(row.original.id);
                       return (
                         <TableRow
                           key={row.id}
                           id={focusRowElementId(kind, row.original.id)}
-                          className={
-                            focused
-                              ? focusedRowClassName
-                              : overdue
-                                ? 'bg-red-50/65 hover:bg-red-50'
-                                : 'hover:bg-slate-50/70'
-                          }
+                          className={focused ? focusedRowClassName : 'hover:bg-slate-50/70'}
                         >
                           {row.getVisibleCells().map((cell) => (
                             <TableCell
                               key={cell.id}
-                              className="whitespace-nowrap px-4 py-3 align-middle text-xs text-[#263550]"
+                              className={cn(
+                                'whitespace-nowrap px-4 py-4 align-middle text-xs text-[#263550]',
+                                cell.column.id === 'actions' && 'w-px',
+                                cell.column.id === 'customer' && 'max-w-[190px]',
+                              )}
                             >
                               {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </TableCell>
@@ -1388,6 +1407,7 @@ export function WorkWorkspace({
   const searchParams = useSearchParams();
   const [query, setQuery] = useState<WorkQuery>(() => parseWorkQuery(searchParams, kind));
   const [view, setView] = useState<'table' | 'calendar'>('table');
+  const [summaryOpen, setSummaryOpen] = useState(true);
   const [createOpen, setCreateOpen] = useState(
     () => kind === 'appointments' && searchParams.get('action') === 'create',
   );
@@ -1416,7 +1436,7 @@ export function WorkWorkspace({
   useTenantRealtimeInvalidation(permissions?.organizationId, [
     {
       resource: 'work',
-      queryKeys: [['work-workspace', kind, ...queryScope]],
+      queryKeys: [['work-workspace', ...queryScope, kind]],
     },
   ]);
   const workspace = useQuery({
@@ -1433,7 +1453,7 @@ export function WorkWorkspace({
     () =>
       focusId
         ? (workspace.data?.records ?? [])
-            .filter((record) => record.lead_id === focusId)
+            .filter((record) => record.lead_id === focusId || record.id === focusId)
             .map((record) => record.id)
         : [],
     [focusId, workspace.data],
@@ -1578,7 +1598,11 @@ export function WorkWorkspace({
       <div className="space-y-6">
         {kind === 'followups' ? (
           <>
-            <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <div
+              id="followup-summary-kpis"
+              hidden={!summaryOpen}
+              className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+            >
               {followupMetricCards(followupData.kpis, followupData.status_counts).map((card) => (
                 <FollowupMetricCard
                   key={card.status}
@@ -1597,6 +1621,8 @@ export function WorkWorkspace({
               statusCounts={followupData.status_counts}
               status={query.status}
               onStatusChange={(status) => onQueryChange({ status, page: 1 })}
+              summaryOpen={summaryOpen}
+              onSummaryToggle={() => setSummaryOpen((open) => !open)}
             />
             <WorkTable
               kind={kind}

@@ -40,6 +40,8 @@ export function notificationDetailHref(
   resourceId: string | null,
 ) {
   if (!resourceId) return null;
+  if (resourceType === 'followup')
+    return `/${role}/follow-ups?status=all&q=${encodeURIComponent(resourceId)}&focus=${encodeURIComponent(resourceId)}`;
   if (resourceType === 'lead') return leadDetailHref(role, resourceId);
   if (resourceType === 'customer') return customerDetailHref(role, resourceId);
   return null;

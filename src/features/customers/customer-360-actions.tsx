@@ -116,6 +116,10 @@ function CustomerEditFormDialog({
   const [contacts, setContacts] = useState<ContactDraft[]>(() => initialContacts(data));
   const [addresses, setAddresses] = useState<AddressDraft[]>(() => initialAddresses(data));
   const [vehicles, setVehicles] = useState<VehicleDraft[]>(() => initialVehicles(data));
+  const [additionalFields, setAdditionalFields] = useState(data.additional_fields);
+  const duplicateLabels =
+    new Set(additionalFields.map((field) => field.label.trim().toLowerCase())).size !==
+    additionalFields.length;
   const [customValues, setCustomValues] = useState<Record<string, string>>(() =>
     initialCustomValues(data),
   );
@@ -142,6 +146,10 @@ function CustomerEditFormDialog({
           custom_fields: data.custom_fields.map((field) => ({
             definition_id: field.definition_id,
             value: customFieldValue(field, customValues[field.definition_id] ?? ''),
+          })),
+          additional_fields: additionalFields.map((field) => ({
+            label: field.label.trim(),
+            value: field.value.trim(),
           })),
         },
       }),
@@ -423,28 +431,152 @@ function CustomerEditFormDialog({
                       <Label htmlFor={`customer-custom-${field.definition_id}`}>
                         {field.label}
                       </Label>
-                      <Input
-                        id={`customer-custom-${field.definition_id}`}
-                        className="mt-2"
-                        value={customValues[field.definition_id] ?? ''}
-                        onChange={(event) =>
-                          setCustomValues((current) => ({
-                            ...current,
-                            [field.definition_id]: event.target.value,
-                          }))
-                        }
-                        placeholder={
-                          field.field_type === 'MULTI_SELECT'
-                            ? 'Separate values with commas'
-                            : field.field_type
-                        }
-                      />
+                      {(field.field_type === 'SELECT' && field.options.length > 0) ||
+                      field.field_type === 'BOOLEAN' ? (
+                        <Select
+                          value={customValues[field.definition_id] || '__empty'}
+                          required={field.required}
+                          onValueChange={(value) =>
+                            setCustomValues((current) => ({
+                              ...current,
+                              [field.definition_id]: value === '__empty' ? '' : value,
+                            }))
+                          }
+                        >
+                          <SelectTrigger
+                            id={`customer-custom-${field.definition_id}`}
+                            className="mt-2"
+                          >
+                            <SelectValue placeholder="Select value" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {!field.required && (
+                              <SelectItem value="__empty">Not specified</SelectItem>
+                            )}
+                            {(field.field_type === 'BOOLEAN' ? ['true', 'false'] : field.options)
+                              .filter(Boolean)
+                              .map((option) => (
+                                <SelectItem key={option} value={option}>
+                                  {field.field_type === 'BOOLEAN'
+                                    ? option === 'true'
+                                      ? 'Yes'
+                                      : 'No'
+                                    : option}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          id={`customer-custom-${field.definition_id}`}
+                          className="mt-2"
+                          type={
+                            field.field_type === 'DATE'
+                              ? 'date'
+                              : field.field_type === 'NUMBER'
+                                ? 'number'
+                                : 'text'
+                          }
+                          step={field.field_type === 'NUMBER' ? 'any' : undefined}
+                          required={field.required}
+                          value={customValues[field.definition_id] ?? ''}
+                          onChange={(event) =>
+                            setCustomValues((current) => ({
+                              ...current,
+                              [field.definition_id]: event.target.value,
+                            }))
+                          }
+                          placeholder={
+                            field.field_type === 'MULTI_SELECT'
+                              ? 'Separate values with commas'
+                              : field.field_type
+                          }
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
               </section>
             </>
           ) : null}
+          <Separator />
+          <section className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold">Additional customer fields</h3>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={additionalFields.length >= 25}
+                onClick={() =>
+                  setAdditionalFields((fields) => [...fields, { label: '', value: '' }])
+                }
+              >
+                <Plus className="size-3.5" /> Add field and value
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              These details belong only to this customer.
+            </p>
+            {additionalFields.map((field, index) => (
+              <div
+                key={index}
+                className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_1fr_auto]"
+              >
+                <div>
+                  <Label htmlFor={`additional-label-${index}`}>Field name</Label>
+                  <Input
+                    id={`additional-label-${index}`}
+                    className="mt-2"
+                    required
+                    maxLength={80}
+                    value={field.label}
+                    placeholder="For example, Preferred contact time"
+                    onChange={(event) =>
+                      setAdditionalFields((fields) =>
+                        fields.map((item, i) =>
+                          i === index ? { ...item, label: event.target.value } : item,
+                        ),
+                      )
+                    }
+                  />
+                </div>
+                <div>
+                  <Label htmlFor={`additional-value-${index}`}>Value</Label>
+                  <Input
+                    id={`additional-value-${index}`}
+                    className="mt-2"
+                    required
+                    maxLength={2000}
+                    value={field.value}
+                    placeholder="For example, After 6 pm"
+                    onChange={(event) =>
+                      setAdditionalFields((fields) =>
+                        fields.map((item, i) =>
+                          i === index ? { ...item, value: event.target.value } : item,
+                        ),
+                      )
+                    }
+                  />
+                </div>
+                <Button
+                  type="button"
+                  className="self-end"
+                  variant="outline"
+                  onClick={() =>
+                    setAdditionalFields((fields) => fields.filter((_, i) => i !== index))
+                  }
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+            {duplicateLabels && (
+              <p role="alert" className="text-sm text-destructive">
+                Use a different name for each field.
+              </p>
+            )}
+          </section>
           {save.isError ? (
             <p className="text-sm text-destructive">
               The customer could not be updated. Refresh and try again if someone else changed this
@@ -460,7 +592,14 @@ function CustomerEditFormDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={save.isPending}>
+            <Button
+              type="submit"
+              disabled={
+                save.isPending ||
+                duplicateLabels ||
+                additionalFields.some((field) => !field.label.trim() || !field.value.trim())
+              }
+            >
               {save.isPending ? 'Saving…' : 'Save customer'}
             </Button>
           </DialogFooter>

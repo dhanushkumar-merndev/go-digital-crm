@@ -37,11 +37,11 @@ describe('tenant target configuration workspace contract', () => {
   });
 
   it('validates RPC data and provides a real target-edit flow through the Client Admin route', () => {
-    expect(api).toContain("rpc('get_tenant_target_configuration_workspace'");
-    expect(api).toContain("rpc('save_branch_target_configuration'");
+    expect(api).toContain("rpc('get_branch_model_targets'");
+    expect(api).toContain("rpc('save_branch_model_target'");
     expect(api).toContain('workspaceSchema.parse(data)');
     expect(workspace).toContain("from '@tanstack/react-query'");
-    expect(workspace).toContain("from '@/components/charts/e-chart'");
+    expect(workspace).toContain("from '@tanstack/react-table'");
     expect(workspace).toContain('Save targets');
     expect(workspace).toContain('readOnly = false');
     expect(workspace).toContain('Business Owner › Targets & performance');

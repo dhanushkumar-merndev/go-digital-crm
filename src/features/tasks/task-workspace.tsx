@@ -25,6 +25,7 @@ import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { SummaryToggle } from '@/components/domain/summary-toggle';
 import { TasksSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
@@ -275,10 +276,14 @@ function TaskStatusTabs({
   statusCounts,
   status,
   onStatusChange,
+  summaryOpen,
+  onSummaryToggle,
 }: {
   statusCounts: TaskWorkspaceResult['status_counts'];
   status: TaskStatusFilter;
   onStatusChange: (status: TaskStatusFilter) => void;
+  summaryOpen: boolean;
+  onSummaryToggle: () => void;
 }) {
   const tabs: Array<{ label: string; value: TaskStatusFilter; count: number }> = [
     { label: 'All', value: 'all', count: statusCounts.all },
@@ -291,36 +296,44 @@ function TaskStatusTabs({
     { label: 'Cancelled', value: 'cancelled', count: statusCounts.cancelled },
   ];
   return (
-    <div
-      role="tablist"
-      aria-label="Task quick views"
-      className="flex h-10 gap-2 overflow-x-auto border-b"
-    >
-      {tabs.map((tab) => {
-        const active = status === tab.value;
-        return (
-          <button
-            key={tab.value}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onStatusChange(tab.value)}
-            style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
-            className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
-              active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
-            }`}
-          >
-            <span>{tab.label}</span>
-            <span
-              className={`grid min-w-5 place-items-center rounded px-1 py-0.5 text-[10px] leading-none ${
-                active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+    <div className="flex h-10 border-b">
+      <div
+        role="tablist"
+        aria-label="Task quick views"
+        className="flex min-w-0 flex-1 gap-2 overflow-x-auto"
+      >
+        {tabs.map((tab) => {
+          const active = status === tab.value;
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onStatusChange(tab.value)}
+              style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
+              className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
+                active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
               }`}
             >
-              {tab.count.toLocaleString()}
-            </span>
-          </button>
-        );
-      })}
+              <span>{tab.label}</span>
+              <span
+                className={`grid min-w-5 place-items-center rounded px-1 py-0.5 text-[10px] leading-none ${
+                  active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {tab.count.toLocaleString()}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <SummaryToggle
+        open={summaryOpen}
+        onToggle={onSummaryToggle}
+        controls="task-summary-kpis"
+        label="task summary"
+      />
     </div>
   );
 }
@@ -674,6 +687,7 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
       return { ...parsed, status: 'today' };
     return parsed;
   });
+  const [summaryOpen, setSummaryOpen] = useState(true);
   const [searchInput, setSearchInput] = useState(query.search);
   const [createOpen, setCreateOpen] = useState(() => Boolean(initialCreateContext));
   const [createContext, setCreateContext] = useState<TaskCreateContext | null>(
@@ -793,7 +807,11 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
         )}
       </div>
       <div className="space-y-6">
-        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <div
+          id="task-summary-kpis"
+          hidden={!summaryOpen}
+          className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+        >
           {taskMetricCards(workspace.data.kpis, workspace.data.status_counts).map((card) => (
             <TaskMetricCard
               key={card.status}
@@ -812,6 +830,8 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
           statusCounts={workspace.data.status_counts}
           status={query.status}
           onStatusChange={(status) => onQueryChange({ status, page: 1 })}
+          summaryOpen={summaryOpen}
+          onSummaryToggle={() => setSummaryOpen((open) => !open)}
         />
         <TaskTable
           result={workspace.data}

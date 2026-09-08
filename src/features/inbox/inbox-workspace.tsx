@@ -19,6 +19,7 @@ import {
   acknowledgeUnknownWhatsAppMessage,
   fetchPersonalWhatsAppStatus,
   personalWhatsAppReason,
+  syncPersonalWhatsApp,
 } from './personal-whatsapp-api';
 import { InboxSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import {
@@ -182,12 +183,31 @@ export function InboxWorkspace({
     const rows = conversationRows;
     return rows.find((item) => item.id === selectedId) ?? rows[0] ?? null;
   }, [conversationRows, selectedId]);
+  const [historySelection, setHistorySelection] = useState<{
+    conversationId: string;
+    leadId: string | null;
+  } | null>(null);
+  const historyLeadId =
+    leadId ??
+    (historySelection?.conversationId === activeConversation?.id
+      ? historySelection?.leadId
+      : undefined) ??
+    undefined;
+  const viewLeadHistory =
+    !leadId && activeConversation
+      ? (id: string) => {
+          setHistorySelection({
+            conversationId: activeConversation.id,
+            leadId: id === 'all' ? null : id,
+          });
+        }
+      : undefined;
   const messages = useInfiniteQuery({
-    queryKey: ['shared-inbox-messages', ...queryScope, activeConversation?.id, leadId],
+    queryKey: ['shared-inbox-messages', ...queryScope, activeConversation?.id, historyLeadId],
     initialPageParam: { beforeAt: null as string | null, beforeId: null as string | null },
     queryFn: ({ signal, pageParam }) =>
       fetchInboxMessagePage(
-        { conversationId: activeConversation!.id, leadId, ...pageParam },
+        { conversationId: activeConversation!.id, leadId: historyLeadId, ...pageParam },
         signal,
       ),
     getNextPageParam: (lastPage) =>
@@ -212,7 +232,7 @@ export function InboxWorkspace({
       .slice()
       .reverse()
       .flatMap((item) => item.records) ?? [];
-  const draftContext = `${activeConversation?.id}:${activeConversation?.lead_id}`;
+  const draftContext = `${activeConversation?.id}:${activeConversation?.lead_id}:${historyLeadId}`;
   const visibleDraft = draftConversation === draftContext ? draft : '';
   useTenantRealtimeInvalidation(session?.organizationId, [
     {
@@ -224,9 +244,30 @@ export function InboxWorkspace({
       ],
     },
   ]);
+  const syncHistory = useMutation({
+    mutationFn: () => {
+      if (!activeConversation) throw new Error('PERSONAL_WHATSAPP_DISCONNECTED');
+      return syncPersonalWhatsApp(activeConversation.id);
+    },
+    onSuccess: () =>
+      toast.add({
+        type: 'success',
+        title: 'Text history requested',
+        description:
+          'Keep your phone online. Available text from the last 30 days will appear in All enquiries; media is skipped. WhatsApp may return no additional history.',
+      }),
+    onError: (error) =>
+      toast.add({
+        type: 'error',
+        title: 'Sync could not start',
+        description:
+          personalWhatsAppReason(error instanceof Error ? error.message : null) ??
+          'Reconnect My WhatsApp and try again.',
+      }),
+  });
   const canSend =
     !readOnly &&
-    (!leadId || activeConversation?.lead_id === leadId) &&
+    (!historyLeadId || activeConversation?.lead_id === historyLeadId) &&
     Boolean(session?.organizationId) &&
     hasWorkspacePermission(session, 'message.send') &&
     (activeConversation?.channel === 'WHATSAPP_BUSINESS' ||
@@ -319,15 +360,30 @@ export function InboxWorkspace({
             {leadId ? 'This lead’s conversations' : 'Customer inbox'}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {leadId
+            {historyLeadId
               ? 'Only messages assigned to this enquiry are shown.'
-              : 'All accessible customer conversations. Older messages load as you scroll up.'}
+              : 'Select a conversation, then choose an enquiry on the right to view its messages.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Linking is a personal-channel action, so it belongs with that
-              channel rather than on top of Official WhatsApp or Messenger. */}
-          {channel === 'WHATSAPP_PERSONAL' &&
+          {personalConversation && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={syncHistory.isPending || personalStatus.data?.status !== 'CONNECTED'}
+              onClick={() => syncHistory.mutate()}
+              title="Request available text history for this customer. Reconnect My WhatsApp first if disconnected."
+            >
+              {syncHistory.isPending ? 'Requesting…' : 'Sync text history'}
+            </Button>
+          )}
+          {/* Linking is a personal-channel action, so it stays off Official
+              WhatsApp and Messenger. It has to be reachable from the default
+              "All connected channels" view as well, or someone who has never
+              linked cannot find it: the button was the only way to discover the
+              feature, and it was hidden behind a filter they had no reason to
+              pick first. */}
+          {(channel === 'WHATSAPP_PERSONAL' || channel === 'all') &&
             ['telecaller', 'sales-consultant'].includes(role) &&
             hasWorkspacePermission(session, 'message.send') && (
               <PersonalWhatsAppDialog scope={queryScope} />
@@ -476,13 +532,14 @@ export function InboxWorkspace({
                   <InboxLeadContext
                     key={activeConversation.id}
                     conversation={activeConversation}
-                    leadId={leadId}
+                    leadId={historyLeadId}
+                    onViewLeadChange={viewLeadHistory}
                     disabled={send.isPending || readOnly}
                   />
                 </div>
                 <InboxMessageScroller
-                  key={`${activeConversation.id}:${leadId ?? 'all'}`}
-                  identity={`${activeConversation.id}:${leadId ?? 'all'}`}
+                  key={`${activeConversation.id}:${historyLeadId ?? 'all'}`}
+                  identity={`${activeConversation.id}:${historyLeadId ?? 'all'}`}
                   count={messageRows.length}
                   newestId={messageRows.at(-1)?.id}
                   hasMore={messages.hasNextPage}
@@ -507,7 +564,7 @@ export function InboxWorkspace({
                           <p className="whitespace-pre-wrap">
                             {message.body ?? 'Attachment or provider event'}
                           </p>
-                          {!leadId && typeof message.metadata.lead_id === 'string' && (
+                          {!historyLeadId && typeof message.metadata.lead_id === 'string' && (
                             <Link
                               className="mt-1 block text-[10px] text-muted-foreground underline"
                               href={`/${role}/leads/${message.metadata.lead_id}`}
@@ -595,7 +652,7 @@ export function InboxWorkspace({
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      {leadId && activeConversation.lead_id !== leadId
+                      {historyLeadId && activeConversation.lead_id !== historyLeadId
                         ? 'This is earlier history for this lead. Choose “Work on this lead” before sending new messages here.'
                         : personalConversation
                           ? personalStatus.isError
@@ -635,7 +692,8 @@ export function InboxWorkspace({
                 <InboxLeadContext
                   key={activeConversation.id}
                   conversation={activeConversation}
-                  leadId={leadId}
+                  leadId={historyLeadId}
+                  onViewLeadChange={viewLeadHistory}
                   disabled={send.isPending || readOnly}
                 />
                 <div className="space-y-3 border-t pt-4">

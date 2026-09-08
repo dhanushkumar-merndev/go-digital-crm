@@ -173,6 +173,8 @@ const customer360Schema = z.object({
       field_key: z.string(),
       label: z.string(),
       field_type: z.string(),
+      options: z.array(z.string()).default([]),
+      required: z.boolean().default(false),
       value: z.unknown(),
     }),
   ),
@@ -313,15 +315,27 @@ const customer360Schema = z.object({
 
 export type Customer360 = z.infer<typeof customer360Schema>;
 
-const customer360EditDataSchema = customer360Schema.pick({
-  customer: true,
-  contacts: true,
-  addresses: true,
-  vehicles: true,
-  custom_fields: true,
-});
+const customer360EditDataSchema = customer360Schema
+  .pick({
+    customer: true,
+    contacts: true,
+    addresses: true,
+    vehicles: true,
+    custom_fields: true,
+  })
+  .extend({
+    additional_fields: z.array(z.object({ label: z.string(), value: z.string() })).default([]),
+  });
 
 export type Customer360EditData = z.infer<typeof customer360EditDataSchema>;
+export async function fetchCustomerAdditionalFields(customerId: string, signal?: AbortSignal) {
+  const request = createClient().rpc('get_customer_additional_fields', {
+    target_customer_id: customerId,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return z.array(z.object({ label: z.string(), value: z.string() })).parse(data);
+}
 
 export async function fetchCustomer360EditData(customerId: string, signal?: AbortSignal) {
   const request = createClient().rpc('get_customer_360_edit_data', {
@@ -361,6 +375,7 @@ export type UpdateCustomer360Input = {
       model_year: number | null;
     }>;
     custom_fields: Array<{ definition_id: string; value: unknown }>;
+    additional_fields?: Array<{ label: string; value: string }>;
   };
 };
 

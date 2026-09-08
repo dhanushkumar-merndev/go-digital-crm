@@ -1,7 +1,5 @@
 'use client';
 
-import { InboxWorkspace } from '@/features/inbox/inbox-workspace';
-
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -22,6 +20,7 @@ import { useRouter } from 'next/navigation';
 import { leadDetailHref } from '@/lib/navigation/record-links';
 import { useMemo, useState, type ReactNode } from 'react';
 import { CustomerDripPanel } from './customer-drip-panel';
+import { CustomerAdditionalFields } from './customer-additional-fields';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
@@ -73,10 +72,6 @@ import {
 const customer360Tabs = [
   'overview',
   'leads',
-  'calls',
-  'conversations',
-  'followups',
-  'appointments',
   'test-drives',
   'quotations',
   'bookings',
@@ -91,13 +86,9 @@ type Customer360Tab = (typeof customer360Tabs)[number];
 const customerTabCreateLabel: Partial<Record<Customer360Tab, string>> = {
   overview: 'Edit customer',
   leads: 'Add lead',
-  calls: 'Start call',
-  followups: 'Add follow-up',
-  appointments: 'Add appointment',
   'test-drives': 'Schedule test drive',
   quotations: 'Create quotation',
   bookings: 'Create booking',
-  vehicles: 'Add vehicle',
   documents: 'Upload document',
   drip: 'Start a drip',
   timeline: 'Add follow-up',
@@ -107,9 +98,6 @@ const lazySectionByTab: Partial<
   Record<Exclude<Customer360Tab, 'overview'>, Customer360LazySection>
 > = {
   leads: 'leads',
-  calls: 'calls',
-  followups: 'followups',
-  appointments: 'appointments',
   'test-drives': 'test_drives',
   quotations: 'quotations',
   bookings: 'bookings',
@@ -355,6 +343,7 @@ function Overview({ data, role }: { data: Customer360; role: string }) {
             )}
           </CardContent>
         </Card>
+        <CustomerAdditionalFields customerId={data.customer.id} />
         {data.custom_fields.length > 0 && (
           <Card className="shadow-none">
             <CardHeader>
@@ -540,16 +529,6 @@ function Customer360Content({
           <TabsList className="h-auto min-w-max justify-start">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             {data.section_access.leads && <TabsTrigger value="leads">Leads</TabsTrigger>}
-            {data.section_access.calls && <TabsTrigger value="calls">Calls</TabsTrigger>}
-            {data.section_access.conversations && (
-              <TabsTrigger value="conversations">Conversations</TabsTrigger>
-            )}
-            {data.section_access.followups && (
-              <TabsTrigger value="followups">Follow-ups</TabsTrigger>
-            )}
-            {data.section_access.appointments && (
-              <TabsTrigger value="appointments">Appointments</TabsTrigger>
-            )}
             {data.section_access.test_drives && (
               <TabsTrigger value="test-drives">Test Drives</TabsTrigger>
             )}
@@ -619,67 +598,6 @@ function Customer360Content({
                   lead.branch_name,
                   lead.assigned_user_name ?? 'Unassigned',
                   formatDate(lead.updated_at),
-                ])}
-              />
-            </TabsContent>
-          )}
-          {data.section_access.calls && (
-            <TabsContent value="calls">
-              <DetailTable
-                headers={[
-                  'Started',
-                  'Direction',
-                  'Status',
-                  'Outcome',
-                  'Duration',
-                  'Owner',
-                  'Recording',
-                ]}
-                emptyLabel="Calls"
-                rows={data.calls.map((call) => [
-                  formatDate(call.started_at),
-                  call.direction,
-                  <StatusBadge key="status" value={call.status} />,
-                  call.outcome ?? '—',
-                  formatDuration(call.duration_seconds),
-                  call.assigned_user_name ?? '—',
-                  call.recording_status ?? 'Not available',
-                ])}
-              />
-            </TabsContent>
-          )}
-          {data.section_access.conversations && (
-            <TabsContent value="conversations">
-              <InboxWorkspace role={role} customerId={data.customer.id} embedded />
-            </TabsContent>
-          )}
-          {data.section_access.followups && (
-            <TabsContent value="followups">
-              <DetailTable
-                headers={['Due', 'Reason', 'Status', 'Owner', 'Completed']}
-                emptyLabel="Follow-ups"
-                rows={data.followups.map((followup) => [
-                  formatDate(followup.due_at),
-                  followup.reason,
-                  <StatusBadge key="status" value={followup.status} />,
-                  followup.assigned_user_name ?? '—',
-                  formatDate(followup.completed_at),
-                ])}
-              />
-            </TabsContent>
-          )}
-          {data.section_access.appointments && (
-            <TabsContent value="appointments">
-              <DetailTable
-                headers={['Scheduled', 'Type', 'Status', 'Attendance', 'Branch', 'Owner']}
-                emptyLabel="Appointments"
-                rows={data.appointments.map((appointment) => [
-                  formatDate(appointment.scheduled_at),
-                  appointment.appointment_type,
-                  <StatusBadge key="status" value={appointment.status} />,
-                  appointment.attendance_status ?? '—',
-                  appointment.branch_name,
-                  appointment.assigned_user_name ?? '—',
                 ])}
               />
             </TabsContent>
@@ -1054,15 +972,8 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
       case 'leads':
         router.push(`/${role}/my-leads?action=create`);
         return;
-      case 'calls':
-        setCallOpen(true);
-        return;
-      case 'followups':
       case 'timeline':
         router.push(`/${role}/follow-ups?action=create`);
-        return;
-      case 'appointments':
-        router.push(`/${role}/appointments?action=create`);
         return;
       case 'test-drives':
         router.push(`/${role}/test-drives?action=create`);
@@ -1137,16 +1048,6 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
                   <Pencil className="size-3.5 text-blue-600" /> Edit customer
                 </Button>
               ) : null}
-              {data.section_access.followups ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => selectCustomerTab('followups')}
-                >
-                  <CalendarClock className="size-3.5 text-orange-600" /> Follow-up
-                </Button>
-              ) : null}
               {data.section_access.test_drives ? (
                 <Button
                   type="button"
@@ -1195,6 +1096,9 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
           onOpenChange={setEditOpen}
           customerId={data.customer.id}
           onSaved={() => {
+            void queryClient.invalidateQueries({
+              queryKey: ['customer-360', ...queryScope, customerId],
+            });
             if (useSalesHotPath) void salesCore.refetch();
             else void legacyCustomer.refetch();
           }}
@@ -1209,7 +1113,7 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
           customerName={data.customer.full_name}
           customerPhone={data.customer.primary_phone}
           onStarted={() => {
-            selectCustomerTab('calls');
+            selectCustomerTab('timeline');
             void queryClient.invalidateQueries({
               queryKey: ['customer-360', ...queryScope, customerId],
             });

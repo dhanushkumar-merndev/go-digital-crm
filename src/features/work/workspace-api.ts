@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
+import { runWorkMutation } from './work-mutation-request';
 import {
   WorkVersionConflictError,
   type SchedulableAppointmentType,
@@ -596,12 +597,16 @@ export async function cancelWork(input: {
 }) {
   const functionName = input.kind === 'followups' ? 'cancel_followup' : 'cancel_appointment';
   const idKey = input.kind === 'followups' ? 'target_followup_id' : 'target_appointment_id';
-  const { data, error } = await createClient().rpc(functionName, {
-    [idKey]: input.id,
-    expected_version: input.expectedVersion,
-    cancellation_reason: input.reason,
-    target_request_id: input.requestId,
-  });
+  const { data, error } = await runWorkMutation((signal) =>
+    createClient()
+      .rpc(functionName, {
+        [idKey]: input.id,
+        expected_version: input.expectedVersion,
+        cancellation_reason: input.reason,
+        target_request_id: input.requestId,
+      })
+      .abortSignal(signal),
+  );
   throwMutationError(error);
   return mutationResultSchema.parse(data);
 }

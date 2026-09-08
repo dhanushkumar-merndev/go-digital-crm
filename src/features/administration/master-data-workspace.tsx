@@ -1,4 +1,6 @@
 'use client';
+import { VehicleSpecificationsEditor } from './vehicle-specifications-editor';
+import { vehicleSpecificationsSchema } from './vehicle-specifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CarFront, Database, Filter, Pencil, Plus, Search, Tag, ToggleLeft } from 'lucide-react';
 import { useState } from 'react';
@@ -47,6 +49,7 @@ import {
   fetchMasterDataWorkspace,
   setMasterDataActive,
   saveVehicleMaster,
+  setVariantPricing,
   type MasterDataCategory,
   type MasterDataRecord,
 } from './master-data-workspace-api';
@@ -58,6 +61,18 @@ const categories: Array<{ value: MasterDataCategory; label: string }> = [
   { value: 'BRANDS', label: 'Brands' },
   { value: 'LEAD_SOURCES', label: 'Lead sources' },
 ];
+
+/**
+ * An empty price box means "no list price for this variant", not zero. Sending
+ * 0 would make the quotation form prefill a free car, so anything that is not a
+ * usable non-negative number is stored as null and simply does not prefill.
+ */
+const asPriceOrNull = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
 
 export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
@@ -77,6 +92,10 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
   const [selectedParentId, setSelectedParentId] = useState('');
   const [fuelType, setFuelType] = useState('PETROL');
   const [transmission, setTransmission] = useState('MANUAL');
+  // Held as strings so an empty box stays empty rather than saving a zero price.
+  const [exShowroomPrice, setExShowroomPrice] = useState('');
+  const [insuranceAmount, setInsuranceAmount] = useState('');
+  const [registrationAmount, setRegistrationAmount] = useState('');
 
   const client = useQueryClient();
   const data = useQuery({
@@ -144,7 +163,8 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
   const createMutation = useMutation({
     mutationFn: async () => {
       if (category === 'LEAD_SOURCES') throw new Error('Select a vehicle category.');
-      return saveVehicleMaster({
+      if (category === 'VARIANTS') vehicleSpecificationsSchema.parse(specifications);
+      const saved = await saveVehicleMaster({
         category,
         id: editing?.id,
         parentId: selectedParentId,
@@ -153,6 +173,18 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
         specifications:
           category === 'VARIANTS' ? { ...specifications, fuel_type: fuelType, transmission } : {},
       });
+      // Pricing is a second call because it is variant-only, while
+      // save_vehicle_master is the shared boundary for every category. It needs
+      // the id back, so it can only run once the row above exists.
+      if (category === 'VARIANTS') {
+        await setVariantPricing({
+          variantId: saved.id,
+          exShowroomPrice: asPriceOrNull(exShowroomPrice),
+          insuranceAmount: asPriceOrNull(insuranceAmount),
+          registrationAmount: asPriceOrNull(registrationAmount),
+        });
+      }
+      return saved;
     },
     onSuccess: () => {
       toast.add({
@@ -163,6 +195,9 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
       setIsAddOpen(false);
       setNameInput('');
       setSelectedParentId('');
+      setExShowroomPrice('');
+      setInsuranceAmount('');
+      setRegistrationAmount('');
       client.invalidateQueries({ queryKey: ['master-data'] });
       client.invalidateQueries({ queryKey: ['vehicle-colour-options'] });
       client.invalidateQueries({ queryKey: ['inventory-variant-options'] });
@@ -184,6 +219,9 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
     setSpecifications(row?.specifications ?? {});
     setFuelType(String(row?.specifications?.fuel_type ?? 'PETROL'));
     setTransmission(String(row?.specifications?.transmission ?? 'MANUAL'));
+    setExShowroomPrice(row?.ex_showroom_price != null ? String(row.ex_showroom_price) : '');
+    setInsuranceAmount(row?.insurance_amount != null ? String(row.insurance_amount) : '');
+    setRegistrationAmount(row?.registration_amount != null ? String(row.registration_amount) : '');
     setIsAddOpen(true);
   };
   const parentQuery = category === 'MODELS' ? brandsQuery : modelsQuery;
@@ -515,35 +553,36 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
             )}
 
             {category === 'VARIANTS' && (
-              <div className="grid grid-cols-2 gap-4">
-                {[
-                  ['engine_cc', 'Engine capacity (cc)'],
-                  ['max_power_bhp', 'Power (bhp)'],
-                  ['mileage_kmpl', 'Mileage (km/l)'],
-                  ['seating_capacity', 'Seats'],
-                  ['range_km', 'EV range (km)'],
-                  ['boot_space_litres', 'Boot space (litres)'],
-                ].map(([key, label]) => (
-                  <div className="space-y-2" key={key}>
-                    <Label htmlFor={`spec-${key}`}>{label}</Label>
-                    <Input
-                      id={`spec-${key}`}
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={String(specifications[key] ?? '')}
-                      onChange={(event) =>
-                        setSpecifications((current) => {
-                          const next = { ...current };
-                          if (event.target.value === '') delete next[key];
-                          else next[key] = Number(event.target.value);
-                          return next;
-                        })
-                      }
-                    />
-                  </div>
-                ))}
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Price list — used to prefill new quotations. Ex-showroom price is also shown in
+                  shared comparisons; insurance and registration stay private.
+                </p>
+                <div className="grid grid-cols-3 gap-4">
+                  {(
+                    [
+                      ['Ex-showroom', exShowroomPrice, setExShowroomPrice],
+                      ['Insurance', insuranceAmount, setInsuranceAmount],
+                      ['Registration', registrationAmount, setRegistrationAmount],
+                    ] as const
+                  ).map(([label, value, set]) => (
+                    <div key={label} className="space-y-2">
+                      <Label htmlFor={`price-${label}`}>{label}</Label>
+                      <Input
+                        id={`price-${label}`}
+                        inputMode="decimal"
+                        placeholder="0"
+                        value={value}
+                        onChange={(event) => set(event.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
+            )}
+
+            {category === 'VARIANTS' && (
+              <VehicleSpecificationsEditor value={specifications} onChange={setSpecifications} />
             )}
 
             <DialogFooter className="pt-3">

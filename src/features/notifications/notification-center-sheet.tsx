@@ -209,7 +209,12 @@ export function NotificationCenterSheet({
                             openRelatedRecord(record.resource_type, record.resource_id)
                           }
                         >
-                          Open {record.resource_type === 'lead' ? 'lead' : 'customer'}
+                          Open{' '}
+                          {record.resource_type === 'followup'
+                            ? 'follow-up'
+                            : record.resource_type === 'lead'
+                              ? 'lead'
+                              : 'customer'}
                         </Button>
                       ) : null}
                     </div>

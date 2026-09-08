@@ -1,17 +1,21 @@
 'use client';
+
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Check, CircleAlert, GitCompareArrows, Lightbulb, Scale } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import { CompetitorCompareSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  createColumnHelper,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from '@tanstack/react-table';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { SearchSelect } from '@/components/ui/search-select';
 import {
   Table,
   TableBody,
@@ -20,214 +24,241 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { PageSpec } from '@/lib/domain';
-import { fetchCompetitorComparisonOptions } from './competitor-comparison-api';
-function display(value: unknown) {
+import { CatalogSharingCard } from './catalog-sharing-card';
+import { ComparisonAiCard } from './comparison-ai-card';
+import {
+  fetchVehicleComparison,
+  searchComparisonVehicles,
+  type ComparisonVehicle,
+} from './competitor-comparison-api';
+
+function VehicleSelector({
+  ownOnly,
+  value,
+  onChange,
+}: {
+  ownOnly: boolean;
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const session = useWorkspaceSession();
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const term = useDebouncedValue(search, 300);
+  const query = useQuery({
+    queryKey: ['comparison-vehicles', ...workspaceQueryScope(session), ownOnly, term, page],
+    queryFn: ({ signal }) => searchComparisonVehicles(term, ownOnly, page, signal),
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+  });
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">{ownOnly ? 'Our vehicle' : 'Compare with'}</p>
+      <SearchSelect
+        aria-label={ownOnly ? 'Our vehicle' : 'Compare with'}
+        value={value}
+        onValueChange={onChange}
+        search={search}
+        onSearchChange={(next) => {
+          setSearch(next);
+          setPage(1);
+        }}
+        options={query.data?.records.map((row) => ({
+          value: row.id,
+          label: row.manufacturer + ' ' + row.model + ' · ' + row.variant,
+          description:
+            row.dealership_name + (row.is_own ? ' · Your dealership' : ' · Dealer-provided'),
+        }))}
+        isPending={query.isPending}
+        isFetching={query.isFetching}
+        isError={query.isError}
+        placeholder="Select a model / variant"
+        searchPlaceholder="Search company, model or dealership"
+        emptyMessage="No accessible models found."
+      />
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>{query.data ? query.data.total + ' variants' : 'Loading variants…'}</span>
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={page === 1 || query.isFetching}
+            onClick={() => setPage((p) => p - 1)}
+          >
+            Previous
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!query.data || page * 25 >= query.data.total || query.isFetching}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function display(value: unknown, key?: string) {
   if (value === null || value === undefined || value === '') return 'Not specified';
+  if (value === false || value === 'NOT_AVAILABLE') return 'Not available';
+  if (key === 'ex_showroom_price' && typeof value === 'number')
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0,
+    }).format(value);
   if (Array.isArray(value)) return value.join(', ');
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
 }
-function label(value: string) {
-  return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-export function CompetitorComparisonWorkspace({ spec }: { spec: PageSpec }) {
-  const query = useQuery({
-    queryKey: ['sales-competitor-comparison'],
-    queryFn: ({ signal }) => fetchCompetitorComparisonOptions(signal),
-    staleTime: 60_000,
-  });
-  const [ourId, setOurId] = useState('');
-  const [competitorId, setCompetitorId] = useState('');
-  const selectedOurId = ourId || query.data?.our_variants[0]?.id || '';
-  const selectedCompetitorId = competitorId || query.data?.competitors[0]?.id || '';
-  const ours = query.data?.our_variants.find((row) => row.id === selectedOurId);
-  const competitor = query.data?.competitors.find((row) => row.id === selectedCompetitorId);
-  const specs = useMemo(
+type SpecRow = { name: string; ours: string; other: string };
+const column = createColumnHelper<SpecRow>();
+function SpecificationTable({
+  ours,
+  other,
+}: {
+  ours: ComparisonVehicle;
+  other: ComparisonVehicle;
+}) {
+  const data = useMemo(
     () =>
       Array.from(
-        new Set([
-          ...Object.keys(ours?.specifications ?? {}),
-          ...Object.keys(competitor?.specifications ?? {}),
-          ...(competitor?.ex_showroom_price !== null && competitor?.ex_showroom_price !== undefined
-            ? ['ex_showroom_price']
-            : []),
-        ]),
-      ).sort(),
-    [ours, competitor],
+        new Set([...Object.keys(ours.specifications), ...Object.keys(other.specifications)]),
+      )
+        .sort()
+        .map((key) => ({
+          name: key.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
+          ours: display(ours.specifications[key], key),
+          other: display(other.specifications[key], key),
+        })),
+    [ours, other],
   );
-  if (query.isPending) return <CompetitorCompareSkeleton />;
-  if (query.isError || !query.data)
-    return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <CircleAlert className="mx-auto size-7 text-destructive" />
-          <p className="mt-3 font-semibold">Competitor comparison is unavailable</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Confirm your Sales Consultant access and deployed competitor catalog.
-          </p>
-        </CardContent>
-      </Card>
-    );
+  const columns = useMemo(
+    () => [
+      column.accessor('name', { header: 'Specification' }),
+      column.accessor('ours', {
+        header: () => (
+          <div>
+            {ours.manufacturer} {ours.model} · {ours.variant}
+            <p className="mt-1 text-xs font-normal">{ours.dealership_name} · Our vehicle</p>
+          </div>
+        ),
+      }),
+      column.accessor('other', {
+        header: () => (
+          <div>
+            {other.manufacturer} {other.model} · {other.variant}
+            <p className="mt-1 text-xs font-normal">
+              {other.dealership_name} · {other.is_own ? 'Our vehicle' : 'Shared vehicle'}
+            </p>
+          </div>
+        ),
+      }),
+    ],
+    [ours, other],
+  );
+  const table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel() });
+  return (
+    <Card className="overflow-hidden shadow-none">
+      <CardHeader>
+        <CardTitle className="text-base">
+          Specification comparison <Badge variant="secondary">Dealer-provided</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="overflow-x-auto p-0">
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((group) => (
+              <TableRow key={group.id}>
+                {group.headers.map((header) => (
+                  <TableHead key={header.id}>
+                    {flexRender(header.column.columnDef.header, header.getContext())}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {table.getRowModel().rows.map((row) => (
+              <TableRow key={row.id}>
+                {row.getVisibleCells().map((cell) => (
+                  <TableCell key={cell.id}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+            {!data.length ? (
+              <TableRow>
+                <TableCell colSpan={3} className="py-10 text-center">
+                  No specifications recorded. Ask your administrator to update vehicle variants.
+                </TableCell>
+              </TableRow>
+            ) : null}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+export function CompetitorComparisonWorkspace({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
+  const [ourId, setOurId] = useState('');
+  const [otherId, setOtherId] = useState('');
+  const query = useQuery({
+    queryKey: ['vehicle-comparison', ...workspaceQueryScope(session), ourId, otherId],
+    queryFn: ({ signal }) => fetchVehicleComparison(ourId, otherId, signal),
+    enabled: Boolean(ourId && otherId),
+    staleTime: 0,
+    gcTime: 0,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+    retry: false,
+  });
   return (
     <div className="mx-auto max-w-[1800px] space-y-5">
       <div>
-        <div className="mb-2 text-xs text-muted-foreground">
-          Sales workspace › Competitor compare
-        </div>
-        <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">{spec.title}</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{spec.title}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Compare verified vehicle specifications and position the dealership&apos;s vehicle
-          accurately.
+          Compare dealership-provided specifications. Missing information is not proof a feature is
+          absent.
         </p>
       </div>
+      <CatalogSharingCard />
       <Card className="shadow-none">
         <CardContent className="grid gap-5 p-5 lg:grid-cols-[1fr_auto_1fr]">
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Our vehicle</p>
-            <Select value={selectedOurId} onValueChange={setOurId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select dealership variant" />
-              </SelectTrigger>
-              <SelectContent>
-                {query.data.our_variants.map((row) => (
-                  <SelectItem key={row.id} value={row.id}>
-                    {row.brand} {row.model} · {row.variant}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-end justify-center">
-            <span className="rounded-full bg-blue-50 p-3 text-sm font-semibold text-primary">
-              VS
-            </span>
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Competitor vehicle</p>
-            <Select value={selectedCompetitorId} onValueChange={setCompetitorId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select verified competitor profile" />
-              </SelectTrigger>
-              <SelectContent>
-                {query.data.competitors.map((row) => (
-                  <SelectItem key={row.id} value={row.id}>
-                    {row.manufacturer} {row.model} · {row.variant}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <VehicleSelector ownOnly value={ourId} onChange={setOurId} />
+          <span className="self-center justify-self-center rounded-full bg-blue-50 p-3 text-sm font-semibold text-primary">
+            VS
+          </span>
+          <VehicleSelector ownOnly={false} value={otherId} onChange={setOtherId} />
         </CardContent>
       </Card>
-      {ours && competitor ? (
+      {query.isError ? (
+        <Card>
+          <CardContent className="space-y-3 p-6 text-sm">
+            <p>
+              Comparison unavailable. A dealership may have withdrawn sharing or deactivated this
+              model.
+            </p>
+            <Button variant="outline" onClick={() => void query.refetch()}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      ) : query.data ? (
         <>
-          <Card className="overflow-hidden shadow-none">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <GitCompareArrows className="size-4 text-primary" /> Specification comparison
-              </CardTitle>
-              <CardDescription>
-                Only fields configured in the dealership variant and competitor catalog are shown.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="overflow-x-auto p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Specification</TableHead>
-                    <TableHead>
-                      {ours.brand} {ours.model} · <Badge variant="success">Our vehicle</Badge>
-                    </TableHead>
-                    <TableHead>
-                      {competitor.manufacturer} {competitor.model} ·{' '}
-                      <Badge variant="secondary">Competitor</Badge>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {specs.map((key) => (
-                    <TableRow key={key}>
-                      <TableCell className="font-medium">{label(key)}</TableCell>
-                      <TableCell>{display(ours.specifications[key])}</TableCell>
-                      <TableCell>
-                        {key === 'ex_showroom_price'
-                          ? competitor.ex_showroom_price === null
-                            ? 'Not specified'
-                            : new Intl.NumberFormat('en-IN', {
-                                style: 'currency',
-                                currency: 'INR',
-                                maximumFractionDigits: 0,
-                              }).format(competitor.ex_showroom_price)
-                          : display(competitor.specifications[key])}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {!specs.length ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={3}
-                        className="py-10 text-center text-sm text-muted-foreground"
-                      >
-                        Add verified specifications in the vehicle and competitor catalogs to
-                        compare them here.
-                      </TableCell>
-                    </TableRow>
-                  ) : null}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Card className="shadow-none">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base text-emerald-700">
-                  <Check className="size-4" /> Competitor profile advantages
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  {competitor.advantages.map((item) => (
-                    <li key={item} className="flex gap-2">
-                      <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
-                      {item}
-                    </li>
-                  ))}
-                  {!competitor.advantages.length ? (
-                    <li>No verified advantage statements are configured.</li>
-                  ) : null}
-                </ul>
-              </CardContent>
-            </Card>
-            <Card className="shadow-none">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Scale className="size-4 text-primary" /> Recommended sales approach
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">
-                Ask the customer which specification matters most, then use only the verified
-                differences above. Do not make unsupported claims about either vehicle.
-              </CardContent>
-            </Card>
-            <Card className="shadow-none">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Lightbulb className="size-4 text-amber-600" /> Catalog quality
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">
-                Keep competitor profiles current through Client Admin. This page does not generate
-                AI claims or infer specifications from customer notes.
-              </CardContent>
-            </Card>
-          </div>
+          <SpecificationTable ours={query.data.ours} other={query.data.other} />
+          <ComparisonAiCard key={JSON.stringify(query.data)} ourId={ourId} otherId={otherId} />
         </>
       ) : (
-        <Card className="shadow-none">
+        <Card>
           <CardContent className="p-10 text-center text-sm text-muted-foreground">
-            Configure at least one active dealership variant and one active competitor profile to
-            start comparison.
+            {ourId && otherId ? 'Loading comparison…' : 'Select two vehicles to compare.'}
           </CardContent>
         </Card>
       )}

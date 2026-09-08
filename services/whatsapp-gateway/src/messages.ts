@@ -9,6 +9,7 @@ export async function normalizeMessage(
   message: WAMessage,
   linkedAt: number,
   resolvePhoneJid?: ResolvePhoneJid,
+  history = false,
 ) {
   const jid = message.key.remoteJid;
   if (!jid || (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid'))) return null;
@@ -26,7 +27,7 @@ export async function normalizeMessage(
   const sentAt = Number(message.messageTimestamp) * 1000;
   if (
     !Number.isFinite(sentAt) ||
-    sentAt < linkedAt ||
+    sentAt < (history ? Date.now() - 30 * 86400000 : linkedAt) ||
     sentAt > Date.now() + 60_000 ||
     !message.key.id
   )
@@ -54,7 +55,7 @@ export async function normalizeMessage(
             : content.documentMessage
               ? 'document'
               : null;
-  if (!type) return null;
+  if (type !== 'text' || !body?.trim()) return null;
   return {
     phone,
     provider_message_id: message.key.id,
@@ -62,5 +63,6 @@ export async function normalizeMessage(
     sent_at: new Date(sentAt).toISOString(),
     message_type: type,
     body: body?.slice(0, 65535) ?? null,
+    is_history: history,
   };
 }
