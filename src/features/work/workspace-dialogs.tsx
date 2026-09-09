@@ -52,17 +52,11 @@ import {
   type WorkKind,
 } from './workspace-query';
 
-export const followupReasons = [
-  'Customer Callback',
-  'Test Drive Confirmation',
-  'Quotation Discussion',
-  'Price Negotiation',
-  'Stock Update',
-  'Exchange Update',
-  'Booking Confirmation',
-  'Document Reminder',
-  'General Follow-up',
-] as const;
+// Telecallers work a callback queue, not a deal pipeline, so the stage-specific
+// templates (test drive, quotation, negotiation, booking, documents) were noise
+// on every follow-up they scheduled. Reasons are free text in the database, so
+// follow-ups already saved under a retired template keep their stored reason.
+export const followupReasons = ['Customer Callback', 'General Follow-up'] as const;
 export type FollowupReason = (typeof followupReasons)[number];
 
 /**

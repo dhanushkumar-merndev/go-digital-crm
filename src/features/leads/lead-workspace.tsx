@@ -94,12 +94,16 @@ import {
   type MatchableLead,
 } from '@/features/customers/customer-match-dialog';
 import {
+  FollowupCompleteDialog,
+  WorkActionDialog,
   WorkCreateDialog,
   appointmentTypes,
   followupReasons,
   type AppointmentType,
   type FollowupReason,
 } from '@/features/work/workspace-dialogs';
+import { fetchWorkWorkspace, type FollowupRecord } from '@/features/work/workspace-api';
+import { defaultWorkQuery } from '@/features/work/workspace-query';
 import {
   assignLead,
   createLead,
@@ -214,6 +218,16 @@ type FollowupShortcut = {
 type AppointmentShortcut = {
   lead: LeadRecord;
   type: AppointmentType;
+};
+
+/**
+ * An action the ladder holds back until the lead's open follow-up is resolved.
+ * `resume` is the work that was pressed, replayed once the follow-up is closed.
+ */
+type PendingFollowupRequest = {
+  lead: LeadRecord;
+  actionLabel: string;
+  resume: () => void;
 };
 
 // Shared frozen fallback: a fresh `{}` per render would re-run every memo keyed
@@ -1161,6 +1175,129 @@ function LeadAssignmentDialog({
 /** Auto-assign is the sentinel that tells the database to balance the book. */
 const AUTO_SALES_HANDOFF = 'auto';
 
+/**
+ * The lead row knows a follow-up is due (`next_followup_at`) but not which row
+ * it is, and completing or cancelling one needs its id and version for the
+ * optimistic-concurrency token. Fetch it by lead id -- the same search the
+ * "Open follow-ups" link uses -- and keep OPEN/OVERDUE, the two states that
+ * still block the ladder.
+ */
+function PendingFollowupDialog({
+  request,
+  onOpenChange,
+  onResolved,
+}: {
+  request: PendingFollowupRequest | null;
+  onOpenChange: (open: boolean) => void;
+  onResolved: (resume: () => void) => void;
+}) {
+  const [action, setAction] = useState<'complete' | 'cancel' | null>(null);
+  const lead = request?.lead ?? null;
+  const followup = useQuery({
+    queryKey: ['lead-open-followup', lead?.id],
+    enabled: Boolean(lead?.id),
+    staleTime: 0,
+    queryFn: async ({ signal }) => {
+      const page = await fetchWorkWorkspace(
+        'followups',
+        { ...defaultWorkQuery, search: lead!.id, sort: 'scheduled:asc' },
+        Intl.DateTimeFormat().resolvedOptions().timeZone,
+        signal,
+      );
+      return (
+        (page.records as FollowupRecord[]).find(
+          (record) =>
+            record.lead_id === lead!.id &&
+            (record.status === 'OPEN' || record.status === 'OVERDUE'),
+        ) ?? null
+      );
+    },
+  });
+  const record = followup.data ?? null;
+  // The resume runs only after the follow-up is actually resolved, so a lead
+  // that still owes one never slips past the ladder into Sales.
+  const resume = request?.resume;
+  return (
+    <>
+      <Dialog open={Boolean(request) && !action} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Follow-up still pending</DialogTitle>
+            <DialogDescription>
+              {lead?.customer_name} has a scheduled follow-up. Complete or cancel it to continue
+              with {request?.actionLabel}.
+            </DialogDescription>
+          </DialogHeader>
+          {followup.isPending ? (
+            <p className="text-sm text-muted-foreground">Loading the scheduled follow-up…</p>
+          ) : record ? (
+            <div className="rounded-md border p-3 text-sm">
+              <p className="font-medium">{record.reason}</p>
+              <p className="text-muted-foreground">
+                Due {formatCompactDate(record.due_at)} · {record.assigned_user_name}
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {followup.isError
+                ? 'The scheduled follow-up could not be loaded. Open Follow-ups to resolve it.'
+                : 'No open follow-up is visible in your scope. Ask its owner to complete or cancel it.'}
+            </p>
+          )}
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!record}
+                onClick={() => setAction('cancel')}
+              >
+                Cancel follow-up
+              </Button>
+              <Button type="button" disabled={!record} onClick={() => setAction('complete')}>
+                Complete follow-up
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {record && action === 'complete' && (
+        <FollowupCompleteDialog
+          key={`lead-followup-complete-${record.id}-${record.version}`}
+          record={record}
+          open
+          onOpenChange={(open) => {
+            if (!open) setAction(null);
+          }}
+          onCompleted={() => {
+            setAction(null);
+            onResolved(() => resume?.());
+          }}
+        />
+      )}
+      {record && action === 'cancel' && (
+        <WorkActionDialog
+          key={`lead-followup-cancel-${record.id}-${record.version}`}
+          kind="followups"
+          action="cancel"
+          record={record}
+          open
+          onOpenChange={(open) => {
+            if (!open) setAction(null);
+          }}
+          onCompleted={() => {
+            setAction(null);
+            onResolved(() => resume?.());
+          }}
+        />
+      )}
+    </>
+  );
+}
+
 /** A lost lead is closed, and a transferred one already belongs to Sales. */
 function canHandOffToSales(lead: LeadRecord) {
   return lead.lifecycle_status !== 'Lost' && lead.lifecycle_status !== 'Transferred to Sales';
@@ -1653,6 +1790,7 @@ function LeadTable({
   onIntakeContact,
   onTransferToSales,
   onRequestDuplicateDeletion,
+  onPendingFollowup,
 }: {
   role: string;
   data: LeadWorkspaceResult;
@@ -1688,6 +1826,7 @@ function LeadTable({
   onIntakeContact: (lead: LeadRecord, channel: 'CALL' | 'WHATSAPP') => void;
   onTransferToSales: (lead: LeadRecord) => void;
   onRequestDuplicateDeletion: (lead: LeadRecord) => void;
+  onPendingFollowup: (request: PendingFollowupRequest) => void;
 }) {
   const isManagerView = [
     'team-manager',
@@ -1723,28 +1862,24 @@ function LeadTable({
   const canOpenTasks = roleHasNavigationSlug(role, 'tasks');
   const tableRouter = useRouter();
   const [highlightedLeadId, setHighlightedLeadId] = useState<string | null>(null);
-  const blockedByOpenFollowup = useCallback((lead: LeadRecord, label: string) => {
-    if (!lead.next_followup_at) return false;
-    toast.add({
-      title: 'Follow-up still pending',
-      description: `Complete or cancel the scheduled follow-up before ${label}.`,
-      type: 'error',
-    });
-    return true;
-  }, []);
+  // The ladder still holds, but a blocked action now offers the way through it
+  // instead of a dead-end toast: resolve the follow-up here, and the work that
+  // was pressed runs straight after.
+  const blockedByOpenFollowup = useCallback(
+    (lead: LeadRecord, label: string, resume: () => void) => {
+      if (!lead.next_followup_at) return false;
+      onPendingFollowup({ lead, actionLabel: label, resume });
+      return true;
+    },
+    [onPendingFollowup],
+  );
   const advanceLead = useCallback(
     (lead: LeadRecord, destination: string, label: string) => {
-      if (lead.next_followup_at) {
-        toast.add({
-          title: 'Follow-up still pending',
-          description: `Complete or cancel the scheduled follow-up before moving this lead to ${label}.`,
-          type: 'error',
-        });
-        return;
-      }
-      tableRouter.push(destination);
+      const go = () => tableRouter.push(destination);
+      if (blockedByOpenFollowup(lead, label, go)) return;
+      go();
     },
-    [tableRouter],
+    [blockedByOpenFollowup, tableRouter],
   );
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
   const [draftFollowupFrom, setDraftFollowupFrom] = useState('');
@@ -2218,11 +2353,18 @@ function LeadTable({
                       <DropdownMenuItem
                         key={reason}
                         onSelect={(event) => {
-                          if (blockedByOpenFollowup(row.original, 'scheduling another follow-up')) {
+                          const schedule = () => onScheduleFollowup(row.original, reason);
+                          if (
+                            blockedByOpenFollowup(
+                              row.original,
+                              'scheduling another follow-up',
+                              schedule,
+                            )
+                          ) {
                             event.preventDefault();
                             return;
                           }
-                          onScheduleFollowup(row.original, reason);
+                          schedule();
                         }}
                       >
                         <CalendarDays className="size-4" /> {reason}
@@ -2256,7 +2398,12 @@ function LeadTable({
                         ? 'A lost lead cannot be transferred'
                         : 'Already transferred to Sales'
                   }
-                  onClick={() => onTransferToSales(row.original)}
+                  onClick={() => {
+                    const transfer = () => onTransferToSales(row.original);
+                    if (blockedByOpenFollowup(row.original, 'the transfer to Sales', transfer))
+                      return;
+                    transfer();
+                  }}
                 >
                   <ArrowRightLeft className="size-3.5" />
                 </Button>
@@ -2357,11 +2504,14 @@ function LeadTable({
                         <DropdownMenuItem
                           key={type}
                           onSelect={(event) => {
-                            if (blockedByOpenFollowup(row.original, 'booking an appointment')) {
+                            const book = () => onScheduleAppointment(row.original, type);
+                            if (
+                              blockedByOpenFollowup(row.original, 'booking an appointment', book)
+                            ) {
                               event.preventDefault();
                               return;
                             }
-                            onScheduleAppointment(row.original, type);
+                            book();
                           }}
                         >
                           <CalendarDays className="size-4" /> {type}
@@ -3175,6 +3325,7 @@ export function LeadWorkspace({
   const [appointmentShortcut, setAppointmentShortcut] = useState<AppointmentShortcut | null>(null);
   const [matchingLead, setMatchingLead] = useState<LeadRecord | null>(null);
   const [duplicateDeletionLead, setDuplicateDeletionLead] = useState<LeadRecord | null>(null);
+  const [pendingFollowup, setPendingFollowup] = useState<PendingFollowupRequest | null>(null);
   const debouncedSearch = useDebouncedValue(query.search, 300);
   const requestQuery = useMemo(
     () => ({ ...query, search: debouncedSearch }),
@@ -3659,6 +3810,16 @@ export function LeadWorkspace({
         }}
         onTransferToSales={setHandoffLead}
         onRequestDuplicateDeletion={setDuplicateDeletionLead}
+        onPendingFollowup={setPendingFollowup}
+      />
+      <PendingFollowupDialog
+        request={pendingFollowup}
+        onOpenChange={(open) => !open && setPendingFollowup(null)}
+        onResolved={(resume) => {
+          setPendingFollowup(null);
+          void invalidate();
+          resume();
+        }}
       />
       {permissions?.canCreate && (
         <>
