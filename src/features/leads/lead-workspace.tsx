@@ -857,6 +857,21 @@ function leadCreateMessage(error: unknown) {
   );
 }
 
+/**
+ * Marks a field the form will not submit without. Optional fields already say
+ * so in words, so the asterisk is the only marker that has to carry meaning on
+ * its own -- `aria-hidden` on the glyph plus the label text keeps it from being
+ * read out as punctuation, and the title gives sighted users the same wording.
+ */
+function RequiredMark() {
+  return (
+    <span className="text-destructive" title="Required">
+      <span aria-hidden="true">*</span>
+      <span className="sr-only">(required)</span>
+    </span>
+  );
+}
+
 function LeadCreateDialog({
   organizationId,
   open,
@@ -926,11 +941,11 @@ function LeadCreateDialog({
           }}
         >
           <label className="grid gap-1.5 text-sm font-medium">
-            Customer name
+            Customer name <RequiredMark />
             <Input name="customerName" required minLength={2} maxLength={160} autoComplete="name" />
           </label>
           <label className="grid gap-1.5 text-sm font-medium">
-            Phone
+            Phone <RequiredMark />
             <Input
               name="phone"
               required
@@ -945,7 +960,7 @@ function LeadCreateDialog({
             <Input name="email" type="email" maxLength={320} autoComplete="email" />
           </label>
           <div className="grid gap-1.5 text-sm font-medium">
-            Source
+            Source <RequiredMark />
             <Select
               value={source}
               onValueChange={(value) => setSource(value as (typeof leadSources)[number])}
@@ -964,7 +979,7 @@ function LeadCreateDialog({
           </div>
           {showBranchPicker ? (
             <div className="grid gap-1.5 text-sm font-medium">
-              Branch
+              Branch <RequiredMark />
               <Select
                 value={selectedBranchId}
                 onValueChange={(value) => {

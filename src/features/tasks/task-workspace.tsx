@@ -13,7 +13,6 @@ import {
   ClockAlert,
   MoreHorizontal,
   Pencil,
-  Plus,
   RotateCcw,
   Search,
   TrendingDown,
@@ -794,17 +793,12 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
             Plan lead-linked work, prioritize due items and record completion outcomes.
           </p>
         </div>
-        {permissions.canCreate && (
-          <Button
-            className="shrink-0"
-            onClick={() => {
-              setCreateContext(null);
-              setCreateOpen(true);
-            }}
-          >
-            <Plus className="size-4" /> Create task
-          </Button>
-        )}
+        {/*
+          Tasks are raised against the lead they belong to, from the lead row's
+          Create task action, which arrives here as ?action=create&lead=... and
+          opens the same dialog with the lead already attached. A standalone
+          button here produced tasks with no lead, so it is deliberately absent.
+        */}
       </div>
       <div className="space-y-6">
         <div
