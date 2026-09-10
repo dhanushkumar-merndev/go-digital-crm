@@ -43,7 +43,11 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { fetchLeadCreateOptions } from './lead-workspace-api';
-import { fetchLeadBulkImport, submitLeadBulkImport } from './lead-bulk-import-api';
+import {
+  fetchLeadBulkImport,
+  leadBulkImportErrorMessage,
+  submitLeadBulkImport,
+} from './lead-bulk-import-api';
 import {
   LEAD_BULK_IMPORT_MAX_BYTES,
   leadBulkImportTemplate,
@@ -313,10 +317,7 @@ export function LeadBulkImportDialog({
                 <Alert variant="destructive">
                   <CircleAlert className="size-4" />
                   <AlertTitle>Import could not be queued</AlertTitle>
-                  <AlertDescription>
-                    Server validation or the background queue rejected this request. Correct the
-                    file if needed, then retry; the request is idempotent.
-                  </AlertDescription>
+                  <AlertDescription>{leadBulkImportErrorMessage(submit.error)}</AlertDescription>
                 </Alert>
               ) : null}
             </>

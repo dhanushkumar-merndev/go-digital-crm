@@ -54,9 +54,29 @@ export async function submitLeadBulkImport(input: {
       },
     },
   );
-  if (error || !data?.ok || !data.data)
-    throw error ?? new Error(data?.error?.code ?? 'BULK_IMPORT_REQUEST_FAILED');
+  if (error) {
+    const response = (error as { context?: Response }).context;
+    // A 404 here is the Edge Function itself missing from the project, not a
+    // rejected file. Reporting that as "the queue rejected this request" sends
+    // whoever hits it looking for a bad row that does not exist.
+    if (response?.status === 404) throw new Error('BULK_IMPORT_SERVICE_UNAVAILABLE');
+    const envelope = await response?.json().catch(() => null);
+    throw new Error(envelope?.error?.code ?? 'BULK_IMPORT_REQUEST_FAILED');
+  }
+  if (!data?.ok || !data.data) throw new Error(data?.error?.code ?? 'BULK_IMPORT_REQUEST_FAILED');
   return leadBulkImportSchema.parse(data.data);
+}
+
+export function leadBulkImportErrorMessage(error: unknown) {
+  const code = error instanceof Error ? error.message : String(error ?? '');
+  if (code.includes('BULK_IMPORT_SERVICE_UNAVAILABLE'))
+    return 'The lead import service is not available on this environment. Ask your administrator to deploy the lead-bulk-import function; the file itself is fine.';
+  if (code.includes('BULK_IMPORT_BRANCH_REQUIRED')) return 'Select a branch before importing.';
+  if (code.includes('BULK_IMPORT_PERMISSION') || code.includes('PERMISSION_DENIED'))
+    return 'You do not have permission to import leads into this branch.';
+  if (code.includes('BULK_IMPORT_TOO_MANY_ROWS'))
+    return 'That file has more rows than a single import allows. Split it and try again.';
+  return 'Server validation or the background queue rejected this request. Correct the file if needed, then retry; the request is idempotent.';
 }
 
 export async function fetchLeadBulkImport(importId: string, signal?: AbortSignal) {
