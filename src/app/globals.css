@@ -294,3 +294,11 @@ a {
 [data-radix-popper-content-wrapper] > * {
   zoom: var(--canvas-zoom, 1);
 }
+
+@media (min-width: 1280px) {
+  .xl-fill-row {
+    height: 0;
+    min-height: 100%;
+  }
+}
+

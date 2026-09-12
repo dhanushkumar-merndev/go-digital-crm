@@ -20,6 +20,46 @@ bidirectional voice-bot interface. AI voice calls therefore use a separate `AI_V
 adapter. Do not imply that TeleCMI performs the AI conversation unless a future verified TeleCMI
 API explicitly supports it.
 
+## What a Client Admin configures
+
+Every value below is entered once per connection in **Integrations → TeleCMI** and saved encrypted
+against the connection's branch scope (`ONE_BRANCH`, `SELECTED_BRANCHES` or `ALL_BRANCHES`). The
+browser never receives any of them back.
+
+| Field                    | Where it comes from                        | Notes                                                    |
+| ------------------------ | ------------------------------------------ | -------------------------------------------------------- |
+| App ID                   | TeleCMI dashboard → Developer → App Secret | Also stored as the connection's external account id      |
+| App Secret               | same screen                                | Re-enter to rotate; the webhook secret survives rotation |
+| TeleCMI account user ID  | TeleCMI user list                          | Format `extension_appid`, e.g. `101_2223012`             |
+| Caller ID                | optional                                   | Digits only, no `+`                                      |
+| Inbound web-flow action  | CRM choice                                 | `PARALLEL_USERS`, `IVR` or `TEAM`                        |
+| IVR name                 | TeleCMI IVR list                           | Full name including app id, as `name@appid`              |
+| Team name                | TeleCMI team list                          | Full name including app id, as `name_appid`              |
+| Employee mobile mappings | created in the CRM or copied from TeleCMI  | `user_id` plus that employee's mobile                    |
+| Live stereo audio stream | CRM choice                                 | Requires a `wss://` URL; applied to TeleCMI on save      |
+
+Saving returns the CDR webhook URL and the HTTP call-flow URL. Both carry `connection_id` and a
+per-connection `token`, which is the only authentication available because TeleCMI does not sign
+webhook deliveries. Copy both into TeleCMI after the first save.
+
+Agents can be created without leaving the CRM: `integration-telecmi-provision-agent` calls
+TeleCMI's documented [user API](https://doc.telecmi.com/chub/docs/agent-add-agent/) with a
+three-digit extension and returns the `extension_appid` mapping, which is the field admins most
+often mistype. The softphone password is chosen by the admin and is never stored or echoed back.
+
+## IP allowlisting
+
+TeleCMI does not document an IP allowlist for its REST API, and the rejection shape for one is
+therefore unverified. This matters because every TeleCMI request originates from a Supabase Edge
+Function, which has **no stable egress IP** — an enforced allowlist cannot be satisfied by listing
+addresses.
+
+Leave the allowlist empty and verify empirically: the Integrations "Test connection" action calls
+`/v2/analysis` over the same egress path as a real call. A `TELECMI_UNREACHABLE` or
+`TELECMI_IP_NOT_ALLOWED` result points at network-level rejection, and `TELECMI_AUTH_REJECTED` at
+the credentials themselves. If TeleCMI later confirms that an allowlist is enforced on the account,
+TeleCMI traffic has to move behind a fixed-IP egress service before this integration is reliable.
+
 ## Five-minute AI escalation
 
 ```text

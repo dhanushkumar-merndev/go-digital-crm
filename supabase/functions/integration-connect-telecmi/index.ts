@@ -4,6 +4,7 @@ import { failure, preflight, requestId as getRequestId, success } from '../_shar
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
 import {
   configureTelecmiStereoStream,
+  describeTelecmiFailure,
   normalizeTelecmiPhone,
   normalizeTelecmiUserId,
   testTelecmiCredential,
@@ -289,12 +290,17 @@ Deno.serve(async (request) => {
       }
       throw error;
     }
-  } catch {
+  } catch (error) {
+    // A provider rejection and a storage failure are not the same problem for a
+    // Client Admin, so the TeleCMI reason is reported when there is one.
+    const described = describeTelecmiFailure(error);
     return failure(
-      'TELECMI_CONNECTION_FAILED',
-      'The TeleCMI IVR connection could not be tested or saved.',
+      described.code,
+      described.code === 'TELECMI_CONNECTION_FAILED'
+        ? 'The TeleCMI IVR connection could not be tested or saved.'
+        : described.message,
       requestId,
-      502,
+      described.status,
     );
   }
 });

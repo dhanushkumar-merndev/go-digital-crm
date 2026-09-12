@@ -30,6 +30,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -58,6 +60,11 @@ import type { Metric, PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import { AiVoiceAgentSettingsCard } from './ai-voice-agent-settings';
 import {
+  newTelecmiAgentRow,
+  TelecmiAgentEditor,
+  type TelecmiAgentRow,
+} from './telecmi-agent-editor';
+import {
   hasWorkspacePermission,
   useWorkspaceSession,
   workspaceQueryScope,
@@ -66,6 +73,7 @@ import {
   connectAiProvider,
   connectTelecmi,
   connectWhatsApp,
+  IntegrationRequestError,
   fetchIntegrationOptions,
   fetchIntegrationWorkspace,
   fetchIntegrationWorkspacePermissions,
@@ -267,6 +275,8 @@ type ConnectRequest =
       parallelAgents: Array<{ user_id: string; phone: string }>;
       ivrName?: string;
       teamName?: string;
+      aiStreamEnabled: boolean;
+      aiStreamWsUrl?: string;
     };
 
 function ProviderConnectionDialog({
@@ -308,6 +318,21 @@ function ProviderConnectionDialog({
     webhook_url: string;
     call_flow_url: string;
   } | null>(null);
+  // App ID and secret are controlled because provisioning a TeleCMI agent needs
+  // their current values before the connection form is submitted.
+  const [telecmiAppId, setTelecmiAppId] = useState(
+    existing?.provider_key === 'telecmi' ? (existing.external_account_id ?? '') : '',
+  );
+  const [telecmiAppSecret, setTelecmiAppSecret] = useState('');
+  const [telecmiAgents, setTelecmiAgents] = useState<TelecmiAgentRow[]>(() =>
+    (existing?.connection_config.parallel_agents ?? []).map((agent) => newTelecmiAgentRow(agent)),
+  );
+  const [aiStreamEnabled, setAiStreamEnabled] = useState(
+    existing?.connection_config.ai_stream_enabled ?? false,
+  );
+  const [aiStreamWsUrl, setAiStreamWsUrl] = useState(
+    existing?.connection_config.ai_stream_ws_url ?? '',
+  );
   const existingModels = existing?.connection_config?.models;
   const inboundBranches =
     options.data?.branches.filter(
@@ -364,7 +389,8 @@ function ProviderConnectionDialog({
           parallelAgents: request.parallelAgents,
           ivrName: request.ivrName,
           teamName: request.teamName,
-          aiStreamEnabled: false,
+          aiStreamEnabled: request.aiStreamEnabled,
+          aiStreamWsUrl: request.aiStreamWsUrl,
         });
         return { authorizationUrl: null, telecmiSetup: result };
       }
@@ -441,22 +467,25 @@ function ProviderConnectionDialog({
                 return;
               }
               if (providerKey === 'telecmi') {
-                const parallelAgents = String(form.get('parallelAgents') ?? '')
-                  .split(';')
-                  .map((entry) => entry.split(',').map((value) => value.trim()))
-                  .filter((entry) => entry[0] && entry[1])
-                  .map(([user_id, phone]) => ({ user_id, phone }));
+                const parallelAgents = telecmiAgents
+                  .map((agent) => ({
+                    user_id: agent.user_id.trim(),
+                    phone: agent.phone.trim(),
+                  }))
+                  .filter((agent) => agent.user_id && agent.phone);
                 mutation.mutate({
                   kind: 'telecmi',
                   displayName,
-                  appId: Number(form.get('appId')),
-                  appSecret: String(form.get('appSecret') ?? '').trim(),
+                  appId: Number(telecmiAppId),
+                  appSecret: telecmiAppSecret.trim(),
                   defaultUserId: String(form.get('defaultUserId') ?? '').trim(),
                   callerId: String(form.get('callerId') ?? '').trim() || undefined,
                   inboundRoute,
                   parallelAgents,
                   ivrName: String(form.get('ivrName') ?? '').trim() || undefined,
                   teamName: String(form.get('teamName') ?? '').trim() || undefined,
+                  aiStreamEnabled,
+                  aiStreamWsUrl: aiStreamEnabled ? aiStreamWsUrl.trim() : undefined,
                 });
                 return;
               }
@@ -607,8 +636,12 @@ function ProviderConnectionDialog({
                     required
                     min={1}
                     autoComplete="off"
-                    defaultValue={existing?.external_account_id ?? ''}
+                    value={telecmiAppId}
+                    onChange={(event) => setTelecmiAppId(event.target.value)}
                   />
+                  <span className="text-xs font-normal text-muted-foreground">
+                    TeleCMI dashboard → Developer → App Secret.
+                  </span>
                 </label>
                 <label className="grid gap-1.5 text-sm font-medium">
                   TeleCMI account user ID
@@ -631,13 +664,18 @@ function ProviderConnectionDialog({
                 </label>
                 <label className="grid gap-1.5 text-sm font-medium">
                   App secret
-                  <Input
+                  <PasswordInput
                     name="appSecret"
-                    type="password"
                     required
                     minLength={8}
+                    maxLength={512}
                     autoComplete="new-password"
+                    value={telecmiAppSecret}
+                    onChange={(event) => setTelecmiAppSecret(event.target.value)}
                   />
+                  <span className="text-xs font-normal text-muted-foreground">
+                    Stored encrypted and never shown again. Re-enter it to rotate.
+                  </span>
                 </label>
                 <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
                   Inbound web-flow action
@@ -655,30 +693,27 @@ function ProviderConnectionDialog({
                     </SelectContent>
                   </Select>
                 </label>
-                <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
-                  Employee mobile mappings
-                  <Input
-                    name="parallelAgents"
-                    required
-                    placeholder="123_456,919876543210; 123_789,919999999999"
-                    defaultValue={(existing?.connection_config.parallel_agents ?? [])
-                      .map((agent) => `${agent.user_id},${agent.phone}`)
-                      .join('; ')}
-                  />
-                  <span className="font-normal text-muted-foreground">
-                    Enter each TeleCMI user ID and that CRM employee’s mobile as user_id,phone
-                    pairs, separated by semicolons. Website calls use the signed-in employee’s exact
-                    mobile mapping; there is no shared-agent fallback.
-                  </span>
-                </label>
+                <TelecmiAgentEditor
+                  organizationId={organizationId}
+                  scopeMode={scopeMode}
+                  branchIds={selectedBranchIds}
+                  appId={telecmiAppId}
+                  appSecret={telecmiAppSecret}
+                  rows={telecmiAgents}
+                  onChange={setTelecmiAgents}
+                />
                 {inboundRoute === 'IVR' ? (
                   <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
                     IVR name
                     <Input
                       name="ivrName"
                       required
+                      placeholder={`welcome@${telecmiAppId || 'appid'}`}
                       defaultValue={existing?.connection_config.ivr_name ?? ''}
                     />
+                    <span className="text-xs font-normal text-muted-foreground">
+                      Use the full TeleCMI name including the app ID, as name@appid.
+                    </span>
                   </label>
                 ) : null}
                 {inboundRoute === 'TEAM' ? (
@@ -687,10 +722,46 @@ function ProviderConnectionDialog({
                     <Input
                       name="teamName"
                       required
+                      placeholder={`sales_${telecmiAppId || 'appid'}`}
                       defaultValue={existing?.connection_config.team_name ?? ''}
                     />
+                    <span className="text-xs font-normal text-muted-foreground">
+                      Use the full TeleCMI name including the app ID, as name_appid.
+                    </span>
                   </label>
                 ) : null}
+                <div className="grid gap-3 rounded-md border p-3 sm:col-span-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="grid gap-1 text-sm font-medium">
+                      Live stereo audio stream
+                      <span className="text-xs font-normal text-muted-foreground">
+                        Sends one-way call audio to your WebSocket for live analytics. This is not a
+                        voice bot; AI calling uses the separate AI voice gateway.
+                      </span>
+                    </span>
+                    <Switch
+                      checked={aiStreamEnabled}
+                      onCheckedChange={setAiStreamEnabled}
+                      aria-label="Enable TeleCMI stereo audio streaming"
+                    />
+                  </div>
+                  {aiStreamEnabled ? (
+                    <label className="grid gap-1.5 text-sm font-medium">
+                      Stream WebSocket URL
+                      <Input
+                        value={aiStreamWsUrl}
+                        onChange={(event) => setAiStreamWsUrl(event.target.value)}
+                        placeholder="wss://stream.example.com/telecmi"
+                        required
+                        maxLength={2048}
+                        autoComplete="off"
+                      />
+                      <span className="text-xs font-normal text-muted-foreground">
+                        Must start with wss://. Saving applies this to TeleCMI immediately.
+                      </span>
+                    </label>
+                  ) : null}
+                </div>
               </div>
             )}
             {telecmiSetup ? (
@@ -792,7 +863,9 @@ function ProviderConnectionDialog({
               <Alert>
                 <AlertTitle>Connection was not saved</AlertTitle>
                 <AlertDescription>
-                  Verify provider access, branch scope and server configuration, then retry.
+                  {mutation.error instanceof IntegrationRequestError
+                    ? mutation.error.message
+                    : 'Verify provider access, branch scope and server configuration, then retry.'}
                 </AlertDescription>
               </Alert>
             )}
@@ -808,7 +881,11 @@ function ProviderConnectionDialog({
                     options.isPending ||
                     !options.data ||
                     !validScope ||
-                    (providerKey === 'whatsapp_cloud' && !selectedInboundBranch)
+                    (providerKey === 'whatsapp_cloud' && !selectedInboundBranch) ||
+                    // The Edge Function requires at least one mapping, so an
+                    // empty editor is stopped here rather than server-side.
+                    (providerKey === 'telecmi' &&
+                      !telecmiAgents.some((agent) => agent.user_id.trim() && agent.phone.trim()))
                   }
                 >
                   <Link2 className="size-4" />

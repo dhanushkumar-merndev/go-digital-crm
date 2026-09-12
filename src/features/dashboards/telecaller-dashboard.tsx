@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
@@ -41,6 +41,14 @@ import {
 } from '@/components/ui/table';
 import type { PageSpec } from '@/lib/domain';
 import { leadStageVariant } from '@/features/leads/lead-stage-variant';
+import {
+  fetchLeadWorkspaceMeta,
+  toLeadMetaQuery,
+  type LeadWorkspaceResult,
+} from '@/features/leads/lead-workspace-api';
+import { defaultLeadQuery } from '@/features/leads/lead-workspace-query';
+import { fetchWorkWorkspace } from '@/features/work/workspace-api';
+import { defaultWorkQuery } from '@/features/work/workspace-query';
 import { focusRowHref } from '@/lib/navigation/focus-row';
 import { leadDetailHref } from '@/lib/navigation/record-links';
 import { ManualDashboardRefreshLimitError } from '@/lib/query/cached-dashboard-api';
@@ -83,6 +91,8 @@ type MetricCardModel = {
   suffix?: string;
 };
 
+type FollowupDashboardKpis = { today: number; overdue: number };
+
 function formatTime(value: string) {
   return new Intl.DateTimeFormat('en-IN', {
     hour: '2-digit',
@@ -115,13 +125,21 @@ function temperatureVariant(temperature: TenantDashboardLeadPreview['temperature
 }
 
 function leadStatusLabel(lead: TenantDashboardLeadPreview) {
-  if (lead.work_state === 'NEW_TODAY') return 'New today';
+  // “New” is the Telecaller's fresh, uncontacted queue. The 24-hour boundary
+  // is a system rule; repeating it in every badge made the workflow unclear.
+  if (lead.work_state === 'NEW_TODAY') return 'New';
   if (lead.work_state === 'SLA_RISK') return 'SLA risk';
   return lead.lifecycle_status;
 }
 
 function pipelineStage(data: TenantDashboardResult, name: string) {
   return data.pipeline.find((stage) => stage.name === name)?.value ?? 0;
+}
+
+function pipelineConversionRate(data: TenantDashboardResult) {
+  const first = data.pipeline[0]?.value ?? 0;
+  const last = data.pipeline.at(-1)?.value ?? 0;
+  return first > 0 ? (last / first) * 100 : 0;
 }
 
 /**
@@ -154,20 +172,30 @@ function dayOverDayChange(data: TenantDashboardResult, seriesLabel: string) {
  * come from the same pipeline payload, so the rate cannot disagree with the
  * counts printed beside it.
  */
-function handoffRate(data: TenantDashboardResult) {
+function handoffRate(data: TenantDashboardResult, leadKpis?: LeadWorkspaceResult['kpis']) {
+  if (leadKpis) {
+    if (leadKpis.total <= 0) return 0;
+    return Math.round((leadKpis.transferred_to_sales_count / leadKpis.total) * 100);
+  }
   const total = data.pipeline.reduce((sum, stage) => sum + stage.value, 0);
   if (total <= 0) return 0;
   return Math.round((pipelineStage(data, PIPELINE_TRANSFERRED) / total) * 100);
 }
 
-function metricCards(data: TenantDashboardResult): MetricCardModel[] {
+function metricCards(
+  data: TenantDashboardResult,
+  leadKpis?: LeadWorkspaceResult['kpis'],
+  followupKpis?: FollowupDashboardKpis,
+): MetricCardModel[] {
   const leads = `/${DASHBOARD_ROLE}/my-leads`;
   const followups = `/${DASHBOARD_ROLE}/follow-ups`;
   return [
     {
       key: 'new_leads_today',
-      label: 'New leads today',
-      value: data.kpis.new_leads_today,
+      label: 'New leads',
+      // My Leads calls this same derived queue “New”. Keeping both surfaces on
+      // NEW_TODAY means a click always lands on the tab showing this count.
+      value: leadKpis?.new_today ?? data.kpis.new_leads_today,
       icon: UserRoundPlus,
       tone: 'blue',
       href: `${leads}?status=new-today`,
@@ -176,12 +204,14 @@ function metricCards(data: TenantDashboardResult): MetricCardModel[] {
     },
     {
       key: 'open_leads',
-      label: 'Leads assigned',
-      value: data.kpis.open_leads,
+      label: 'Total my leads',
+      // “Assigned” was previously the active-only dashboard number while its
+      // destination was My Leads > All. Use the exact All-tab total instead.
+      value: leadKpis?.total ?? data.kpis.open_leads,
       icon: UsersRound,
       tone: 'violet',
       href: leads,
-      caption: 'Own active queue',
+      caption: 'All assigned leads',
     },
     {
       key: 'calls_today',
@@ -196,7 +226,7 @@ function metricCards(data: TenantDashboardResult): MetricCardModel[] {
     {
       key: 'followups_due_today',
       label: 'Follow-ups today',
-      value: data.kpis.followups_due_today,
+      value: followupKpis?.today ?? data.kpis.followups_due_today,
       icon: CalendarClock,
       tone: 'orange',
       href: `${followups}?status=today`,
@@ -205,7 +235,7 @@ function metricCards(data: TenantDashboardResult): MetricCardModel[] {
     {
       key: 'followups_overdue',
       label: 'Overdue follow-ups',
-      value: data.kpis.followups_overdue,
+      value: followupKpis?.overdue ?? data.kpis.followups_overdue,
       icon: Clock3,
       tone: 'rose',
       href: `${followups}?status=overdue`,
@@ -214,7 +244,7 @@ function metricCards(data: TenantDashboardResult): MetricCardModel[] {
     {
       key: 'contacted_leads',
       label: 'Contacted leads',
-      value: pipelineStage(data, 'Contacted'),
+      value: leadKpis?.contacted_count ?? pipelineStage(data, 'Contacted'),
       icon: PhoneOutgoing,
       tone: 'cyan',
       href: `${leads}?status=contacted`,
@@ -228,7 +258,7 @@ function metricCards(data: TenantDashboardResult): MetricCardModel[] {
       // replaces it with 'Transferred to Sales' inside the same transaction, so
       // no lead is ever at rest in it. This reports the telecaller's actual
       // output instead -- how much of the queue reached Sales.
-      value: handoffRate(data),
+      value: handoffRate(data, leadKpis),
       suffix: '%',
       icon: BadgeCheck,
       tone: 'amber',
@@ -238,7 +268,7 @@ function metricCards(data: TenantDashboardResult): MetricCardModel[] {
     {
       key: 'transferred_leads',
       label: 'Transferred to sales',
-      value: pipelineStage(data, PIPELINE_TRANSFERRED),
+      value: leadKpis?.transferred_to_sales_count ?? pipelineStage(data, PIPELINE_TRANSFERRED),
       icon: UserRoundCheck,
       tone: 'emerald',
       href: `${leads}?status=transferred-to-sales`,
@@ -247,14 +277,18 @@ function metricCards(data: TenantDashboardResult): MetricCardModel[] {
   ];
 }
 
-function attentionTiles(data: TenantDashboardResult) {
+function attentionTiles(
+  data: TenantDashboardResult,
+  leadKpis?: LeadWorkspaceResult['kpis'],
+  followupKpis?: FollowupDashboardKpis,
+) {
   const leads = `/${DASHBOARD_ROLE}/my-leads`;
   const followups = `/${DASHBOARD_ROLE}/follow-ups`;
   return [
     {
       key: 'OVERDUE_FOLLOWUPS',
       label: 'Overdue follow-up',
-      value: data.kpis.followups_overdue,
+      value: followupKpis?.overdue ?? data.kpis.followups_overdue,
       action: 'View follow-ups',
       icon: Clock3,
       tone: 'rose' as Tone,
@@ -263,7 +297,7 @@ function attentionTiles(data: TenantDashboardResult) {
     {
       key: 'FOLLOWUPS_TODAY',
       label: 'Follow-up due today',
-      value: data.kpis.followups_due_today,
+      value: followupKpis?.today ?? data.kpis.followups_due_today,
       action: 'View follow-ups',
       icon: CalendarClock,
       tone: 'orange' as Tone,
@@ -272,7 +306,7 @@ function attentionTiles(data: TenantDashboardResult) {
     {
       key: 'AWAITING_FIRST_CALL',
       label: 'Lead awaiting first call',
-      value: pipelineStage(data, 'New'),
+      value: leadKpis?.new_today ?? pipelineStage(data, 'New'),
       action: 'View leads',
       icon: PhoneOutgoing,
       tone: 'violet' as Tone,
@@ -283,7 +317,7 @@ function attentionTiles(data: TenantDashboardResult) {
       label: 'Contacted, not yet handed off',
       // Replaces a 'Qualified' tile that could not be non-zero. These are the
       // leads the customer has been reached on and that still need a decision.
-      value: pipelineStage(data, 'Contacted'),
+      value: leadKpis?.contacted_count ?? pipelineStage(data, 'Contacted'),
       action: 'Review contacted leads',
       icon: BadgeCheck,
       tone: 'cyan' as Tone,
@@ -292,7 +326,7 @@ function attentionTiles(data: TenantDashboardResult) {
     {
       key: 'OPEN_QUEUE',
       label: 'Open lead in your queue',
-      value: data.kpis.open_leads,
+      value: leadKpis?.total ?? data.kpis.open_leads,
       action: 'View leads',
       icon: UsersRound,
       tone: 'blue' as Tone,
@@ -301,14 +335,18 @@ function attentionTiles(data: TenantDashboardResult) {
   ];
 }
 
-function alertRows(data: TenantDashboardResult) {
+function alertRows(
+  data: TenantDashboardResult,
+  leadKpis?: LeadWorkspaceResult['kpis'],
+  followupKpis?: FollowupDashboardKpis,
+) {
   const leads = `/${DASHBOARD_ROLE}/my-leads`;
   const followups = `/${DASHBOARD_ROLE}/follow-ups`;
   return [
     {
       key: 'FOLLOWUPS_DUE',
       label: 'Follow-ups due today',
-      value: data.kpis.followups_due_today,
+      value: followupKpis?.today ?? data.kpis.followups_due_today,
       icon: Clock3,
       tone: 'rose' as Tone,
       href: `${followups}?status=today`,
@@ -316,7 +354,7 @@ function alertRows(data: TenantDashboardResult) {
     {
       key: 'FOLLOWUPS_OVERDUE',
       label: 'Follow-ups overdue',
-      value: data.kpis.followups_overdue,
+      value: followupKpis?.overdue ?? data.kpis.followups_overdue,
       icon: BellRing,
       tone: 'rose' as Tone,
       href: `${followups}?status=overdue`,
@@ -324,7 +362,7 @@ function alertRows(data: TenantDashboardResult) {
     {
       key: 'TRANSFERRED_TO_SALES',
       label: 'Transferred to Sales',
-      value: pipelineStage(data, PIPELINE_TRANSFERRED),
+      value: leadKpis?.transferred_to_sales_count ?? pipelineStage(data, PIPELINE_TRANSFERRED),
       icon: UserRoundCheck,
       tone: 'blue' as Tone,
       href: `${leads}?status=transferred-to-sales`,
@@ -339,19 +377,11 @@ function alertRows(data: TenantDashboardResult) {
     },
     {
       key: 'NEW_LEADS_TODAY',
-      label: 'New leads today',
-      value: data.kpis.new_leads_today,
+      label: 'New leads',
+      value: leadKpis?.new_today ?? data.kpis.new_leads_today,
       icon: UserRoundPlus,
       tone: 'violet' as Tone,
       href: `${leads}?status=new-today`,
-    },
-    {
-      key: 'AWAITING_FIRST_CALL',
-      label: 'Leads awaiting first call',
-      value: pipelineStage(data, 'New'),
-      icon: PhoneOutgoing,
-      tone: 'orange' as Tone,
-      href: `${leads}?status=new`,
     },
   ];
 }
@@ -417,7 +447,12 @@ function OverdueQueue({ data, className }: { data: TenantDashboardResult; classN
   });
 
   return (
-    <Card className={cn('flex h-[22rem] min-h-0 flex-col overflow-hidden shadow-none', className)}>
+    <Card
+      className={cn(
+        'flex h-[22rem] min-h-0 flex-col overflow-hidden shadow-none xl:h-full',
+        className,
+      )}
+    >
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3.5">
         <CardTitle className="text-sm">Needs a call now</CardTitle>
         <Button asChild variant="link" size="sm" className="h-auto px-0 text-[11px] text-blue-600">
@@ -509,7 +544,13 @@ function OverdueQueue({ data, className }: { data: TenantDashboardResult; classN
   );
 }
 
-function RecentLeads({ leads }: { leads: TenantDashboardLeadPreview[] }) {
+function RecentLeads({
+  leads,
+  className,
+}: {
+  leads: TenantDashboardLeadPreview[];
+  className?: string;
+}) {
   const router = useRouter();
   // The row and the arrow go to the same place, so the arrow stays as the
   // visible affordance for anyone who does not know the row is clickable.
@@ -517,7 +558,7 @@ function RecentLeads({ leads }: { leads: TenantDashboardLeadPreview[] }) {
     router.push(`/${DASHBOARD_ROLE}/my-leads?status=all&focus=${encodeURIComponent(leadId)}`);
 
   return (
-    <Card className="overflow-hidden shadow-none">
+    <Card className={cn('flex flex-col overflow-hidden shadow-none', className)}>
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
         <CardTitle className="text-sm">My recent leads</CardTitle>
         <Button asChild variant="link" size="sm" className="h-auto px-0 text-[11px] text-blue-600">
@@ -526,7 +567,7 @@ function RecentLeads({ leads }: { leads: TenantDashboardLeadPreview[] }) {
           </Link>
         </Button>
       </CardHeader>
-      <CardContent className="p-0">
+      <CardContent className="flex-1 p-0">
         {leads.length ? (
           <Table>
             <TableHeader className="bg-slate-50/80">
@@ -641,6 +682,20 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
     () => [...tenantDashboardKey, ...workspaceQueryScope(workspaceSession)] as const,
     [workspaceSession],
   );
+  const leadMetricsQueryKey = useMemo(
+    () => ['lead-workspace-meta', ...workspaceQueryScope(workspaceSession), 'dashboard'] as const,
+    [workspaceSession],
+  );
+  const followupMetricsQueryKey = useMemo(
+    () =>
+      [
+        'work-workspace',
+        ...workspaceQueryScope(workspaceSession),
+        'followups',
+        'dashboard',
+      ] as const,
+    [workspaceSession],
+  );
   const manualRefreshRequest = useRef(false);
   const dashboard = useQuery({
     queryKey: dashboardQueryKey,
@@ -648,6 +703,32 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
       fetchTenantDashboard(signal, { manualRefresh: manualRefreshRequest.current }),
     // Matches the consultant dashboard: an in-session revisit is served from
     // memory, a cold start reads Redis, and only Refresh rebuilds from Postgres.
+    staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
+    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+  });
+  // The shared workspace RPC owns the Telecaller tab definitions (including
+  // “Contacted” excluding leads already in Follow-up). Reusing it here keeps
+  // dashboard cards and their destinations mathematically identical.
+  const leadMetrics = useQuery({
+    queryKey: leadMetricsQueryKey,
+    queryFn: ({ signal }) => fetchLeadWorkspaceMeta(toLeadMetaQuery(defaultLeadQuery), signal),
+    staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
+    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+  });
+  // The Follow-ups workspace owns its overdue definition. Its KPI is used in
+  // preference to the cached cross-module aggregate, avoiding a card/tab drift.
+  const followupMetrics = useQuery({
+    queryKey: followupMetricsQueryKey,
+    queryFn: async ({ signal }) => {
+      const result = await fetchWorkWorkspace(
+        'followups',
+        { ...defaultWorkQuery, status: 'all' },
+        DASHBOARD_TIMEZONE,
+        signal,
+      );
+      if (!('overdue' in result.kpis)) throw new Error('FOLLOWUP_KPI_UNAVAILABLE');
+      return result.kpis;
+    },
     staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
     gcTime: DASHBOARD_QUERY_GC_TIME_MS,
   });
@@ -672,19 +753,17 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
       data
         ? (['leads', 'work', 'communications'] as const).map((resource) => ({
             resource,
-            queryKeys: [dashboardQueryKey],
+            queryKeys:
+              resource === 'leads'
+                ? [dashboardQueryKey, leadMetricsQueryKey]
+                : resource === 'work'
+                  ? [dashboardQueryKey, followupMetricsQueryKey]
+                  : [dashboardQueryKey],
           }))
         : [],
-    [dashboardQueryKey, data],
+    [dashboardQueryKey, data, followupMetricsQueryKey, leadMetricsQueryKey],
   );
   useTenantRealtimeInvalidation(data?.organization_id, realtimeSubscriptions);
-
-  const conversionRate = useMemo(() => {
-    if (!data?.pipeline.length) return 0;
-    const first = data.pipeline[0]?.value ?? 0;
-    const last = data.pipeline.at(-1)?.value ?? 0;
-    return first > 0 ? (last / first) * 100 : 0;
-  }, [data]);
 
   async function refresh(manual = true) {
     setRefreshMessage(undefined);
@@ -708,7 +787,8 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
     }
   }
 
-  if (dashboard.isPending) return <TelecallerDashboardSkeleton />;
+  if (dashboard.isPending || leadMetrics.isPending || followupMetrics.isPending)
+    return <TelecallerDashboardSkeleton />;
   // A rejected Refresh (such as the 3-per-30-minute quota) must not replace a
   // rendered dashboard with a blank error page. Only the initial load has no
   // previous data to keep visible.
@@ -740,12 +820,13 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
       </div>
     );
 
-  const metrics = metricCards(data);
-  const attention = attentionTiles(data);
-  const alerts = alertRows(data);
+  const metrics = metricCards(data, leadMetrics.data?.kpis, followupMetrics.data);
+  const attention = attentionTiles(data, leadMetrics.data?.kpis, followupMetrics.data);
+  const alerts = alertRows(data, leadMetrics.data?.kpis, followupMetrics.data);
+  const conversionRate = pipelineConversionRate(data);
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-4">
+    <div className="mx-auto max-w-[1800px] space-y-4 pb-8">
       <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
@@ -952,11 +1033,15 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
               </Card>
             </div>
           </div>
-          <RecentLeads leads={data.lead_preview} />
         </div>
-        <div className="space-y-4 xl:col-span-4">
-          <OverdueQueue data={data} className="xl:h-[690px]" />
-          <Card className="overflow-hidden shadow-none">
+        <div className="flex flex-col xl:col-span-4 xl-fill-row">
+          <OverdueQueue data={data} className="flex-1 min-h-0" />
+        </div>
+        <div className="flex flex-col xl:col-span-8">
+          <RecentLeads leads={data.lead_preview} className="h-full flex-1" />
+        </div>
+        <div className="flex flex-col xl:col-span-4">
+          <Card className="flex h-full flex-1 flex-col overflow-hidden shadow-none">
             <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
               <CardTitle className="text-sm">Tasks &amp; alerts</CardTitle>
               <Button
@@ -970,14 +1055,14 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
                 </Link>
               </Button>
             </CardHeader>
-            <CardContent className="divide-y p-0">
+            <CardContent className="flex flex-1 flex-col divide-y p-0">
               {alerts.map((item) => {
                 const Icon = item.icon;
                 return (
                   <Link
                     key={item.key}
                     href={item.href}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50"
+                    className="flex flex-1 items-center gap-3 px-4 py-2.5 hover:bg-slate-50"
                   >
                     <span
                       className={cn(

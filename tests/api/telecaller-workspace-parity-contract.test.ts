@@ -69,7 +69,6 @@ describe('telecaller workspace parity', () => {
       'grid gap-4 xl:grid-cols-12',
       'grid gap-2.5 p-3 sm:grid-cols-2 lg:grid-cols-5',
       'space-y-4 xl:col-span-8',
-      'space-y-4 xl:col-span-4',
     ];
     const missing = shells.filter((shell) => !telecallerDashboard.includes(shell));
     expect(missing).toEqual([]);

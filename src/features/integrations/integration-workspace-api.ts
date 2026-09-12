@@ -41,6 +41,8 @@ export type IntegrationRecord = {
     parallel_agents?: Array<{ user_id: string; phone: string }>;
     ivr_name?: string | null;
     team_name?: string | null;
+    ai_stream_enabled?: boolean;
+    ai_stream_ws_url?: string | null;
     models?: {
       text_model?: string;
       image_model?: string;
@@ -199,10 +201,39 @@ type EdgeEnvelope<T> = {
   error: { code: string; message: string } | null;
 };
 
+export class IntegrationRequestError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'IntegrationRequestError';
+    this.code = code;
+  }
+}
+
+// supabase-js turns any non-2xx into a FunctionsHttpError whose body it never
+// parses, which would drop the reason the Edge Function took the trouble to
+// return. Reading the attached Response keeps that reason on screen.
+async function readEdgeErrorBody(error: unknown) {
+  const context = (error as { context?: unknown } | null)?.context;
+  if (!(context instanceof Response)) return null;
+  const parsed = await context
+    .clone()
+    .json()
+    .catch(() => null);
+  const envelopeError = (parsed as EdgeEnvelope<unknown> | null)?.error;
+  if (!envelopeError?.code || typeof envelopeError.message !== 'string') return null;
+  return new IntegrationRequestError(envelopeError.code, envelopeError.message);
+}
+
 async function invokeIntegrationFunction<T>(name: string, body: Record<string, unknown>) {
   const { data, error } = await createClient().functions.invoke<EdgeEnvelope<T>>(name, { body });
-  if (error || !data?.ok || !data.data)
-    throw error ?? new Error(data?.error?.code ?? 'INTEGRATION_REQUEST_FAILED');
+  if (error) throw (await readEdgeErrorBody(error)) ?? error;
+  if (!data?.ok || !data.data)
+    throw new IntegrationRequestError(
+      data?.error?.code ?? 'INTEGRATION_REQUEST_FAILED',
+      data?.error?.message ?? 'The integration request failed.',
+    );
   return data.data;
 }
 
@@ -298,6 +329,33 @@ export function connectTelecmi(input: {
     ai_stream_enabled: input.aiStreamEnabled,
     ai_stream_ws_url: input.aiStreamWsUrl,
   });
+}
+
+export function provisionTelecmiAgent(input: {
+  organizationId: string;
+  scopeMode: IntegrationScopeMode;
+  branchIds: string[];
+  appId: number;
+  appSecret: string;
+  extension: string;
+  name: string;
+  phone: string;
+  password: string;
+}) {
+  return invokeIntegrationFunction<{ user_id: string; extension: number; phone: string }>(
+    'integration-telecmi-provision-agent',
+    {
+      organization_id: input.organizationId,
+      scope_mode: input.scopeMode,
+      branch_ids: input.branchIds,
+      app_id: input.appId,
+      app_secret: input.appSecret,
+      extension: input.extension,
+      name: input.name,
+      phone: input.phone,
+      password: input.password,
+    },
+  );
 }
 
 export function connectAiProvider(input: {

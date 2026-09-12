@@ -10,6 +10,7 @@ import {
   ChevronRight,
   ChevronUp,
   ClockAlert,
+  Eye,
   FileUp,
   Flame,
   MoreVertical,
@@ -25,6 +26,7 @@ import {
   TrendingDown,
   TrendingUp,
   TriangleAlert,
+  Undo2,
   UserRoundCheck,
   UserRoundPlus,
   Users,
@@ -118,6 +120,7 @@ import {
   fetchPersonalLeadFlags,
   recordSalesLeadContact,
   recordTelecallerLeadContact,
+  cancelSalesHandoff,
   fetchSalesHandoffCandidates,
   transferLeadToSales,
   setPersonalLeadPreference,
@@ -432,15 +435,15 @@ function telecallerLeadMetricCards(kpis: LeadWorkspaceResult['kpis']): SalesLead
       footnote: `${kpis.transferred_to_sales_count.toLocaleString()} transferred · ${kpis.lost_count.toLocaleString()} lost`,
     },
     {
-      status: 'new',
+      status: 'new-today',
       label: 'New',
-      value: kpis.new_count,
+      value: kpis.new_today,
       icon: UserRoundPlus,
       chip: 'bg-blue-50 text-blue-600',
-      rate: leadShare(kpis.new_count, kpis.total),
+      rate: leadShare(kpis.new_today, kpis.total),
       helper: 'of all my leads',
       good: true,
-      footnote: 'Fresh enquiries awaiting a first call',
+      footnote: 'Fresh enquiries from the last 24 hours',
     },
     {
       status: 'pending',
@@ -720,7 +723,9 @@ function LeadStatusTabs({
   // update, so a freshly added lead stays in New until the 24-hour rule applies.
   const telecallerTabs: Array<{ label: string; value: LeadStatusFilter; count: number }> = [
     { label: 'All', value: 'all', count: data.kpis.total },
-    { label: 'New', value: 'new', count: data.kpis.new_count },
+    // New is the fresh (<24h) work queue. Older uncontacted enquiries are the
+    // separate Pending queue, not hidden behind a lifecycle-only New tab.
+    { label: 'New', value: 'new-today', count: data.kpis.new_today },
     { label: 'Pending', value: 'pending', count: data.kpis.pending },
     { label: 'Contacted', value: 'contacted', count: data.kpis.contacted_count },
     { label: 'Follow-up', value: 'follow-up', count: data.kpis.follow_up },
@@ -941,11 +946,15 @@ function LeadCreateDialog({
           }}
         >
           <label className="grid gap-1.5 text-sm font-medium">
-            Customer name <RequiredMark />
+            <span>
+              Customer name <RequiredMark />
+            </span>
             <Input name="customerName" required minLength={2} maxLength={160} autoComplete="name" />
           </label>
           <label className="grid gap-1.5 text-sm font-medium">
-            Phone <RequiredMark />
+            <span>
+              Phone <RequiredMark />
+            </span>
             <Input
               name="phone"
               required
@@ -956,11 +965,15 @@ function LeadCreateDialog({
             />
           </label>
           <label className="grid gap-1.5 text-sm font-medium">
-            Email <span className="font-normal text-muted-foreground">(optional)</span>
+            <span>
+              Email <span className="font-normal text-muted-foreground">(optional)</span>
+            </span>
             <Input name="email" type="email" maxLength={320} autoComplete="email" />
           </label>
           <div className="grid gap-1.5 text-sm font-medium">
-            Source <RequiredMark />
+            <span>
+              Source <RequiredMark />
+            </span>
             <Select
               value={source}
               onValueChange={(value) => setSource(value as (typeof leadSources)[number])}
@@ -979,7 +992,9 @@ function LeadCreateDialog({
           </div>
           {showBranchPicker ? (
             <div className="grid gap-1.5 text-sm font-medium">
-              Branch <RequiredMark />
+              <span>
+                Branch <RequiredMark />
+              </span>
               <Select
                 value={selectedBranchId}
                 onValueChange={(value) => {
@@ -1005,7 +1020,9 @@ function LeadCreateDialog({
           ) : null}
           {showTeamPicker ? (
             <div className="grid gap-1.5 text-sm font-medium">
-              Team <span className="font-normal text-muted-foreground">(optional)</span>
+              <span>
+                Team <span className="font-normal text-muted-foreground">(optional)</span>
+              </span>
               <Select value={teamId} onValueChange={setTeamId} disabled={!selectedBranchId}>
                 <SelectTrigger>
                   <SelectValue />
@@ -1022,15 +1039,21 @@ function LeadCreateDialog({
             </div>
           ) : null}
           <label className="grid gap-1.5 text-sm font-medium">
-            Interested model <span className="font-normal text-muted-foreground">(optional)</span>
+            <span>
+              Interested model <span className="font-normal text-muted-foreground">(optional)</span>
+            </span>
             <Input name="interestedModel" maxLength={160} />
           </label>
           <label className="grid gap-1.5 text-sm font-medium">
-            Source detail <span className="font-normal text-muted-foreground">(optional)</span>
+            <span>
+              Source detail <span className="font-normal text-muted-foreground">(optional)</span>
+            </span>
             <Input name="sourceDetail" maxLength={200} />
           </label>
           <label className="grid gap-1.5 text-sm font-medium">
-            Campaign <span className="font-normal text-muted-foreground">(optional)</span>
+            <span>
+              Campaign <span className="font-normal text-muted-foreground">(optional)</span>
+            </span>
             <Input name="campaign" maxLength={200} />
           </label>
           {options.isError && (
@@ -1320,6 +1343,8 @@ function canHandOffToSales(lead: LeadRecord) {
 
 function salesHandoffErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? '');
+  if (message.includes('TRANSFER_REASON_REQUIRED'))
+    return 'Enter why this lead is ready for Sales before transferring it.';
   if (message.includes('NO_ELIGIBLE_SALES_CONSULTANT'))
     return 'This team has no Sales Consultant marked eligible for qualified leads. Ask your Team Manager to enable one, then try again.';
   if (message.includes('SALES_CONSULTANT_NOT_ELIGIBLE'))
@@ -1456,12 +1481,16 @@ function SalesHandoffDialog({
             </p>
           </div>
           <label className="grid gap-1.5 text-sm font-medium">
-            Reason <span className="font-normal text-muted-foreground">(optional)</span>
+            <span>
+              Reason <RequiredMark />
+            </span>
             <Input
               value={reason}
               onChange={(event) => setReason(event.target.value)}
+              required
+              minLength={1}
               maxLength={500}
-              placeholder="Interested, wants a showroom visit"
+              placeholder="Why this lead is ready for Sales"
             />
           </label>
           {candidates.isError && (
@@ -1477,12 +1506,110 @@ function SalesHandoffDialog({
               type="submit"
               disabled={
                 mutation.isPending ||
+                !reason.trim() ||
                 (selection === AUTO_SALES_HANDOFF && !candidates.isPending && !consultants.length)
               }
             >
               {mutation.isPending ? 'Transferring…' : 'Transfer to Sales'}
             </Button>
           </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function salesHandoffCancellationErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (message.includes('HANDOFF_CANCELLATION_REASON_REQUIRED'))
+    return 'Enter why this lead should return to the Telecaller queue.';
+  if (message.includes('HANDOFF_NOT_CANCELLABLE'))
+    return 'Only a lead that is currently transferred to Sales can be returned.';
+  if (message.includes('HANDOFF_ORIGINAL_TELECALLER_REQUIRED'))
+    return 'Only the Telecaller who transferred this lead can return it.';
+  if (message.includes('PERMISSION_DENIED') || message.includes('SCOPE_DENIED'))
+    return 'You do not have access to return this lead. Refresh and try again.';
+  return 'The transfer could not be cancelled. Nothing was changed. Refresh and try again.';
+}
+
+/** A transfer reversal is a new auditable handoff event, never a history edit. */
+function SalesHandoffCancellationDialog({
+  lead,
+  open,
+  onOpenChange,
+  onCancelled,
+}: {
+  lead: LeadRecord | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCancelled: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const mutation = useMutation({
+    mutationFn: cancelSalesHandoff,
+    onSuccess: () => {
+      onOpenChange(false);
+      toast.add({
+        type: 'success',
+        title: 'Transfer cancelled',
+        description: 'The lead is back with you as Contacted and is no longer in the Sales queue.',
+      });
+      onCancelled();
+    },
+    onError: (error) => {
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'Transfer was not cancelled',
+        description: salesHandoffCancellationErrorMessage(error),
+      });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Cancel transfer to Sales?</DialogTitle>
+          <DialogDescription>
+            {lead
+              ? `${lead.customer_name} will return to your Contacted queue and be removed from the Sales Consultant’s active leads.`
+              : 'Return this lead to the Telecaller queue.'}
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="mt-4 grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!lead) return;
+            mutation.mutate({ leadId: lead.id, reason });
+          }}
+        >
+          <label className="grid gap-1.5 text-sm font-medium">
+            <span>
+              Reason <RequiredMark />
+            </span>
+            <Textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              required
+              minLength={1}
+              maxLength={500}
+              placeholder="Why should this lead return to the Telecaller queue?"
+            />
+          </label>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Keep transfer
+            </Button>
+            <Button
+              type="submit"
+              variant="destructive"
+              disabled={mutation.isPending || !reason.trim()}
+            >
+              {mutation.isPending ? 'Cancelling…' : 'Cancel transfer'}
+            </Button>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -1792,6 +1919,7 @@ function LeadTable({
   canScheduleTestDrives,
   canLinkCustomer,
   canTransferToSales,
+  canCancelSalesHandoff,
   canRequestDuplicateDeletion,
   focusLeadId,
   onFocusConsumed,
@@ -1804,6 +1932,7 @@ function LeadTable({
   onSalesContact,
   onIntakeContact,
   onTransferToSales,
+  onCancelSalesHandoff,
   onRequestDuplicateDeletion,
   onPendingFollowup,
 }: {
@@ -1828,6 +1957,7 @@ function LeadTable({
   canScheduleTestDrives: boolean;
   canLinkCustomer: boolean;
   canTransferToSales: boolean;
+  canCancelSalesHandoff: boolean;
   canRequestDuplicateDeletion: boolean;
   focusLeadId: string | null;
   onFocusConsumed: () => void;
@@ -1840,6 +1970,7 @@ function LeadTable({
   onSalesContact: (lead: LeadRecord, channel: 'CALL' | 'WHATSAPP') => void;
   onIntakeContact: (lead: LeadRecord, channel: 'CALL' | 'WHATSAPP') => void;
   onTransferToSales: (lead: LeadRecord) => void;
+  onCancelSalesHandoff: (lead: LeadRecord) => void;
   onRequestDuplicateDeletion: (lead: LeadRecord) => void;
   onPendingFollowup: (request: PendingFollowupRequest) => void;
 }) {
@@ -2296,9 +2427,38 @@ function LeadTable({
         id: 'actions',
         header: 'Actions',
         cell: ({ row }) => {
-          if (row.original.read_only || historyLeadIds.has(row.original.id)) {
-            return null; // Read only leads have no direct actions in table
+          if (row.original.read_only) {
+            return (
+              <div className="flex justify-end gap-1">
+                <Button asChild variant="ghost" size="sm" className="h-7 text-xs">
+                  <Link
+                    href={leadDetailHref(role, row.original.id)}
+                    title="Read only — transferred to Sales"
+                    aria-label={`View ${row.original.customer_name} (read only)`}
+                  >
+                    <Eye className="size-3.5" />
+                    View
+                  </Link>
+                </Button>
+                {canCancelSalesHandoff &&
+                row.original.lifecycle_status === 'Transferred to Sales' ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-rose-600 hover:text-rose-700"
+                    title={`Cancel transfer for ${row.original.customer_name}`}
+                    aria-label={`Cancel transfer for ${row.original.customer_name}`}
+                    onClick={() => onCancelSalesHandoff(row.original)}
+                  >
+                    <Undo2 className="size-3.5" />
+                    Cancel transfer
+                  </Button>
+                ) : null}
+              </div>
+            );
           }
+          if (historyLeadIds.has(row.original.id)) return null;
 
           return (
             <div className="flex items-center justify-end gap-0.5">
@@ -2621,6 +2781,7 @@ function LeadTable({
       canScheduleAppointments,
       canScheduleTestDrives,
       canTransferToSales,
+      canCancelSalesHandoff,
       canLinkCustomer,
       canRequestDuplicateDeletion,
       canUpdate,
@@ -2635,6 +2796,7 @@ function LeadTable({
       onIntakeContact,
       onMatchCustomer,
       onTransferToSales,
+      onCancelSalesHandoff,
       onRequestDuplicateDeletion,
       onPersonalFlagChange,
       personalFlagsPending,
@@ -3335,6 +3497,7 @@ export function LeadWorkspace({
   };
   const [assignmentLead, setAssignmentLead] = useState<LeadRecord | null>(null);
   const [handoffLead, setHandoffLead] = useState<LeadRecord | null>(null);
+  const [handoffCancellationLead, setHandoffCancellationLead] = useState<LeadRecord | null>(null);
   const [editingLead, setEditingLead] = useState<LeadEditRequest | null>(null);
   const [followupShortcut, setFollowupShortcut] = useState<FollowupShortcut | null>(null);
   const [appointmentShortcut, setAppointmentShortcut] = useState<AppointmentShortcut | null>(null);
@@ -3802,6 +3965,9 @@ export function LeadWorkspace({
         canTransferToSales={
           !spec.readOnly && role === 'telecaller' && Boolean(permissions?.canUpdate)
         }
+        canCancelSalesHandoff={
+          !spec.readOnly && role === 'telecaller' && Boolean(permissions?.canUpdate)
+        }
         canRequestDuplicateDeletion={
           !spec.readOnly &&
           (role === 'telecaller' || role === 'sales-consultant') &&
@@ -3824,6 +3990,7 @@ export function LeadWorkspace({
           intakeContactMutation.mutate({ leadId: lead.id, channel });
         }}
         onTransferToSales={setHandoffLead}
+        onCancelSalesHandoff={setHandoffCancellationLead}
         onRequestDuplicateDeletion={setDuplicateDeletionLead}
         onPendingFollowup={setPendingFollowup}
       />
@@ -3868,6 +4035,16 @@ export function LeadWorkspace({
         onOpenChange={(open) => !open && setHandoffLead(null)}
         onTransferred={() => {
           setHandoffLead(null);
+          void invalidate();
+        }}
+      />
+      <SalesHandoffCancellationDialog
+        key={`handoff-cancellation-${handoffCancellationLead?.id ?? 'none'}`}
+        lead={handoffCancellationLead}
+        open={Boolean(handoffCancellationLead)}
+        onOpenChange={(open) => !open && setHandoffCancellationLead(null)}
+        onCancelled={() => {
+          setHandoffCancellationLead(null);
           void invalidate();
         }}
       />

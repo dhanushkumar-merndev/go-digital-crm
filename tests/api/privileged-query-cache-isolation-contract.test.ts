@@ -19,6 +19,7 @@ const scopedWorkspaces = [
   ['src/features/administration/tenant-target-configuration-workspace.tsx', 1],
   ['src/features/administration/company-compliance-workspace.tsx', 1],
   ['src/features/dashboards/owner-ai-business-summary.tsx', 1],
+  ['src/features/dashboards/business-overview-workspaces.tsx', 3],
   ['src/features/administration/competitor-catalog-workspace.tsx', 1],
   ['src/features/administration/security-workspace.tsx', 1],
   ['src/features/administration/system-health-workspace.tsx', 1],

@@ -28,6 +28,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { Metric } from '@/lib/domain';
+import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import { fetchGmSalesAnalytics } from './gm-sales-analytics-api';
 
 export type GmSalesAnalyticsView =
@@ -71,6 +72,13 @@ export function GmSalesAnalyticsWorkspace({ view }: { view: GmSalesAnalyticsView
     queryFn: ({ signal }) => fetchGmSalesAnalytics(days, signal),
     staleTime: 60_000,
   });
+  useTenantRealtimeInvalidation(
+    session?.organizationId,
+    (['leads', 'communications', 'work', 'sales'] as const).map((resource) => ({
+      resource,
+      queryKeys: [['gm-sales-analytics', ...workspaceQueryScope(session)]],
+    })),
+  );
   const heading = copy[view];
   if (query.isPending) return <GmSalesAnalyticsSkeleton />;
   if (query.isError || !query.data)

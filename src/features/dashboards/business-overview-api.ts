@@ -52,10 +52,10 @@ export type BusinessSalesOverview = z.infer<typeof salesSchema>;
 export type BusinessShowroomPerformance = z.infer<typeof showroomSchema>;
 export type BusinessOperationsOverview = z.infer<typeof operationsSchema>;
 
-export const businessSalesOverviewKey = (days: number) =>
-  ['business-sales-overview', days] as const;
-export const businessShowroomKey = (days: number) =>
-  ['business-showroom-performance', days] as const;
+export const businessSalesOverviewKey = (scope: readonly string[], days: number) =>
+  ['business-sales-overview', ...scope, days] as const;
+export const businessShowroomKey = (scope: readonly string[], days: number) =>
+  ['business-showroom-performance', ...scope, days] as const;
 export const businessOperationsKey = ['business-operations-overview'] as const;
 
 export async function fetchBusinessSalesOverview(days: number, signal?: AbortSignal) {

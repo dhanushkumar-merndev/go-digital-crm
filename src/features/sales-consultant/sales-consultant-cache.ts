@@ -25,6 +25,7 @@ type Scope = readonly [string, string, string];
 
 export const salesConsultantKeys = {
   dashboard: (scope: Scope) => ['sales-consultant-dashboard', ...scope] as const,
+  performance: (scope: Scope) => ['personal-sales-performance', ...scope] as const,
   leadWorkspace: (scope: Scope) => ['lead-workspace', ...scope] as const,
   leadWorkspacePermissions: (scope: Scope) => ['lead-workspace-permissions', ...scope] as const,
   leadCreateOptions: (scope: Scope) => ['lead-create-options', ...scope] as const,
@@ -87,14 +88,17 @@ const actionEffects: Record<
   (scope: Scope, context: ActionContext) => QueryKey[]
 > = {
   'lead.created': (scope) => [
+    salesConsultantKeys.performance(scope),
     salesConsultantKeys.leadWorkspace(scope),
     salesConsultantKeys.leadAssignment(scope),
   ],
   'lead.updated': (scope, context) => [
+    salesConsultantKeys.performance(scope),
     salesConsultantKeys.leadWorkspace(scope),
     ...(context.leadId ? [salesConsultantKeys.leadDetail(context.leadId)] : []),
   ],
   'lead.assigned': (scope, context) => [
+    salesConsultantKeys.performance(scope),
     salesConsultantKeys.leadWorkspace(scope),
     salesConsultantKeys.leadAssignment(scope),
     ...(context.leadId ? [salesConsultantKeys.leadDetail(context.leadId)] : []),
@@ -107,6 +111,7 @@ const actionEffects: Record<
     salesConsultantKeys.leadWorkspace(scope),
   ],
   'call.logged': (scope, context) => [
+    salesConsultantKeys.performance(scope),
     salesConsultantKeys.callWorkspace(scope),
     salesConsultantKeys.leadWorkspace(scope),
     ...(context.callId ? [salesConsultantKeys.callDetail(context.callId)] : []),
@@ -127,6 +132,7 @@ const actionEffects: Record<
   // Follow-ups and appointments are two views over the same work records, so a
   // write to either has to settle both calendars and the shared summary.
   'appointment.changed': (scope, context) => [
+    salesConsultantKeys.performance(scope),
     salesConsultantKeys.workWorkspace(scope),
     salesConsultantKeys.workCreateOptions(scope),
     salesConsultantKeys.appointmentCalendar(scope),
@@ -144,12 +150,14 @@ const actionEffects: Record<
     salesConsultantKeys.dashboard(scope),
   ],
   'testdrive.changed': (scope) => [
+    salesConsultantKeys.performance(scope),
     salesConsultantKeys.testDriveWorkspace(scope),
     salesConsultantKeys.testDriveLeadOptions(scope),
     salesConsultantKeys.testDriveVehicleOptions(scope),
     salesConsultantKeys.customer360(scope),
   ],
   'quotation.changed': (scope) => [
+    salesConsultantKeys.performance(scope),
     salesConsultantKeys.salesDocumentWorkspace(scope),
     salesConsultantKeys.bookingQuotationOptions(scope),
     salesConsultantKeys.customer360(scope),

@@ -44,7 +44,7 @@ export function CustomerMatchDialog({
 }) {
   const workspaceSession = useWorkspaceSession();
   const queryScope = workspaceQueryScope(workspaceSession);
-  const [resolution, setResolution] = useState<'LINK_EXISTING' | 'CREATE_NEW'>('LINK_EXISTING');
+  const [resolution, setResolution] = useState<'LINK_EXISTING' | 'CREATE_NEW'>('CREATE_NEW');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [requestId] = useState(createUuid);
   const matches = useQuery({
@@ -148,8 +148,16 @@ export function CustomerMatchDialog({
                     resolution === 'LINK_EXISTING' && selectedCustomerId === match.customer_id
                   }
                   onClick={() => {
-                    setResolution('LINK_EXISTING');
-                    setSelectedCustomerId(match.customer_id);
+                    if (
+                      resolution === 'LINK_EXISTING' &&
+                      selectedCustomerId === match.customer_id
+                    ) {
+                      setResolution('CREATE_NEW');
+                      setSelectedCustomerId('');
+                    } else {
+                      setResolution('LINK_EXISTING');
+                      setSelectedCustomerId(match.customer_id);
+                    }
                   }}
                   className={`flex w-full items-start justify-between gap-4 rounded-lg border p-4 text-left transition-colors ${
                     resolution === 'LINK_EXISTING' && selectedCustomerId === match.customer_id
@@ -179,52 +187,39 @@ export function CustomerMatchDialog({
               )}
             </section>
 
-            {canCreate && (
-              <section className="grid gap-3">
-                <Button
-                  type="button"
-                  variant={effectiveResolution === 'CREATE_NEW' ? 'default' : 'outline'}
-                  className="justify-start"
-                  onClick={() => setResolution('CREATE_NEW')}
-                >
-                  <Plus className="size-4" />
-                  Create a separate customer UUID
-                </Button>
-                {effectiveResolution === 'CREATE_NEW' && (
-                  <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
-                    <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
-                      Customer name
-                      <Input
-                        name="fullName"
-                        defaultValue={lead.customer_name}
-                        minLength={2}
-                        maxLength={160}
-                        required
-                      />
-                    </label>
-                    <label className="grid gap-1.5 text-sm font-medium">
-                      Primary phone
-                      <Input
-                        name="phone"
-                        defaultValue={lead.phone}
-                        minLength={7}
-                        maxLength={24}
-                        inputMode="tel"
-                        required
-                      />
-                    </label>
-                    <label className="grid gap-1.5 text-sm font-medium">
-                      Primary email
-                      <Input
-                        name="email"
-                        defaultValue={lead.email ?? ''}
-                        type="email"
-                        maxLength={254}
-                      />
-                    </label>
-                  </div>
-                )}
-              </section>
+            {canCreate && effectiveResolution === 'CREATE_NEW' && (
+              <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
+                <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                  Customer name
+                  <Input
+                    name="fullName"
+                    defaultValue={lead.customer_name}
+                    minLength={2}
+                    maxLength={160}
+                    required
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  Primary phone
+                  <Input
+                    name="phone"
+                    defaultValue={lead.phone}
+                    minLength={7}
+                    maxLength={24}
+                    inputMode="tel"
+                    required
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  Primary email
+                  <Input
+                    name="email"
+                    defaultValue={lead.email ?? ''}
+                    type="email"
+                    maxLength={254}
+                  />
+                </label>
+              </div>
             )}
 
             <label className="grid gap-1.5 text-sm font-medium">

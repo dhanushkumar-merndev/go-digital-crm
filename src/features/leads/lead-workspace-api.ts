@@ -405,6 +405,22 @@ export async function transferLeadToSales(input: {
   };
 }
 
+/**
+ * Returns a transferred lead to the Telecaller who handed it off. The database
+ * restores the active owner and writes both stage and assignment history.
+ */
+export async function cancelSalesHandoff(input: {
+  leadId: string;
+  reason: string;
+}): Promise<{ lead_id: string; assigned_user_id: string; lifecycle_status: 'Contacted' }> {
+  const { data, error } = await createClient().rpc('cancel_sales_handoff', {
+    target_lead_id: input.leadId,
+    cancellation_reason: input.reason.trim() || null,
+  });
+  if (error) throw error;
+  return data as { lead_id: string; assigned_user_id: string; lifecycle_status: 'Contacted' };
+}
+
 export type LeadCreateInput = {
   organizationId: string;
   branchId: string;

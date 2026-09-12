@@ -28,6 +28,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { Metric } from '@/lib/domain';
+import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import { fetchTeamManagerPerformance } from './team-manager-performance-api';
 
 function formatDuration(seconds: number) {
@@ -54,6 +55,13 @@ export function TeamManagerPerformance({ heading = 'Team Performance' }: { headi
     queryFn: ({ signal }) => fetchTeamManagerPerformance(days, signal),
     staleTime: 60_000,
   });
+  useTenantRealtimeInvalidation(
+    session?.organizationId,
+    (['leads', 'communications', 'work', 'sales'] as const).map((resource) => ({
+      resource,
+      queryKeys: [['team-manager-performance', ...queryScope]],
+    })),
+  );
   if (query.isPending) return <TeamManagerPerformanceSkeleton />;
   if (query.isError || !query.data)
     return (

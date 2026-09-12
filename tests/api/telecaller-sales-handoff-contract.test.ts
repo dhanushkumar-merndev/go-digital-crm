@@ -11,6 +11,10 @@ const candidateMigration = readFileSync(
   'supabase/migrations/202608250008_role_specific_lead_assignment_candidates.sql',
   'utf8',
 );
+const mandatoryReasonMigration = readFileSync(
+  'supabase/migrations/202609100002_require_sales_handoff_reason.sql',
+  'utf8',
+);
 
 describe('Telecaller to Sales Consultant handoff contract', () => {
   it('keeps reassignment out of the Sales Consultant table action menu', () => {
@@ -56,5 +60,16 @@ describe('Telecaller to Sales Consultant handoff contract', () => {
   it('filters the Sales Consultant lead page to leads with a handoff event', () => {
     expect(migration).toContain('SALES_LEAD_WORKSPACE_PATCH_TARGET_NOT_FOUND');
     expect(migration).toContain("handoff_history.to_status = \\'Transferred to Sales\\'");
+  });
+
+  it('requires a meaningful handoff reason in the form and database RPC', () => {
+    expect(workspace).toContain('Reason <RequiredMark />');
+    expect(workspace).toContain('placeholder="Why this lead is ready for Sales"');
+    expect(workspace).toContain('!reason.trim()');
+    expect(mandatoryReasonMigration).toContain('TRANSFER_REASON_REQUIRED');
+    expect(mandatoryReasonMigration).toContain('normalized_reason is null');
+    expect(mandatoryReasonMigration).toContain(
+      'revoke all on function public.transfer_lead_to_sales',
+    );
   });
 });

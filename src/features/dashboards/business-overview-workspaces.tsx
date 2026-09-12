@@ -3,7 +3,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { Building2, ClipboardList, TrendingUp } from 'lucide-react';
 import { useState } from 'react';
+import {
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
 import { PageHeader } from '@/components/shared/page-header';
+import { TenantDashboardSkeleton } from '@/components/skeletons/dashboard-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +28,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { PageSpec } from '@/lib/domain';
+import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import {
   businessOperationsKey,
   businessSalesOverviewKey,
@@ -77,12 +83,20 @@ function WindowPicker({ days, onChange }: { days: number; onChange: (value: numb
 }
 
 export function BusinessSalesOverview({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
   const [days, setDays] = useState<number>(30);
   const overview = useQuery({
-    queryKey: businessSalesOverviewKey(days),
+    queryKey: businessSalesOverviewKey(workspaceQueryScope(session), days),
     queryFn: ({ signal }) => fetchBusinessSalesOverview(days, signal),
     staleTime: 60_000,
   });
+  useTenantRealtimeInvalidation(session?.organizationId, [
+    {
+      resource: 'leads',
+      queryKeys: [['business-sales-overview', ...workspaceQueryScope(session)]],
+    },
+  ]);
+  if (overview.isPending) return <TenantDashboardSkeleton role="business-owner" />;
   if (overview.isError) return <Unavailable what="Sales overview" />;
   const data = overview.data;
   const totals = data?.totals;
@@ -235,12 +249,21 @@ export function BusinessSalesOverview({ spec }: { spec: PageSpec }) {
 }
 
 export function BusinessShowroomPerformance({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
   const [days, setDays] = useState<number>(30);
   const overview = useQuery({
-    queryKey: businessShowroomKey(days),
+    queryKey: businessShowroomKey(workspaceQueryScope(session), days),
     queryFn: ({ signal }) => fetchBusinessShowroomPerformance(days, signal),
     staleTime: 60_000,
   });
+  useTenantRealtimeInvalidation(
+    session?.organizationId,
+    (['leads', 'work', 'sales'] as const).map((resource) => ({
+      resource,
+      queryKeys: [['business-showroom-performance', ...workspaceQueryScope(session)]],
+    })),
+  );
+  if (overview.isPending) return <TenantDashboardSkeleton role="business-owner" />;
   if (overview.isError) return <Unavailable what="Showroom performance" />;
   const branches = overview.data?.branches ?? [];
   const busiest = Math.max(1, ...branches.map((branch) => branch.leads));
@@ -303,11 +326,19 @@ export function BusinessShowroomPerformance({ spec }: { spec: PageSpec }) {
 }
 
 export function BusinessOperationsOverview({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
   const overview = useQuery({
-    queryKey: businessOperationsKey,
+    queryKey: [...businessOperationsKey, ...workspaceQueryScope(session)],
     queryFn: ({ signal }) => fetchBusinessOperationsOverview(signal),
     staleTime: 60_000,
   });
+  useTenantRealtimeInvalidation(session?.organizationId, [
+    {
+      resource: 'operations',
+      queryKeys: [[...businessOperationsKey, ...workspaceQueryScope(session)]],
+    },
+  ]);
+  if (overview.isPending) return <TenantDashboardSkeleton role="business-owner" />;
   if (overview.isError) return <Unavailable what="Operations overview" />;
   const departments = overview.data?.departments ?? [];
   return (

@@ -22,6 +22,16 @@ const telecmiSaveMigration = readFileSync(
   'supabase/migrations/202609040003_telecmi_connection_atomic_save.sql',
   'utf8',
 );
+const telecmiShared = readFileSync('supabase/functions/_shared/telecmi.ts', 'utf8');
+const telecmiProvision = readFileSync(
+  'supabase/functions/integration-telecmi-provision-agent/index.ts',
+  'utf8',
+);
+const telecmiAgentEditor = readFileSync(
+  'src/features/integrations/telecmi-agent-editor.tsx',
+  'utf8',
+);
+const supabaseConfig = readFileSync('supabase/config.toml', 'utf8');
 const migration = readFileSync(
   'supabase/migrations/202608150014_integration_workspace.sql',
   'utf8',
@@ -151,6 +161,51 @@ describe('tenant integration workspace contract', () => {
     );
     expect(telecmiSaveMigration).toContain("target_scope_mode <> 'ALL_BRANCHES'");
     expect(telecmiSaveMigration).toContain("'CONNECTION_SCOPE'");
+  });
+
+  it('provisions TeleCMI agents behind the same client-admin branch scope as the connection', () => {
+    expect(telecmiProvision).toContain("rpc('authorize_telecmi_management_scope'");
+    expect(telecmiProvision).toContain("input.scope_mode === 'ONE_BRANCH'");
+    expect(telecmiProvision).toContain("input.scope_mode === 'ALL_BRANCHES'");
+    expect(telecmiProvision).toContain('BRANCH_SCOPE_DENIED');
+    expect(supabaseConfig).toContain('[functions.integration-telecmi-provision-agent]');
+    // The app secret and the agent's softphone password must never travel back
+    // to the browser in the provisioning response.
+    expect(telecmiProvision).toContain(
+      '{ user_id: created.userId, extension: created.extension, phone: created.phone }',
+    );
+    expect(telecmiProvision).not.toContain('password: input.password,\n      requestId');
+    expect(telecmiShared).toContain(
+      "telecmiJson<{ agent_id?: string; msg?: string }>('/v2/user/add'",
+    );
+    expect(telecmiShared).toContain('`${extension}_${input.credential.app_id}`');
+    expect(telecmiShared).toContain(
+      "if (!/^\\d{3}$/.test(digits)) throw new Error('TELECMI_EXTENSION_INVALID')",
+    );
+  });
+
+  it('reports a TeleCMI rejection reason instead of one blanket failure', () => {
+    expect(telecmiShared).toContain('class TelecmiError extends Error');
+    expect(telecmiShared).toContain("return 'TELECMI_IP_NOT_ALLOWED'");
+    expect(telecmiShared).toContain("throw new TelecmiError('TELECMI_UNREACHABLE')");
+    expect(telecmiShared).toContain("case 'TELECMI_AUTH_REJECTED'");
+    expect(telecmiConnect).toContain('describeTelecmiFailure(error)');
+    // The Edge envelope carries the reason, so the client must read the body of
+    // a non-2xx rather than surfacing supabase-js's opaque FunctionsHttpError.
+    expect(api).toContain('class IntegrationRequestError extends Error');
+    expect(api).toContain('readEdgeErrorBody');
+    expect(workspace).toContain('mutation.error instanceof IntegrationRequestError');
+  });
+
+  it('keeps TeleCMI agent mappings and stereo streaming editable by the client admin', () => {
+    expect(workspace).toContain('<TelecmiAgentEditor');
+    expect(workspace).not.toContain('name="parallelAgents"');
+    expect(workspace).toContain('aiStreamEnabled: request.aiStreamEnabled');
+    expect(workspace).toContain(
+      'aiStreamWsUrl: aiStreamEnabled ? aiStreamWsUrl.trim() : undefined',
+    );
+    expect(telecmiAgentEditor).toContain('provisionTelecmiAgent');
+    expect(telecmiAgentEditor).toContain('pattern="\\d{1,12}_\\d{1,12}"');
   });
 
   it('wires only completed tenant admin integration routes', () => {

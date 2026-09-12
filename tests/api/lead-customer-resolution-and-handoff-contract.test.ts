@@ -15,6 +15,10 @@ const handoffProjectionFix = readFileSync(
 );
 const listUi = readFileSync('src/features/leads/lead-workspace.tsx', 'utf8');
 const detailUi = readFileSync('src/features/leads/lead-detail-workspace.tsx', 'utf8');
+const customerMatchDialog = readFileSync(
+  'src/features/customers/customer-match-dialog.tsx',
+  'utf8',
+);
 
 describe('explicit lead customer resolution', () => {
   it('leaves new enquiries unlinked instead of resolving a phone automatically', () => {
@@ -36,6 +40,12 @@ describe('explicit lead customer resolution', () => {
     expect(detailUi).toContain('<CustomerMatchDialog');
     expect(detailUi).toContain("hasWorkspacePermission(workspaceSession, 'customer.link')");
     expect(detailUi).toContain("hasWorkspacePermission(workspaceSession, 'customer.create')");
+  });
+
+  it('shows customer details directly instead of a duplicate create button', () => {
+    expect(customerMatchDialog).not.toContain('Create a separate customer UUID');
+    expect(customerMatchDialog).toContain("useState<'LINK_EXISTING' | 'CREATE_NEW'>('CREATE_NEW')");
+    expect(customerMatchDialog).toContain("setResolution('CREATE_NEW')");
   });
 });
 

@@ -56,6 +56,9 @@ verify_jwt = true
 [functions.integration-connect-telecmi]
 verify_jwt = true
 
+[functions.integration-telecmi-provision-agent]
+verify_jwt = true
+
 [functions.integration-assets-list]
 verify_jwt = true
 

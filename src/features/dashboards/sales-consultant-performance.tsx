@@ -28,6 +28,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { Metric } from '@/lib/domain';
+import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
+import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import {
   fetchPersonalSalesPerformance,
   fetchSalesPerformance,
@@ -40,13 +42,27 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
   const queryScope = workspaceQueryScope(workspaceSession);
   const [days, setDays] = useState<7 | 14 | 30>(7);
   const query = useQuery({
-    queryKey: ['personal-sales-performance', role, ...queryScope, days],
+    queryKey: [...salesConsultantKeys.performance(queryScope), role, days],
     queryFn: ({ signal }) =>
       role === 'telecaller'
         ? fetchPersonalSalesPerformance(days, signal)
         : fetchSalesPerformance(days, signal),
     staleTime: 60_000,
   });
+  useTenantRealtimeInvalidation(
+    workspaceSession?.organizationId,
+    (
+      [
+        'leads',
+        'communications',
+        'work',
+        ...(role === 'sales-consultant' ? (['sales'] as const) : []),
+      ] as const
+    ).map((resource) => ({
+      resource,
+      queryKeys: [salesConsultantKeys.performance(queryScope)],
+    })),
+  );
   if (query.isPending) return <SalesConsultantPerformanceSkeleton />;
   if (query.isError)
     return (
