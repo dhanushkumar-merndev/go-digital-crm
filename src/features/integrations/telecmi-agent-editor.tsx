@@ -46,7 +46,7 @@ export function TelecmiAgentEditor({
     Number(appId) > 0 &&
     appSecret.trim().length >= 8 &&
     draft.name.trim().length >= 2 &&
-    /^\d{3}$/.test(draft.extension.trim()) &&
+    /^\d{3,6}$/.test(draft.extension.trim()) &&
     draft.phone.trim().length >= 8 &&
     draft.password.length >= 8;
 
@@ -169,11 +169,11 @@ export function TelecmiAgentEditor({
               onChange={(event) => setDraft({ ...draft, extension: event.target.value })}
               placeholder="101"
               inputMode="numeric"
-              maxLength={3}
+              maxLength={6}
               autoComplete="off"
             />
             <span className="text-xs font-normal text-muted-foreground">
-              Three digits. TeleCMI builds the user ID as extension_appid.
+              3–6 digits. TeleCMI builds the user ID as extension_appid.
             </span>
           </label>
           <label className="grid gap-1.5 text-sm font-medium">

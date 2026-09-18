@@ -2,11 +2,7 @@ import { z } from 'npm:zod@4';
 import { decryptJson, sha256Base64Url } from '../_shared/crypto.ts';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
-import {
-  personalError,
-  personalGateway,
-  personalWhatsAppActor,
-} from '../_shared/personal-whatsapp.ts';
+import { personalError, personalGateway } from '../_shared/personal-whatsapp.ts';
 
 type WhatsAppCredential = {
   access_token: string;
@@ -49,13 +45,11 @@ Deno.serve(async (request) => {
     const { data: auth } = await client.auth.getUser();
     if (!auth.user)
       return failure('UNAUTHENTICATED', 'Authentication is required.', requestId, 401);
-    const personal = await client
-      .from('personal_whatsapp_conversations')
-      .select('id')
-      .eq('organization_id', input.organization_id)
-      .eq('id', input.conversation_id)
-      .maybeSingle();
-    if (personal.data) {
+    // The prepare RPC already verifies the authenticated owner, eligible role,
+    // message permission, branch/record scope, reply window and rate limits.
+    // Trying it first avoids a redundant conversation lookup plus a second auth
+    // and access-context round trip on every personal WhatsApp reply.
+    if (input.content.type === 'text') {
       let prepared:
         | {
             message_id: string;
@@ -66,8 +60,6 @@ Deno.serve(async (request) => {
           }
         | undefined;
       try {
-        await personalWhatsAppActor(request);
-        if (input.content.type !== 'text') throw new Error('PERSONAL_WHATSAPP_TEXT_ONLY');
         const { data, error } = await client.rpc(
           input.expected_lead_id === undefined
             ? 'personal_whatsapp_send_prepare'
@@ -81,18 +73,44 @@ Deno.serve(async (request) => {
               : { expected_lead_id: input.expected_lead_id }),
           },
         );
-        if (error) throw error;
-        prepared = data;
-        if (prepared?.duplicate) return success(prepared, requestId, 202);
-        const result = await personalGateway('POST', '/v1/messages', prepared);
-        return success(result, requestId, 202);
+        if (error) {
+          if (error.message === 'PERSONAL_WHATSAPP_NOT_FOUND') {
+            prepared = undefined;
+          } else {
+            throw error;
+          }
+        }
+        if (!data) {
+          // This is not a personal conversation; continue to the official
+          // WhatsApp path below without exposing whether an inaccessible row exists.
+        } else {
+          prepared = data;
+          if (prepared?.duplicate) return success(prepared, requestId, 202);
+          const result = await personalGateway('POST', '/v1/messages', prepared);
+          return success(result, requestId, 202);
+        }
       } catch (error) {
         if (prepared) {
+          // These gateway rejections happen before the provider call. Network
+          // failures and ambiguous results must still remain UNKNOWN.
+          const rejectedBeforeSend = [
+            'PERSONAL_WHATSAPP_SEND_DENIED',
+            'PERSONAL_WHATSAPP_DISCONNECTED',
+            'PERSONAL_WHATSAPP_SESSION_REVOKED',
+            'PERSONAL_WHATSAPP_LEASE_LOST',
+          ].includes(personalError(error));
           await serviceClient().rpc('personal_whatsapp_send_result', {
             target_connection_id: prepared.connection_id,
             target_message_id: prepared.message_id,
-            target_status: 'UNKNOWN',
+            target_status: rejectedBeforeSend ? 'FAILED' : 'UNKNOWN',
           });
+          if (rejectedBeforeSend)
+            return failure(
+              personalError(error),
+              'WhatsApp rejected the send before dispatch.',
+              requestId,
+              409,
+            );
           return success({ message_id: prepared.message_id, status: 'UNKNOWN' }, requestId, 202);
         }
         return failure(

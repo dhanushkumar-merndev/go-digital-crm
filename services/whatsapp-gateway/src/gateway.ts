@@ -19,6 +19,7 @@ type Session = {
   linkedAt: number;
   requestedAt: number;
   queue: Promise<void>;
+  ingestQueue: Promise<void>;
   queued: number;
   reconnect?: ReturnType<typeof setTimeout>;
   heartbeat?: ReturnType<typeof setInterval>;
@@ -77,6 +78,7 @@ export class Gateway {
       linkedAt: row.linked_at ? Date.parse(row.linked_at) : Date.now(),
       requestedAt: Date.parse(row.requested_at),
       queue: Promise.resolve(),
+      ingestQueue: Promise.resolve(),
       queued: 0,
     };
     this.sessions.set(identity.connection_id, session);
@@ -96,13 +98,17 @@ export class Gateway {
     }
   }
 
-  private enqueue(session: Session, action: () => Promise<void>) {
+  private enqueue(
+    session: Session,
+    action: () => Promise<void>,
+    lane: 'queue' | 'ingestQueue' = 'queue',
+  ) {
     if (session.stopped) return;
     if (++session.queued > 100) {
       void this.stop(session, false);
       return;
     }
-    session.queue = session.queue
+    session[lane] = session[lane]
       .then(async () => {
         if (!session.stopped) await action();
       })
@@ -183,24 +189,28 @@ export class Gateway {
     );
     const ingest = (messages: Parameters<typeof normalizeMessage>[0][], history: boolean) => {
       // One bounded queue item per provider batch, without media downloads.
-      this.enqueue(session, async () => {
-        for (const message of messages.slice(-1000)) {
-          if (session.socket !== socket || session.stopped) return;
-          const normalized = await normalizeMessage(
-            message,
-            session.linkedAt,
-            (lid) => socket.signalRepository.lidMapping.getPNForLID(lid),
-            history,
-          );
-          if (!normalized) continue;
-          await this.deps.rpc('personal_whatsapp_ingest', {
-            target_connection_id: session.identity.connection_id,
-            target_generation: session.identity.generation,
-            target_worker: this.worker,
-            target_data: normalized,
-          });
-        }
-      });
+      this.enqueue(
+        session,
+        async () => {
+          for (const message of messages.slice(-1000)) {
+            if (session.socket !== socket || session.stopped) return;
+            const normalized = await normalizeMessage(
+              message,
+              session.linkedAt,
+              (lid) => socket.signalRepository.lidMapping.getPNForLID(lid),
+              history,
+            );
+            if (!normalized) continue;
+            await this.deps.rpc('personal_whatsapp_ingest', {
+              target_connection_id: session.identity.connection_id,
+              target_generation: session.identity.generation,
+              target_worker: this.worker,
+              target_data: normalized,
+            });
+          }
+        },
+        'ingestQueue',
+      );
     };
     socket.ev.on('messaging-history.set', ({ messages }) => ingest(messages, true));
     socket.ev.on('messages.upsert', ({ messages, type }) => {

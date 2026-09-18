@@ -180,7 +180,7 @@ describe('tenant integration workspace contract', () => {
     );
     expect(telecmiShared).toContain('`${extension}_${input.credential.app_id}`');
     expect(telecmiShared).toContain(
-      "if (!/^\\d{3}$/.test(digits)) throw new Error('TELECMI_EXTENSION_INVALID')",
+      "if (!/^\\d{3,6}$/.test(digits)) throw new Error('TELECMI_EXTENSION_INVALID')",
     );
   });
 

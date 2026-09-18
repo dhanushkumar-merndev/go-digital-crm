@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
 import type { LeadQuery } from './lead-workspace-query';
 import { isLeadVersionConflict, LeadVersionConflictError } from './lead-workspace-query';
@@ -538,4 +539,38 @@ export async function fetchLeadPhone(
   const { data, error } = await query.maybeSingle();
   if (error || !data) return null;
   return data as { id: string; phone: string };
+}
+
+export type InterestedModelOption = {
+  id: string;
+  model_name: string;
+  brand_name?: string | null;
+  in_stock: boolean;
+  stock_count: number;
+};
+
+const interestedModelOptionSchema = z.object({
+  id: z.string(),
+  model_name: z.string(),
+  brand_name: z.string().nullable().optional(),
+  in_stock: z.boolean().default(false),
+  stock_count: z.number().int().default(0),
+});
+
+export async function fetchInterestedModelOptions(
+  params: {
+    branchId?: string | null;
+    search?: string;
+    limit?: number;
+  },
+  signal?: AbortSignal,
+): Promise<InterestedModelOption[]> {
+  const request = createClient().rpc('get_interested_model_options', {
+    target_branch_id: params.branchId || null,
+    target_search: params.search?.normalize('NFKC').trim().slice(0, 100) || '',
+    target_limit: params.limit ?? 5,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return z.array(interestedModelOptionSchema).parse(data ?? []);
 }

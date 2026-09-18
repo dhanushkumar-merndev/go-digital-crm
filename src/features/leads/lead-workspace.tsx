@@ -17,6 +17,8 @@ import {
   ListTodo,
   Pin,
   Phone,
+  PhoneCall,
+  Smartphone,
   RefreshCw,
   RotateCcw,
   Search,
@@ -50,6 +52,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
+import { DayPicker } from '@/components/ui/day-picker';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   Dialog,
@@ -76,6 +79,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchSelect, type SearchSelectOption } from '@/components/ui/search-select';
 import {
   Table,
   TableBody,
@@ -91,6 +95,7 @@ import { roleHasNavigationSlug } from '@/config/navigation';
 import type { PageSpec } from '@/lib/domain';
 import { toWhatsAppClickToChatUrl } from '@/lib/phone';
 import { cn } from '@/lib/utils';
+import { CustomerTelecmiCallDialog } from '@/features/customers/customer-360-actions';
 import {
   CustomerMatchDialog,
   type MatchableLead,
@@ -110,6 +115,7 @@ import {
   assignLead,
   createLead,
   fetchAssignableUsers,
+  fetchInterestedModelOptions,
   fetchLeadCreateOptions,
   fetchLeadPhone,
   fetchLeadPhoneHistory,
@@ -443,7 +449,7 @@ function telecallerLeadMetricCards(kpis: LeadWorkspaceResult['kpis']): SalesLead
       rate: leadShare(kpis.new_today, kpis.total),
       helper: 'of all my leads',
       good: true,
-      footnote: 'Fresh enquiries from the last 24 hours',
+      footnote: 'Enquiries that came in today',
     },
     {
       status: 'pending',
@@ -720,11 +726,12 @@ function LeadStatusTabs({
   // Intake and sales use different working queues. A Telecaller owns a lead
   // from New through qualification; it becomes a Sales lead only after the
   // qualified handoff. Pending remains a derived work-state, never a lifecycle
-  // update, so a freshly added lead stays in New until the 24-hour rule applies.
+  // update, so a freshly added lead stays in New for the rest of the day.
   const telecallerTabs: Array<{ label: string; value: LeadStatusFilter; count: number }> = [
     { label: 'All', value: 'all', count: data.kpis.total },
-    // New is the fresh (<24h) work queue. Older uncontacted enquiries are the
-    // separate Pending queue, not hidden behind a lifecycle-only New tab.
+    // New is today's intake queue, on the Asia/Kolkata calendar day the lead was
+    // created. Uncontacted enquiries from any earlier day are the separate
+    // Pending queue, not hidden behind a lifecycle-only New tab.
     { label: 'New', value: 'new-today', count: data.kpis.new_today },
     { label: 'Pending', value: 'pending', count: data.kpis.pending },
     { label: 'Contacted', value: 'contacted', count: data.kpis.contacted_count },
@@ -898,9 +905,22 @@ function LeadCreateDialog({
   const [branchId, setBranchId] = useState('');
   const [teamId, setTeamId] = useState('none');
   const [source, setSource] = useState<(typeof leadSources)[number]>('Manual');
+  const [interestedModel, setInterestedModel] = useState('');
+  const [modelSearch, setModelSearch] = useState('');
+  const debouncedModelSearch = useDebouncedValue(modelSearch, 250);
+
+  useEffect(() => {
+    if (!open) {
+      setInterestedModel('');
+      setModelSearch('');
+    }
+  }, [open]);
+
   const mutation = useMutation({
     mutationFn: createLead,
     onSuccess: () => {
+      setInterestedModel('');
+      setModelSearch('');
       onOpenChange(false);
       onCreated();
     },
@@ -908,6 +928,74 @@ function LeadCreateDialog({
   const selectedBranchId = branchId || options.data?.branches[0]?.id || '';
   const teams = options.data?.teams.filter((team) => team.branch_id === selectedBranchId) ?? [];
   const showBranchPicker = (options.data?.branches.length ?? 0) > 1;
+
+  const modelOptionsQuery = useQuery({
+    queryKey: ['lead-interested-models', organizationId, selectedBranchId, debouncedModelSearch],
+    queryFn: ({ signal }) =>
+      fetchInterestedModelOptions(
+        {
+          branchId: selectedBranchId || undefined,
+          search: debouncedModelSearch,
+          limit: 5,
+        },
+        signal,
+      ),
+    enabled: open,
+  });
+
+  const modelSelectOptions = useMemo<SearchSelectOption[]>(() => {
+    const list: SearchSelectOption[] = [];
+    const serverItems = modelOptionsQuery.data ?? [];
+
+    for (const item of serverItems) {
+      let desc = '';
+      if (item.in_stock) {
+        desc = `In stock (${item.stock_count} unit${item.stock_count === 1 ? '' : 's'} at branch)`;
+      } else if (item.brand_name) {
+        desc = `${item.brand_name} · Catalog`;
+      } else {
+        desc = 'Known model';
+      }
+      list.push({
+        value: item.model_name,
+        label: item.model_name,
+        description: desc,
+      });
+    }
+
+    const trimmedSearch = modelSearch.trim();
+    if (trimmedSearch) {
+      const hasExact = list.some((opt) => opt.value.toLowerCase() === trimmedSearch.toLowerCase());
+      if (!hasExact) {
+        list.push({
+          value: trimmedSearch,
+          label: `Use "${trimmedSearch}"`,
+          description: 'Custom model entry',
+        });
+      }
+    }
+
+    if (interestedModel) {
+      const alreadyIn = list.some(
+        (opt) => opt.value.toLowerCase() === interestedModel.toLowerCase(),
+      );
+      if (!alreadyIn) {
+        list.unshift({
+          value: interestedModel,
+          label: interestedModel,
+          description: 'Selected model',
+        });
+      }
+      list.push({
+        value: '__CLEAR__',
+        label: 'Clear selection',
+        description: 'Leave model unselected',
+      });
+    }
+
+    return list;
+  }, [modelOptionsQuery.data, modelSearch, interestedModel]);
+
   // A consultant does not choose a team: they belong to exactly one active
   // sales team, and `create_lead` now resolves it from that membership. The
   // picker offered a choice that was never theirs and defaulted to "No team
@@ -941,7 +1029,7 @@ function LeadCreateDialog({
               email: String(form.get('email') ?? ''),
               sourceDetail: String(form.get('sourceDetail') ?? ''),
               campaign: String(form.get('campaign') ?? ''),
-              interestedModel: String(form.get('interestedModel') ?? ''),
+              interestedModel: interestedModel.trim(),
             });
           }}
         >
@@ -1038,12 +1126,34 @@ function LeadCreateDialog({
               </Select>
             </div>
           ) : null}
-          <label className="grid gap-1.5 text-sm font-medium">
+          <div className="grid gap-1.5 text-sm font-medium">
             <span>
               Interested model <span className="font-normal text-muted-foreground">(optional)</span>
             </span>
-            <Input name="interestedModel" maxLength={160} />
-          </label>
+            <SearchSelect
+              value={interestedModel}
+              search={modelSearch}
+              onSearchChange={setModelSearch}
+              onValueChange={(val) => {
+                if (val === '__CLEAR__') {
+                  setInterestedModel('');
+                  setModelSearch('');
+                } else {
+                  setInterestedModel(val);
+                  setModelSearch('');
+                }
+              }}
+              options={modelSelectOptions}
+              isPending={modelOptionsQuery.isPending}
+              isFetching={modelOptionsQuery.isFetching}
+              isError={modelOptionsQuery.isError}
+              placeholder="Select or search model"
+              searchPlaceholder="Type model name (top 5)…"
+              emptyMessage="No matching models. Type any name to enter a custom model."
+              aria-label="Interested model"
+            />
+            <input type="hidden" name="interestedModel" value={interestedModel} />
+          </div>
           <label className="grid gap-1.5 text-sm font-medium">
             <span>
               Source detail <span className="font-normal text-muted-foreground">(optional)</span>
@@ -1931,6 +2041,8 @@ function LeadTable({
   onMatchCustomer,
   onSalesContact,
   onIntakeContact,
+  canProviderCall,
+  onProviderCall,
   onTransferToSales,
   onCancelSalesHandoff,
   onRequestDuplicateDeletion,
@@ -1969,6 +2081,8 @@ function LeadTable({
   onMatchCustomer: (lead: LeadRecord) => void;
   onSalesContact: (lead: LeadRecord, channel: 'CALL' | 'WHATSAPP') => void;
   onIntakeContact: (lead: LeadRecord, channel: 'CALL' | 'WHATSAPP') => void;
+  canProviderCall: boolean;
+  onProviderCall: (lead: LeadRecord) => void;
   onTransferToSales: (lead: LeadRecord) => void;
   onCancelSalesHandoff: (lead: LeadRecord) => void;
   onRequestDuplicateDeletion: (lead: LeadRecord) => void;
@@ -2475,21 +2589,65 @@ function LeadTable({
                   <UserRoundPlus className="size-3.5" />
                 </Button>
               ) : null}
-              <Button asChild variant="ghost" size="icon" className="size-7 text-emerald-600">
-                <a
-                  href={`tel:${row.original.phone}`}
-                  aria-label={`Call ${row.original.customer_name}`}
-                  onClick={() => {
-                    if (role === 'telecaller') {
-                      onIntakeContact(row.original, 'CALL');
-                    } else {
-                      onSalesContact(row.original, 'CALL');
-                    }
-                  }}
-                >
-                  <Phone className="size-3.5" />
-                </a>
-              </Button>
+              {canProviderCall ? (
+                // Dealership calling goes through TeleCMI so the customer sees the
+                // dealership line; the handset dialer stays available beside it.
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-emerald-600"
+                      aria-label={`Call ${row.original.customer_name}`}
+                      title={`Call ${row.original.customer_name}`}
+                    >
+                      <Phone className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-52">
+                    <DropdownMenuLabel className="text-xs">
+                      Call {row.original.customer_name}
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem onSelect={() => onProviderCall(row.original)}>
+                      <PhoneCall className="size-3.5" />
+                      Call through CRM
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <a
+                        href={`tel:${row.original.phone}`}
+                        onClick={() => {
+                          if (role === 'telecaller') {
+                            onIntakeContact(row.original, 'CALL');
+                          } else {
+                            onSalesContact(row.original, 'CALL');
+                          }
+                        }}
+                      >
+                        <Smartphone className="size-3.5" />
+                        Call from my phone
+                      </a>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <Button asChild variant="ghost" size="icon" className="size-7 text-emerald-600">
+                  <a
+                    href={`tel:${row.original.phone}`}
+                    aria-label={`Call ${row.original.customer_name}`}
+                    onClick={() => {
+                      if (role === 'telecaller') {
+                        onIntakeContact(row.original, 'CALL');
+                      } else {
+                        onSalesContact(row.original, 'CALL');
+                      }
+                    }}
+                  >
+                    <Phone className="size-3.5" />
+                  </a>
+                </Button>
+              )}
               <Button asChild variant="ghost" size="icon" className="size-7 text-emerald-600">
                 <a
                   href={toWhatsAppClickToChatUrl(row.original.phone)}
@@ -2794,6 +2952,8 @@ function LeadTable({
       onScheduleAppointment,
       onSalesContact,
       onIntakeContact,
+      canProviderCall,
+      onProviderCall,
       onMatchCustomer,
       onTransferToSales,
       onCancelSalesHandoff,
@@ -3083,7 +3243,7 @@ function LeadTable({
                     <TableHead
                       key={header.id}
                       className={cn(
-                        'h-11 whitespace-nowrap bg-slate-50 px-4 text-[10px] font-semibold uppercase tracking-wide text-[#263550]',
+                        'h-11 whitespace-nowrap bg-slate-50 px-3 text-[10px] font-semibold uppercase tracking-wide text-[#263550]',
                         // Actions sits last, so without this it inherits the
                         // table's leftover width and opens a gap between the
                         // icons and the right edge. w-px collapses the column to
@@ -3142,7 +3302,7 @@ function LeadTable({
                         <TableCell
                           key={cell.id}
                           className={cn(
-                            'whitespace-nowrap px-4 py-4 text-xs text-[#263550]',
+                            'whitespace-nowrap px-3 py-2.5 text-xs text-[#263550]',
                             cell.column.id === 'lead_id' && 'relative',
                             cell.column.id === 'customer_name' && 'max-w-[190px]',
                             cell.column.id === 'actions' && 'w-px !pr-0',
@@ -3156,7 +3316,7 @@ function LeadTable({
                       <TableRow className="bg-blue-50/20 hover:bg-blue-50/30">
                         <TableCell
                           colSpan={columns.length}
-                          className="px-10 py-4 text-xs text-blue-700/80"
+                          className="px-8 py-2.5 text-xs text-blue-700/80"
                         >
                           Loading all leads for {row.original.phone}…
                         </TableCell>
@@ -3166,7 +3326,7 @@ function LeadTable({
                       <TableRow className="bg-red-50/50 hover:bg-red-50/50">
                         <TableCell
                           colSpan={columns.length}
-                          className="px-10 py-4 text-xs text-destructive"
+                          className="px-8 py-2.5 text-xs text-destructive"
                         >
                           The lead history could not be loaded. Collapse this row and try again.
                         </TableCell>
@@ -3205,7 +3365,7 @@ function LeadTable({
                               <TableCell
                                 key={`history-${cell.id}`}
                                 className={cn(
-                                  'whitespace-nowrap px-4 py-4 text-xs text-slate-500',
+                                  'whitespace-nowrap px-3 py-2.5 text-xs text-slate-500',
                                   cell.column.id === 'lead_id' && 'relative',
                                   cell.column.id === 'customer_name' && 'max-w-[190px]',
                                   cell.column.id === 'actions' && 'w-px !pr-0',
@@ -3313,20 +3473,11 @@ function LeadTable({
           <div className="grid gap-4 py-2 sm:grid-cols-2">
             <label className="grid gap-1.5 text-sm font-medium">
               From
-              <Input
-                type="date"
-                value={draftFollowupFrom}
-                onChange={(event) => setDraftFollowupFrom(event.target.value)}
-              />
+              <DayPicker value={draftFollowupFrom} onChange={setDraftFollowupFrom} />
             </label>
             <label className="grid gap-1.5 text-sm font-medium">
               To
-              <Input
-                type="date"
-                value={draftFollowupTo}
-                min={draftFollowupFrom || undefined}
-                onChange={(event) => setDraftFollowupTo(event.target.value)}
-              />
+              <DayPicker value={draftFollowupTo} onChange={setDraftFollowupTo} />
             </label>
           </div>
           <div className="flex justify-between gap-2">
@@ -3497,6 +3648,7 @@ export function LeadWorkspace({
   };
   const [assignmentLead, setAssignmentLead] = useState<LeadRecord | null>(null);
   const [handoffLead, setHandoffLead] = useState<LeadRecord | null>(null);
+  const [providerCallLead, setProviderCallLead] = useState<LeadRecord | null>(null);
   const [handoffCancellationLead, setHandoffCancellationLead] = useState<LeadRecord | null>(null);
   const [editingLead, setEditingLead] = useState<LeadEditRequest | null>(null);
   const [followupShortcut, setFollowupShortcut] = useState<FollowupShortcut | null>(null);
@@ -3989,11 +4141,44 @@ export function LeadWorkspace({
             return;
           intakeContactMutation.mutate({ leadId: lead.id, channel });
         }}
+        canProviderCall={
+          !spec.readOnly &&
+          Boolean(workspaceSession?.organizationId) &&
+          hasWorkspacePermission(workspaceSession, 'call.create')
+        }
+        onProviderCall={setProviderCallLead}
         onTransferToSales={setHandoffLead}
         onCancelSalesHandoff={setHandoffCancellationLead}
         onRequestDuplicateDeletion={setDuplicateDeletionLead}
         onPendingFollowup={setPendingFollowup}
       />
+      {workspaceSession?.organizationId && providerCallLead ? (
+        <CustomerTelecmiCallDialog
+          key={providerCallLead.id}
+          open
+          onOpenChange={(open) => !open && setProviderCallLead(null)}
+          organizationId={workspaceSession.organizationId}
+          customerId={providerCallLead.customer_id ?? ''}
+          leadId={providerCallLead.id}
+          customerName={providerCallLead.customer_name}
+          customerPhone={providerCallLead.phone}
+          onStarted={() => {
+            // A dealership call is a contact attempt exactly like the handset
+            // dialer, so it advances the lead through the same workflow.
+            const lead = providerCallLead;
+            if (role === 'telecaller') {
+              if (
+                lead.lifecycle_status !== 'Lost' &&
+                lead.lifecycle_status !== 'Transferred to Sales'
+              )
+                intakeContactMutation.mutate({ leadId: lead.id, channel: 'CALL' });
+            } else {
+              salesContactMutation.mutate({ leadId: lead.id, channel: 'CALL' });
+            }
+            void queryClient.invalidateQueries({ queryKey: ['lead-activity'] });
+          }}
+        />
+      ) : null}
       <PendingFollowupDialog
         request={pendingFollowup}
         onOpenChange={(open) => !open && setPendingFollowup(null)}

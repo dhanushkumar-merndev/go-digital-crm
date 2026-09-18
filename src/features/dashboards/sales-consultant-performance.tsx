@@ -31,7 +31,7 @@ import type { Metric } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import {
-  fetchPersonalSalesPerformance,
+  fetchTelecallerPerformance,
   fetchSalesPerformance,
 } from './sales-consultant-performance-api';
 
@@ -42,10 +42,10 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
   const queryScope = workspaceQueryScope(workspaceSession);
   const [days, setDays] = useState<7 | 14 | 30>(7);
   const query = useQuery({
-    queryKey: [...salesConsultantKeys.performance(queryScope), role, days],
-    queryFn: ({ signal }) =>
+    queryKey: [...salesConsultantKeys.performance(queryScope), role, 'activity-v2', days],
+    queryFn: async ({ signal }) =>
       role === 'telecaller'
-        ? fetchPersonalSalesPerformance(days, signal)
+        ? fetchTelecallerPerformance(days, signal)
         : fetchSalesPerformance(days, signal),
     staleTime: 60_000,
   });
@@ -77,6 +77,9 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
       </Card>
     );
   const d = query.data;
+  const telecaller = role === 'telecaller';
+  const salesKpis = 'appointments' in d.kpis ? d.kpis : null;
+  const telecallerKpis = 'transferred' in d.kpis ? d.kpis : null;
   const contact = d.kpis.leads ? Math.round((d.kpis.contacted / d.kpis.leads) * 100) : 0;
   const metrics: Metric[] = [
     {
@@ -86,8 +89,8 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
       tone: 'bg-blue-50 text-blue-600',
     },
     {
-      label: 'Contact Rate',
-      value: `${contact}%`,
+      label: telecaller ? 'Connection Rate' : 'Contact Rate',
+      value: `${telecaller ? (d.kpis.calls ? Math.round((d.kpis.connected_calls / d.kpis.calls) * 100) : 0) : contact}%`,
       icon: Users,
       tone: 'bg-indigo-50 text-indigo-600',
     },
@@ -111,45 +114,84 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
     },
     {
       label: 'Appointments',
-      value: String(d.kpis.appointments),
+      value: String(salesKpis?.appointments ?? 0),
       icon: CalendarDays,
       tone: 'bg-rose-50 text-rose-600',
     },
     {
       label: 'Test Drives',
-      value: String(d.kpis.test_drives),
+      value: String(salesKpis?.test_drives ?? 0),
       icon: Target,
       tone: 'bg-cyan-50 text-cyan-600',
     },
     {
       label: 'Bookings',
-      value: String(d.kpis.bookings),
+      value: String(salesKpis?.bookings ?? 0),
       icon: CarFront,
       tone: 'bg-green-50 text-green-600',
     },
     {
       label: 'Average Response Time',
-      value: duration(d.kpis.average_response_seconds),
+      value: duration(salesKpis?.average_response_seconds ?? 0),
       icon: Clock3,
       tone: 'bg-orange-50 text-orange-600',
     },
   ];
+  if (telecallerKpis) {
+    metrics.splice(
+      5,
+      metrics.length - 5,
+      {
+        label: 'Leads Contacted',
+        value: String(telecallerKpis.contacted),
+        icon: Users,
+        tone: 'bg-indigo-50 text-indigo-600',
+      },
+      {
+        label: 'Qualified Leads',
+        value: String(telecallerKpis.qualified),
+        icon: Target,
+        tone: 'bg-teal-50 text-teal-600',
+      },
+      {
+        label: 'Follow-ups Completed',
+        value: String(telecallerKpis.followups_completed),
+        icon: CheckCircle2,
+        tone: 'bg-amber-50 text-amber-600',
+      },
+      {
+        label: 'Leads Transferred to Sales',
+        value: String(telecallerKpis.transferred),
+        icon: UserPlus,
+        tone: 'bg-emerald-50 text-emerald-600',
+      },
+    );
+  }
   const funnel = [
     { name: 'Leads Assigned', value: d.kpis.leads },
     { name: 'Contacted', value: d.kpis.contacted },
     { name: 'Connected Calls', value: d.kpis.connected_calls },
-    { name: 'Appointments', value: d.kpis.appointments },
-    { name: 'Test Drives', value: d.kpis.test_drives },
-    { name: 'Bookings', value: d.kpis.bookings },
+    { name: 'Appointments', value: salesKpis?.appointments ?? 0 },
+    { name: 'Test Drives', value: salesKpis?.test_drives ?? 0 },
+    { name: 'Bookings', value: salesKpis?.bookings ?? 0 },
   ];
-  const summary = [
-    ['leads', d.kpis.leads, 'Leads Assigned'],
-    ['contacted', d.kpis.contacted, 'Contacted'],
-    ['connected_calls', d.kpis.connected_calls, 'Connected Calls'],
-    ['appointments', d.kpis.appointments, 'Appointments'],
-    ['test_drives', d.kpis.test_drives, 'Test Drives'],
-    ['bookings', d.kpis.bookings, 'Bookings'],
-  ] as const;
+  const summary: readonly (readonly [string, number, string])[] = telecallerKpis
+    ? [
+        ['leads', telecallerKpis.leads, 'Leads Assigned'],
+        ['contacted', telecallerKpis.contacted, 'Leads Contacted'],
+        ['connected_calls', telecallerKpis.connected_calls, 'Connected Calls'],
+        ['qualified', telecallerKpis.qualified, 'Qualified Leads'],
+        ['followups_completed', telecallerKpis.followups_completed, 'Follow-ups Completed'],
+        ['transferred', telecallerKpis.transferred, 'Leads Transferred to Sales'],
+      ]
+    : ([
+        ['leads', d.kpis.leads, 'Leads Assigned'],
+        ['contacted', d.kpis.contacted, 'Contacted'],
+        ['connected_calls', d.kpis.connected_calls, 'Connected Calls'],
+        ['appointments', salesKpis?.appointments ?? 0, 'Appointments'],
+        ['test_drives', salesKpis?.test_drives ?? 0, 'Test Drives'],
+        ['bookings', salesKpis?.bookings ?? 0, 'Bookings'],
+      ] as const);
   return (
     <div className="mx-auto max-w-[1800px] space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -181,7 +223,7 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
       </div>
       <KpiGrid metrics={metrics.slice(0, 5)} className="xl:grid-cols-5" />
       <KpiGrid metrics={metrics.slice(5)} className="xl:grid-cols-4" />
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className={`grid gap-4 ${telecaller ? 'xl:grid-cols-2' : 'xl:grid-cols-3'}`}>
         <Chart title="Calls by Day">
           <EChart
             kind="line"
@@ -189,18 +231,24 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
             seriesNames={['Calls', 'Connected Calls']}
           />
         </Chart>
-        <Chart title="Lead Conversion Funnel">
-          <EChart kind="funnel" data={funnel} funnelMode="staged" />
-        </Chart>
-        <Chart title="Appointment Trend">
+        {!telecaller && (
+          <Chart title="Lead Conversion Funnel">
+            <EChart kind="funnel" data={funnel} funnelMode="staged" />
+          </Chart>
+        )}
+        <Chart title={telecaller ? 'Follow-ups and Sales Handoffs' : 'Appointment Trend'}>
           <EChart
             kind="line"
             data={d.daily.map((x) => ({
               name: x.name,
-              value: x.appointments,
-              secondary: x.test_drives,
+              value: 'followups_completed' in x ? x.followups_completed : x.appointments,
+              secondary: 'transferred' in x ? x.transferred : x.test_drives,
             }))}
-            seriesNames={['Appointments', 'Test Drives']}
+            seriesNames={
+              telecaller
+                ? ['Follow-ups Completed', 'Leads Transferred']
+                : ['Appointments', 'Test Drives']
+            }
           />
         </Chart>
       </div>
@@ -226,7 +274,11 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
                   />
                 </div>
                 <p className="mt-2 text-xs font-medium text-muted-foreground">
-                  {percent === null ? 'Target not set' : `${percent}% of target`}
+                  {percent === null
+                    ? telecaller
+                      ? 'No target for selected dates'
+                      : 'Target not set'
+                    : `${percent}% of target`}
                 </p>
               </div>
             );
@@ -234,7 +286,9 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
         </CardContent>
       </Card>
       <p className="text-center text-xs text-muted-foreground">
-        Performance is calculated from your authorized records for the selected period.
+        {telecaller
+          ? 'Activity is credited to the person who performed it, by activity date (IST). Leads contacted, qualified and transferred count distinct leads in the period. Targets are shown only for matching dates.'
+          : 'Performance is calculated from your authorized records for the selected period.'}
       </p>
     </div>
   );

@@ -13,6 +13,7 @@ import {
 import Link from 'next/link';
 import { useMemo, useRef, useState } from 'react';
 import { PersonalWhatsAppDialog } from './personal-whatsapp-dialog';
+import { PersonalWhatsAppTemplatePicker } from './personal-whatsapp-template-picker';
 import { InboxLeadContext } from './inbox-lead-context';
 import { InboxMessageScroller } from './inbox-message-scroller';
 import {
@@ -118,7 +119,7 @@ function ConversationListItem({
 
 function InboxEmpty({ label }: { label: string }) {
   return (
-    <div className="flex h-full min-h-72 flex-col items-center justify-center p-8 text-center">
+    <div className="flex h-full min-h-36 flex-col items-center justify-center p-8 text-center">
       <MessageCircleMore className="size-8 text-blue-600" />
       <p className="mt-3 font-semibold">{label}</p>
       <p className="mt-1 max-w-sm text-sm text-muted-foreground">
@@ -149,6 +150,7 @@ export function InboxWorkspace({
   const [channel, setChannel] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const [draftConversation, setDraftConversation] = useState<string | null>(null);
   const sendKey = useRef<{ context: string; id: string } | null>(null);
   const queryClient = useQueryClient();
@@ -167,6 +169,9 @@ export function InboxWorkspace({
         ? lastPageParam + 1
         : undefined,
     staleTime: 60_000,
+    // Realtime is primary; recover missed events while viewing the first page.
+    refetchInterval: (query) => (query.state.data?.pages.length === 1 ? 15_000 : false),
+    retry: 1,
   });
   const conversationRows = useMemo(
     () => [
@@ -216,13 +221,19 @@ export function InboxWorkspace({
         : undefined,
     enabled: Boolean(activeConversation),
     staleTime: 30_000,
+    refetchInterval: (query) => (query.state.data?.pages.length === 1 ? 5000 : false),
+    retry: 1,
   });
   const personalConversation = activeConversation?.channel === 'WHATSAPP_PERSONAL';
   const personalStatus = useQuery({
     queryKey: ['personal-whatsapp-status', ...queryScope, activeConversation?.id],
     queryFn: ({ signal }) => fetchPersonalWhatsAppStatus(activeConversation?.id, signal),
     enabled: personalConversation,
-    refetchInterval: personalConversation ? 5000 : false,
+    refetchInterval: (query) => {
+      const status = query.state.data;
+      return !status || status.send_disabled_reason ? 2000 : 15_000;
+    },
+    retry: 1,
     staleTime: 0,
     gcTime: 0,
     meta: { persist: false },
@@ -242,6 +253,7 @@ export function InboxWorkspace({
         ['shared-inbox-messages', ...queryScope],
         ['personal-whatsapp-status', ...queryScope],
       ],
+      tableQueryKeys: { templates: [['personal-whatsapp-templates', ...queryScope]] },
     },
   ]);
   const syncHistory = useMutation({
@@ -277,28 +289,20 @@ export function InboxWorkspace({
         !personalStatus.data.send_disabled_reason)) &&
     activeConversation.status === 'OPEN';
   const send = useMutation({
-    mutationFn: () => {
-      if (!session?.organizationId || !activeConversation) throw new Error('INBOX_NOT_READY');
-      const context = `${draftContext}:${visibleDraft.trim()}`;
-      if (sendKey.current?.context !== context)
-        sendKey.current = { context, id: crypto.randomUUID() };
-      return sendInboxWhatsAppMessage({
-        organizationId: session.organizationId,
-        conversationId: activeConversation.id,
-        expectedLeadId: activeConversation.lead_id,
-        body: visibleDraft.trim(),
-        applicationMessageId: sendKey.current.id,
-      });
-    },
-    onSuccess: async (result) => {
-      setDraft('');
+    mutationFn: (
+      input: Parameters<typeof sendInboxWhatsAppMessage>[0] & {
+        context: string;
+        startedAt: string;
+      },
+    ) => sendInboxWhatsAppMessage(input),
+    onSuccess: (result, input) => {
+      if (draftContext === input.context && visibleDraft.trim() === input.body) setDraft('');
       sendKey.current = null;
-      await salesConsultantCache.settle('inbox.message.sent');
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['shared-inbox', ...queryScope] }),
-        queryClient.invalidateQueries({ queryKey: ['shared-inbox-messages', ...queryScope] }),
-        queryClient.invalidateQueries({ queryKey: ['personal-whatsapp-status', ...queryScope] }),
-      ]);
+      // Refresh each resource once, without extending the send spinner through list refetches.
+      salesConsultantCache.invalidate('inbox.message.sent');
+      void queryClient.invalidateQueries({
+        queryKey: ['personal-whatsapp-status', ...queryScope],
+      });
       toast.add({
         type: result?.status === 'UNKNOWN' ? 'error' : 'success',
         title:
@@ -315,6 +319,9 @@ export function InboxWorkspace({
     },
     onError: (error) => {
       const code = error instanceof Error ? error.message : '';
+      void queryClient.invalidateQueries({
+        queryKey: ['personal-whatsapp-status', ...queryScope],
+      });
       toast.add({
         type: 'error',
         title: 'Message was not sent',
@@ -329,6 +336,41 @@ export function InboxWorkspace({
       });
     },
   });
+  function sendReply() {
+    if (
+      !session?.organizationId ||
+      !activeConversation ||
+      !canSend ||
+      send.isPending ||
+      !visibleDraft.trim()
+    )
+      return;
+    const context = `${draftContext}:${visibleDraft.trim()}`;
+    if (sendKey.current?.context !== context)
+      sendKey.current = { context, id: crypto.randomUUID() };
+    send.mutate({
+      organizationId: session.organizationId,
+      conversationId: activeConversation.id,
+      expectedLeadId: activeConversation.lead_id,
+      body: visibleDraft.trim(),
+      applicationMessageId: sendKey.current.id,
+      context: draftContext,
+      startedAt: new Date().toISOString(),
+    });
+  }
+  const pendingReply =
+    send.variables?.context === draftContext &&
+    !send.isError &&
+    (send.isPending || (send.isSuccess && send.data?.message_id)) &&
+    !messageRows.some((message) =>
+      send.data?.message_id
+        ? message.id === send.data.message_id
+        : message.direction === 'OUTBOUND' &&
+          message.body === send.variables?.body &&
+          message.sent_at >= send.variables.startedAt,
+    )
+      ? send.variables
+      : null;
   const acknowledge = useMutation({
     mutationFn: acknowledgeUnknownWhatsAppMessage,
     onSuccess: async () => {
@@ -349,11 +391,13 @@ export function InboxWorkspace({
     return <InboxEmpty label="Messages are not available for your role" />;
   }
 
-  if (conversations.isPending) return <InboxSkeleton />;
+  if (conversations.isPending) return <InboxSkeleton embedded={embedded} />;
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div
+      className={`mx-auto max-w-[1800px] ${embedded ? 'space-y-4' : 'flex h-[calc(100dvh-106px)] flex-col gap-3'}`}
+    >
+      <div className="flex shrink-0 flex-wrap items-end justify-between gap-3">
         <div>
           {!embedded && <div className="mb-2 text-xs text-muted-foreground">Workspace / Inbox</div>}
           <h2 className={embedded ? 'text-lg font-semibold' : 'text-2xl font-bold tracking-tight'}>
@@ -414,12 +458,12 @@ export function InboxWorkspace({
           </Button>
         </div>
       </div>
-      <Card className="sales-consultant-list-card overflow-hidden shadow-none">
-        <div
-          className={`grid ${embedded ? 'h-[680px]' : 'h-[calc(100vh-230px)] min-h-[560px]'} lg:grid-cols-[280px_minmax(0,1fr)_280px]`}
-        >
+      <Card
+        className={`sales-consultant-list-card min-h-0 overflow-hidden shadow-none ${embedded ? 'h-[680px]' : 'flex-1'}`}
+      >
+        <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)] lg:grid-cols-[280px_minmax(0,1fr)_280px]">
           <aside className={`${selectedId ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col border-r`}>
-            <div className="space-y-2 border-b p-3">
+            <div className="shrink-0 space-y-2 border-b p-3">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -483,7 +527,7 @@ export function InboxWorkspace({
                 <InboxEmpty label="No conversations found" />
               )}
             </div>
-            <div className="flex items-center justify-between border-t p-3 text-xs text-muted-foreground">
+            <div className="flex shrink-0 items-center justify-between border-t p-3 text-xs text-muted-foreground">
               <span>
                 {conversationRows.length} of {conversations.data?.pages[0]?.total ?? 0}{' '}
                 conversations
@@ -505,7 +549,7 @@ export function InboxWorkspace({
           >
             {activeConversation ? (
               <>
-                <div className="flex items-center justify-between gap-3 border-b bg-white p-4">
+                <div className="flex shrink-0 items-center justify-between gap-3 border-b bg-white p-4">
                   <Button
                     variant="ghost"
                     size="icon"
@@ -528,7 +572,7 @@ export function InboxWorkspace({
                     {activeConversation.status}
                   </span>
                 </div>
-                <div className="max-h-48 overflow-y-auto px-4 pb-3 lg:hidden">
+                <div className="shrink-0 max-h-48 overflow-y-auto px-4 pb-3 lg:hidden">
                   <InboxLeadContext
                     key={activeConversation.id}
                     conversation={activeConversation}
@@ -540,8 +584,8 @@ export function InboxWorkspace({
                 <InboxMessageScroller
                   key={`${activeConversation.id}:${historyLeadId ?? 'all'}`}
                   identity={`${activeConversation.id}:${historyLeadId ?? 'all'}`}
-                  count={messageRows.length}
-                  newestId={messageRows.at(-1)?.id}
+                  count={messageRows.length + (pendingReply ? 1 : 0)}
+                  newestId={pendingReply?.applicationMessageId ?? messageRows.at(-1)?.id}
                   hasMore={messages.hasNextPage}
                   fetching={messages.isFetching}
                   loadMore={() => messages.fetchNextPage()}
@@ -593,11 +637,21 @@ export function InboxWorkspace({
                         </div>
                       </div>
                     ))
-                  ) : (
+                  ) : pendingReply ? null : (
                     <InboxEmpty label="No messages in this conversation" />
                   )}
+                  {pendingReply && (
+                    <div className="flex justify-end" aria-live="polite">
+                      <div className="max-w-[85%] rounded-2xl bg-emerald-100 px-3 py-2 text-sm text-slate-900">
+                        <p className="whitespace-pre-wrap">{pendingReply.body}</p>
+                        <p className="mt-1 text-right text-[10px] text-muted-foreground">
+                          {send.isPending ? 'Sending…' : (send.data?.status ?? 'Submitted')}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </InboxMessageScroller>
-                <div className="border-t bg-white p-3">
+                <div className="shrink-0 border-t bg-white p-3">
                   {personalConversation && (
                     <div className="mb-2 space-y-1 text-xs text-muted-foreground">
                       <p>
@@ -623,6 +677,7 @@ export function InboxWorkspace({
                   {canSend ? (
                     <div className="flex items-end gap-2">
                       <Textarea
+                        ref={composerRef}
                         value={visibleDraft}
                         onChange={(event) => {
                           setDraftConversation(draftContext);
@@ -634,14 +689,14 @@ export function InboxWorkspace({
                         onKeyDown={(event) => {
                           if (event.key === 'Enter' && !event.shiftKey) {
                             event.preventDefault();
-                            if (visibleDraft.trim() && !send.isPending && canSend) send.mutate();
+                            sendReply();
                           }
                         }}
                       />
                       <Button
                         size="icon"
                         disabled={!visibleDraft.trim() || send.isPending}
-                        onClick={() => send.mutate()}
+                        onClick={sendReply}
                       >
                         {send.isPending ? (
                           <LoaderCircle className="size-4 animate-spin" />
@@ -670,7 +725,7 @@ export function InboxWorkspace({
               <InboxEmpty label="Select a conversation" />
             )}
           </main>
-          <aside className="hidden overflow-y-auto border-l bg-white lg:block">
+          <aside className="hidden min-h-0 overflow-y-auto border-l bg-white lg:block">
             {activeConversation ? (
               <div className="space-y-5 p-5">
                 <div>
@@ -723,6 +778,20 @@ export function InboxWorkspace({
                     </Button>
                   )}
                 </div>
+                {personalConversation &&
+                  !readOnly &&
+                  hasWorkspacePermission(session, 'message.send') && (
+                    <PersonalWhatsAppTemplatePicker
+                      key={draftContext}
+                      conversationId={activeConversation.id}
+                      disabled={!canSend || send.isPending}
+                      onUse={(body) => {
+                        setDraftConversation(draftContext);
+                        setDraft(body);
+                        composerRef.current?.focus();
+                      }}
+                    />
+                  )}
               </div>
             ) : (
               <InboxEmpty label="Customer details" />

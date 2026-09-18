@@ -55,7 +55,10 @@ export async function fetchInboxConversationPage(
     target_page: input.page,
     target_page_size: 25,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  const timeout = AbortSignal.timeout(10_000);
+  const { data, error } = await request.abortSignal(
+    signal ? AbortSignal.any([signal, timeout]) : timeout,
+  );
   if (error) throw error;
   return conversationPageSchema.parse(data);
 }
@@ -76,7 +79,10 @@ export async function fetchInboxMessagePage(
     target_before_id: input.beforeId ?? null,
     target_page_size: 25,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  const timeout = AbortSignal.timeout(10_000);
+  const { data, error } = await request.abortSignal(
+    signal ? AbortSignal.any([signal, timeout]) : timeout,
+  );
   if (error) throw error;
   return messagePageSchema.parse(data);
 }

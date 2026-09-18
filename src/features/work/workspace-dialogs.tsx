@@ -905,6 +905,11 @@ const outcomeChoices = [
     label: 'Mark lead lost',
     hint: 'Customer is gone. Needs a reason and is terminal.',
   },
+  {
+    value: 'TRANSFER_TO_SALES' as const,
+    label: 'Transfer to Sales',
+    hint: 'Customer is ready to talk to a Sales Consultant.',
+  },
 ];
 
 /**
@@ -935,6 +940,8 @@ export function FollowupCompleteDialog({
   const [note, setNote] = useState('');
   const [lostReason, setLostReason] = useState('');
   const [chained, setChained] = useState<WorkKind | null>(null);
+  const workspaceSession = useWorkspaceSession();
+  const isTelecaller = workspaceSession?.roleKey === 'telecaller';
 
   const complete = useMutation({
     mutationFn: (chosen: FollowupOutcome) =>
@@ -1014,7 +1021,9 @@ export function FollowupCompleteDialog({
           <div className="mt-4 space-y-2">
             <Label>What happens next?</Label>
             <div className="grid gap-2">
-              {outcomeChoices.map((choice) => {
+              {outcomeChoices
+                .filter((c) => c.value !== 'TRANSFER_TO_SALES' || isTelecaller)
+                .map((choice) => {
                 const disabled = choice.value === 'LOST' && lostUnavailable;
                 const active = outcome === choice.value;
                 return (
@@ -1072,6 +1081,7 @@ export function FollowupCompleteDialog({
               disabled={!canSubmit}
               onClick={() => {
                 if (outcome === 'LOST') markLost.mutate();
+                else if (outcome === 'TRANSFER_TO_SALES') complete.mutate('TRANSFER_TO_SALES');
                 else if (outcome)
                   setChained(outcome === 'FOLLOW_UP' ? 'followups' : 'appointments');
               }}
@@ -1080,11 +1090,13 @@ export function FollowupCompleteDialog({
                 ? 'Saving…'
                 : outcome === 'LOST'
                   ? 'Mark lost and complete'
-                  : outcome === 'APPOINTMENT'
-                    ? 'Next: book appointment'
-                    : outcome === 'FOLLOW_UP'
-                      ? 'Next: schedule follow-up'
-                      : 'Choose an outcome'}
+                  : outcome === 'TRANSFER_TO_SALES'
+                    ? 'Complete follow-up'
+                    : outcome === 'APPOINTMENT'
+                      ? 'Next: book appointment'
+                      : outcome === 'FOLLOW_UP'
+                        ? 'Next: schedule follow-up'
+                        : 'Choose an outcome'}
             </Button>
           </div>
         </DialogContent>

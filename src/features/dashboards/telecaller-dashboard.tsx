@@ -125,8 +125,8 @@ function temperatureVariant(temperature: TenantDashboardLeadPreview['temperature
 }
 
 function leadStatusLabel(lead: TenantDashboardLeadPreview) {
-  // “New” is the Telecaller's fresh, uncontacted queue. The 24-hour boundary
-  // is a system rule; repeating it in every badge made the workflow unclear.
+  // “New” is the Telecaller's uncontacted queue for today. The day boundary is
+  // a system rule; repeating it in every badge made the workflow unclear.
   if (lead.work_state === 'NEW_TODAY') return 'New';
   if (lead.work_state === 'SLA_RISK') return 'SLA risk';
   return lead.lifecycle_status;

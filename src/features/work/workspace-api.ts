@@ -547,7 +547,7 @@ export async function updateAppointment(input: {
  * changes while a follow-up is open — so the answer is captured rather than
  * left to a free-text note nothing can query.
  */
-export const followupOutcomes = ['FOLLOW_UP', 'APPOINTMENT', 'LOST'] as const;
+export const followupOutcomes = ['FOLLOW_UP', 'APPOINTMENT', 'LOST', 'TRANSFER_TO_SALES'] as const;
 export type FollowupOutcome = (typeof followupOutcomes)[number];
 
 export async function completeWork(input: {

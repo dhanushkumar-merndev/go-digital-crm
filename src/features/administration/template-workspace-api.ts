@@ -29,8 +29,8 @@ export type TemplateWorkspaceQuery = {
   page: number;
   pageSize: 25 | 50 | 100;
   search: string;
-  channel: 'ALL' | 'EMAIL' | 'SMS' | 'WHATSAPP' | 'WHATSAPP_BUSINESS';
-  status: 'ALL' | 'DRAFT' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
+  channel: 'ALL' | 'EMAIL' | 'SMS' | 'WHATSAPP' | 'WHATSAPP_BUSINESS' | 'WHATSAPP_PERSONAL';
+  status: 'ALL' | 'DRAFT' | 'APPROVED' | 'REJECTED' | 'ARCHIVED' | 'ACTIVE';
 };
 
 export async function fetchTemplateWorkspace(query: TemplateWorkspaceQuery) {
@@ -51,6 +51,7 @@ export async function createDraftTemplate(input: {
   body: string;
   requestId: string;
 }) {
+  if (input.channel === 'WHATSAPP_PERSONAL') return savePersonalWhatsAppTemplate(input);
   const { data, error } = await createClient().rpc('create_draft_template', {
     target_name: input.name,
     target_channel: input.channel,
@@ -59,6 +60,20 @@ export async function createDraftTemplate(input: {
   });
   if (error) throw error;
   return z.object({ id: z.uuid(), status: z.literal('DRAFT') }).parse(data);
+}
+
+export async function savePersonalWhatsAppTemplate(input: {
+  name: string;
+  body: string;
+  templateId?: string;
+}) {
+  const { data, error } = await createClient().rpc('save_personal_whatsapp_template', {
+    target_name: input.name,
+    target_body: input.body,
+    target_template_id: input.templateId ?? null,
+  });
+  if (error) throw error;
+  return z.object({ id: z.uuid(), status: z.literal('ACTIVE') }).parse(data);
 }
 
 export async function archiveTemplate(templateId: string) {

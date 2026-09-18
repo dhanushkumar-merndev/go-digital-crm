@@ -18,7 +18,7 @@ const schema = z
     extension: z
       .string()
       .trim()
-      .regex(/^\d{3}$/),
+      .regex(/^\d{3,6}$/),
     name: z.string().trim().min(2).max(80),
     phone: z.string().trim().min(8).max(20),
     // The Client Admin chooses the agent's softphone password so the CRM never

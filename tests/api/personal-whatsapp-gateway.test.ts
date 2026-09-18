@@ -242,6 +242,44 @@ describe('Baileys gateway lifecycle with simulated sockets', () => {
     expect(ingested.map((item) => item.provider_message_id)).toEqual(['offline', 'history']);
     expect(ingested.every((item) => item.is_history)).toBe(true);
   });
+  it('processes receipts and heartbeats while history ingestion is waiting', async () => {
+    vi.useFakeTimers();
+    const { gateway, ev, rpc, identity } = setup();
+    await gateway.connect(identity);
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = rpc.getMockImplementation()!;
+    rpc.mockImplementation(async (name, args) => {
+      if (name === 'personal_whatsapp_ingest') await waiting;
+      return original(name, args);
+    });
+    ev.emit('messaging-history.set', {
+      messages: [
+        {
+          key: { id: 'history', remoteJid: '919876543210@s.whatsapp.net' },
+          messageTimestamp: Math.floor(Date.now() / 1000) - 3600,
+          message: { conversation: 'History' },
+        },
+      ],
+    });
+    await drain();
+    expect(rpc.mock.calls.some(([name]) => name === 'personal_whatsapp_ingest')).toBe(true);
+    ev.emit('messages.update', [{ key: { fromMe: true, id: 'reply' }, update: { status: 4 } }]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    try {
+      expect(
+        rpc.mock.calls.some(
+          ([name, args]) => name === 'personal_whatsapp_receipt' && args.target_status === 'READ',
+        ),
+      ).toBe(true);
+      expect(rpc.mock.calls.some(([, args]) => args.target_operation === 'heartbeat')).toBe(true);
+    } finally {
+      release();
+      await drain();
+    }
+  });
   it('does not send twice and never retries an uncertain provider response', async () => {
     const { gateway, rpc, socket, identity } = setup();
     await gateway.connect(identity);

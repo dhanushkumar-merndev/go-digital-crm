@@ -67,6 +67,9 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
     await db.exec('alter table personal_whatsapp_messages add column lead_id uuid');
     await db.exec(source('supabase/migrations/202609080003_personal_whatsapp_text_history.sql'));
     await db.exec(
+      source('supabase/migrations/202609160013_personal_whatsapp_customer_link_sync.sql'),
+    );
+    await db.exec(
       `create trigger personal_message_lead_snapshot before insert or update of lead_id,conversation_id,organization_id on personal_whatsapp_messages for each row execute function app_private.snapshot_message_lead()`,
     );
     await db.query('insert into organizations(id) values($1)', [org]);
@@ -107,6 +110,47 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
   });
   afterAll(async () => {
     await db?.close();
+  });
+
+  it('keeps receiving and claiming sends when the existing lead is explicitly linked to a customer', async () => {
+    const first = await incoming();
+    const customer = randomUUID();
+    await db.query('insert into customers(id,organization_id,normalized_phone) values($1,$2,$3)', [
+      customer,
+      org,
+      '9876543210',
+    ]);
+    await db.query('update leads set customer_id=$1 where id=$2', [customer, lead]);
+    const next = await incoming();
+    expect(next.conversation_id).toBe(first.conversation_id);
+    expect(next.message_id).toBeTruthy();
+    const prepared = await prepare(first.conversation_id);
+    await claims(actor, 'service_role');
+    expect(
+      await rpc('personal_whatsapp_send_claim', [
+        session.connection_id,
+        session.generation,
+        worker,
+        prepared.message_id,
+        randomUUID(),
+      ]),
+    ).toMatchObject({ phone: '919876543210' });
+  });
+
+  it('does not replace an established customer when a lead is relinked', async () => {
+    const first = await incoming();
+    const customer = randomUUID(),
+      replacement = randomUUID();
+    for (const id of [customer, replacement])
+      await db.query('insert into customers(id,organization_id) values($1,$2)', [id, org]);
+    await db.query('update leads set customer_id=$1 where id=$2', [customer, lead]);
+    await db.query('update leads set customer_id=$1 where id=$2', [replacement, lead]);
+    const row = await db.query<{ customer_id: string }>(
+      'select customer_id from personal_whatsapp_conversations where id=$1',
+      [first.conversation_id],
+    );
+    expect(row.rows[0].customer_id).toBe(customer);
+    expect(await incoming()).toMatchObject({ ignored: true });
   });
 
   it('imports recent text history once without assigning an old message to the current lead', async () => {
@@ -345,6 +389,30 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
     await expect(prepare(thread.conversation_id)).rejects.toThrow(
       'PERSONAL_WHATSAPP_SEND_UNRESOLVED',
     );
+  });
+  it('unblocks replies when a receipt confirms a previously unresolved send', async () => {
+    const thread = await incoming();
+    const message = await prepare(thread.conversation_id);
+    await db.query(
+      "update personal_whatsapp_messages set created_at=now()-interval '10 seconds' where id=$1",
+      [message.message_id],
+    );
+    expect(await rpc('get_personal_whatsapp_status', [thread.conversation_id])).toMatchObject({
+      send_disabled_reason: 'PERSONAL_WHATSAPP_SEND_UNRESOLVED',
+    });
+    await claims(actor, 'service_role');
+    await rpc('personal_whatsapp_send_result', [session.connection_id, message.message_id, 'READ']);
+    await rpc('personal_whatsapp_send_result', [
+      session.connection_id,
+      message.message_id,
+      'UNKNOWN',
+    ]);
+    await claims(actor);
+    expect(await rpc('get_personal_whatsapp_status', [thread.conversation_id])).toMatchObject({
+      send_disabled_reason: null,
+      daily_sent: 1,
+    });
+    expect(await prepare(thread.conversation_id)).toMatchObject({ duplicate: false });
   });
   it('pauses after three failures and never regresses delivered/read statuses', async () => {
     const thread = await incoming();

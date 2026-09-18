@@ -942,11 +942,13 @@ export function AiVoiceCallsSkeleton() {
 // ==========================================
 // 7. INBOX SKELETON (Split Two-Pane Messenger)
 // ==========================================
-export function InboxSkeleton() {
+export function InboxSkeleton({ embedded = false }: { embedded?: boolean } = {}) {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-4">
+    <div
+      className={`mx-auto max-w-[1800px] ${embedded ? 'space-y-4' : 'flex h-[calc(100dvh-106px)] flex-col gap-3'}`}
+    >
       {/* Header */}
-      <div>
+      <div className="shrink-0">
         <div className="mb-2 flex items-center gap-2">
           <Skeleton className="h-3 w-16" />
           <Skeleton className="size-3 rounded-full" />
@@ -957,8 +959,10 @@ export function InboxSkeleton() {
       </div>
 
       {/* Two-Pane Messenger Layout */}
-      <Card className="overflow-hidden shadow-none">
-        <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[640px]">
+      <Card
+        className={`overflow-hidden shadow-none ${embedded ? 'h-[680px]' : 'min-h-0 flex-1'}`}
+      >
+        <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-12">
           {/* Left: Conversation List */}
           <div className="border-r lg:col-span-4 flex flex-col">
             <div className="border-b p-3 space-y-2">

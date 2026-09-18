@@ -37,12 +37,37 @@ export async function fetchSalesPerformance(days: 7 | 14 | 30, signal?: AbortSig
   return schema.parse(data);
 }
 
-export async function fetchPersonalSalesPerformance(days: 7 | 14 | 30, signal?: AbortSignal) {
-  const request = createClient().rpc('get_personal_sales_performance', {
+const telecallerSchema = z.object({
+  days: schema.shape.days,
+  generated_at: z.string(),
+  kpis: z.object({
+    leads: z.coerce.number(),
+    contacted: z.coerce.number(),
+    calls: z.coerce.number(),
+    connected_calls: z.coerce.number(),
+    talk_seconds: z.coerce.number(),
+    qualified: z.coerce.number(),
+    transferred: z.coerce.number(),
+    followups_completed: z.coerce.number(),
+  }),
+  daily: z.array(
+    z.object({
+      name: z.string(),
+      calls: z.coerce.number(),
+      connected: z.coerce.number(),
+      followups_completed: z.coerce.number(),
+      transferred: z.coerce.number(),
+    }),
+  ),
+  targets: schema.shape.targets,
+});
+
+export async function fetchTelecallerPerformance(days: 7 | 14 | 30, signal?: AbortSignal) {
+  const request = createClient().rpc('get_telecaller_performance', {
     target_days: days,
     target_timezone: 'Asia/Kolkata',
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
-  return schema.parse(data);
+  return telecallerSchema.parse(data);
 }

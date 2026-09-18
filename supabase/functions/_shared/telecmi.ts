@@ -22,16 +22,22 @@ export class TelecmiError extends Error {
   readonly code: TelecmiFailureCode;
   readonly httpStatus: number | null;
   readonly providerCode: number | null;
+  readonly providerMessage: string | null;
 
   constructor(
     code: TelecmiFailureCode,
-    options: { httpStatus?: number | null; providerCode?: number | null } = {},
+    options: {
+      httpStatus?: number | null;
+      providerCode?: number | null;
+      providerMessage?: string | null;
+    } = {},
   ) {
     super(code);
     this.name = 'TelecmiError';
     this.code = code;
     this.httpStatus = options.httpStatus ?? null;
     this.providerCode = options.providerCode ?? null;
+    this.providerMessage = options.providerMessage ?? null;
   }
 }
 
@@ -85,7 +91,11 @@ async function telecmiJson<T>(path: string, body: Record<string, unknown>) {
   if (!response.ok || !payload || payload.code !== 200 || payload.error)
     throw new TelecmiError(
       classifyTelecmiFailure(response.status, payload?.code ?? null, payload?.msg ?? ''),
-      { httpStatus: response.status, providerCode: payload?.code ?? null },
+      {
+        httpStatus: response.status,
+        providerCode: payload?.code ?? null,
+        providerMessage: payload?.msg ?? null,
+      },
     );
   return payload;
 }
@@ -93,9 +103,16 @@ async function telecmiJson<T>(path: string, body: Record<string, unknown>) {
 export async function testTelecmiCredential(
   credential: Pick<TelecmiCredential, 'app_id' | 'app_secret'>,
 ) {
+  // /v2/analysis rejects a request that omits the window, so the credential
+  // probe asks for a narrow recent one. The counts are discarded -- reaching a
+  // 200 at all is the only signal this needs.
+  const endDate = Date.now();
+  const startDate = endDate - 86_400_000;
   await telecmiJson<{ total?: number; answered?: number; missed?: number }>('/v2/analysis', {
     appid: credential.app_id,
     secret: credential.app_secret,
+    start_date: startDate,
+    end_date: endDate,
   });
 }
 
@@ -171,8 +188,8 @@ export function constantTimeEqual(left: string, right: string) {
 
 export function normalizeTelecmiExtension(value: string | number) {
   const digits = String(value).trim();
-  // TeleCMI issues three-digit extensions and derives the agent id from them.
-  if (!/^\d{3}$/.test(digits)) throw new Error('TELECMI_EXTENSION_INVALID');
+  // TeleCMI issues extensions between 3 and 6 digits and derives the agent id from them.
+  if (!/^\d{3,6}$/.test(digits)) throw new Error('TELECMI_EXTENSION_INVALID');
   return Number(digits);
 }
 
@@ -243,14 +260,15 @@ export function describeTelecmiFailure(error: unknown): {
     case 'TELECMI_EXTENSION_TAKEN':
       return {
         code: error.code,
-        message:
-          'That extension is already in use in TeleCMI. Choose a different three-digit extension.',
+        message: 'That extension is already in use in TeleCMI. Choose a different extension.',
         status: 409,
       };
     default:
       return {
         code: error.code,
-        message: 'TeleCMI rejected the request.',
+        message: error.providerMessage
+          ? `TeleCMI rejected the request. ${error.providerCode}: ${error.providerMessage}`
+          : 'TeleCMI rejected the request.',
         status: 502,
       };
   }

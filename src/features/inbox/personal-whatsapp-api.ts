@@ -22,7 +22,11 @@ export async function fetchPersonalWhatsAppStatus(conversationId?: string, signa
   const query = createClient().rpc('get_personal_whatsapp_status', {
     target_conversation_id: conversationId ?? null,
   });
-  const { data, error } = await (signal ? query.abortSignal(signal) : query);
+  // A stalled request must not pin the composer to an old send restriction.
+  const timeout = AbortSignal.timeout(7000);
+  const { data, error } = await query.abortSignal(
+    signal ? AbortSignal.any([signal, timeout]) : timeout,
+  );
   if (error) throw error;
   return statusSchema.nullable().parse(data);
 }

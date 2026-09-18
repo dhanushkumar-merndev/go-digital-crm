@@ -127,7 +127,7 @@ const familyConfig: Record<
     ),
     metrics: [
       { label: 'New today', value: '38', change: '+6', trend: 'up' },
-      { label: 'Pending', value: '21', helper: 'Uncontacted ≥24h' },
+      { label: 'Pending', value: '21', helper: 'Uncontacted before today' },
       { label: 'SLA risk', value: '7', trend: 'down', helper: 'Needs immediate action' },
       { label: 'Qualified', value: '86', change: '34.7%', trend: 'up' },
     ],

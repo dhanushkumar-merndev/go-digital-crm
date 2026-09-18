@@ -56,11 +56,15 @@ import {
   createDraftTemplate,
   fetchTemplateWorkspace,
   rejectTemplate,
+  savePersonalWhatsAppTemplate,
   type TemplateRecord,
   type TemplateWorkspaceQuery,
 } from './template-workspace-api';
 
-const channels = ['EMAIL', 'SMS', 'WHATSAPP', 'WHATSAPP_BUSINESS'] as const;
+const channels = ['EMAIL', 'SMS', 'WHATSAPP', 'WHATSAPP_BUSINESS', 'WHATSAPP_PERSONAL'] as const;
+function channelLabel(channel: string) {
+  return channel === 'WHATSAPP_PERSONAL' ? 'My WhatsApp' : channel.replaceAll('_', ' ');
+}
 function iconForChannel(channel: string) {
   return channel === 'EMAIL' ? Mail : channel === 'SMS' ? Smartphone : MessageCircle;
 }
@@ -74,17 +78,31 @@ function bodyOf(value: Record<string, unknown>) {
   return typeof body === 'string' ? body : 'Structured template content';
 }
 
-function CreateTemplateDialog({ onClose }: { onClose: () => void }) {
+function CreateTemplateDialog({
+  onClose,
+  template,
+}: {
+  onClose: () => void;
+  template?: TemplateRecord;
+}) {
   const client = useQueryClient();
+  const [channel, setChannel] = useState(template?.channel ?? 'EMAIL');
+  const personal = channel === 'WHATSAPP_PERSONAL';
   const create = useMutation({
-    mutationFn: createDraftTemplate,
+    mutationFn: (input: Parameters<typeof createDraftTemplate>[0]) =>
+      template
+        ? savePersonalWhatsAppTemplate({ ...input, templateId: template.id })
+        : createDraftTemplate(input),
     onSuccess: () => {
       toast.add({
         type: 'success',
-        title: 'Template draft created',
-        description: 'It remains a draft until its provider approval state is confirmed.',
+        title: personal ? 'Saved reply ready' : 'Template draft created',
+        description: personal
+          ? 'Staff can select this text in their My WhatsApp inbox.'
+          : 'It remains a draft until its provider approval state is confirmed.',
       });
       client.invalidateQueries({ queryKey: ['template-workspace'] });
+      client.invalidateQueries({ queryKey: ['personal-whatsapp-templates'] });
       onClose();
     },
     onError: () =>
@@ -98,9 +116,11 @@ function CreateTemplateDialog({ onClose }: { onClose: () => void }) {
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create template draft</DialogTitle>
+          <DialogTitle>{template ? 'Edit saved reply' : 'Create template'}</DialogTitle>
           <DialogDescription>
-            Drafts are safe to prepare here. Provider approval is intentionally not implied.
+            {personal
+              ? 'Save reusable plain text for My WhatsApp. Staff review and send each reply within the existing reply window.'
+              : 'Drafts are safe to prepare here. Provider approval is intentionally not implied.'}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -110,7 +130,7 @@ function CreateTemplateDialog({ onClose }: { onClose: () => void }) {
             const form = new FormData(event.currentTarget);
             create.mutate({
               name: String(form.get('name') ?? ''),
-              channel: String(form.get('channel') ?? 'EMAIL') as (typeof channels)[number],
+              channel: channel as (typeof channels)[number],
               body: String(form.get('body') ?? ''),
               requestId: globalThis.crypto.randomUUID(),
             });
@@ -120,6 +140,7 @@ function CreateTemplateDialog({ onClose }: { onClose: () => void }) {
             Template name
             <Input
               name="name"
+              defaultValue={template?.name}
               required
               minLength={2}
               maxLength={120}
@@ -128,14 +149,19 @@ function CreateTemplateDialog({ onClose }: { onClose: () => void }) {
           </label>
           <label className="grid gap-1.5 text-sm font-medium">
             Channel
-            <Select name="channel" defaultValue="EMAIL">
+            <Select
+              name="channel"
+              value={channel}
+              onValueChange={setChannel}
+              disabled={Boolean(template)}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {channels.map((channel) => (
                   <SelectItem key={channel} value={channel}>
-                    {channel.replaceAll('_', ' ')}
+                    {channelLabel(channel)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -145,11 +171,16 @@ function CreateTemplateDialog({ onClose }: { onClose: () => void }) {
             Message body
             <Textarea
               name="body"
+              defaultValue={template ? bodyOf(template.content) : undefined}
               required
               minLength={1}
-              maxLength={5000}
+              maxLength={personal ? 1500 : 5000}
               rows={7}
-              placeholder="Hello {{customer_name}}, welcome to…"
+              placeholder={
+                personal
+                  ? 'Hello! Thank you for your enquiry. How can I help you today?'
+                  : 'Hello {{customer_name}}, welcome to…'
+              }
             />
           </label>
           <div className="flex justify-end gap-2">
@@ -157,7 +188,7 @@ function CreateTemplateDialog({ onClose }: { onClose: () => void }) {
               Cancel
             </Button>
             <Button disabled={create.isPending}>
-              {create.isPending ? 'Saving…' : 'Save draft'}
+              {create.isPending ? 'Saving…' : personal ? 'Save reply' : 'Save draft'}
             </Button>
           </div>
         </form>
@@ -356,6 +387,7 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
     status: 'ALL',
   });
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<TemplateRecord | null>(null);
   const [approving, setApproving] = useState<TemplateRecord | null>(null);
   const [rejecting, setRejecting] = useState<TemplateRecord | null>(null);
   const client = useQueryClient();
@@ -374,6 +406,7 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
         description: 'The template is preserved for audit and removed from active selection.',
       });
       client.invalidateQueries({ queryKey: ['template-workspace'] });
+      client.invalidateQueries({ queryKey: ['personal-whatsapp-templates'] });
     },
     onError: () =>
       toast.add({
@@ -413,7 +446,7 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
       <div className="flex flex-wrap justify-between gap-3">
         <PageHeader spec={{ ...spec, primaryAction: undefined }} />
         <Button onClick={() => setOpen(true)}>
-          <Plus /> Create draft
+          <Plus /> Create template
         </Button>
       </div>
       <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
@@ -448,7 +481,7 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
                 <SelectItem value="ALL">All channels</SelectItem>
                 {channels.map((channel) => (
                   <SelectItem key={channel} value={channel}>
-                    {channel.replaceAll('_', ' ')}
+                    {channelLabel(channel)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -467,7 +500,7 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {['ALL', 'DRAFT', 'APPROVED', 'REJECTED'].map((status) => (
+                {['ALL', 'ACTIVE', 'DRAFT', 'APPROVED', 'REJECTED'].map((status) => (
                   <SelectItem key={status} value={status}>
                     {status === 'ALL' ? 'All statuses' : status}
                   </SelectItem>
@@ -502,17 +535,26 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
                       <TableCell>
                         <span className="flex items-center gap-2">
                           <Icon className="size-4 text-blue-600" />
-                          {item.channel.replaceAll('_', ' ')}
+                          {channelLabel(item.channel)}
                         </span>
                       </TableCell>
                       <TableCell className="max-w-72 truncate">{bodyOf(item.content)}</TableCell>
-                      <TableCell>{item.provider_template_id ?? 'Not submitted'}</TableCell>
+                      <TableCell>
+                        {item.channel === 'WHATSAPP_PERSONAL'
+                          ? 'Saved text reply'
+                          : (item.provider_template_id ?? 'Not submitted')}
+                      </TableCell>
                       <TableCell>
                         <StatusBadge value={item.status} />
                       </TableCell>
                       <TableCell>{formatDate(item.updated_at)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
+                          {item.channel === 'WHATSAPP_PERSONAL' && (
+                            <Button size="sm" variant="outline" onClick={() => setEditing(item)}>
+                              Edit
+                            </Button>
+                          )}
                           {['DRAFT', 'REJECTED'].includes(item.status.toUpperCase()) && (
                             <Button size="sm" onClick={() => setApproving(item)}>
                               <BadgeCheck /> Approve
@@ -572,6 +614,7 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
         </div>
       </Card>
       {open && <CreateTemplateDialog onClose={() => setOpen(false)} />}
+      {editing && <CreateTemplateDialog template={editing} onClose={() => setEditing(null)} />}
       {approving && (
         <ApproveTemplateDialog template={approving} onClose={() => setApproving(null)} />
       )}
