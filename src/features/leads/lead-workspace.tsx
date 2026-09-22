@@ -93,7 +93,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { roleHasNavigationSlug } from '@/config/navigation';
 import type { PageSpec } from '@/lib/domain';
-import { toWhatsAppClickToChatUrl } from '@/lib/phone';
+import {
+  formatInternationalPhone,
+  formatNationalPhone,
+  toWhatsAppClickToChatUrl,
+} from '@/lib/phone';
 import { cn } from '@/lib/utils';
 import { CustomerTelecmiCallDialog } from '@/features/customers/customer-360-actions';
 import {
@@ -1446,13 +1450,32 @@ function PendingFollowupDialog({
   );
 }
 
-/** A lost lead is closed, and a transferred one already belongs to Sales. */
+/**
+ * A lost lead is closed, a transferred one already belongs to Sales, and a lead
+ * with no customer_id has nothing for the consultant to open: Customer 360, the
+ * vehicle history and the earlier purchases all hang off the customer UUID.
+ * The match/create decision belongs to the telecaller who spoke to them.
+ */
 function canHandOffToSales(lead: LeadRecord) {
-  return lead.lifecycle_status !== 'Lost' && lead.lifecycle_status !== 'Transferred to Sales';
+  return (
+    lead.lifecycle_status !== 'Lost' &&
+    lead.lifecycle_status !== 'Transferred to Sales' &&
+    Boolean(lead.customer_id)
+  );
+}
+
+function salesHandoffBlockedReason(lead: LeadRecord) {
+  if (lead.lifecycle_status === 'Lost') return 'A lost lead cannot be transferred';
+  if (lead.lifecycle_status === 'Transferred to Sales') return 'Already transferred to Sales';
+  if (!lead.customer_id)
+    return 'Assign to customer to transfer — Link or create the customer first, then transfer to Sales';
+  return 'Already transferred to Sales';
 }
 
 function salesHandoffErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? '');
+  if (message.includes('LEAD_CUSTOMER_REQUIRED'))
+    return 'Link or create this lead\u2019s customer before transferring it to Sales. Sales works the customer record, not the enquiry.';
   if (message.includes('TRANSFER_REASON_REQUIRED'))
     return 'Enter why this lead is ready for Sales before transferring it.';
   if (message.includes('NO_ELIGIBLE_SALES_CONSULTANT'))
@@ -2376,13 +2399,17 @@ function LeadTable({
         header: 'Mobile',
         cell: ({ getValue, row }) => {
           const isHistoryLead = historyLeadIds.has(row.original.id);
+          const phone = String(getValue() ?? '');
+          // The column is dense and every Indian mobile is the same ten digits,
+          // so the country code is noise here and lives on the tooltip instead.
           return (
             <span
+              title={formatInternationalPhone(phone)}
               className={
                 isHistoryLead ? 'font-normal text-slate-500' : 'font-medium text-[#263550]'
               }
             >
-              {String(getValue())}
+              {formatNationalPhone(phone)}
             </span>
           );
         },
@@ -2717,29 +2744,41 @@ function LeadTable({
                 </Button>
               ) : null}
               {canTransferToSales && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-violet-600 disabled:text-muted-foreground"
-                  disabled={!canHandOffToSales(row.original)}
-                  aria-label={`Transfer ${row.original.customer_name} to Sales`}
-                  title={
-                    canHandOffToSales(row.original)
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      tabIndex={canHandOffToSales(row.original) ? undefined : 0}
+                      className={cn(
+                        'inline-flex',
+                        !canHandOffToSales(row.original) && 'cursor-not-allowed',
+                      )}
+                    >
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-violet-600 disabled:text-muted-foreground"
+                        disabled={!canHandOffToSales(row.original)}
+                        aria-label={`Transfer ${row.original.customer_name} to Sales`}
+                        onClick={() => {
+                          const transfer = () => onTransferToSales(row.original);
+                          if (
+                            blockedByOpenFollowup(row.original, 'the transfer to Sales', transfer)
+                          )
+                            return;
+                          transfer();
+                        }}
+                      >
+                        <ArrowRightLeft className="size-3.5" />
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {canHandOffToSales(row.original)
                       ? `Transfer ${row.original.customer_name} to Sales`
-                      : row.original.lifecycle_status === 'Lost'
-                        ? 'A lost lead cannot be transferred'
-                        : 'Already transferred to Sales'
-                  }
-                  onClick={() => {
-                    const transfer = () => onTransferToSales(row.original);
-                    if (blockedByOpenFollowup(row.original, 'the transfer to Sales', transfer))
-                      return;
-                    transfer();
-                  }}
-                >
-                  <ArrowRightLeft className="size-3.5" />
-                </Button>
+                      : salesHandoffBlockedReason(row.original)}
+                  </TooltipContent>
+                </Tooltip>
               )}
               {canCreateTasks && canOpenTasks && (
                 <Button asChild variant="ghost" size="icon" className="size-7 text-blue-600">
@@ -3235,7 +3274,7 @@ function LeadTable({
               : '[&>div]:overflow-y-hidden transition-opacity'
           }
         >
-          <Table className="min-w-[1220px]">
+          <Table className="min-w-[1000px]">
             <TableHeader>
               {table.getHeaderGroups().map((group) => (
                 <TableRow key={group.id} className="hover:bg-transparent">
@@ -3249,7 +3288,7 @@ function LeadTable({
                         // icons and the right edge. w-px collapses the column to
                         // its content and hands the slack back to the text
                         // columns, which are the ones that benefit from it.
-                        header.column.id === 'actions' && 'w-px !pr-0',
+                        header.column.id === 'actions' && 'w-px !pr-4 !pl-12',
                       )}
                     >
                       {header.isPlaceholder
@@ -3305,7 +3344,7 @@ function LeadTable({
                             'whitespace-nowrap px-3 py-2.5 text-xs text-[#263550]',
                             cell.column.id === 'lead_id' && 'relative',
                             cell.column.id === 'customer_name' && 'max-w-[190px]',
-                            cell.column.id === 'actions' && 'w-px !pr-0',
+                            cell.column.id === 'actions' && 'w-px !pr-4',
                           )}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -3368,7 +3407,7 @@ function LeadTable({
                                   'whitespace-nowrap px-3 py-2.5 text-xs text-slate-500',
                                   cell.column.id === 'lead_id' && 'relative',
                                   cell.column.id === 'customer_name' && 'max-w-[190px]',
-                                  cell.column.id === 'actions' && 'w-px !pr-0',
+                                  cell.column.id === 'actions' && 'w-px !pr-4',
                                 )}
                               >
                                 {/* A row in the expanded group is a read-only
@@ -3826,6 +3865,13 @@ export function LeadWorkspace({
 
   const replaceLeadWorkspaceUrl = (nextQuery: LeadQuery, nextPersonalView = personalView) => {
     const params = new URLSearchParams(toLeadQueryString(nextQuery));
+    // `toLeadQueryString` normally omits the default `all` value. Sales My
+    // Leads has a deliberate first-load default (New / Pending), however, so
+    // dropping an explicit All selection during a search made the defaulting
+    // effect run again and hid contacted, follow-up and later-stage leads.
+    if (role === 'sales-consultant' && slug === 'my-leads' && nextQuery.status === 'all') {
+      params.set('status', 'all');
+    }
     if (nextPersonalView !== 'all') params.set('personal', nextPersonalView);
     replaceQueryString(pathname, params.toString());
   };
@@ -3955,8 +4001,14 @@ export function LeadWorkspace({
     onSuccess: async (_result, input) => {
       salesConsultantCache.invalidate('lead.updated', { leadId: input.leadId });
       // Recording contact moves the lead from Pending to Contacted, so both the
-      // rows and the counters are stale the moment this returns. Refreshing the
-      // sales-consultant cache alone left the tab showing the previous answer.
+      // rows and the counters are stale the moment this returns. Cancel an
+      // older in-flight list request first: otherwise React Query can settle
+      // that pre-contact response after this mutation and briefly put New back
+      // on screen.
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: ['lead-workspace', ...queryScope] }),
+        queryClient.cancelQueries({ queryKey: ['lead-workspace-meta', ...queryScope] }),
+      ]);
       await invalidate();
     },
   });
@@ -3966,7 +4018,13 @@ export function LeadWorkspace({
   // both have to be refetched.
   const intakeContactMutation = useMutation({
     mutationFn: recordTelecallerLeadContact,
-    onSuccess: invalidate,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: ['lead-workspace', ...queryScope] }),
+        queryClient.cancelQueries({ queryKey: ['lead-workspace-meta', ...queryScope] }),
+      ]);
+      await invalidate();
+    },
     onError: () => {
       toast.add({
         type: 'error',

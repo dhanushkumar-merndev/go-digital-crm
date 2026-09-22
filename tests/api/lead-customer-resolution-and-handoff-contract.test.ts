@@ -19,6 +19,10 @@ const customerMatchDialog = readFileSync(
   'src/features/customers/customer-match-dialog.tsx',
   'utf8',
 );
+const requireCustomerBeforeHandoff = readFileSync(
+  'supabase/migrations/202609190001_require_customer_before_sales_handoff.sql',
+  'utf8',
+);
 
 describe('explicit lead customer resolution', () => {
   it('leaves new enquiries unlinked instead of resolving a phone automatically', () => {
@@ -86,5 +90,45 @@ describe('Telecaller sales handoff history', () => {
     expect(handoffVisibility).toContain(
       'revoke all on function app_private.is_telecaller_handoff_viewer(uuid, uuid, uuid)',
     );
+  });
+});
+
+describe('customer is required before a sales handoff', () => {
+  it('refuses a transfer whose lead still has no customer UUID', () => {
+    // Sales opens Customer 360, the vehicle history and the earlier purchases,
+    // all of which hang off customers.id. A handoff without one gives the
+    // consultant an enquiry and no customer.
+    expect(requireCustomerBeforeHandoff).toContain("message = ''LEAD_CUSTOMER_REQUIRED''");
+    expect(requireCustomerBeforeHandoff).toContain('target_lead.customer_id is null');
+    expect(requireCustomerBeforeHandoff).toContain('pg_get_functiondef(');
+    // Re-running the migration must not stack a second copy of the guard.
+    expect(requireCustomerBeforeHandoff).toContain(
+      "if position('LEAD_CUSTOMER_REQUIRED' in current_definition) > 0 then",
+    );
+    expect(requireCustomerBeforeHandoff).toContain('LEAD_CUSTOMER_REQUIRED_PATCH_TARGET_NOT_FOUND');
+  });
+
+  it('hides the action and explains the block rather than failing at submit', () => {
+    expect(listUi).toContain('Boolean(lead.customer_id)');
+    expect(listUi).toContain('salesHandoffBlockedReason');
+    expect(listUi).toContain('Link or create the customer first, then transfer to Sales');
+    expect(listUi).toContain("message.includes('LEAD_CUSTOMER_REQUIRED')");
+  });
+});
+
+describe('customer match review with no candidate', () => {
+  it('stops presenting a review when there is nothing to review', () => {
+    expect(customerMatchDialog).toContain('nothingToReview');
+    expect(customerMatchDialog).toContain("'Create customer' : 'Review possible customer match'");
+    expect(customerMatchDialog).toContain('No existing customer shares this phone or email');
+  });
+
+  it('still writes a decision reason to the audit trail without demanding one', () => {
+    // resolve_lead_customer requires a 3-500 character reason on every
+    // decision, so the no-candidate path states the fact rather than asking
+    // the telecaller to justify a choice they were never offered.
+    expect(customerMatchDialog).toContain('const NO_MATCH_REASON =');
+    expect(customerMatchDialog).toContain('<input type="hidden" name="reason"');
+    expect(customerMatchDialog).toContain('Recorded on the customer decision audit trail as:');
   });
 });

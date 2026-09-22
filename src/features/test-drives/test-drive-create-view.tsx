@@ -90,6 +90,7 @@ export function TestDriveCreateView({
   const queryScope = workspaceQueryScope(workspaceSession);
   const [leadSearch, setLeadSearch] = useState(() => initialLeadSearch?.slice(0, 160) ?? '');
   const [leadId, setLeadId] = useState(() => initialLeadId ?? '');
+  const [isBrowsingLeads, setIsBrowsingLeads] = useState(() => !initialLeadId);
   const [branchId, setBranchId] = useState('');
   const [vehicleSearch, setVehicleSearch] = useState('');
   const [stockUnitId, setStockUnitId] = useState('');
@@ -106,6 +107,7 @@ export function TestDriveCreateView({
     optionQueryOptions({
       queryKey: [...salesConsultantKeys.testDriveLeadOptions(queryScope), debouncedLeadSearch],
       queryFn: ({ signal }) => fetchTestDriveLeadOptions(debouncedLeadSearch, signal),
+      enabled: isBrowsingLeads,
     }),
   );
   // The picked lead is held here rather than derived from `leads.data`. Typing a
@@ -134,8 +136,13 @@ export function TestDriveCreateView({
     (leadId && leadId === initialLeadId ? seededMatch : null);
   // Until both lookups have settled we do not know whether the lead exists, and
   // saying it is gone while we are still asking is simply wrong.
+  // The seeded lookup is authoritative for a lead supplied by the Sales lead
+  // action. A concurrently slow type-ahead query must not keep that already
+  // resolved lead unusable; it is only needed when the user changes the lead.
   const leadLookupPending =
-    leads.isPending || (Boolean(initialLeadId) && leadId === initialLeadId && seededLead.isPending);
+    !selectedLead &&
+    ((isBrowsingLeads && leads.isPending) ||
+      (Boolean(initialLeadId) && leadId === initialLeadId && seededLead.isPending));
   const resolvedBranchId = branchId || selectedLead?.branch_id || '';
   const vehicles = useQuery(
     optionQueryOptions({
@@ -144,15 +151,25 @@ export function TestDriveCreateView({
         resolvedBranchId,
         debouncedVehicleSearch,
       ],
-      queryFn: ({ signal }) =>
-        fetchTestDriveVehicleOptions(resolvedBranchId, debouncedVehicleSearch, signal),
+      // The selected lead can resolve immediately after this component mounts.
+      // Passing React Query's transient observer signal here repeatedly aborted
+      // the first vehicle request during that hand-off, leaving the picker in a
+      // permanent loading state. This is a bounded 25-row option list; let its
+      // request settle and key subsequent searches by branch/query instead.
+      queryFn: () => fetchTestDriveVehicleOptions(resolvedBranchId, debouncedVehicleSearch),
       enabled: Boolean(resolvedBranchId),
     }),
   );
   const [pickedVehicle, setPickedVehicle] = useState<TestDriveVehicleOption | null>(null);
   const selectedVehicle =
     vehicles.data?.find((item) => item.stock_unit_id === stockUnitId) ?? pickedVehicle;
-  const leadOptions = leads.data?.map((item) => ({
+  const availableLeads = [
+    ...(selectedLead && !leads.data?.some((item) => item.lead_id === selectedLead.lead_id)
+      ? [selectedLead]
+      : []),
+    ...(leads.data ?? []),
+  ];
+  const leadOptions = availableLeads.map((item) => ({
     value: item.lead_id,
     label: item.customer_name,
     description: [
@@ -254,11 +271,14 @@ export function TestDriveCreateView({
                 <SearchSelect
                   value={leadId}
                   search={leadSearch}
-                  onSearchChange={setLeadSearch}
+                  onSearchChange={(value) => {
+                    setIsBrowsingLeads(true);
+                    setLeadSearch(value);
+                  }}
                   options={leadOptions}
-                  isPending={leads.isPending}
-                  isFetching={leads.isFetching}
-                  isError={leads.isError}
+                  isPending={isBrowsingLeads && leads.isPending}
+                  isFetching={isBrowsingLeads && leads.isFetching}
+                  isError={isBrowsingLeads && leads.isError}
                   placeholder="Select opportunity"
                   searchPlaceholder="Search customer, phone or interested model"
                   emptyMessage="No assigned customer or lead matches this search."

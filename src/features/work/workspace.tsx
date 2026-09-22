@@ -423,6 +423,11 @@ function WorkTable({
                     year: 'numeric',
                   }).format(new Date(followup.due_at))}
                 </p>
+                {followup.display_status === 'OVERDUE' && query.status === 'all' && (
+                  <p className="mt-0.5 whitespace-nowrap text-[11px] font-medium text-rose-600">
+                    Overdue
+                  </p>
+                )}
               </div>
             );
           },

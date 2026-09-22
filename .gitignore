@@ -16,6 +16,10 @@
 # tooling
 *.tsbuildinfo
 coverage
+# Playwright run artifacts; keep browser specs in tests/e2e tracked.
+/playwright-report/
+/test-results/
+/blob-report/
 .DS_Store
 npm-debug.log*
 pnpm-debug.log*

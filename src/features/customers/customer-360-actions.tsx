@@ -22,7 +22,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { startProviderCall } from '@/features/calls/call-workspace-api';
+import { toast } from '@/components/ui/toast';
+import { ProviderCallStartError, startProviderCall } from '@/features/calls/call-workspace-api';
 import {
   fetchCustomerTelecmiCallOptions,
   fetchCustomer360EditData,
@@ -724,6 +725,10 @@ export function CustomerTelecmiCallDialog({
     [connectionId, options?.connections],
   );
   const start = useMutation({
+    // Placing a call is not saving a form, and the generic mutation toast said
+    // "Your changes have been applied" -- which told a telecaller nothing about
+    // what their phone is now doing. This one names the next thing to expect.
+    meta: { toast: false },
     mutationFn: () => {
       if (!options?.lead_id || !selectedConnectionId) throw new Error('TELECMI_CALL_NOT_AVAILABLE');
       requestId.current ??= crypto.randomUUID();
@@ -737,6 +742,12 @@ export function CustomerTelecmiCallDialog({
     onSuccess: () => {
       requestId.current = null;
       onOpenChange(false);
+      toast.add({
+        type: 'success',
+        title: 'Calling ' + customerName,
+        description:
+          'Answer on your dealership line, then we connect the customer. They see the dealership number.',
+      });
       onStarted();
     },
   });
@@ -809,7 +820,9 @@ export function CustomerTelecmiCallDialog({
           ) : null}
           {start.isError ? (
             <p className="text-sm text-destructive">
-              The call could not be started. Check the dealership line and try again.
+              {start.error instanceof ProviderCallStartError
+                ? start.error.message
+                : 'The call could not be started. Check the dealership line and try again.'}
             </p>
           ) : null}
         </div>

@@ -154,6 +154,7 @@ export function QuotationCreateView({
   const vehicle = initialVehicle(record);
   const [search, setSearch] = useState(initialLeadId ?? '');
   const [leadId, setLeadId] = useState(record?.lead_id ?? initialLeadId ?? '');
+  const [isBrowsingLeads, setIsBrowsingLeads] = useState(() => !initialLeadId);
   const [model, setModel] = useState(vehicle.model || record?.interested_model || '');
   const [variant, setVariant] = useState(vehicle.variant);
   const [colour, setColour] = useState(vehicle.colour);
@@ -165,21 +166,35 @@ export function QuotationCreateView({
     optionQueryOptions({
       queryKey: ['quotation-lead-options', ...queryScope, debounced],
       queryFn: ({ signal }) => fetchQuotationLeadOptions(debounced, signal),
-      enabled: !record,
+      enabled: !record && isBrowsingLeads,
     }),
   );
   // The chosen customer decides the branch, and the branch decides which
   // vehicles can be quoted. Deriving it from the current search page meant a
   // second search emptied the vehicle list under a customer already chosen.
   const [pickedLead, setPickedLead] = useState<QuotationLeadOption | null>(null);
+  const seededLead = useQuery(
+    optionQueryOptions({
+      queryKey: ['quotation-lead-options', ...queryScope, 'seed', initialLeadId],
+      queryFn: ({ signal }) => fetchQuotationLeadOptions(initialLeadId ?? '', signal),
+      enabled: Boolean(!record && initialLeadId),
+    }),
+  );
+  const seededMatch = initialLeadId
+    ? (seededLead.data?.find((item) => item.lead_id === initialLeadId) ?? null)
+    : null;
   const selected =
     leads.data?.find((item) => item.lead_id === leadId) ??
-    (pickedLead?.lead_id === leadId ? pickedLead : undefined);
+    (pickedLead?.lead_id === leadId ? pickedLead : undefined) ??
+    (leadId === initialLeadId ? seededMatch ?? undefined : undefined);
   const branchId = selected?.branch_id ?? record?.branch_id ?? '';
   const vehicleOptions = useQuery(
     optionQueryOptions({
       queryKey: ['quotation-vehicle-options', ...queryScope, branchId],
-      queryFn: ({ signal }) => fetchQuotationVehicleOptions(branchId, signal),
+      // The URL-seeded lead establishes `branchId` just after mount. Let this
+      // small branch option request settle rather than cancelling it during
+      // that hand-off and leaving the model picker empty.
+      queryFn: () => fetchQuotationVehicleOptions(branchId),
       enabled: Boolean(branchId),
     }),
   );
@@ -379,17 +394,25 @@ export function QuotationCreateView({
                     <SearchSelect
                       value={leadId}
                       search={search}
-                      onSearchChange={setSearch}
-                      options={leads.data?.map((item) => ({
+                      onSearchChange={(value) => {
+                        setIsBrowsingLeads(true);
+                        setSearch(value);
+                      }}
+                      options={[
+                        ...(selected && !leads.data?.some((item) => item.lead_id === selected.lead_id)
+                          ? [selected]
+                          : []),
+                        ...(leads.data ?? []),
+                      ].map((item) => ({
                         value: item.lead_id,
                         label: item.customer_name,
                         description: [item.phone ?? 'No phone', item.interested_model]
                           .filter(Boolean)
                           .join(' · '),
                       }))}
-                      isPending={leads.isPending}
-                      isFetching={leads.isFetching}
-                      isError={leads.isError}
+                      isPending={isBrowsingLeads && leads.isPending}
+                      isFetching={isBrowsingLeads && leads.isFetching}
+                      isError={isBrowsingLeads && leads.isError}
                       placeholder="Select customer opportunity"
                       searchPlaceholder="Search customer name, phone or lead ID"
                       emptyMessage="No opportunity you can quote matches this search."

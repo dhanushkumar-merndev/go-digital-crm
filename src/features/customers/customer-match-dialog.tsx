@@ -21,6 +21,10 @@ import {
 import { createUuid } from '@/lib/uuid';
 import { fetchPossibleCustomerMatches, resolveLeadCustomer } from './customer-workspace-api';
 
+// resolve_lead_customer requires a 3-500 character reason on every decision, so
+// the no-candidate path states the fact instead of dropping the audit value.
+const NO_MATCH_REASON = 'No exact phone or email match was found for this lead.';
+
 export type MatchableLead = {
   id: string;
   customer_name: string;
@@ -53,6 +57,10 @@ export function CustomerMatchDialog({
     enabled: open && Boolean(lead),
   });
   const effectiveResolution = matches.data?.length ? resolution : 'CREATE_NEW';
+  // With no candidate there is nothing to review and nothing that could be
+  // merged, so the screen stops asking the telecaller to justify a choice they
+  // were never offered. AGENTS.md 11 governs the case where a match exists.
+  const nothingToReview = matches.data?.length === 0;
   const mutation = useMutation({
     mutationFn: resolveLeadCustomer,
     onSuccess: (result) => {
@@ -65,10 +73,13 @@ export function CustomerMatchDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100vh-2rem)] max-w-2xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Review possible customer match</DialogTitle>
+          <DialogTitle>
+            {nothingToReview ? 'Create customer' : 'Review possible customer match'}
+          </DialogTitle>
           <DialogDescription>
-            Phone and email are matching signals only. Review the candidates, then explicitly link
-            one or create a separate customer UUID.
+            {nothingToReview
+              ? 'No existing customer shares this phone or email, so this enquiry starts a new customer UUID. Confirm the details below.'
+              : 'Phone and email are matching signals only. Review the candidates, then explicitly link one or create a separate customer UUID.'}
           </DialogDescription>
         </DialogHeader>
         {lead && (
@@ -115,7 +126,7 @@ export function CustomerMatchDialog({
               </CardContent>
             </Card>
 
-            <section className="grid gap-3">
+            <section className={`grid gap-3 ${nothingToReview ? 'hidden' : ''}`}>
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-semibold">Possible existing customers</h3>
@@ -222,20 +233,29 @@ export function CustomerMatchDialog({
               </div>
             )}
 
-            <label className="grid gap-1.5 text-sm font-medium">
-              Decision reason <span className="text-destructive">(required)</span>
-              <Input
-                name="reason"
-                minLength={3}
-                maxLength={500}
-                required
-                placeholder={
-                  effectiveResolution === 'LINK_EXISTING'
-                    ? 'How you verified this customer match'
-                    : 'Why this should remain a separate customer'
-                }
-              />
-            </label>
+            {nothingToReview ? (
+              <>
+                <input type="hidden" name="reason" value={NO_MATCH_REASON} />
+                <p className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+                  Recorded on the customer decision audit trail as: {NO_MATCH_REASON}
+                </p>
+              </>
+            ) : (
+              <label className="grid gap-1.5 text-sm font-medium">
+                Decision reason <span className="text-destructive">(required)</span>
+                <Input
+                  name="reason"
+                  minLength={3}
+                  maxLength={500}
+                  required
+                  placeholder={
+                    effectiveResolution === 'LINK_EXISTING'
+                      ? 'How you verified this customer match'
+                      : 'Why this should remain a separate customer'
+                  }
+                />
+              </label>
+            )}
             {mutation.isError && (
               <p className="text-sm text-destructive">
                 The customer decision could not be saved. The lead may have changed or the selected

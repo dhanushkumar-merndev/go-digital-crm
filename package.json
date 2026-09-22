@@ -18,6 +18,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:api": "vitest run tests/api",
+    "test:e2e:lead-flow": "playwright test tests/e2e/lead-flow.spec.mjs",
     "check:edge": "pnpm dlx deno@2.9.5 check supabase/functions/_shared/*.ts supabase/functions/*/index.ts",
     "check:supabase-config": "node scripts/check-supabase-config.mjs",
     "env:check": "node scripts/validate-env.mjs",
@@ -94,6 +95,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
+    "@playwright/test": "1.58.2",
     "@tailwindcss/postcss": "^4",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^20",

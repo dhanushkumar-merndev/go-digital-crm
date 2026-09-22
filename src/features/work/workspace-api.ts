@@ -459,17 +459,21 @@ export async function createFollowup(input: {
   priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
   requestId: string;
 }) {
-  const { data, error } = await createClient().rpc('create_followup', {
-    target_lead_id: input.entity.lead_id,
-    target_customer_id: input.entity.customer_id,
-    target_branch_id: input.entity.branch_id,
-    target_team_id: input.entity.team_id,
-    target_assigned_user_id: input.assignedUserId,
-    followup_reason: input.reason,
-    followup_due_at: input.dueAt,
-    followup_priority: input.priority,
-    target_request_id: input.requestId,
-  });
+  const { data, error } = await runWorkMutation((signal) =>
+    createClient()
+      .rpc('create_followup', {
+        target_lead_id: input.entity.lead_id,
+        target_customer_id: input.entity.customer_id,
+        target_branch_id: input.entity.branch_id,
+        target_team_id: input.entity.team_id,
+        target_assigned_user_id: input.assignedUserId,
+        followup_reason: input.reason,
+        followup_due_at: input.dueAt,
+        followup_priority: input.priority,
+        target_request_id: input.requestId,
+      })
+      .abortSignal(signal),
+  );
   throwMutationError(error);
   return mutationResultSchema.parse(data);
 }
@@ -482,17 +486,21 @@ export async function createAppointment(input: {
   notes: string;
   requestId: string;
 }) {
-  const { data, error } = await createClient().rpc('create_appointment', {
-    target_lead_id: input.entity.lead_id,
-    target_customer_id: input.entity.customer_id,
-    target_branch_id: input.entity.branch_id,
-    target_team_id: input.entity.team_id,
-    target_assigned_user_id: input.assignedUserId,
-    target_appointment_type: input.appointmentType,
-    target_scheduled_at: input.scheduledAt,
-    target_notes: input.notes || null,
-    target_request_id: input.requestId,
-  });
+  const { data, error } = await runWorkMutation((signal) =>
+    createClient()
+      .rpc('create_appointment', {
+        target_lead_id: input.entity.lead_id,
+        target_customer_id: input.entity.customer_id,
+        target_branch_id: input.entity.branch_id,
+        target_team_id: input.entity.team_id,
+        target_assigned_user_id: input.assignedUserId,
+        target_appointment_type: input.appointmentType,
+        target_scheduled_at: input.scheduledAt,
+        target_notes: input.notes || null,
+        target_request_id: input.requestId,
+      })
+      .abortSignal(signal),
+  );
   throwMutationError(error);
   return mutationResultSchema.parse(data);
 }

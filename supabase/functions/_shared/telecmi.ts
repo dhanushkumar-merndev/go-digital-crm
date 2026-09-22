@@ -60,8 +60,19 @@ function classifyTelecmiFailure(
   return 'TELECMI_REQUEST_REJECTED';
 }
 
+// India is the CRM's default country, so a bare ten-digit mobile or one behind
+// a trunk `0` gains `91` before it is dialled -- TeleCMI needs the country code
+// and a telecaller typing ten digits is the normal case. A number that already
+// carries a different country code is left alone; rewriting it would dial a
+// stranger. This mirrors src/lib/phone.ts on the web side.
 export function normalizeTelecmiPhone(value: string) {
-  const digits = value.replace(/\D/g, '');
+  const raw = value.replace(/\D/g, '');
+  const digits =
+    raw.length === 10
+      ? `91${raw}`
+      : raw.length === 11 && raw.startsWith('0')
+        ? `91${raw.slice(1)}`
+        : raw;
   if (!/^[1-9]\d{7,14}$/.test(digits)) throw new Error('PHONE_NOT_INTERNATIONAL');
   return digits;
 }
@@ -137,13 +148,29 @@ export async function configureTelecmiStereoStream(input: {
   });
 }
 
+// Which device TeleCMI rings first. Follow-me is a per-app TeleCMI entitlement
+// -- an account without it answers click2call with `420: Follow-me calls are
+// not allowed for this app` -- so the mode belongs to the tenant's connection
+// config, never hardcoded into this adapter.
+export type TelecmiCallMode = 'WEBRTC' | 'FOLLOW_ME';
+
+export const defaultTelecmiCallMode: TelecmiCallMode = 'WEBRTC';
+
+export function parseTelecmiCallMode(value: unknown): TelecmiCallMode {
+  return value === 'FOLLOW_ME' || value === 'WEBRTC' ? value : defaultTelecmiCallMode;
+}
+
 export async function createTelecmiClickToCall(input: {
   credential: TelecmiCredential;
   userId?: string;
   customerPhone: string;
   callId: string;
   leadId: string;
+  callMode?: TelecmiCallMode;
 }) {
+  // WEBRTC rings the agent's logged-in TeleCMI client; FOLLOW_ME rings the
+  // phone number registered against that agent in TeleCMI.
+  const followMe = (input.callMode ?? defaultTelecmiCallMode) === 'FOLLOW_ME';
   const result = await telecmiJson<{ request_id: string; msg: string }>('/v2/webrtc/click2call', {
     user_id: normalizeTelecmiUserId(input.userId ?? input.credential.default_user_id),
     secret: input.credential.app_secret,
@@ -153,10 +180,8 @@ export async function createTelecmiClickToCall(input: {
       crm_call_id: input.callId,
       crm_lead_id: input.leadId,
     },
-    // The website starts the call, then TeleCMI rings the mapped agent's
-    // registered device before bridging the customer.
-    webrtc: false,
-    followme: true,
+    webrtc: !followMe,
+    followme: followMe,
     ...(input.credential.caller_id
       ? { callerid: Number(normalizeTelecmiPhone(input.credential.caller_id)) }
       : {}),

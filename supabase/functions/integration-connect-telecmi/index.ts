@@ -19,10 +19,19 @@ const schema = z
     scope_mode: z.enum(['ONE_BRANCH', 'SELECTED_BRANCHES', 'ALL_BRANCHES']),
     branch_ids: z.array(z.uuid()).max(100).default([]),
     app_id: z.coerce.number().int().positive().safe(),
-    app_secret: z.string().trim().min(8).max(512),
+    // Optional when re-saving an existing connection: the stored secret is
+    // reused so an edit to an unrelated field -- caller ID, branch scope --
+    // does not force a Client Admin to go and fetch it from TeleCMI again.
+    // An untouched field posts an empty string, which has to mean "keep the
+    // stored one"; `.optional()` alone would still fail it on `.min(8)`.
+    app_secret: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z.string().trim().min(8).max(512).optional(),
+    ),
     default_user_id: z.string().trim().min(3).max(40),
     caller_id: z.string().trim().max(20).optional(),
     inbound_route: z.enum(['PARALLEL_USERS', 'IVR', 'TEAM']).default('PARALLEL_USERS'),
+    outbound_call_mode: z.enum(['WEBRTC', 'FOLLOW_ME']).default('WEBRTC'),
     parallel_agents: z
       .array(
         z.object({
@@ -38,6 +47,12 @@ const schema = z
     ai_stream_ws_url: z.url().max(2048).optional(),
   })
   .superRefine((input, context) => {
+    if (!input.app_secret && !input.connection_id)
+      context.addIssue({
+        code: 'custom',
+        path: ['app_secret'],
+        message: 'An App Secret is required for a new connection.',
+      });
     if (new Set(input.branch_ids).size !== input.branch_ids.length)
       context.addIssue({ code: 'custom', path: ['branch_ids'], message: 'Duplicate branch.' });
     if (input.scope_mode === 'ONE_BRANCH' && input.branch_ids.length !== 1)
@@ -102,8 +117,21 @@ Deno.serve(async (request) => {
 
   try {
     const parsed = schema.safeParse(await request.json());
-    if (!parsed.success)
-      return failure('INVALID_PAYLOAD', 'TeleCMI IVR settings are invalid.', requestId, 422);
+    if (!parsed.success) {
+      // This message used to blame the IVR for every rejected field, so a blank
+      // App Secret or a bad branch selection sent a Client Admin to the wrong
+      // part of the form. Naming the field costs nothing and leaks nothing.
+      const issue = parsed.error.issues[0];
+      const field = issue?.path.filter((part) => typeof part === 'string').join('.');
+      return failure(
+        'INVALID_PAYLOAD',
+        field
+          ? `Check the ${field.replaceAll('_', ' ')} field: ${issue.message}`
+          : 'The TeleCMI connection details are invalid.',
+        requestId,
+        422,
+      );
+    }
     const input = parsed.data;
     const client = authenticatedClient(request);
     const { data: auth } = await client.auth.getUser();
@@ -180,9 +208,17 @@ Deno.serve(async (request) => {
           : undefined;
     }
 
+    const resolvedSecret = input.app_secret ?? previousCredential?.app_secret;
+    if (!resolvedSecret)
+      return failure(
+        'TELECMI_APP_SECRET_REQUIRED',
+        'Enter the TeleCMI App Secret for this connection.',
+        requestId,
+        422,
+      );
     const credential: TelecmiCredential = {
       app_id: input.app_id,
-      app_secret: input.app_secret,
+      app_secret: resolvedSecret,
       default_user_id: normalizeTelecmiUserId(input.default_user_id),
       caller_id: input.caller_id ? normalizeTelecmiPhone(input.caller_id) : null,
       // Replacing API credentials must not silently break the callback URLs
@@ -201,6 +237,7 @@ Deno.serve(async (request) => {
       caller_id_label: credential.caller_id,
       default_user_id: credential.default_user_id,
       inbound_route: input.inbound_route,
+      outbound_call_mode: input.outbound_call_mode,
       parallel_agents: input.parallel_agents.map((agent) => ({
         user_id: normalizeTelecmiUserId(agent.user_id),
         phone: normalizeTelecmiPhone(agent.phone),

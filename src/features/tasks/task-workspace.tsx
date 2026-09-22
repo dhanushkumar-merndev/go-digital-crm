@@ -6,6 +6,7 @@ import {
   CalendarCheck2,
   CalendarDays,
   Check,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   CircleCheckBig,
@@ -19,6 +20,7 @@ import {
   TrendingUp,
   TriangleAlert,
   X,
+  XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -289,7 +291,6 @@ function TaskStatusTabs({
     { label: 'Today', value: 'today', count: statusCounts.today },
     { label: 'Upcoming', value: 'upcoming', count: statusCounts.upcoming },
     { label: 'Overdue', value: 'overdue', count: statusCounts.overdue },
-    { label: 'Open', value: 'open', count: statusCounts.open },
     { label: 'In Progress', value: 'in-progress', count: statusCounts.in_progress },
     { label: 'Completed', value: 'completed', count: statusCounts.completed },
     { label: 'Cancelled', value: 'cancelled', count: statusCounts.cancelled },
@@ -413,7 +414,7 @@ function TaskTable({
               <p className={overdue ? 'font-medium text-red-700' : 'font-medium'}>
                 {formatDate(row.original.due_at)}
               </p>
-              {overdue && <p className="text-xs text-red-600">Overdue</p>}
+              {overdue && query.status === 'all' && <p className="text-xs text-red-600">Overdue</p>}
             </div>
           );
         },
@@ -448,42 +449,42 @@ function TaskTable({
           if (!permissions.canUpdate && !permissions.canComplete && !permissions.canCancel)
             return null;
           return (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            <div className="flex items-center justify-end gap-1">
+              {permissions.canUpdate && (
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="size-8"
-                  aria-label={`Actions for ${row.original.title}`}
+                  className="size-7"
+                  onClick={() => onEdit(row.original)}
+                  title="Edit task"
                 >
-                  <MoreHorizontal className="size-4" />
+                  <Pencil className="size-3.5" />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {permissions.canUpdate && (
-                  <DropdownMenuItem onSelect={() => onEdit(row.original)}>
-                    <Pencil className="size-4" /> Edit task
-                  </DropdownMenuItem>
-                )}
-                {permissions.canUpdate && (permissions.canComplete || permissions.canCancel) && (
-                  <DropdownMenuSeparator />
-                )}
-                {permissions.canComplete && (
-                  <DropdownMenuItem onSelect={() => onAction('complete', row.original)}>
-                    <Check className="size-4" /> Complete
-                  </DropdownMenuItem>
-                )}
-                {permissions.canCancel && (
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onSelect={() => onAction('cancel', row.original)}
-                  >
-                    <X className="size-4" /> Cancel
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              )}
+              {permissions.canComplete && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 whitespace-nowrap border-emerald-200 px-2 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                  onClick={() => onAction('complete', row.original)}
+                >
+                  <CheckCircle2 className="size-3.5" /> Complete
+                </Button>
+              )}
+              {permissions.canCancel && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 whitespace-nowrap border-rose-200 px-2 text-[11px] font-semibold text-rose-700 hover:bg-rose-50"
+                  onClick={() => onAction('cancel', row.original)}
+                >
+                  <XCircle className="size-3.5" /> Cancel
+                </Button>
+              )}
+            </div>
           );
         },
       },

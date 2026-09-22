@@ -51,6 +51,12 @@ function toIsoOrNull(value: FormDataEntryValue | null) {
 }
 
 function mutationMessage(error: unknown) {
+  const code =
+    error && typeof error === 'object' && 'message' in error
+      ? String((error as { message?: unknown }).message)
+      : '';
+  if (code.includes('TEST_DRIVE_PREVENTS_STOCK_ALLOCATION'))
+    return 'This vehicle has a scheduled or active test drive. Complete or reassign that drive before allocation.';
   return isInventoryVersionConflict(error)
     ? 'This inventory record changed elsewhere. Reload the detail before trying again.'
     : 'The inventory operation could not be completed. Check the values and your branch scope.';

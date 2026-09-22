@@ -205,7 +205,15 @@ export function TelecmiAgentEditor({
               </AlertDescription>
             </Alert>
           ) : null}
-          <div className="flex justify-end gap-2 sm:col-span-2">
+          <div className="flex items-center justify-end gap-2 sm:col-span-2">
+            {appSecret.trim().length < 8 ? (
+              // The App Secret is optional when re-saving a connection, but
+              // provisioning calls TeleCMI directly and cannot reuse the stored
+              // one, so say why the button is dead rather than leaving it grey.
+              <span className="mr-auto text-xs text-muted-foreground">
+                Enter the App Secret above to create an agent in TeleCMI.
+              </span>
+            ) : null}
             <Button type="button" variant="outline" size="sm" onClick={() => setCreating(false)}>
               Cancel
             </Button>

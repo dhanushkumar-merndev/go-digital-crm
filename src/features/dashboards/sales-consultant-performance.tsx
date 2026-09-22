@@ -20,6 +20,7 @@ import {
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { SalesConsultantPerformanceSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -28,6 +29,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { Metric } from '@/lib/domain';
+import { istToday, toDateInputValue } from '@/components/ui/day-picker';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import {
@@ -37,10 +39,37 @@ import {
 
 const duration = (seconds: number) =>
   `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+
+const performancePeriods = [7, 14, 30] as const;
+
+function rangeStartFor(days: number, end = istToday()) {
+  const date = new Date(`${end}T00:00:00`);
+  date.setDate(date.getDate() - (days - 1));
+  return toDateInputValue(date);
+}
+
+function inclusiveDays(start: string, end: string) {
+  const startTime = Date.parse(`${start}T00:00:00Z`);
+  const endTime = Date.parse(`${end}T00:00:00Z`);
+  return Math.round((endTime - startTime) / 86_400_000) + 1;
+}
+
 export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role?: string }) {
   const workspaceSession = useWorkspaceSession();
   const queryScope = workspaceQueryScope(workspaceSession);
   const [days, setDays] = useState<7 | 14 | 30>(7);
+  const [rangeStart, setRangeStart] = useState(() => rangeStartFor(7));
+  const today = istToday();
+  const selectPeriod = (nextDays: 7 | 14 | 30) => {
+    setDays(nextDays);
+    setRangeStart(rangeStartFor(nextDays, today));
+  };
+  const selectRangeStart = (nextStart: string) => {
+    const rangeDays = inclusiveDays(nextStart, today);
+    if (!performancePeriods.includes(rangeDays as 7 | 14 | 30)) return;
+    setRangeStart(nextStart);
+    setDays(rangeDays as 7 | 14 | 30);
+  };
   const query = useQuery({
     queryKey: [...salesConsultantKeys.performance(queryScope), role, 'activity-v2', days],
     queryFn: async ({ signal }) =>
@@ -192,8 +221,29 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
         ['test_drives', salesKpis?.test_drives ?? 0, 'Test Drives'],
         ['bookings', salesKpis?.bookings ?? 0, 'Bookings'],
       ] as const);
+  const telecallerQualityMetrics = telecallerKpis
+    ? [
+        ['Qualified leads', String(telecallerKpis.qualified), 'Leads ready for a Sales handoff'],
+        [
+          'Qualification rate',
+          `${d.kpis.leads ? Math.round((telecallerKpis.qualified / d.kpis.leads) * 100) : 0}%`,
+          'Qualified from leads assigned in this period',
+        ],
+        [
+          'Sales handoff rate',
+          `${telecallerKpis.qualified ? Math.round((telecallerKpis.transferred / telecallerKpis.qualified) * 100) : 0}%`,
+          'Qualified leads successfully transferred to Sales',
+        ],
+        [
+          'Completed follow-ups',
+          String(telecallerKpis.followups_completed),
+          'Follow-ups closed in this period',
+        ],
+      ]
+    : null;
+
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto max-w-[1800px] space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="mb-2 text-xs">
@@ -206,20 +256,36 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
             Track your personal activity, conversion and target achievement.
           </p>
         </div>
-        <Select
-          value={String(days)}
-          onValueChange={(value) => setDays(Number(value) as 7 | 14 | 30)}
-        >
-          <SelectTrigger className="w-48">
-            <CalendarDays className="size-4" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7">Last 7 days</SelectItem>
-            <SelectItem value="14">Last 14 days</SelectItem>
-            <SelectItem value="30">Last 30 days</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Select
+            value={String(days)}
+            onValueChange={(value) => selectPeriod(Number(value) as 7 | 14 | 30)}
+          >
+            <SelectTrigger className="w-40">
+              <CalendarDays className="size-4" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="14">Last 14 days</SelectItem>
+              <SelectItem value="30">Last 30 days</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="flex h-9 items-center gap-2 rounded-md border bg-background px-2.5 text-xs">
+            <CalendarDays className="size-3.5 text-muted-foreground" />
+            <Input
+              type="date"
+              value={rangeStart}
+              min={rangeStartFor(30, today)}
+              max={rangeStartFor(7, today)}
+              onChange={(event) => selectRangeStart(event.target.value)}
+              aria-label="Performance period start"
+              className="h-7 w-[8.25rem] border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0"
+            />
+            <span className="text-muted-foreground">to</span>
+            <span className="whitespace-nowrap font-medium text-foreground">{today}</span>
+          </div>
+        </div>
       </div>
       <KpiGrid metrics={metrics.slice(0, 5)} className="xl:grid-cols-5" />
       <KpiGrid metrics={metrics.slice(5)} className="xl:grid-cols-4" />
@@ -285,6 +351,22 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
           })}
         </CardContent>
       </Card>
+      {telecallerQualityMetrics ? (
+        <Card className="shadow-none">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Lead Quality &amp; Conversion</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {telecallerQualityMetrics.map(([label, value, helper]) => (
+              <div key={label} className="rounded-lg border bg-muted/20 px-4 py-3">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="mt-1 text-xl font-bold tracking-tight">{value}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{helper}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
       <p className="text-center text-xs text-muted-foreground">
         {telecaller
           ? 'Activity is credited to the person who performed it, by activity date (IST). Leads contacted, qualified and transferred count distinct leads in the period. Targets are shown only for matching dates.'

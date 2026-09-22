@@ -2,7 +2,13 @@ import { z } from 'npm:zod@4';
 import { decryptJson } from '../_shared/crypto.ts';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
-import { createTelecmiClickToCall, type TelecmiCredential } from '../_shared/telecmi.ts';
+import {
+  createTelecmiClickToCall,
+  describeTelecmiFailure,
+  parseTelecmiCallMode,
+  TelecmiError,
+  type TelecmiCredential,
+} from '../_shared/telecmi.ts';
 
 const schema = z.object({
   organization_id: z.uuid(),
@@ -10,6 +16,88 @@ const schema = z.object({
   lead_id: z.uuid(),
   request_id: z.uuid(),
 });
+
+type DescribedFailure = { code: string; message: string; status: number };
+
+// create_provider_call_request raises one of a fixed set of messages. Passing
+// the matching one back is what tells a telecaller whether the lead is out of
+// scope or their own mobile was never mapped to a TeleCMI agent -- two very
+// different fixes that a single "not authorized" would hide.
+const rpcFailures: Record<string, DescribedFailure> = {
+  PERMISSION_DENIED: {
+    code: 'PERMISSION_DENIED',
+    message: 'You do not have permission to place calls.',
+    status: 403,
+  },
+  CALL_LEAD_NOT_AUTHORIZED: {
+    code: 'CALL_LEAD_NOT_AUTHORIZED',
+    message: 'This lead is outside your branch, team, or record scope.',
+    status: 403,
+  },
+  CALL_PROVIDER_SCOPE_DENIED: {
+    code: 'CALL_PROVIDER_SCOPE_DENIED',
+    message: 'This dealership line is not mapped to the lead branch.',
+    status: 403,
+  },
+  TELECMI_CALLER_MAPPING_NOT_CONFIGURED: {
+    code: 'TELECMI_CALLER_MAPPING_NOT_CONFIGURED',
+    message:
+      'Your mobile number is not mapped to a TeleCMI agent on this connection. Ask a Client Admin to add it under the dealership line.',
+    status: 409,
+  },
+};
+
+// Failures raised locally before or after the provider request. They are
+// separated from the TeleCMI vocabulary so a configuration gap on our side is
+// never reported as a provider rejection.
+const localFailures: Record<string, DescribedFailure> = {
+  TELECMI_CREDENTIAL_NOT_CONFIGURED: {
+    code: 'TELECMI_CREDENTIAL_NOT_CONFIGURED',
+    message:
+      'The stored TeleCMI credential for this dealership line is missing. Ask a Client Admin to reconnect TeleCMI.',
+    status: 409,
+  },
+  PHONE_NOT_INTERNATIONAL: {
+    code: 'CALL_CUSTOMER_PHONE_NOT_DIALABLE',
+    message:
+      'The customer number is not dialable. Save it with the country code, for example 91 followed by the 10-digit mobile.',
+    status: 422,
+  },
+  TELECMI_USER_ID_INVALID: {
+    code: 'TELECMI_USER_ID_INVALID',
+    message:
+      'The TeleCMI agent id mapped to your mobile is malformed. Ask a Client Admin to re-provision your agent.',
+    status: 409,
+  },
+  TELECMI_REQUEST_ID_MISSING: {
+    code: 'TELECMI_REQUEST_ID_MISSING',
+    message: 'TeleCMI accepted the request but returned no call reference. Try again.',
+    status: 502,
+  },
+};
+
+function describeCallStartFailure(error: unknown): DescribedFailure {
+  if (error instanceof TelecmiError) return describeTelecmiFailure(error);
+  const local = error instanceof Error ? localFailures[error.message] : undefined;
+  return (
+    local ?? {
+      code: 'TELECMI_CALL_START_FAILED',
+      message:
+        'The dealership call could not be started. Ask a Client Admin to check your mobile mapping.',
+      status: 502,
+    }
+  );
+}
+
+function describeRpcFailure(message: string | null | undefined): DescribedFailure {
+  for (const [raised, described] of Object.entries(rpcFailures))
+    if (message?.includes(raised)) return described;
+  return {
+    code: 'PROVIDER_CALL_NOT_AUTHORIZED',
+    message: 'The TeleCMI call could not be authorized for this lead.',
+    status: 403,
+  };
+}
 
 Deno.serve(async (request) => {
   const preflightResponse = preflight(request);
@@ -37,13 +125,10 @@ Deno.serve(async (request) => {
         target_request_id: parsed.data.request_id,
       },
     );
-    if (contextError || !context)
-      return failure(
-        'PROVIDER_CALL_NOT_AUTHORIZED',
-        'The TeleCMI call could not be authorized for this lead.',
-        requestId,
-        403,
-      );
+    if (contextError || !context) {
+      const described = describeRpcFailure(contextError?.message);
+      return failure(described.code, described.message, requestId, described.status);
+    }
 
     const callContext = z
       .object({
@@ -95,12 +180,25 @@ Deno.serve(async (request) => {
       .maybeSingle();
     if (!secret) throw new Error('TELECMI_CREDENTIAL_NOT_CONFIGURED');
     const credential = await decryptJson<TelecmiCredential>(secret.encrypted_payload);
+    // Which device rings is the tenant's choice, not this function's: a TeleCMI
+    // app without the follow-me entitlement can only ring the logged-in client.
+    const { data: connection } = await admin
+      .from('connected_accounts')
+      .select('connection_config')
+      .eq('id', callContext.connection_id)
+      .eq('organization_id', callContext.organization_id)
+      .maybeSingle();
+    const connectionConfig =
+      connection?.connection_config && typeof connection.connection_config === 'object'
+        ? (connection.connection_config as Record<string, unknown>)
+        : {};
     const started = await createTelecmiClickToCall({
       credential,
       userId: callContext.provider_user_id ?? undefined,
       customerPhone: callContext.customer_phone,
       callId: callContext.call_id,
       leadId: parsed.data.lead_id,
+      callMode: parseTelecmiCallMode(connectionConfig.outbound_call_mode),
     });
     const { error: updateError } = await admin
       .from('calls')
@@ -120,18 +218,14 @@ Deno.serve(async (request) => {
       requestId,
       201,
     );
-  } catch {
+  } catch (error) {
     if (callId)
       await serviceClient()
         .from('calls')
         .update({ status: 'FAILED', ended_at: new Date().toISOString() })
         .eq('id', callId)
         .is('provider_request_id', null);
-    return failure(
-      'TELECMI_CALL_START_FAILED',
-      'The dealership call could not be started. Ask a Client Admin to check your mobile mapping.',
-      requestId,
-      502,
-    );
+    const described = describeCallStartFailure(error);
+    return failure(described.code, described.message, requestId, described.status);
   }
 });

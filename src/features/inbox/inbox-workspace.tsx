@@ -201,11 +201,11 @@ export function InboxWorkspace({
   const viewLeadHistory =
     !leadId && activeConversation
       ? (id: string) => {
-          setHistorySelection({
-            conversationId: activeConversation.id,
-            leadId: id === 'all' ? null : id,
-          });
-        }
+        setHistorySelection({
+          conversationId: activeConversation.id,
+          leadId: id === 'all' ? null : id,
+        });
+      }
       : undefined;
   const messages = useInfiniteQuery({
     queryKey: ['shared-inbox-messages', ...queryScope, activeConversation?.id, historyLeadId],
@@ -360,15 +360,15 @@ export function InboxWorkspace({
   }
   const pendingReply =
     send.variables?.context === draftContext &&
-    !send.isError &&
-    (send.isPending || (send.isSuccess && send.data?.message_id)) &&
-    !messageRows.some((message) =>
-      send.data?.message_id
-        ? message.id === send.data.message_id
-        : message.direction === 'OUTBOUND' &&
+      !send.isError &&
+      (send.isPending || (send.isSuccess && send.data?.message_id)) &&
+      !messageRows.some((message) =>
+        send.data?.message_id
+          ? message.id === send.data.message_id
+          : message.direction === 'OUTBOUND' &&
           message.body === send.variables?.body &&
           message.sent_at >= send.variables.startedAt,
-    )
+      )
       ? send.variables
       : null;
   const acknowledge = useMutation({
@@ -395,7 +395,8 @@ export function InboxWorkspace({
 
   return (
     <div
-      className={`mx-auto max-w-[1800px] ${embedded ? 'space-y-4' : 'flex h-[calc(100dvh-106px)] flex-col gap-3'}`}
+      className={`mx-auto max-w-[1800px] ${embedded ? 'space-y-4' : 'flex flex-col gap-3'}`}
+      style={!embedded ? { height: 'calc(100vh / var(--canvas-zoom, 1) - 110px)' } : undefined}
     >
       <div className="flex shrink-0 flex-wrap items-end justify-between gap-3">
         <div>
@@ -462,8 +463,10 @@ export function InboxWorkspace({
         className={`sales-consultant-list-card min-h-0 overflow-hidden shadow-none ${embedded ? 'h-[680px]' : 'flex-1'}`}
       >
         <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)] lg:grid-cols-[280px_minmax(0,1fr)_280px]">
-          <aside className={`${selectedId ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col border-r`}>
-            <div className="shrink-0 space-y-2 border-b p-3">
+          <aside
+            className={`${selectedId ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col border-r bg-slate-50/50`}
+          >
+            <div className="shrink-0 space-y-2 border-b bg-white p-3">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -527,7 +530,7 @@ export function InboxWorkspace({
                 <InboxEmpty label="No conversations found" />
               )}
             </div>
-            <div className="flex shrink-0 items-center justify-between border-t p-3 text-xs text-muted-foreground">
+            <div className="flex shrink-0 items-center justify-between border-t bg-white p-3 text-xs text-muted-foreground">
               <span>
                 {conversationRows.length} of {conversations.data?.pages[0]?.total ?? 0}{' '}
                 conversations
@@ -666,7 +669,7 @@ export function InboxWorkspace({
                       )}
                       {personalStatus.data?.next_send_at &&
                         personalStatus.data.send_disabled_reason ===
-                          'PERSONAL_WHATSAPP_RATE_LIMITED' && (
+                        'PERSONAL_WHATSAPP_RATE_LIMITED' && (
                           <p>
                             Next reply available{' '}
                             {new Date(personalStatus.data.next_send_at).toLocaleTimeString()}

@@ -268,10 +268,11 @@ type ConnectRequest =
       kind: 'telecmi';
       displayName: string;
       appId: number;
-      appSecret: string;
+      appSecret?: string;
       defaultUserId: string;
       callerId?: string;
       inboundRoute: 'PARALLEL_USERS' | 'IVR' | 'TEAM';
+      outboundCallMode: 'WEBRTC' | 'FOLLOW_ME';
       parallelAgents: Array<{ user_id: string; phone: string }>;
       ivrName?: string;
       teamName?: string;
@@ -314,6 +315,9 @@ function ProviderConnectionDialog({
   const [inboundRoute, setInboundRoute] = useState<'PARALLEL_USERS' | 'IVR' | 'TEAM'>(
     existing?.connection_config.inbound_route ?? 'PARALLEL_USERS',
   );
+  const [outboundCallMode, setOutboundCallMode] = useState<'WEBRTC' | 'FOLLOW_ME'>(
+    existing?.connection_config.outbound_call_mode ?? 'WEBRTC',
+  );
   const [telecmiSetup, setTelecmiSetup] = useState<{
     webhook_url: string;
     call_flow_url: string;
@@ -324,6 +328,9 @@ function ProviderConnectionDialog({
     existing?.provider_key === 'telecmi' ? (existing.external_account_id ?? '') : '',
   );
   const [telecmiAppSecret, setTelecmiAppSecret] = useState('');
+  // The secret itself never leaves the server; this only records that one is
+  // already held, so the field can be optional on a re-save.
+  const existingSecretStored = existing?.provider_key === 'telecmi';
   const [telecmiAgents, setTelecmiAgents] = useState<TelecmiAgentRow[]>(() =>
     (existing?.connection_config.parallel_agents ?? []).map((agent) => newTelecmiAgentRow(agent)),
   );
@@ -386,6 +393,7 @@ function ProviderConnectionDialog({
           defaultUserId: request.defaultUserId,
           callerId: request.callerId,
           inboundRoute: request.inboundRoute,
+          outboundCallMode: request.outboundCallMode,
           parallelAgents: request.parallelAgents,
           ivrName: request.ivrName,
           teamName: request.teamName,
@@ -477,10 +485,11 @@ function ProviderConnectionDialog({
                   kind: 'telecmi',
                   displayName,
                   appId: Number(telecmiAppId),
-                  appSecret: telecmiAppSecret.trim(),
+                  appSecret: telecmiAppSecret.trim() || undefined,
                   defaultUserId: String(form.get('defaultUserId') ?? '').trim(),
                   callerId: String(form.get('callerId') ?? '').trim() || undefined,
                   inboundRoute,
+                  outboundCallMode,
                   parallelAgents,
                   ivrName: String(form.get('ivrName') ?? '').trim() || undefined,
                   teamName: String(form.get('teamName') ?? '').trim() || undefined,
@@ -624,9 +633,11 @@ function ProviderConnectionDialog({
             {providerKey === 'telecmi' && (
               <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
                 <p className="text-xs text-muted-foreground sm:col-span-2">
-                  Website calls ring the mapped employee’s normal mobile first, then call and bridge
-                  the customer. Inbound calls can use an IVR, a team, or parallel ringing. Completed
-                  recordings are copied server-side to private Tigris storage.
+                  Website calls ring the mapped employee first — their logged-in TeleCMI client or
+                  their registered mobile, whichever “Outbound call rings” is set to — then call and
+                  bridge the customer, who sees the Caller ID below. Inbound calls can use an IVR, a
+                  team, or parallel ringing. Completed recordings are copied server-side to private
+                  Tigris storage.
                 </p>
                 <label className="grid gap-1.5 text-sm font-medium">
                   App ID
@@ -661,20 +672,58 @@ function ProviderConnectionDialog({
                     autoComplete="off"
                     defaultValue={existing?.connection_config.caller_id_label ?? ''}
                   />
+                  <span className="text-xs font-normal text-muted-foreground">
+                    The dealership number your customers see. It must be a number this TeleCMI
+                    account owns, not an employee&apos;s mobile &mdash; TeleCMI refuses a call
+                    placed as a number it does not own.
+                  </span>
                 </label>
                 <label className="grid gap-1.5 text-sm font-medium">
                   App secret
+                  {existingSecretStored ? (
+                    <span className="font-normal text-muted-foreground">(stored)</span>
+                  ) : null}
                   <PasswordInput
                     name="appSecret"
-                    required
+                    // A stored secret is never sent to the browser, so the field
+                    // stays empty. Leaving it empty on a re-save keeps the one
+                    // already encrypted server-side.
+                    required={!existingSecretStored}
                     minLength={8}
                     maxLength={512}
                     autoComplete="new-password"
+                    placeholder={existingSecretStored ? '•'.repeat(12) : undefined}
                     value={telecmiAppSecret}
                     onChange={(event) => setTelecmiAppSecret(event.target.value)}
                   />
                   <span className="text-xs font-normal text-muted-foreground">
-                    Stored encrypted and never shown again. Re-enter it to rotate.
+                    {existingSecretStored
+                      ? 'A secret is already stored and encrypted. Leave this blank to keep it, or enter a new one to rotate it.'
+                      : 'Stored encrypted and never shown again. Re-enter it to rotate.'}
+                  </span>
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                  Outbound call rings
+                  <Select
+                    value={outboundCallMode}
+                    onValueChange={(value) => setOutboundCallMode(value as typeof outboundCallMode)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="WEBRTC">
+                        The agent&apos;s logged-in TeleCMI client
+                      </SelectItem>
+                      <SelectItem value="FOLLOW_ME">
+                        The agent&apos;s registered mobile (follow-me)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    Follow-me is a TeleCMI account entitlement. If TeleCMI answers a call with
+                    &ldquo;Follow-me calls are not allowed for this app&rdquo;, keep this on the
+                    logged-in client.
                   </span>
                 </label>
                 <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">

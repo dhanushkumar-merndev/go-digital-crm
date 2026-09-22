@@ -152,7 +152,6 @@ Deno.serve(async (request) => {
       new PutObjectCommand({
         Bucket: bucket,
         Key: objectKey,
-        ContentLength: input.size_bytes,
         ContentType: input.mime_type,
         ChecksumSHA256: input.checksum_sha256,
       }),

@@ -81,6 +81,7 @@ import {
   fetchCallWorkspacePermissions,
   finalizeManualCall,
   logCompletedManualCall,
+  ProviderCallStartError,
   startProviderCall,
   uploadManualCallRecording,
   type CallPartyOption,
@@ -476,8 +477,9 @@ function ManualCallDialog({
                 ) : null}
                 {providerCall.isError && (
                   <p className="text-xs text-destructive">
-                    The dealership line could not start the call. Ask a Client Admin to test your
-                    calling configuration.
+                    {providerCall.error instanceof ProviderCallStartError
+                      ? providerCall.error.message
+                      : 'The dealership line could not start the call. Ask a Client Admin to test your calling configuration.'}
                   </p>
                 )}
               </div>

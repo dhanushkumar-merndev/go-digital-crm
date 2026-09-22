@@ -46,6 +46,26 @@ const schema = z
     }
   });
 
+const localFailures: Record<string, { code: string; message: string; status: number }> = {
+  TELECMI_EXTENSION_INVALID: {
+    code: 'TELECMI_EXTENSION_INVALID',
+    message: 'The extension must be 3 to 6 digits.',
+    status: 422,
+  },
+  PHONE_NOT_INTERNATIONAL: {
+    code: 'TELECMI_AGENT_PHONE_INVALID',
+    message:
+      'The mobile is not dialable. Enter it with the country code, for example 91 followed by the 10-digit number.',
+    status: 422,
+  },
+  TELECMI_USER_ID_INVALID: {
+    code: 'TELECMI_USER_ID_INVALID',
+    message:
+      'TeleCMI created the agent but returned an agent id in an unexpected format, so it could not be mapped. Check the TeleCMI user list before retrying, and add the agent with "Add existing" if it is now there.',
+    status: 502,
+  },
+};
+
 Deno.serve(async (request) => {
   const preflightResponse = preflight(request);
   if (preflightResponse) return preflightResponse;
@@ -92,7 +112,11 @@ Deno.serve(async (request) => {
       201,
     );
   } catch (error) {
-    const described = describeTelecmiFailure(error);
+    // describeTelecmiFailure only speaks TeleCMI's vocabulary; anything thrown
+    // on our side of the call collapsed into "The TeleCMI request could not be
+    // completed", which tells a Client Admin nothing about what to change.
+    const local = error instanceof Error ? localFailures[error.message] : undefined;
+    const described = local ?? describeTelecmiFailure(error);
     return failure(described.code, described.message, requestId, described.status);
   }
 });

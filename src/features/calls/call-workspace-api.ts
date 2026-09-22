@@ -214,6 +214,31 @@ export async function fetchCallProviderOptions(
   return z.array(callProviderOptionSchema).parse(data);
 }
 
+export class ProviderCallStartError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'ProviderCallStartError';
+    this.code = code;
+  }
+}
+
+// supabase-js turns any non-2xx into a FunctionsHttpError and never parses the
+// body, which would discard the reason call-provider-start went to the trouble
+// of naming -- an unmapped mobile, an undialable number, a TeleCMI rejection.
+// Reading the attached Response is what keeps that reason on screen.
+async function readProviderCallError(error: unknown) {
+  const context = (error as { context?: unknown } | null)?.context;
+  if (!(context instanceof Response)) return null;
+  const parsed = (await context
+    .clone()
+    .json()
+    .catch(() => null)) as EdgeEnvelope<unknown> | null;
+  if (!parsed?.error?.code || typeof parsed.error.message !== 'string') return null;
+  return new ProviderCallStartError(parsed.error.code, parsed.error.message);
+}
+
 export async function startProviderCall(input: {
   organizationId: string;
   connectionId: string;
@@ -234,8 +259,12 @@ export async function startProviderCall(input: {
       request_id: input.requestId,
     },
   });
-  if (error || !data?.ok || !data.data)
-    throw error ?? new Error(data?.error?.code ?? 'PROVIDER_CALL_START_FAILED');
+  if (error) throw (await readProviderCallError(error)) ?? error;
+  if (!data?.ok || !data.data)
+    throw new ProviderCallStartError(
+      data?.error?.code ?? 'PROVIDER_CALL_START_FAILED',
+      data?.error?.message ?? 'The dealership call could not be started.',
+    );
   return z
     .object({ call_id: z.uuid(), provider_request_id: z.string(), status: z.string() })
     .parse(data.data);

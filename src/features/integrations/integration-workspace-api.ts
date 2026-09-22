@@ -38,6 +38,7 @@ export type IntegrationRecord = {
     default_user_id?: string;
     caller_id_label?: string | null;
     inbound_route?: 'PARALLEL_USERS' | 'IVR' | 'TEAM';
+    outbound_call_mode?: 'WEBRTC' | 'FOLLOW_ME';
     parallel_agents?: Array<{ user_id: string; phone: string }>;
     ivr_name?: string | null;
     team_name?: string | null;
@@ -297,10 +298,11 @@ export function connectTelecmi(input: {
   scopeMode: IntegrationScopeMode;
   branchIds: string[];
   appId: number;
-  appSecret: string;
+  appSecret?: string;
   defaultUserId: string;
   callerId?: string;
   inboundRoute: 'PARALLEL_USERS' | 'IVR' | 'TEAM';
+  outboundCallMode: 'WEBRTC' | 'FOLLOW_ME';
   parallelAgents: Array<{ user_id: string; phone: string }>;
   ivrName?: string;
   teamName?: string;
@@ -319,10 +321,11 @@ export function connectTelecmi(input: {
     scope_mode: input.scopeMode,
     branch_ids: input.branchIds,
     app_id: input.appId,
-    app_secret: input.appSecret,
+    app_secret: input.appSecret || undefined,
     default_user_id: input.defaultUserId,
     caller_id: input.callerId,
     inbound_route: input.inboundRoute,
+    outbound_call_mode: input.outboundCallMode,
     parallel_agents: input.parallelAgents,
     ivr_name: input.ivrName,
     team_name: input.teamName,

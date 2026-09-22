@@ -335,6 +335,7 @@
         "npm:@electric-sql/pglite@0.5.8",
         "npm:@hookform/resolvers@latest",
         "npm:@lottiefiles/dotlottie-react@~0.19.14",
+        "npm:@playwright/test@1.58.2",
         "npm:@radix-ui/react-alert-dialog@latest",
         "npm:@radix-ui/react-avatar@latest",
         "npm:@radix-ui/react-dialog@latest",
