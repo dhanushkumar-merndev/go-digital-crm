@@ -69,9 +69,9 @@ export function personalWhatsAppReason(code: string | null | undefined) {
     PERSONAL_WHATSAPP_SYNC_RATE_LIMITED: 'Wait a minute before requesting history again.',
     PERSONAL_WHATSAPP_DISCONNECTED: 'Your WhatsApp is disconnected. Open My WhatsApp to reconnect.',
     PERSONAL_WHATSAPP_REPLY_WINDOW_CLOSED:
-      'Wait for a new customer message. Replies are available for 24 hours after they contact you.',
+      'My WhatsApp needs the latest messaging update. Contact your administrator.',
     PERSONAL_WHATSAPP_RATE_LIMITED:
-      'Your reply limit has been reached. Wait until the next available send time.',
+      'Your message limit has been reached. Wait until the next available send time.',
     PERSONAL_WHATSAPP_PAUSED: 'Sending is paused for 30 minutes after repeated failures.',
     PERSONAL_WHATSAPP_SEND_UNRESOLVED:
       'A previous send is pending or unconfirmed. Check its status before sending again.',

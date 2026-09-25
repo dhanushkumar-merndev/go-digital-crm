@@ -69,7 +69,8 @@ for an unreviewed test.
 - Browser session expiry does not invent a background login: worker scope checks
   use the employee's current active role, permissions and branch/record access.
   Browser reads and human send requests still require normal session/MFA checks.
-- Human-triggered text replies only, within 24 hours of inbound contact. Maximum
+- Human-triggered text messages in existing CRM conversations, including before
+  an inbound reply and after 24 hours. No inbound-message window is required. Maximum
   1,500 characters; one send per five seconds, ten per ten minutes, fifty per
   rolling day, twenty per recipient per rolling day, one unresolved send/account.
   Reservations count even if a send later fails. No campaign, schedule, template,

@@ -66,6 +66,12 @@ it('applies the pilot and phone matcher after the existing CRM migration history
     await db.exec(
       readFileSync(new URL('202609160012_optimize_inbox_message_reads.sql', directory), 'utf8'),
     );
+    await db.exec(
+      readFileSync(
+        new URL('202609250011_personal_whatsapp_remove_reply_window.sql', directory),
+        'utf8',
+      ),
+    );
     const tables = await db.query<{ tablename: string; rowsecurity: boolean }>(
       "select tablename,rowsecurity from pg_tables where schemaname='public' and tablename like 'personal_whatsapp_%'",
     );

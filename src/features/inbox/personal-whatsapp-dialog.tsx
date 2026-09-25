@@ -163,7 +163,7 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
                 <Badge variant="success">Connected</Badge>
               </div>
               <p className="text-sm text-muted-foreground">
-                {data.daily_sent} / {data.daily_limit} CRM replies in the last 24 hours.
+                {data.daily_sent} / {data.daily_limit} CRM messages in the last 24 hours.
               </p>
               <p className="text-xs text-muted-foreground">
                 Last connection check:{' '}
@@ -201,7 +201,7 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
                 <p className="text-xs text-amber-800">QR expired. Generate a new code below.</p>
               )}
               <p className="text-xs text-muted-foreground">
-                Text only · CRM contacts only · 50 replies/day
+                Text only · CRM contacts only · 50 messages/day
               </p>
               <Button className="w-full" disabled={busy} onClick={() => link.mutate()}>
                 <QrCode className="size-4" />
@@ -245,8 +245,8 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
               className="space-y-2 text-xs text-muted-foreground"
             >
               <p>
-                Replies are available for 24 hours after a customer messages you. No first messages,
-                campaigns, or automatic replies.
+                Send messages in existing CRM chats, even before a customer replies or after 24
+                hours. No campaigns or automatic messages.
               </p>
               <p>
                 Only accessible CRM contacts are saved. Groups and media are skipped. Available

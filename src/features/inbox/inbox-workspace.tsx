@@ -201,11 +201,11 @@ export function InboxWorkspace({
   const viewLeadHistory =
     !leadId && activeConversation
       ? (id: string) => {
-        setHistorySelection({
-          conversationId: activeConversation.id,
-          leadId: id === 'all' ? null : id,
-        });
-      }
+          setHistorySelection({
+            conversationId: activeConversation.id,
+            leadId: id === 'all' ? null : id,
+          });
+        }
       : undefined;
   const messages = useInfiniteQuery({
     queryKey: ['shared-inbox-messages', ...queryScope, activeConversation?.id, historyLeadId],
@@ -221,7 +221,9 @@ export function InboxWorkspace({
         : undefined,
     enabled: Boolean(activeConversation),
     staleTime: 30_000,
-    refetchInterval: (query) => (query.state.data?.pages.length === 1 ? 5000 : false),
+    // Keep receiving updates after the reader has loaded earlier timeline pages.
+    // This reads CRM messages only; it never requests WhatsApp history.
+    refetchInterval: 5000,
     retry: 1,
   });
   const personalConversation = activeConversation?.channel === 'WHATSAPP_PERSONAL';
@@ -257,16 +259,14 @@ export function InboxWorkspace({
     },
   ]);
   const syncHistory = useMutation({
-    mutationFn: () => {
-      if (!activeConversation) throw new Error('PERSONAL_WHATSAPP_DISCONNECTED');
-      return syncPersonalWhatsApp(activeConversation.id);
-    },
-    onSuccess: () =>
+    mutationFn: (conversation: { id: string; customerName: string }) =>
+      syncPersonalWhatsApp(conversation.id),
+    onSuccess: (_result, conversation) =>
       toast.add({
         type: 'success',
-        title: 'Text history requested',
+        title: `History requested for ${conversation.customerName}`,
         description:
-          'Keep your phone online. Available text from the last 30 days will appear in All enquiries; media is skipped. WhatsApp may return no additional history.',
+          'Only this chat is being synced. Keep your phone online. Available text from the last 30 days will appear in timeline order under All enquiries; media is skipped.',
       }),
     onError: (error) =>
       toast.add({
@@ -360,15 +360,15 @@ export function InboxWorkspace({
   }
   const pendingReply =
     send.variables?.context === draftContext &&
-      !send.isError &&
-      (send.isPending || (send.isSuccess && send.data?.message_id)) &&
-      !messageRows.some((message) =>
-        send.data?.message_id
-          ? message.id === send.data.message_id
-          : message.direction === 'OUTBOUND' &&
+    !send.isError &&
+    (send.isPending || (send.isSuccess && send.data?.message_id)) &&
+    !messageRows.some((message) =>
+      send.data?.message_id
+        ? message.id === send.data.message_id
+        : message.direction === 'OUTBOUND' &&
           message.body === send.variables?.body &&
           message.sent_at >= send.variables.startedAt,
-      )
+    )
       ? send.variables
       : null;
   const acknowledge = useMutation({
@@ -411,17 +411,6 @@ export function InboxWorkspace({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {personalConversation && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={syncHistory.isPending || personalStatus.data?.status !== 'CONNECTED'}
-              onClick={() => syncHistory.mutate()}
-              title="Request available text history for this customer. Reconnect My WhatsApp first if disconnected."
-            >
-              {syncHistory.isPending ? 'Requesting…' : 'Sync text history'}
-            </Button>
-          )}
           {/* Linking is a personal-channel action, so it stays off Official
               WhatsApp and Messenger. It has to be reachable from the default
               "All connected channels" view as well, or someone who has never
@@ -453,6 +442,7 @@ export function InboxWorkspace({
               if (personalConversation) void personalStatus.refetch();
             }}
             disabled={conversations.isFetching}
+            title="Refresh sent and received messages already in the CRM. Older WhatsApp history is synced separately inside each chat."
           >
             <RefreshCw className={`size-4 ${conversations.isFetching ? 'animate-spin' : ''}`} />{' '}
             Refresh
@@ -593,6 +583,31 @@ export function InboxWorkspace({
                   fetching={messages.isFetching}
                   loadMore={() => messages.fetchNextPage()}
                 >
+                  {personalConversation && !readOnly && (
+                    <div className="flex flex-wrap items-center justify-center gap-2 rounded-md border border-dashed bg-white px-3 py-2 text-xs text-muted-foreground">
+                      <span>Older text history · {activeConversation.customer_name}</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={
+                          syncHistory.isPending || personalStatus.data?.status !== 'CONNECTED'
+                        }
+                        onClick={() =>
+                          syncHistory.mutate({
+                            id: activeConversation.id,
+                            customerName: activeConversation.customer_name,
+                          })
+                        }
+                        title={`Request older text messages only for ${activeConversation.customer_name}. Keep your phone online.`}
+                      >
+                        {syncHistory.isPending &&
+                        syncHistory.variables?.id === activeConversation.id
+                          ? 'Requesting…'
+                          : 'Sync this chat’s history'}
+                      </Button>
+                      {historyLeadId && <span>Synced history is shown under All enquiries.</span>}
+                    </div>
+                  )}
                   {messages.isPending ? (
                     <p className="text-sm text-muted-foreground">Loading messages…</p>
                   ) : messages.isError ? (
@@ -658,20 +673,14 @@ export function InboxWorkspace({
                   {personalConversation && (
                     <div className="mb-2 space-y-1 text-xs text-muted-foreground">
                       <p>
-                        My WhatsApp · Reply only · {personalStatus.data?.daily_sent ?? '—'} / 50
-                        replies in 24 hours
+                        My WhatsApp · {personalStatus.data?.daily_sent ?? '—'} /{' '}
+                        {personalStatus.data?.daily_limit ?? 50} messages in 24 hours
                       </p>
-                      {personalStatus.data?.reply_window_expires_at && (
-                        <p>
-                          Reply window ends{' '}
-                          {new Date(personalStatus.data.reply_window_expires_at).toLocaleString()}
-                        </p>
-                      )}
                       {personalStatus.data?.next_send_at &&
                         personalStatus.data.send_disabled_reason ===
-                        'PERSONAL_WHATSAPP_RATE_LIMITED' && (
+                          'PERSONAL_WHATSAPP_RATE_LIMITED' && (
                           <p>
-                            Next reply available{' '}
+                            Next message available{' '}
                             {new Date(personalStatus.data.next_send_at).toLocaleTimeString()}
                           </p>
                         )}

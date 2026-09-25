@@ -67,6 +67,9 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
     await db.exec('alter table personal_whatsapp_messages add column lead_id uuid');
     await db.exec(source('supabase/migrations/202609080003_personal_whatsapp_text_history.sql'));
     await db.exec(
+      source('supabase/migrations/202609250011_personal_whatsapp_remove_reply_window.sql'),
+    );
+    await db.exec(
       source('supabase/migrations/202609160013_personal_whatsapp_customer_link_sync.sql'),
     );
     await db.exec(
@@ -180,6 +183,26 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
       /SYNC_RATE_LIMITED/,
     );
   });
+  it('requests history only for the selected chat and keeps each chat cooldown separate', async () => {
+    const first = await incoming();
+    await db.query(
+      'insert into leads(id,organization_id,branch_id,assigned_user_id,normalized_phone) values($1,$2,$3,$4,$5)',
+      [randomUUID(), org, branch, actor, '919876543211'],
+    );
+    const second = await incoming('919876543211');
+    await claims(actor);
+    expect(await rpc('personal_whatsapp_sync_authorize', [first.conversation_id])).toMatchObject({
+      conversation_id: first.conversation_id,
+    });
+    const untouched = await db.query<{ history_requested_at: string | null }>(
+      'select history_requested_at from personal_whatsapp_conversations where id=$1',
+      [second.conversation_id],
+    );
+    expect(untouched.rows[0].history_requested_at).toBeNull();
+    expect(await rpc('personal_whatsapp_sync_authorize', [second.conversation_id])).toMatchObject({
+      conversation_id: second.conversation_id,
+    });
+  });
   it('rejects media and history older than thirty days', async () => {
     for (const extra of [
       { message_type: 'image' },
@@ -274,11 +297,28 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
       'permission denied',
     );
   });
-  it('requires a recent inbound before sending and rejects oversized bodies', async () => {
+  async function expectSendAllowed(conversationId: unknown) {
+    await claims(actor);
+    expect(await rpc('get_personal_whatsapp_status', [conversationId])).toMatchObject({
+      send_disabled_reason: null,
+      reply_window_expires_at: null,
+    });
+    const prepared = await prepare(conversationId);
+    expect(prepared).toMatchObject({ status: 'PENDING', duplicate: false });
+    await claims(actor, 'service_role');
+    expect(
+      await rpc('personal_whatsapp_send_claim', [
+        session.connection_id,
+        session.generation,
+        worker,
+        prepared.message_id,
+        randomUUID(),
+      ]),
+    ).toMatchObject({ phone: '919876543210', body: 'A personal reply' });
+  }
+  it('allows sending in an existing chat before the customer has replied', async () => {
     const sent = await incoming(undefined, true);
-    await expect(prepare(sent.conversation_id)).rejects.toThrow(
-      'PERSONAL_WHATSAPP_REPLY_WINDOW_CLOSED',
-    );
+    await expectSendAllowed(sent.conversation_id);
   });
   it('atomically reserves one send and keeps idempotency payloads immutable', async () => {
     const thread = await incoming();
@@ -321,15 +361,31 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
     expect(await rpc('personal_whatsapp_nonce', [nonce, until])).toBe(true);
     expect(await rpc('personal_whatsapp_nonce', [nonce, until])).toBe(false);
   });
-  it('rejects a reply after the last inbound is 24 hours old', async () => {
-    const thread = await incoming();
-    await db.query(
-      "update personal_whatsapp_conversations set last_inbound_at=now()-interval '24 hours' where id=$1",
-      [thread.conversation_id],
-    );
-    await expect(prepare(thread.conversation_id)).rejects.toThrow(
-      'PERSONAL_WHATSAPP_REPLY_WINDOW_CLOSED',
-    );
+  it.each(['24 hours', '7 days'])(
+    'allows status, reservation and gateway claim when the last inbound is %s old',
+    async (age) => {
+      const thread = await incoming();
+      await db.query(
+        'update personal_whatsapp_conversations set last_inbound_at=now()-$2::interval where id=$1',
+        [thread.conversation_id, age],
+      );
+      await expectSendAllowed(thread.conversation_id);
+    },
+  );
+  it('still denies a gateway claim when record access is lost after reservation', async () => {
+    const thread = await incoming(undefined, true);
+    const prepared = await prepare(thread.conversation_id);
+    await db.query('update leads set assigned_user_id=$1 where id=$2', [other, lead]);
+    await claims(actor, 'service_role');
+    await expect(
+      rpc('personal_whatsapp_send_claim', [
+        session.connection_id,
+        session.generation,
+        worker,
+        prepared.message_id,
+        randomUUID(),
+      ]),
+    ).rejects.toThrow('PERSONAL_WHATSAPP_SEND_DENIED');
   });
   it('rejects more than 1500 characters', async () => {
     const thread = await incoming();
@@ -501,7 +557,7 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
     ).toBe(false);
     await expect(gateway('heartbeat')).rejects.toThrow('PERSONAL_WHATSAPP_SESSION_REVOKED');
   });
-  it('does not reuse the previous phone reply window after a fresh QR link', async () => {
+  it('allows sending after a fresh QR link without requiring another inbound message', async () => {
     const thread = await incoming();
     await claims(actor);
     await rpc('personal_whatsapp_disconnect', [session.connection_id]);
@@ -509,8 +565,6 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
     session = (await rpc('personal_whatsapp_link_authorize', [actor, org])) as typeof session;
     await gateway('acquire');
     await gateway('connected', { masked_phone: '*******1111', account_hash: 'b'.repeat(64) });
-    await expect(prepare(thread.conversation_id)).rejects.toThrow(
-      'PERSONAL_WHATSAPP_REPLY_WINDOW_CLOSED',
-    );
+    await expectSendAllowed(thread.conversation_id);
   });
 });
