@@ -325,6 +325,17 @@ export async function fetchWorkWorkspace(
     : appointmentWorkspaceSchema.parse(data);
 }
 
+/** The earliest open follow-up blocking one lead, or null when none is in scope. */
+export async function fetchLeadOpenFollowup(
+  leadId: string,
+  signal?: AbortSignal,
+): Promise<FollowupRecord | null> {
+  const request = createClient().rpc('get_lead_open_followup', { target_lead_id: leadId });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return data ? followupRecordSchema.parse(data) : null;
+}
+
 export async function fetchFollowupCalendar(
   input: {
     month: string;

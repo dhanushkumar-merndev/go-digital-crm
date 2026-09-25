@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import {
@@ -29,7 +29,11 @@ import { SearchSelect } from '@/components/ui/search-select';
 import { Textarea } from '@/components/ui/textarea';
 import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
-import { optionQueryOptions } from '@/lib/query/option-query';
+import {
+  flattenOptionPages,
+  optionPagesQueryOptions,
+  optionQueryOptions,
+} from '@/lib/query/option-query';
 import {
   createBooking,
   decideQuotationApproval,
@@ -83,14 +87,16 @@ export function QuotationDialog({
   );
   const requestId = useRef<string | null>(null);
   const debouncedLeadSearch = useDebouncedValue(leadSearch, 300);
-  const options = useQuery(
-    optionQueryOptions({
-      queryKey: ['quotation-lead-options', ...queryScope, debouncedLeadSearch],
-      queryFn: ({ signal }) => fetchQuotationLeadOptions(debouncedLeadSearch, signal),
+  const options = useInfiniteQuery(
+    optionPagesQueryOptions({
+      queryKey: ['quotation-lead-options', ...queryScope, 'pages', debouncedLeadSearch],
+      fetchRows: (offset, limit, signal) =>
+        fetchQuotationLeadOptions(debouncedLeadSearch, signal, { offset, limit }),
       enabled: open && !record,
     }),
   );
-  const leadOptions = options.data?.map((option) => ({
+  const leadRows = flattenOptionPages(options.data);
+  const leadOptions = leadRows?.map((option) => ({
     value: option.lead_id,
     label: option.customer_name,
     description: [option.interested_model ?? 'Vehicle TBD', option.branch_name]
@@ -156,6 +162,9 @@ export function QuotationDialog({
                   options={leadOptions}
                   isPending={options.isPending}
                   isFetching={options.isFetching}
+                  hasMore={options.hasNextPage}
+                  onLoadMore={() => void options.fetchNextPage()}
+                  isLoadingMore={options.isFetchingNextPage}
                   isError={options.isError}
                   placeholder="Select opportunity"
                   searchPlaceholder="Search customer, phone, model or lead ID"

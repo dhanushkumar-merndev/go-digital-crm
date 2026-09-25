@@ -69,42 +69,22 @@ export async function fetchOrCreatePdiInspection(deliveryId: string): Promise<Pd
   return pdiDetailResponseSchema.parse(data);
 }
 
-export async function updatePdiItemResult(input: {
-  itemId: string;
-  status: PdiItemStatus;
-  notes?: string | null;
-  photoUrl?: string | null;
-}): Promise<{
-  item: { id: string; status: PdiItemStatus };
-  inspection_status: PdiInspectionStatus;
-}> {
-  const { data, error } = await createClient().rpc('update_pdi_item_result', {
-    target_item_id: input.itemId,
-    target_status: input.status,
-    target_notes: input.notes ?? null,
-    target_photo_url: input.photoUrl ?? null,
-  });
-  if (error) throw error;
-  return z
-    .object({
-      item: z.object({ id: z.uuid(), status: pdiItemStatusEnum }),
-      inspection_status: pdiInspectionStatusEnum,
-    })
-    .parse(data);
-}
-
-export async function completePdiInspection(input: {
+/**
+ * Saves every changed checklist result in one request, optionally certifying
+ * the inspection in the same transaction. The sheet keeps results as a local
+ * draft, so clicking Pass/Defect costs no network round trip.
+ */
+export async function savePdiInspection(input: {
   inspectionId: string;
+  items: Array<{ id: string; status: PdiItemStatus; notes: string | null }>;
   notes?: string;
-}): Promise<{
-  id: string;
-  delivery_id: string;
-  status: PdiInspectionStatus;
-  completed_at: string;
-}> {
-  const { data, error } = await createClient().rpc('complete_pdi_inspection', {
+  complete: boolean;
+}) {
+  const { data, error } = await createClient().rpc('save_pdi_inspection', {
     target_inspection_id: input.inspectionId,
+    target_items: input.items,
     target_notes: input.notes ?? null,
+    target_complete: input.complete,
   });
   if (error) throw error;
   return z
@@ -112,7 +92,7 @@ export async function completePdiInspection(input: {
       id: z.uuid(),
       delivery_id: z.uuid(),
       status: pdiInspectionStatusEnum,
-      completed_at: z.string(),
+      completed_at: z.string().nullable(),
     })
     .parse(data);
 }

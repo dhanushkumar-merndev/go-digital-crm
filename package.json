@@ -75,6 +75,7 @@
     "@supabase/supabase-js": "latest",
     "@tanstack/react-query": "latest",
     "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.14.13",
     "@trigger.dev/sdk": "4.5.11",
     "class-variance-authority": "latest",
     "clsx": "latest",

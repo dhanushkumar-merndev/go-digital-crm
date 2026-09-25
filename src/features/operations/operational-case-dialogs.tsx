@@ -389,7 +389,7 @@ export function OperationalCaseDetailSheet({
   busy,
   error,
   onUpdate,
-  onChecklist,
+  onChecklistSave,
   onUpload,
   onDownload,
 }: {
@@ -407,9 +407,8 @@ export function OperationalCaseDetailSheet({
     reason: string;
     requestId: string;
   }) => Promise<void>;
-  onChecklist: (
-    item: DeliveryChecklistItem,
-    completed: boolean,
+  onChecklistSave: (
+    items: { id: string; expectedVersion: number; completed: boolean }[],
     requestId: string,
   ) => Promise<void>;
   onUpload: (file: File) => Promise<void>;
@@ -417,6 +416,38 @@ export function OperationalCaseDetailSheet({
 }) {
   const [nextStatus, setNextStatus] = useState(detail?.status ?? '');
   const [pdiOpen, setPdiOpen] = useState(false);
+  // Ticks stay local until Save; the draft holds only items that differ from the server.
+  const [checklistDraft, setChecklistDraft] = useState<Record<string, boolean>>({});
+  const checklistRequestId = useRef(crypto.randomUUID());
+  const checklistChanges = (detail?.checklist ?? []).filter(
+    (item) => item.id in checklistDraft && checklistDraft[item.id] !== item.completed,
+  );
+  const checklistEditable =
+    Boolean(detail) &&
+    canManage &&
+    ['PLANNING', 'CHECKLIST_PENDING'].includes(detail?.status ?? '');
+  function toggleChecklistItem(item: DeliveryChecklistItem) {
+    setChecklistDraft((draft) => {
+      const next = { ...draft };
+      const completed = !(draft[item.id] ?? item.completed);
+      if (completed === item.completed) delete next[item.id];
+      else next[item.id] = completed;
+      return next;
+    });
+  }
+  async function saveChecklist() {
+    if (!checklistChanges.length) return;
+    await onChecklistSave(
+      checklistChanges.map((item) => ({
+        id: item.id,
+        expectedVersion: item.version,
+        completed: checklistDraft[item.id]!,
+      })),
+      checklistRequestId.current,
+    );
+    checklistRequestId.current = crypto.randomUUID();
+    setChecklistDraft({});
+  }
   const requestId = useRef(crypto.randomUUID());
   const choices = detail ? operationalCaseNextStatuses(detail.department, detail.status) : [];
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -476,7 +507,32 @@ export function OperationalCaseDetailSheet({
                   </Button>
                 </div>
 
-                <h3 className="text-sm font-semibold">Delivery checklist</h3>
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold">
+                    Delivery checklist{' '}
+                    <span className="font-normal text-muted-foreground">
+                      {
+                        detail.checklist.filter((item) => checklistDraft[item.id] ?? item.completed)
+                          .length
+                      }
+                      /{detail.checklist.length}
+                    </span>
+                  </h3>
+                  {checklistEditable ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={busy || checklistChanges.length === 0}
+                      onClick={() => void saveChecklist().catch(() => undefined)}
+                    >
+                      {busy && checklistChanges.length > 0 ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : null}
+                      Save checklist
+                      {checklistChanges.length ? ` (${checklistChanges.length})` : ''}
+                    </Button>
+                  ) : null}
+                </div>
                 {detail.checklist.map((item) => (
                   <label
                     key={item.id}
@@ -485,13 +541,9 @@ export function OperationalCaseDetailSheet({
                     <input
                       type="checkbox"
                       className="mt-1 size-4"
-                      checked={item.completed}
-                      disabled={
-                        !canManage ||
-                        busy ||
-                        !['PLANNING', 'CHECKLIST_PENDING'].includes(detail.status)
-                      }
-                      onChange={() => onChecklist(item, !item.completed, crypto.randomUUID())}
+                      checked={checklistDraft[item.id] ?? item.completed}
+                      disabled={!checklistEditable || busy}
+                      onChange={() => toggleChecklistItem(item)}
                     />
                     <span>
                       <span className="font-medium">{item.category}</span>

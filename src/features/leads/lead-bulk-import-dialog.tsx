@@ -397,7 +397,7 @@ export function LeadBulkImportDialog({
           ) : null}
         </div>
 
-        <DialogFooter className="mt-5">
+        <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {importId && activeStatuses.has(status.data?.status ?? 'QUEUED') ? 'Close' : 'Cancel'}
           </Button>

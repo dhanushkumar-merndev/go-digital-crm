@@ -1,4 +1,9 @@
-import { test, expect } from '@playwright/test';
+import { test, expect as baseExpect } from '@playwright/test';
+
+// `next dev` compiles each route and its client chunks on first visit, which
+// can take several seconds per page. Assertions wait long enough for that
+// one-time compile instead of reporting it as a missing CRM record.
+const expect = baseExpect.configure({ timeout: 30_000 });
 
 const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
 const runId = Date.now().toString(36);
@@ -7,11 +12,20 @@ const edgeCustomerName = `Amal edge QA ${runId}`;
 const followupCustomerName = `Amal follow-up QA ${runId}`;
 const cancelledFollowupCustomerName = `Amal cancel follow-up QA ${runId}`;
 const handoffCancellationCustomerName = `Amal transfer cancel QA ${runId}`;
+// Keep the requested Amal mobile on the primary end-to-end lead. Edge fixtures
+// use distinct valid mobiles so repeated runs do not build one enormous phone
+// group and distort the queue/search behavior being tested.
+const edgePhoneSeed = Date.now() % 1_000_000_000;
+const edgePhone = (offset) =>
+  `+91 8${String((edgePhoneSeed + offset) % 1_000_000_000).padStart(9, '0')}`;
 // A full local run owns one fresh lead from Telecaller creation through
 // delivery. Supplying this variable remains useful for focused reruns against
 // an existing lead, but must not be required for the complete suite.
 const salesFlowLeadName = process.env.E2E_SALES_FLOW_LEAD ?? customerName;
-const allocationVin = process.env.E2E_ALLOCATION_VIN ?? 'GDMNEV20260000002';
+// A delivered unit can never be allocated again, so a fixed demo VIN breaks
+// every run after the first. The allocation step selects a currently AVAILABLE
+// unit and records it here for the delivery step of the same serial run.
+let allocationVin = process.env.E2E_ALLOCATION_VIN ?? null;
 
 // CI and ordinary local runs use Playwright's managed Chromium. This opt-in is
 // only for a workstation whose managed browser download is still in progress.
@@ -55,8 +69,14 @@ async function signInAs(page, role) {
     // briefly fail even though the new session is valid; use the gate's own
     // retry rather than misreporting it as a CRM workflow failure.
     const retryAccess = page.getByRole('button', { name: 'Check again' });
-    await expect(retryAccess).toBeVisible({ timeout: 5_000 });
-    await retryAccess.click();
+    if (await retryAccess.isVisible().catch(() => false)) {
+      await retryAccess.click();
+    } else {
+      // The demo login has already written its local session before the
+      // redirect. A local Next dev navigation can occasionally stall at `/`
+      // without rendering the access gate, so re-enter at the intended route.
+      await page.goto(`${baseURL}/${role}/dashboard`, { waitUntil: 'domcontentloaded' });
+    }
     await page.waitForURL(dashboardUrl, { timeout: 30_000 });
   }
 }
@@ -96,12 +116,18 @@ async function selectQuickView(page, label, status) {
 
 async function expectLeadInQuickView(page, leadName, label, status) {
   await selectQuickView(page, label, status);
-  await expect(matchingRows(page, leadName)).toHaveCount(1, { timeout: 15_000 });
+  const search = page.getByPlaceholder('Search by name or mobile…');
+  await search.fill('');
+  await search.fill(leadName);
+  await expect(matchingRows(page, leadName)).toHaveCount(1, { timeout: 30_000 });
 }
 
 async function expectLeadOutsideQuickView(page, leadName, label, status) {
   await selectQuickView(page, label, status);
-  await expect(matchingRows(page, leadName)).toHaveCount(0, { timeout: 15_000 });
+  const search = page.getByPlaceholder('Search by name or mobile…');
+  await search.fill('');
+  await search.fill(leadName);
+  await expect(matchingRows(page, leadName)).toHaveCount(0, { timeout: 30_000 });
 }
 
 async function clickWhatsAppWithoutLeavingCrm(page, whatsapp) {
@@ -122,11 +148,10 @@ async function clickWhatsAppWithoutLeavingCrm(page, whatsapp) {
 }
 
 async function salesLeadId(page, leadName) {
-  await page.goto(
-    `${baseURL}/sales-consultant/my-leads?status=all&q=${encodeURIComponent(leadName)}`,
-  );
+  await page.goto(`${baseURL}/sales-consultant/my-leads?status=all`);
+  await page.getByPlaceholder('Search by name or mobile…').fill(leadName);
   const row = matchingRows(page, leadName).first();
-  await expect(row).toContainText(leadName, { timeout: 15_000 });
+  await expect(row).toContainText(leadName, { timeout: 30_000 });
   const href = await row
     .locator('a[href*="/sales-consultant/leads/"]')
     .first()
@@ -247,7 +272,7 @@ async function uploadCaseProof(page, sheet) {
   }
   try {
     await expect(sheet.getByRole('paragraph').filter({ hasText: 'logo.webp' }).first()).toBeVisible(
-      { timeout: 15_000 },
+      { timeout: 30_000 },
     );
   } catch (error) {
     console.log(`Document upload request failures: ${failedRequests.join('; ') || 'none'}`);
@@ -284,9 +309,25 @@ async function progressCase(sheet, nextStatus, patch = {}) {
       `Operational case transition to ${nextStatus} failed: ${updateResponse.status()} ${JSON.stringify(await updateResponse.json())}`,
     );
   }
-  await expect(sheet.getByRole('combobox').first()).toContainText(statusLabel, {
-    timeout: 25_000,
-  });
+  // The picker shows the chosen value before anything is saved, so it is not
+  // proof of persistence. A successful save refetches the case list and then
+  // closes the sheet itself; wait for both so the next step reopens a fresh
+  // record rather than being closed by that pending close mid-action.
+  // A delivered case correctly leaves Upcoming Deliveries; the delivery test
+  // confirms it on the Delivered page instead.
+  if (nextStatus !== 'DELIVERED') await expectCaseRowStatus(sheet.page(), nextStatus);
+  await expect(sheet.page().getByRole('dialog')).toHaveCount(0, { timeout: 30_000 });
+}
+
+async function expectCaseRowStatus(page, status) {
+  await expect(
+    page
+      .locator('tbody tr')
+      .filter({ hasText: salesFlowLeadName })
+      .first()
+      .locator('td')
+      .filter({ hasText: new RegExp(`^${escapeRegExp(status.replaceAll('_', ' '))}$`) }),
+  ).toHaveCount(1, { timeout: 30_000 });
 }
 
 async function caseStatus(sheet) {
@@ -343,6 +384,7 @@ async function transitionBooking(page, targetStatus) {
 }
 
 async function transitionStockLifecycle(page, targetStatus) {
+  expect(allocationVin, 'Run the allocation step first or set E2E_ALLOCATION_VIN.').toBeTruthy();
   await signInAs(page, 'inventory');
   await page.goto(`${baseURL}/inventory/vehicle-inventory?q=${encodeURIComponent(allocationVin)}`);
   const row = page.locator('tbody tr').filter({ hasText: allocationVin }).first();
@@ -405,27 +447,43 @@ async function completeDeliveryChecklist(sheet) {
   const checklist = sheet.locator('input[type="checkbox"]');
   const total = await checklist.count();
   expect(total, 'A delivery must have its generated completion checklist.').toBeGreaterThan(0);
-  while ((await sheet.locator('input[type="checkbox"]:checked').count()) < total) {
-    const completed = await sheet.locator('input[type="checkbox"]:checked').count();
-    const openItem = sheet.locator('input[type="checkbox"]:not(:checked)').first();
-    await expect(openItem).toBeVisible({ timeout: 25_000 });
-    const mutation = sheet
-      .page()
-      .waitForResponse((response) => response.url().includes('/rpc/set_delivery_checklist_item'), {
-        timeout: 30_000,
-      });
-    await openItem.click();
-    const response = await mutation;
-    if (!response.ok()) {
-      throw new Error(
-        `Delivery checklist update failed: ${response.status()} ${JSON.stringify(await response.json())}`,
-      );
+  const page = sheet.page();
+  // Ticks are a local draft: no request per item, one save for the whole sheet.
+  const saves = [];
+  const onRequest = (request) => {
+    if (/\/rpc\/(save_delivery_checklist|set_delivery_checklist_item)/.test(request.url())) {
+      saves.push(request.url());
     }
-    await expect
-      .poll(async () => await sheet.locator('input[type="checkbox"]:checked').count(), {
-        timeout: 25_000,
-      })
-      .toBe(completed + 1);
+  };
+  page.on('request', onRequest);
+  try {
+    const open = sheet.locator('input[type="checkbox"]:not(:checked)');
+    while ((await open.count()) > 0) await open.first().click();
+    await expect(sheet.locator('input[type="checkbox"]:checked')).toHaveCount(total);
+    expect(saves, 'Ticking checklist items must not send requests.').toHaveLength(0);
+
+    const save = sheet.getByRole('button', { name: /^Save checklist/ });
+    if (await save.isEnabled()) {
+      const response = page.waitForResponse(
+        (candidate) => candidate.url().includes('/rpc/save_delivery_checklist'),
+        { timeout: 30_000 },
+      );
+      await save.click();
+      const saved = await response;
+      if (!saved.ok()) {
+        throw new Error(
+          `Delivery checklist save failed: ${saved.status()} ${JSON.stringify(await saved.json())}`,
+        );
+      }
+      await expect(save).toBeDisabled({ timeout: 25_000 });
+      expect(saves.filter((url) => url.includes('save_delivery_checklist'))).toHaveLength(1);
+      expect(saves.filter((url) => url.includes('set_delivery_checklist_item'))).toHaveLength(0);
+    }
+    await expect(sheet.locator('input[type="checkbox"]:checked')).toHaveCount(total, {
+      timeout: 25_000,
+    });
+  } finally {
+    page.off('request', onRequest);
   }
 }
 
@@ -444,6 +502,14 @@ async function completeDeliveryPdi(page, sheet) {
     await expect(pdi).toBeHidden({ timeout: 25_000 });
     return;
   }
+  // Pass clicks are a local draft; the only PDI write is the final certify.
+  const pdiWrites = [];
+  const onPdiRequest = (request) => {
+    if (/\/rpc\/(update_pdi_item_result|save_pdi_inspection)/.test(request.url())) {
+      pdiWrites.push(request.url());
+    }
+  };
+  page.on('request', onPdiRequest);
   const passes = pdi.getByRole('button', { name: 'Pass', exact: true });
   const pointCount = await passes.count();
   expect(pointCount, 'The PDI must load its inspection points.').toBeGreaterThan(0);
@@ -458,9 +524,10 @@ async function completeDeliveryPdi(page, sheet) {
   await expect(notes).toBeVisible({ timeout: 25_000 });
   await notes.fill('Browser QA PDI completed without defects.');
   const certification = page.waitForResponse(
-    (response) => response.url().includes('/rpc/complete_pdi_inspection'),
+    (response) => response.url().includes('/rpc/save_pdi_inspection'),
     { timeout: 30_000 },
   );
+  expect(pdiWrites, 'Marking PDI points must not call the server per click.').toHaveLength(0);
   await pdi.getByRole('button', { name: 'Sign & Certify PDI' }).click();
   const certificationResponse = await certification;
   if (!certificationResponse.ok()) {
@@ -469,6 +536,8 @@ async function completeDeliveryPdi(page, sheet) {
     );
   }
   await expect(pdi).toBeHidden({ timeout: 25_000 });
+  page.off('request', onPdiRequest);
+  expect(pdiWrites, 'Certifying the PDI must be a single request.').toHaveLength(1);
 }
 
 async function selectDeliverySignature(page, sheet) {
@@ -481,6 +550,10 @@ async function selectDeliverySignature(page, sheet) {
 }
 
 test.describe('manual lead: Telecaller to Sales', () => {
+  // Each step continues the lead created by the first test. A failure must stop
+  // the chain: Playwright would otherwise restart the worker, generate a new
+  // runId, and report every later step against a lead that was never created.
+  test.describe.configure({ mode: 'serial' });
   // A cold scoped-case query can take tens of seconds after each persisted
   // workflow transition. Finance/RTO legitimately reopen a case several
   // times, so the suite-level limit must cover that audited work rather than
@@ -516,6 +589,10 @@ test.describe('manual lead: Telecaller to Sales', () => {
     );
     await expectLeadOutsideQuickView(page, customerName, 'Lost', 'lost');
     await selectQuickView(page, 'All', 'all');
+    // Quick-view changes issue independent server queries. Reapply the
+    // page-local search before using row actions so this primary lead is read
+    // from the refreshed All result rather than a stale tab response.
+    await searchForLead(page);
 
     // Pending is time-derived (24 hours without contact), so it is asserted by
     // its absence on a just-created lead rather than faking time in production.
@@ -535,7 +612,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     // The contact RPC invalidates the server-paginated lead list. A request
     // already in flight can return the pre-contact row once, so wait for the
     // subsequent fresh result rather than treating that normal race as failure.
-    await expect(row.getByText('Contacted', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(row.getByText('Contacted', { exact: true })).toBeVisible({ timeout: 30_000 });
     await expectLeadInQuickView(page, customerName, 'Contacted', 'contacted');
     await expectLeadOutsideQuickView(page, customerName, 'New', 'new-today');
     await expectLeadOutsideQuickView(page, customerName, 'Follow-up', 'follow-up');
@@ -560,9 +637,11 @@ test.describe('manual lead: Telecaller to Sales', () => {
     if (await decisionReason.isVisible().catch(() => false)) {
       await decisionReason.fill('This is a separate enquiry recorded during browser QA.');
     }
-    await customerMatch.getByRole('button', { name: 'Create and link customer' }).click();
+    await Promise.all([
+      page.waitForURL(new RegExp(`/${'telecaller'}/customers/`)),
+      customerMatch.getByRole('button', { name: 'Create and link customer' }).click(),
+    ]);
     await expect(customerMatch).toBeHidden();
-    await page.waitForURL(new RegExp(`/${'telecaller'}/customers/`));
 
     await page.goto(`${baseURL}/telecaller/my-leads`);
     await searchForLead(page);
@@ -593,7 +672,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     const salesWhatsapp = salesRow.getByLabel(`WhatsApp ${customerName}`);
     await clickWhatsAppWithoutLeavingCrm(page, salesWhatsapp);
     await expect(salesRow.getByText('Sales Contacted', { exact: true })).toBeVisible({
-      timeout: 15_000,
+      timeout: 30_000,
     });
     await salesRow.getByLabel(`Schedule a follow-up for ${customerName}`).click();
     await page.getByRole('menuitem', { name: 'Customer Callback' }).click();
@@ -601,7 +680,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await followup.locator('#followups-scheduled-at').fill(futureDateTimeInput());
     await followup.getByRole('button', { name: 'Save' }).click();
     await expect(followup).toBeHidden();
-    await expect(salesRow.getByText('Follow-up', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(salesRow.getByText('Follow-up', { exact: true })).toBeVisible({ timeout: 30_000 });
   });
 
   test('enforces Customer linking before Sales and prevents a Lost lead from handoff', async ({
@@ -611,8 +690,16 @@ test.describe('manual lead: Telecaller to Sales', () => {
     const createDialog = await openManualLeadDialog(page);
     await expect(createDialog).toBeVisible();
     await createDialog.getByLabel('Customer name').fill(edgeCustomerName);
-    await createDialog.getByLabel('Phone').fill('+91 85939 39234');
+    await createDialog.getByLabel('Phone').fill(edgePhone(1));
+    const createResponse = page.waitForResponse(
+      (response) => response.url().includes('/rpc/create_lead'),
+      { timeout: 30_000 },
+    );
     await createDialog.getByRole('button', { name: 'Create lead' }).click();
+    const response = await createResponse;
+    if (!response.ok()) {
+      throw new Error(`Manual lead creation failed: ${response.status()} ${await response.text()}`);
+    }
     await expect(createDialog).toBeHidden({ timeout: 25_000 });
 
     const search = page.getByPlaceholder('Search by name or mobile…');
@@ -628,7 +715,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await lostDialog.getByLabel('Change reason').fill('Browser QA negative-path verification');
     await lostDialog.getByRole('button', { name: 'Mark as Lost' }).click();
     await expect(lostDialog).toBeHidden();
-    await expect(row.getByText('Lost', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(row.getByText('Lost', { exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(transfer).toBeDisabled();
 
     // Lost is terminal: it must leave every active Telecaller queue, including
@@ -649,7 +736,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await signInAs(page, 'telecaller');
     const createDialog = await openManualLeadDialog(page);
     await createDialog.getByLabel('Customer name').fill(followupCustomerName);
-    await createDialog.getByLabel('Phone').fill('+91 85939 39234');
+    await createDialog.getByLabel('Phone').fill(edgePhone(2));
     await createDialog.getByRole('button', { name: 'Create lead' }).click();
     await expect(createDialog).toBeHidden({ timeout: 25_000 });
 
@@ -658,7 +745,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     const row = matchingRows(page, followupCustomerName).first();
     await expect(row.getByText('New', { exact: true })).toBeVisible();
     await clickWhatsAppWithoutLeavingCrm(page, row.getByLabel(`WhatsApp ${followupCustomerName}`));
-    await expect(row.getByText('Contacted', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(row.getByText('Contacted', { exact: true })).toBeVisible({ timeout: 30_000 });
 
     const followupTrigger = row.getByLabel(`Schedule a follow-up for ${followupCustomerName}`);
     await expect(followupTrigger).toBeVisible();
@@ -688,8 +775,16 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await signInAs(page, 'telecaller');
     const createDialog = await openManualLeadDialog(page);
     await createDialog.getByLabel('Customer name').fill(cancelledFollowupCustomerName);
-    await createDialog.getByLabel('Phone').fill('+91 85939 39234');
+    await createDialog.getByLabel('Phone').fill(edgePhone(3));
+    const createResponse = page.waitForResponse(
+      (response) => response.url().includes('/rpc/create_lead'),
+      { timeout: 30_000 },
+    );
     await createDialog.getByRole('button', { name: 'Create lead' }).click();
+    const response = await createResponse;
+    if (!response.ok()) {
+      throw new Error(`Manual lead creation failed: ${response.status()} ${await response.text()}`);
+    }
     await expect(createDialog).toBeHidden({ timeout: 25_000 });
 
     await page.getByPlaceholder('Search by name or mobile…').fill(cancelledFollowupCustomerName);
@@ -698,7 +793,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
       page,
       row.getByLabel(`WhatsApp ${cancelledFollowupCustomerName}`),
     );
-    await expect(row.getByText('Contacted', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(row.getByText('Contacted', { exact: true })).toBeVisible({ timeout: 30_000 });
     // Handoff requires a Customer link independently of follow-up state. Link
     // first so this test exercises the pending-follow-up guard rather than the
     // earlier Customer-ownership guard.
@@ -712,8 +807,10 @@ test.describe('manual lead: Telecaller to Sales', () => {
     if (await decisionReason.isVisible().catch(() => false)) {
       await decisionReason.fill('Separate browser QA customer for follow-up cancellation.');
     }
-    await customerMatch.getByRole('button', { name: 'Create and link customer' }).click();
-    await page.waitForURL(/\/telecaller\/customers\//);
+    await Promise.all([
+      page.waitForURL(/\/telecaller\/customers\//),
+      customerMatch.getByRole('button', { name: 'Create and link customer' }).click(),
+    ]);
     await page.goto(`${baseURL}/telecaller/my-leads`);
     await page.getByPlaceholder('Search by name or mobile…').fill(cancelledFollowupCustomerName);
     const linkedRow = matchingRows(page, cancelledFollowupCustomerName).first();
@@ -727,14 +824,27 @@ test.describe('manual lead: Telecaller to Sales', () => {
 
     await selectQuickView(page, 'All', 'all');
     const allRow = matchingRows(page, cancelledFollowupCustomerName).first();
-    await allRow.getByLabel(`Transfer ${cancelledFollowupCustomerName} to Sales`).click();
-    const pending = page.getByRole('dialog', { name: 'Follow-up still pending' });
-    await expect(pending).toBeVisible();
-    await pending.getByRole('button', { name: 'Cancel follow-up' }).click();
+    await expect(
+      allRow.getByLabel(`Transfer ${cancelledFollowupCustomerName} to Sales`),
+    ).toBeDisabled();
+    // Resolve the original work item in the Follow-ups workspace, where the
+    // actual OPEN row and its optimistic version are authoritative.
+    await Promise.all([
+      page.waitForURL(/\/telecaller\/follow-ups\?status=all&focus=/),
+      allRow.getByLabel(`Open follow-ups for ${cancelledFollowupCustomerName}`).click(),
+    ]);
+    await page
+      .getByPlaceholder('Search customer, phone, lead or work ID…')
+      .fill(cancelledFollowupCustomerName);
+    const followupRow = matchingRows(page, cancelledFollowupCustomerName).first();
+    await expect(followupRow).toContainText(cancelledFollowupCustomerName, { timeout: 25_000 });
+    await followupRow.getByRole('button', { name: 'Cancel' }).click();
     const cancel = page.getByRole('dialog', { name: 'Cancel follow-up' });
     await cancel.locator('#cancel-work-note').fill('Customer requested a later call.');
     await cancel.getByRole('button', { name: 'Confirm cancellation' }).click();
     await expect(cancel).toBeHidden({ timeout: 25_000 });
+    await page.goto(`${baseURL}/telecaller/my-leads`);
+    await page.getByPlaceholder('Search by name or mobile…').fill(cancelledFollowupCustomerName);
     await expectLeadInQuickView(page, cancelledFollowupCustomerName, 'Contacted', 'contacted');
     await expectLeadOutsideQuickView(page, cancelledFollowupCustomerName, 'Follow-up', 'follow-up');
   });
@@ -745,7 +855,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await signInAs(page, 'telecaller');
     const createDialog = await openManualLeadDialog(page);
     await createDialog.getByLabel('Customer name').fill(handoffCancellationCustomerName);
-    await createDialog.getByLabel('Phone').fill('+91 85939 39234');
+    await createDialog.getByLabel('Phone').fill(edgePhone(4));
     await createDialog.getByRole('button', { name: 'Create lead' }).click();
     await expect(createDialog).toBeHidden({ timeout: 25_000 });
     await page.getByPlaceholder('Search by name or mobile…').fill(handoffCancellationCustomerName);
@@ -754,14 +864,21 @@ test.describe('manual lead: Telecaller to Sales', () => {
       page,
       row.getByLabel(`WhatsApp ${handoffCancellationCustomerName}`),
     );
+    await expect(row.getByText('Contacted', { exact: true })).toBeVisible({ timeout: 30_000 });
     await row
       .getByLabel(`Review possible customer match for ${handoffCancellationCustomerName}`)
       .click();
     const customerMatch = page.getByRole('dialog', {
       name: /Create customer|Review possible customer match/,
     });
-    await customerMatch.getByRole('button', { name: 'Create and link customer' }).click();
-    await page.waitForURL(/\/telecaller\/customers\//);
+    const decisionReason = customerMatch.getByLabel(/Decision reason/);
+    if (await decisionReason.isVisible().catch(() => false)) {
+      await decisionReason.fill('Separate browser QA customer for transfer cancellation.');
+    }
+    await Promise.all([
+      page.waitForURL(/\/telecaller\/customers\//),
+      customerMatch.getByRole('button', { name: 'Create and link customer' }).click(),
+    ]);
     await page.goto(`${baseURL}/telecaller/my-leads`);
     await page.getByPlaceholder('Search by name or mobile…').fill(handoffCancellationCustomerName);
     const linkedRow = matchingRows(page, handoffCancellationCustomerName).first();
@@ -778,7 +895,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await handoff.getByRole('button', { name: 'Transfer to Sales' }).click();
     await expect(handoff).toBeHidden({ timeout: 25_000 });
     await expect(linkedRow.getByText('Transferred to Sales', { exact: true })).toBeVisible({
-      timeout: 15_000,
+      timeout: 30_000,
     });
     await linkedRow.getByLabel(`Cancel transfer for ${handoffCancellationCustomerName}`).click();
     const reverse = page.getByRole('dialog', { name: 'Cancel transfer to Sales?' });
@@ -788,24 +905,21 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await reverse.getByRole('button', { name: 'Cancel transfer' }).click();
     await expect(reverse).toBeHidden({ timeout: 25_000 });
     await expect(linkedRow.getByText('Contacted', { exact: true })).toBeVisible({
-      timeout: 15_000,
+      timeout: 30_000,
     });
   });
 
   test('Sales Consultant contacts and schedules a follow-up for an existing Sales lead', async ({
     page,
   }) => {
-    test.skip(
-      !process.env.E2E_SALES_FLOW_LEAD,
-      'This focused existing-lead check runs only when E2E_SALES_FLOW_LEAD is supplied.',
-    );
+    test.skip(!salesFlowLeadName, 'Set E2E_SALES_FLOW_LEAD to continue an existing Sales lead.');
     await signInAs(page, 'sales-consultant');
     await page.goto(`${baseURL}/sales-consultant/my-leads?status=all`);
     await page.getByPlaceholder('Search by name or mobile…').fill(salesFlowLeadName);
     const row = page.locator('tbody tr').filter({ hasText: salesFlowLeadName }).first();
-    await expect(
-      row.getByText(/Transferred to Sales|Sales Contacted/, { exact: true }),
-    ).toBeVisible();
+    // The chain's own lead already carries the handoff's Sales follow-up, so
+    // its stage reads the derived "Follow-up" rather than the lifecycle value.
+    await expect(row.getByText(/^(Transferred to Sales|Sales Contacted|Follow-up)$/)).toBeVisible();
 
     // The Sales-contact event was recorded in the earlier browser run for this
     // persisted lead. Keep the contact affordance visible and advance to the
@@ -815,10 +929,24 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await row.getByLabel(`Schedule a follow-up for ${salesFlowLeadName}`).click();
     await page.getByRole('menuitem', { name: 'Customer Callback' }).click();
     const followup = page.getByRole('dialog', { name: 'Schedule follow-up' });
-    await followup.locator('#followups-scheduled-at').fill(futureDateTimeInput());
-    await followup.getByRole('button', { name: 'Save' }).click();
-    await expect(followup).toBeHidden({ timeout: 25_000 });
-    await expect(row.getByText('Follow-up', { exact: true })).toBeVisible({ timeout: 15_000 });
+    const pending = page.getByRole('dialog', { name: 'Follow-up still pending' });
+    await expect(followup.or(pending)).toBeVisible({ timeout: 25_000 });
+
+    if (await pending.isVisible()) {
+      // A lead owes at most one open follow-up: scheduling another must first
+      // resolve the handoff's, so the guard lists it and leaves it untouched on Close.
+      await expect(pending).toContainText('Customer Callback');
+      await expect(pending.getByRole('button', { name: 'Complete follow-up' })).toBeEnabled();
+      await expect(pending.getByRole('button', { name: 'Cancel follow-up' })).toBeEnabled();
+      await pending.getByRole('button', { name: 'Close' }).click();
+      await expect(pending).toBeHidden();
+      await expect(followup).toBeHidden();
+    } else {
+      await followup.locator('#followups-scheduled-at').fill(futureDateTimeInput());
+      await followup.getByRole('button', { name: 'Save' }).click();
+      await expect(followup).toBeHidden({ timeout: 25_000 });
+    }
+    await expect(row.getByText('Follow-up', { exact: true })).toBeVisible({ timeout: 30_000 });
   });
 
   test('Sales Consultant completes a follow-up by scheduling an appointment', async ({ page }) => {
@@ -828,7 +956,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
       `${baseURL}/sales-consultant/follow-ups?status=all&q=${encodeURIComponent(salesFlowLeadName)}`,
     );
     const row = matchingRows(page, salesFlowLeadName).first();
-    await expect(row).toContainText(salesFlowLeadName, { timeout: 15_000 });
+    await expect(row).toContainText(salesFlowLeadName, { timeout: 30_000 });
     await row.getByRole('button', { name: 'Complete' }).click();
 
     const completeFollowup = page.getByRole('dialog', { name: 'Complete follow-up' });
@@ -850,7 +978,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
       `${baseURL}/sales-consultant/appointments?q=${encodeURIComponent(salesFlowLeadName)}`,
     );
     await expect(matchingRows(page, salesFlowLeadName).first()).toContainText(salesFlowLeadName, {
-      timeout: 15_000,
+      timeout: 30_000,
     });
   });
 
@@ -877,11 +1005,11 @@ test.describe('manual lead: Telecaller to Sales', () => {
     );
 
     const vehiclePicker = page.getByRole('combobox', { name: 'Available test-drive vehicle' });
-    await expect(vehiclePicker).toBeEnabled({ timeout: 15_000 });
+    await expect(vehiclePicker).toBeEnabled({ timeout: 30_000 });
     await expect(vehiclePicker.locator('svg.animate-spin')).toHaveCount(0, { timeout: 30_000 });
     await vehiclePicker.click();
     const vehicleOption = page.getByRole('option').first();
-    await expect(vehicleOption).toBeVisible({ timeout: 15_000 });
+    await expect(vehicleOption).toBeVisible({ timeout: 30_000 });
     await vehicleOption.click();
     await page.locator('#test-drive-registration-number').fill(testDriveRegistration);
     await page.locator('input[type="datetime-local"]').fill(futureDateTimeInput(72));
@@ -940,16 +1068,19 @@ test.describe('manual lead: Telecaller to Sales', () => {
 
     const customer = page.getByRole('combobox', { name: 'Customer opportunity' });
     await expect(customer).toHaveText(salesFlowLeadName, { timeout: 35_000 });
-    // The customer picker is the first combobox in the quotation card; Model
-    // is the next one. Its visible label includes the required asterisk, so an
-    // exact text lookup for "Model" would incorrectly fall through to a field
-    // that is not rendered when stock choices exist.
-    const modelPicker = page.getByRole('combobox').nth(1);
-    await expect(modelPicker).toBeVisible();
-    await modelPicker.click();
-    const modelOption = page.getByRole('option').first();
-    await expect(modelOption).toBeVisible({ timeout: 30_000 });
-    await modelOption.click();
+    // Quotations support both a manual model (when stock is unavailable) and
+    // stock-backed Model/Variant/Colour selectors. Exercise whichever branch
+    // the current branch inventory exposes.
+    const manualModel = page.getByRole('textbox', { name: 'Enter model' });
+    if (await manualModel.isVisible().catch(() => false)) {
+      await manualModel.fill('Browser QA Sedan');
+    } else {
+      const modelPicker = page.getByRole('combobox').nth(1);
+      await modelPicker.click();
+      const modelOption = page.getByRole('option').first();
+      await expect(modelOption).toBeVisible({ timeout: 30_000 });
+      await modelOption.click();
+    }
     await page.locator('#quotation-vehicle').fill('1500000');
     await page
       .locator('#quotation-validity')
@@ -1049,7 +1180,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
         disbursed_at: futureDateTimeInput(2),
       });
     }
-    await expect(finance.getByRole('combobox').first()).toContainText('Disbursed');
+    await expectCaseRowStatus(page, 'DISBURSED');
   });
 
   test('Insurance Manager completes the policy case with the required proof', async ({ page }) => {
@@ -1075,7 +1206,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
         policy_end: new Date(Date.now() + 365 * 24 * 60 * 60_000).toISOString().slice(0, 10),
       });
     }
-    await expect(insurance.getByRole('combobox').first()).toContainText('Policy Issued');
+    await expectCaseRowStatus(page, 'POLICY_ISSUED');
   });
 
   test('RTO Manager completes registration with the required proof', async ({ page }) => {
@@ -1105,7 +1236,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
         completed_at: futureDateTimeInput(2),
       });
     }
-    await expect(rto.getByRole('combobox').first()).toContainText('Registered');
+    await expectCaseRowStatus(page, 'REGISTERED');
   });
 
   test('Sales and Inventory allocate a VIN to the confirmed booking', async ({ page }) => {
@@ -1131,40 +1262,67 @@ test.describe('manual lead: Telecaller to Sales', () => {
 
     await signInAs(page, 'inventory');
     await page.goto(`${baseURL}/inventory/vehicle-inventory?status=AVAILABLE`);
-    await page
-      .getByPlaceholder('Search VIN, chassis, engine, model, variant or colour…')
-      .fill(allocationVin);
-    const availableRow = page
+    const availableRows = page
       .locator('tbody tr')
-      .filter({ has: page.getByText('AVAILABLE', { exact: true }) })
-      .first();
-    await expect(availableRow).toContainText(allocationVin, { timeout: 25_000 });
-    await availableRow.getByRole('button', { name: 'Open' }).click();
-    const stock = page.locator('[role="dialog"]').last();
-    await expect(stock.getByText('Stock unit detail', { exact: true })).toBeVisible({
-      timeout: 25_000,
-    });
-    const allocationSearch = stock.getByPlaceholder('Search booking or customer…');
-    await allocationSearch.fill(salesFlowLeadName);
-    const allocationForm = allocationSearch.locator('xpath=ancestor::form');
-    await allocationForm.getByRole('combobox').first().click();
-    const bookingOption = page
-      .locator('[role="option"]')
-      .filter({ hasText: salesFlowLeadName })
-      .first();
-    await expect(bookingOption).toBeVisible({ timeout: 25_000 });
-    await bookingOption.click();
-    const allocationResponse = page.waitForResponse(
-      (response) => response.url().includes('/rpc/allocate_stock_unit'),
-      { timeout: 30_000 },
-    );
-    await allocationForm.getByRole('button', { name: 'Allocate stock' }).click();
-    const allocationResult = await allocationResponse;
-    if (!allocationResult.ok()) {
-      throw new Error(
-        `Inventory allocation failed: ${JSON.stringify(await allocationResult.json())}`,
+      .filter({ has: page.getByText('AVAILABLE', { exact: true }) });
+    await expect(availableRows.first()).toBeVisible({ timeout: 25_000 });
+    // The first cell renders the VIN above the chassis number.
+    const candidateVins = allocationVin
+      ? [allocationVin]
+      : (await availableRows.locator('td:first-child p:first-child').allTextContents()).map((vin) =>
+          vin.trim(),
+        );
+    expect(candidateVins.length, 'Inventory must list an AVAILABLE unit.').toBeGreaterThan(0);
+
+    // An AVAILABLE unit that still has a scheduled or active test drive is
+    // protected from sale. The CRM must refuse it with an explanation, and the
+    // desk then allocates the next free unit instead.
+    let stock;
+    for (const vin of candidateVins) {
+      await page
+        .getByPlaceholder('Search VIN, chassis, engine, model, variant or colour…')
+        .fill(vin);
+      const row = availableRows.filter({ hasText: vin }).first();
+      await expect(row).toContainText(vin, { timeout: 25_000 });
+      await row.getByRole('button', { name: 'Open' }).click();
+      stock = page.locator('[role="dialog"]').last();
+      await expect(stock.getByText('Stock unit detail', { exact: true })).toBeVisible({
+        timeout: 25_000,
+      });
+      const allocationSearch = stock.getByPlaceholder('Search booking or customer…');
+      await allocationSearch.fill(salesFlowLeadName);
+      const allocationForm = allocationSearch.locator('xpath=ancestor::form');
+      await allocationForm.getByRole('combobox').first().click();
+      const bookingOption = page
+        .locator('[role="option"]')
+        .filter({ hasText: salesFlowLeadName })
+        .first();
+      await expect(bookingOption).toBeVisible({ timeout: 25_000 });
+      await bookingOption.click();
+      const allocationResponse = page.waitForResponse(
+        (response) => response.url().includes('/rpc/allocate_stock_unit'),
+        { timeout: 30_000 },
       );
+      await allocationForm.getByRole('button', { name: 'Allocate stock' }).click();
+      const allocationResult = await allocationResponse;
+      if (allocationResult.ok()) {
+        allocationVin = vin;
+        break;
+      }
+      const failure = await allocationResult.json();
+      if (failure?.message !== 'TEST_DRIVE_PREVENTS_STOCK_ALLOCATION') {
+        throw new Error(`Inventory allocation failed: ${JSON.stringify(failure)}`);
+      }
+      await expect(
+        stock.getByText(/has a scheduled or active test drive/, { exact: false }),
+      ).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
     }
+    expect(
+      allocationVin,
+      'An AVAILABLE unit free of test drives must be allocatable.',
+    ).toBeTruthy();
     await expect(stock.getByText('ALLOCATED', { exact: true })).toBeVisible({ timeout: 25_000 });
 
     await signInAs(page, 'sales-consultant');
@@ -1199,6 +1357,11 @@ test.describe('manual lead: Telecaller to Sales', () => {
       await completeDeliveryPdi(page, delivery);
       await completeDeliveryChecklist(delivery);
       delivery = await openOperationalCase(page, 'Delivery');
+      // The checklist save moves a Planning case to Checklist Pending; the sheet can
+      // first show the cached pre-save status, so wait for the refetched one.
+      await expect(delivery.getByRole('combobox').first()).not.toContainText('Planning', {
+        timeout: 30_000,
+      });
       status = await caseStatus(delivery);
     }
     if (status === 'Checklist Pending') {
@@ -1249,7 +1412,8 @@ test.describe('manual lead: Telecaller to Sales', () => {
       scheduled_at: scheduledAt,
       delivered_at: futureDateTimeInput(72),
     });
-    await expect(delivery.getByRole('combobox').first()).toContainText('Delivered');
+    await page.goto(`${baseURL}/delivery/delivered?q=${encodeURIComponent(salesFlowLeadName)}`);
+    await expectCaseRowStatus(page, 'DELIVERED');
 
     await transitionBooking(page, 'DELIVERED');
   });

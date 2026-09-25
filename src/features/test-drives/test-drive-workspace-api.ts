@@ -189,10 +189,15 @@ const leadOptionSchema = z.object({
 });
 export type TestDriveLeadOption = z.infer<typeof leadOptionSchema>;
 
-export async function fetchTestDriveLeadOptions(search = '', signal?: AbortSignal) {
+export async function fetchTestDriveLeadOptions(
+  search = '',
+  signal?: AbortSignal,
+  page: { offset: number; limit: number } = { offset: 0, limit: 25 },
+) {
   const request = createClient().rpc('get_test_drive_lead_options', {
     target_search: search.trim().slice(0, 160),
-    target_limit: 25,
+    target_limit: page.limit,
+    target_offset: page.offset,
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import {
   useWorkspaceSession,
@@ -28,13 +28,12 @@ import {
 import { SearchSelect } from '@/components/ui/search-select';
 import { Textarea } from '@/components/ui/textarea';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
-import { optionQueryOptions } from '@/lib/query/option-query';
+import { flattenOptionPages, optionPagesQueryOptions } from '@/lib/query/option-query';
 import {
   cancelTask,
   completeTask,
   createTask,
   fetchTaskLeadOptions,
-  TASK_LEAD_OPTION_LIMIT,
   updateTask,
   type TaskRecord,
 } from './task-workspace-api';
@@ -75,16 +74,17 @@ export function TaskFormDialog({
   const [dueAt, setDueAt] = useState(toLocalDateTime(record?.due_at ?? null));
   const requestId = useRef<string | null>(null);
   const debouncedSearch = useDebouncedValue(leadSearch, 300);
-  const options = useQuery(
-    optionQueryOptions({
-      queryKey: ['task-lead-options', ...queryScope, debouncedSearch],
-      queryFn: ({ signal }) => fetchTaskLeadOptions(debouncedSearch, signal),
+  const options = useInfiniteQuery(
+    optionPagesQueryOptions({
+      queryKey: ['task-lead-options', ...queryScope, 'pages', debouncedSearch],
+      fetchRows: (offset, limit, signal) =>
+        fetchTaskLeadOptions(debouncedSearch, signal, { offset, limit }),
       // A lead-row task shortcut supplies the exact lead. Do not load the
       // general picker or let the user accidentally switch that customer.
       enabled: open && !record && !initialLead,
     }),
   );
-  const leadOptions = options.data ?? [];
+  const leadOptions = flattenOptionPages(options.data) ?? [];
   const mutation = useMutation({
     mutationFn: async () => {
       requestId.current ??= globalThis.crypto.randomUUID();
@@ -188,6 +188,9 @@ export function TaskFormDialog({
                   }))}
                   isPending={options.isPending}
                   isFetching={options.isFetching}
+                  hasMore={options.hasNextPage}
+                  onLoadMore={() => void options.fetchNextPage()}
+                  isLoadingMore={options.isFetchingNextPage}
                   isError={options.isError}
                   placeholder="Select opportunity"
                   searchPlaceholder="Search customer, phone, model or lead ID"
@@ -200,10 +203,10 @@ export function TaskFormDialog({
                   }}
                 />
                 <p className="text-xs text-muted-foreground" aria-live="polite">
-                  {options.isFetching
+                  {options.isFetching && !options.isFetchingNextPage
                     ? 'Searching…'
-                    : leadOptions.length === TASK_LEAD_OPTION_LIMIT
-                      ? `Showing first ${TASK_LEAD_OPTION_LIMIT} matches — keep typing to narrow`
+                    : options.hasNextPage
+                      ? `Showing ${leadOptions.length} matches — keep typing to narrow or see more`
                       : `${leadOptions.length} match${leadOptions.length === 1 ? '' : 'es'}`}
                 </p>
                 {options.isError ? (
@@ -220,7 +223,7 @@ export function TaskFormDialog({
                       </Button>
                     </AlertDescription>
                   </Alert>
-                ) : !options.isPending && options.data?.length === 0 ? (
+                ) : !options.isPending && leadOptions.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
                     No authorized active opportunities match this search.
                   </p>

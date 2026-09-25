@@ -115,7 +115,7 @@ function SidebarContent({
                   : 'Contact your dealership Client Admin and share the page name and what you were trying to do. Platform support can access tenant data only through an approved support session.'}
               </DialogDescription>
             </DialogHeader>
-            <DialogFooter className="mt-5">
+            <DialogFooter>
               <DialogClose asChild>
                 <Button type="button" variant="outline">
                   Close

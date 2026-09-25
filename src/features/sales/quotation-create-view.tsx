@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
   Box,
@@ -31,7 +31,11 @@ import {
 } from '@/components/ui/select';
 import { SearchSelect } from '@/components/ui/search-select';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
-import { optionQueryOptions } from '@/lib/query/option-query';
+import {
+  flattenOptionPages,
+  optionPagesQueryOptions,
+  optionQueryOptions,
+} from '@/lib/query/option-query';
 import {
   fetchQuotationLeadOptions,
   fetchQuotationVariantPricing,
@@ -162,13 +166,15 @@ export function QuotationCreateView({
   const [prices, setPrices] = useState<PriceState>(() => initialPricing(record));
   const requestId = useRef<string | null>(null);
   const debounced = useDebouncedValue(search, 300);
-  const leads = useQuery(
-    optionQueryOptions({
-      queryKey: ['quotation-lead-options', ...queryScope, debounced],
-      queryFn: ({ signal }) => fetchQuotationLeadOptions(debounced, signal),
+  const leads = useInfiniteQuery(
+    optionPagesQueryOptions({
+      queryKey: ['quotation-lead-options', ...queryScope, 'pages', debounced],
+      fetchRows: (offset, limit, signal) =>
+        fetchQuotationLeadOptions(debounced, signal, { offset, limit }),
       enabled: !record && isBrowsingLeads,
     }),
   );
+  const leadsRows = flattenOptionPages(leads.data);
   // The chosen customer decides the branch, and the branch decides which
   // vehicles can be quoted. Deriving it from the current search page meant a
   // second search emptied the vehicle list under a customer already chosen.
@@ -184,9 +190,9 @@ export function QuotationCreateView({
     ? (seededLead.data?.find((item) => item.lead_id === initialLeadId) ?? null)
     : null;
   const selected =
-    leads.data?.find((item) => item.lead_id === leadId) ??
+    leadsRows?.find((item) => item.lead_id === leadId) ??
     (pickedLead?.lead_id === leadId ? pickedLead : undefined) ??
-    (leadId === initialLeadId ? seededMatch ?? undefined : undefined);
+    (leadId === initialLeadId ? (seededMatch ?? undefined) : undefined);
   const branchId = selected?.branch_id ?? record?.branch_id ?? '';
   const vehicleOptions = useQuery(
     optionQueryOptions({
@@ -322,7 +328,7 @@ export function QuotationCreateView({
   };
   const chooseLead = (value: string) => {
     setLeadId(value);
-    const lead = leads.data?.find((item) => item.lead_id === value) ?? null;
+    const lead = leadsRows?.find((item) => item.lead_id === value) ?? null;
     setPickedLead(lead);
     if (lead?.interested_model) setModel(lead.interested_model);
     setVariant('');
@@ -399,10 +405,11 @@ export function QuotationCreateView({
                         setSearch(value);
                       }}
                       options={[
-                        ...(selected && !leads.data?.some((item) => item.lead_id === selected.lead_id)
+                        ...(selected &&
+                        !leadsRows?.some((item) => item.lead_id === selected.lead_id)
                           ? [selected]
                           : []),
-                        ...(leads.data ?? []),
+                        ...(leadsRows ?? []),
                       ].map((item) => ({
                         value: item.lead_id,
                         label: item.customer_name,
@@ -412,6 +419,9 @@ export function QuotationCreateView({
                       }))}
                       isPending={isBrowsingLeads && leads.isPending}
                       isFetching={isBrowsingLeads && leads.isFetching}
+                      hasMore={leads.hasNextPage}
+                      onLoadMore={() => void leads.fetchNextPage()}
+                      isLoadingMore={leads.isFetchingNextPage}
                       isError={isBrowsingLeads && leads.isError}
                       placeholder="Select customer opportunity"
                       searchPlaceholder="Search customer name, phone or lead ID"

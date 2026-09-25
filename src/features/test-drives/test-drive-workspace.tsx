@@ -1,7 +1,13 @@
 'use client';
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type Cell,
+  type ColumnDef,
+} from '@tanstack/react-table';
 import {
   CheckCircle2,
   ChevronLeft,
@@ -155,6 +161,14 @@ type TestDriveActionState =
   | { kind: 'anchor'; anchorKind: TestDriveAnchorKind; record: TestDriveRecord }
   | { kind: 'finalize'; record: TestDriveRecord }
   | { kind: 'feedback'; record: TestDriveRecord };
+
+// flexRender mounts a function cell as a component; when `columns` is rebuilt on a
+// refetch every cell remounts and an open row menu closes. The cells are hook-free,
+// so they are called directly.
+function renderTestDriveCell(cell: Cell<TestDriveRecord, unknown>) {
+  const render = cell.column.columnDef.cell;
+  return typeof render === 'function' ? render(cell.getContext()) : render;
+}
 
 function TestDriveTable({
   result,
@@ -393,6 +407,8 @@ function TestDriveTable({
   const table = useReactTable({
     data: result.records,
     columns,
+    // Stable row identity keeps an open row menu mounted across refetches.
+    getRowId: (record) => record.id,
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
     rowCount: result.total,
@@ -495,7 +511,7 @@ function TestDriveTable({
                   >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id} className="align-top">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        {renderTestDriveCell(cell)}
                       </TableCell>
                     ))}
                   </TableRow>

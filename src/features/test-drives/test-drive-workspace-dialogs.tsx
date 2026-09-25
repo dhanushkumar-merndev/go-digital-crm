@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { LocateFixed } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -33,7 +33,11 @@ import {
 import { SearchSelect } from '@/components/ui/search-select';
 import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
-import { optionQueryOptions } from '@/lib/query/option-query';
+import {
+  flattenOptionPages,
+  optionPagesQueryOptions,
+  optionQueryOptions,
+} from '@/lib/query/option-query';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -155,13 +159,19 @@ export function TestDriveScheduleDialog({
   const registrationInputRef = useRef<HTMLInputElement>(null);
   const debouncedLeadSearch = useDebouncedValue(leadSearch, 300);
   const debouncedVehicleSearch = useDebouncedValue(vehicleSearch, 300);
-  const leads = useQuery(
-    optionQueryOptions({
-      queryKey: [...salesConsultantKeys.testDriveLeadOptions(queryScope), debouncedLeadSearch],
-      queryFn: ({ signal }) => fetchTestDriveLeadOptions(debouncedLeadSearch, signal),
+  const leads = useInfiniteQuery(
+    optionPagesQueryOptions({
+      queryKey: [
+        ...salesConsultantKeys.testDriveLeadOptions(queryScope),
+        'pages',
+        debouncedLeadSearch,
+      ],
+      fetchRows: (offset, limit, signal) =>
+        fetchTestDriveLeadOptions(debouncedLeadSearch, signal, { offset, limit }),
       enabled: open,
     }),
   );
+  const leadsRows = flattenOptionPages(leads.data);
   const vehicles = useQuery(
     optionQueryOptions({
       queryKey: [
@@ -233,7 +243,7 @@ export function TestDriveScheduleDialog({
                 value={leadId}
                 search={leadSearch}
                 onSearchChange={setLeadSearch}
-                options={leads.data?.map((lead) => ({
+                options={leadsRows?.map((lead) => ({
                   value: lead.lead_id,
                   label: lead.customer_name,
                   description: [
@@ -246,6 +256,9 @@ export function TestDriveScheduleDialog({
                 }))}
                 isPending={leads.isPending}
                 isFetching={leads.isFetching}
+                hasMore={leads.hasNextPage}
+                onLoadMore={() => void leads.fetchNextPage()}
+                isLoadingMore={leads.isFetchingNextPage}
                 isError={leads.isError}
                 placeholder="Select opportunity"
                 searchPlaceholder="Search customer, phone or interested model"
@@ -257,7 +270,7 @@ export function TestDriveScheduleDialog({
                   setStockUnitId('');
                   setVehicleSearch('');
                   setRegistration('');
-                  setBranchId(leads.data?.find((lead) => lead.lead_id === value)?.branch_id ?? '');
+                  setBranchId(leadsRows?.find((lead) => lead.lead_id === value)?.branch_id ?? '');
                 }}
               />
             </div>

@@ -42,6 +42,9 @@ export function SearchSelect({
   emptyMessage = 'No matches found.',
   errorMessage = 'This list could not be loaded. Try again in a moment.',
   disabledMessage,
+  hasMore = false,
+  onLoadMore,
+  isLoadingMore = false,
   className,
   id,
   'aria-label': ariaLabel,
@@ -63,6 +66,10 @@ export function SearchSelect({
   errorMessage?: string;
   /** Shown on the trigger instead of `placeholder` while `disabled`. */
   disabledMessage?: string;
+  /** The server has another page beyond the rows shown; renders "See more". */
+  hasMore?: boolean;
+  onLoadMore?: () => void;
+  isLoadingMore?: boolean;
   className?: string;
   id?: string;
   'aria-label'?: string;
@@ -233,6 +240,19 @@ export function SearchSelect({
                 </div>
               ))
             )}
+            {/* Pages are small (five rows) so the first open is one cheap query;
+                further rows are fetched only when the user asks for them. */}
+            {!isError && !isPending && items.length > 0 && hasMore && onLoadMore ? (
+              <button
+                type="button"
+                onClick={onLoadMore}
+                disabled={isLoadingMore}
+                className="mt-1 flex w-full items-center justify-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-primary hover:bg-muted disabled:opacity-60"
+              >
+                {isLoadingMore ? <LoaderCircle className="size-4 animate-spin" /> : null}
+                {isLoadingMore ? 'Loading…' : 'See more'}
+              </button>
+            ) : null}
           </div>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>

@@ -236,10 +236,15 @@ const quotationLeadOptionSchema = z.object({
 });
 export type QuotationLeadOption = z.infer<typeof quotationLeadOptionSchema>;
 
-export async function fetchQuotationLeadOptions(search = '', signal?: AbortSignal) {
+export async function fetchQuotationLeadOptions(
+  search = '',
+  signal?: AbortSignal,
+  page: { offset: number; limit: number } = { offset: 0, limit: 25 },
+) {
   const request = createClient().rpc('get_quotation_lead_options', {
     target_search: search.trim().slice(0, 160),
-    target_limit: 25,
+    target_limit: page.limit,
+    target_offset: page.offset,
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;

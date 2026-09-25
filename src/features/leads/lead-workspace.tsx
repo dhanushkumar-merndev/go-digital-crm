@@ -1,7 +1,14 @@
 'use client';
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type Cell,
+  type ColumnDef,
+} from '@tanstack/react-table';
 import {
   ArrowRightLeft,
   CalendarDays,
@@ -50,6 +57,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { DayPicker } from '@/components/ui/day-picker';
@@ -113,8 +121,7 @@ import {
   type AppointmentType,
   type FollowupReason,
 } from '@/features/work/workspace-dialogs';
-import { fetchWorkWorkspace, type FollowupRecord } from '@/features/work/workspace-api';
-import { defaultWorkQuery } from '@/features/work/workspace-query';
+import { fetchLeadOpenFollowup } from '@/features/work/workspace-api';
 import {
   assignLead,
   createLead,
@@ -140,6 +147,7 @@ import {
   type PersonalLeadFlags,
   type LeadRecord,
   type LeadWorkspaceResult,
+  type LeadWorkspaceRecords,
   type LeadWorkspacePermissions,
 } from './lead-workspace-api';
 import {
@@ -195,6 +203,9 @@ const lifecycleOptions = [
 // set from the same menu because it is the same decision: how much contact
 // this lead should get. See AGENTS.md 9.7.
 const temperatureOptions = ['COLD', 'WARM', 'HOT', 'DORMANT'] as const;
+// Pages above this size mount only the rows in view; 25 and 50 render normally.
+const VIRTUALIZE_LEAD_ROWS_ABOVE = 50;
+const LEAD_ROW_ESTIMATED_HEIGHT = 37;
 
 function lifecycleOptionsForRole(role: string, currentStatus: string) {
   const allowed =
@@ -1349,21 +1360,7 @@ function PendingFollowupDialog({
     queryKey: ['lead-open-followup', lead?.id],
     enabled: Boolean(lead?.id),
     staleTime: 0,
-    queryFn: async ({ signal }) => {
-      const page = await fetchWorkWorkspace(
-        'followups',
-        { ...defaultWorkQuery, search: lead!.id, sort: 'scheduled:asc' },
-        Intl.DateTimeFormat().resolvedOptions().timeZone,
-        signal,
-      );
-      return (
-        (page.records as FollowupRecord[]).find(
-          (record) =>
-            record.lead_id === lead!.id &&
-            (record.status === 'OPEN' || record.status === 'OVERDUE'),
-        ) ?? null
-      );
-    },
+    queryFn: ({ signal }) => fetchLeadOpenFollowup(lead!.id, signal),
   });
   const record = followup.data ?? null;
   // The resume runs only after the follow-up is actually resolved, so a lead
@@ -1372,7 +1369,7 @@ function PendingFollowupDialog({
   return (
     <>
       <Dialog open={Boolean(request) && !action} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Follow-up still pending</DialogTitle>
             <DialogDescription>
@@ -1381,13 +1378,30 @@ function PendingFollowupDialog({
             </DialogDescription>
           </DialogHeader>
           {followup.isPending ? (
-            <p className="text-sm text-muted-foreground">Loading the scheduled follow-up…</p>
+            <div
+              className="flex items-start gap-3 rounded-lg border bg-muted/30 p-3"
+              aria-busy="true"
+              aria-label="Loading follow-up"
+            >
+              <Skeleton className="mt-0.5 size-4 shrink-0 rounded" />
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <Skeleton className="h-4 w-2/5" />
+                <Skeleton className="h-3.5 w-3/5" />
+              </div>
+              <Skeleton className="h-5 w-14 rounded-full" />
+            </div>
           ) : record ? (
-            <div className="rounded-md border p-3 text-sm">
-              <p className="font-medium">{record.reason}</p>
-              <p className="text-muted-foreground">
-                Due {formatCompactDate(record.due_at)} · {record.assigned_user_name}
-              </p>
+            <div className="flex items-start gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
+              <CalendarDays className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">{record.reason}</p>
+                <p className="text-muted-foreground">
+                  Due {formatCompactDate(record.due_at)} · {record.assigned_user_name}
+                </p>
+              </div>
+              <Badge variant={record.display_status === 'OVERDUE' ? 'destructive' : 'warning'}>
+                {record.display_status === 'OVERDUE' ? 'Overdue' : 'Open'}
+              </Badge>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
@@ -1396,23 +1410,19 @@ function PendingFollowupDialog({
                 : 'No open follow-up is visible in your scope. Ask its owner to complete or cancel it.'}
             </p>
           )}
-          <DialogFooter className="gap-2 sm:justify-between">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Close
+          {/* The header's close control dismisses; the footer holds only the two resolutions. */}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!record}
+              onClick={() => setAction('cancel')}
+            >
+              Cancel follow-up
             </Button>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!record}
-                onClick={() => setAction('cancel')}
-              >
-                Cancel follow-up
-              </Button>
-              <Button type="button" disabled={!record} onClick={() => setAction('complete')}>
-                Complete follow-up
-              </Button>
-            </div>
+            <Button type="button" disabled={!record} onClick={() => setAction('complete')}>
+              Complete follow-up
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1460,6 +1470,7 @@ function canHandOffToSales(lead: LeadRecord) {
   return (
     lead.lifecycle_status !== 'Lost' &&
     lead.lifecycle_status !== 'Transferred to Sales' &&
+    !lead.next_followup_at &&
     Boolean(lead.customer_id)
   );
 }
@@ -1467,6 +1478,8 @@ function canHandOffToSales(lead: LeadRecord) {
 function salesHandoffBlockedReason(lead: LeadRecord) {
   if (lead.lifecycle_status === 'Lost') return 'A lost lead cannot be transferred';
   if (lead.lifecycle_status === 'Transferred to Sales') return 'Already transferred to Sales';
+  if (lead.next_followup_at)
+    return 'Complete or cancel the open follow-up before transferring this lead to Sales';
   if (!lead.customer_id)
     return 'Assign to customer to transfer — Link or create the customer first, then transfer to Sales';
   return 'Already transferred to Sales';
@@ -2059,6 +2072,8 @@ function LeadTable({
   isFetching,
   onAssign,
   onEdit,
+  onTemperatureChange,
+  pendingTemperatureLeadId,
   onScheduleFollowup,
   onScheduleAppointment,
   onMatchCustomer,
@@ -2099,6 +2114,9 @@ function LeadTable({
   isFetching: boolean;
   onAssign: (lead: LeadRecord) => void;
   onEdit: (lead: LeadRecord, preset?: LeadEditPreset) => void;
+  // One press: the badge changes at once and the server write follows.
+  onTemperatureChange: (lead: LeadRecord, temperature: (typeof temperatureOptions)[number]) => void;
+  pendingTemperatureLeadId: string | null;
   onScheduleFollowup: (lead: LeadRecord, reason: FollowupReason) => void;
   onScheduleAppointment: (lead: LeadRecord, type: AppointmentType) => void;
   onMatchCustomer: (lead: LeadRecord) => void;
@@ -2484,6 +2502,7 @@ function LeadTable({
                     type="button"
                     variant="ghost"
                     className="h-6 w-full justify-between px-0 hover:bg-transparent"
+                    disabled={pendingTemperatureLeadId === row.original.id}
                     aria-label={`Change temperature for ${row.original.customer_name}`}
                   >
                     <TemperatureBadge value={row.original.temperature} />
@@ -2499,7 +2518,7 @@ function LeadTable({
                     <DropdownMenuItem
                       key={temperature}
                       disabled={temperature === row.original.temperature}
-                      onSelect={() => onEdit(row.original, { temperature })}
+                      onSelect={() => onTemperatureChange(row.original, temperature)}
                     >
                       <TemperatureBadge value={temperature} />
                     </DropdownMenuItem>
@@ -2987,6 +3006,8 @@ function LeadTable({
       isManagerView,
       onAssign,
       onEdit,
+      onTemperatureChange,
+      pendingTemperatureLeadId,
       onScheduleFollowup,
       onScheduleAppointment,
       onSalesContact,
@@ -3013,6 +3034,9 @@ function LeadTable({
   const table = useReactTable({
     data: visibleRecords,
     columns,
+    // Key rows by lead, not position, so a refetch that reorders or narrows the
+    // page keeps each row's DOM (and any open row menu) attached to its lead.
+    getRowId: (lead) => lead.id,
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
     manualSorting: true,
@@ -3023,8 +3047,39 @@ function LeadTable({
   const historyTable = useReactTable({
     data: historyRecords,
     columns,
+    getRowId: (lead) => lead.id,
     getCoreRowModel: getCoreRowModel(),
   });
+  // A 100-row page is ~7k DOM nodes and ~1.1k row controls, so only the rows in
+  // view (plus overscan) are mounted. An expanded phone group or a focused row
+  // needs every row in the DOM, so virtualization steps aside for those.
+  const leadRows = table.getRowModel().rows;
+  const virtualizeRows =
+    leadRows.length > VIRTUALIZE_LEAD_ROWS_ABOVE &&
+    !expandedLeadId &&
+    !focusLeadId &&
+    !highlightedLeadId;
+  // At 100 rows the table scrolls inside its own bounded area and only the rows
+  // in view (plus overscan) are mounted.
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: leadRows.length,
+    // The Table primitive's own wrapper is the scroller, so the header can stick.
+    getScrollElement: () =>
+      (tableScrollRef.current?.firstElementChild as HTMLElement | null) ?? null,
+    estimateSize: () => LEAD_ROW_ESTIMATED_HEIGHT,
+    overscan: 8,
+    enabled: virtualizeRows,
+    getItemKey: (index) => leadRows[index]?.id ?? index,
+  });
+  const virtualRows = virtualizeRows ? rowVirtualizer.getVirtualItems() : null;
+  const renderedLeadRows = virtualRows
+    ? virtualRows.map((item) => leadRows[item.index]!)
+    : leadRows;
+  const topSpacer = virtualRows?.length ? virtualRows[0]!.start : 0;
+  const bottomSpacer = virtualRows?.length
+    ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
+    : 0;
   const pages = Math.max(1, Math.ceil(data.total / query.pageSize));
   const pageNumbers = Array.from({ length: Math.min(5, pages) }, (_, index) =>
     Math.min(Math.max(query.page - 2, 1) + index, pages),
@@ -3268,11 +3323,14 @@ function LeadTable({
       </CardHeader>
       <CardContent className="p-0">
         <div
-          className={
-            isFetching
-              ? '[&>div]:overflow-y-hidden opacity-65 transition-opacity'
-              : '[&>div]:overflow-y-hidden transition-opacity'
-          }
+          ref={tableScrollRef}
+          className={cn(
+            'transition-opacity',
+            virtualizeRows
+              ? '[&>div]:max-h-[70vh] [&>div]:overflow-y-auto'
+              : '[&>div]:overflow-y-hidden',
+            isFetching && 'opacity-65',
+          )}
         >
           <Table className="min-w-[1000px]">
             <TableHeader>
@@ -3289,6 +3347,7 @@ function LeadTable({
                         // its content and hands the slack back to the text
                         // columns, which are the ones that benefit from it.
                         header.column.id === 'actions' && 'w-px !pr-4 !pl-12',
+                        virtualizeRows && 'sticky top-0 z-10',
                       )}
                     >
                       {header.isPlaceholder
@@ -3300,10 +3359,17 @@ function LeadTable({
               ))}
             </TableHeader>
             <TableBody>
-              {table.getRowModel().rows.length ? (
-                table.getRowModel().rows.map((row) => (
+              {topSpacer > 0 ? (
+                <tr aria-hidden="true">
+                  <td colSpan={columns.length} style={{ height: topSpacer, padding: 0 }} />
+                </tr>
+              ) : null}
+              {leadRows.length ? (
+                renderedLeadRows.map((row, renderedIndex) => (
                   <Fragment key={row.id}>
                     <TableRow
+                      ref={virtualRows ? rowVirtualizer.measureElement : undefined}
+                      data-index={virtualRows?.[renderedIndex]?.index}
                       id={`lead-row-${row.original.id}`}
                       tabIndex={row.original.read_only ? 0 : undefined}
                       aria-label={
@@ -3347,7 +3413,7 @@ function LeadTable({
                             cell.column.id === 'actions' && 'w-px !pr-4',
                           )}
                         >
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          {renderLeadCell(cell)}
                         </TableCell>
                       ))}
                     </TableRow>
@@ -3416,9 +3482,7 @@ function LeadTable({
                                     a lead you are only looking back at, so the
                                     cell is left empty and the row itself is the
                                     single affordance: pressing it opens the lead. */}
-                                {cell.column.id === 'actions'
-                                  ? null
-                                  : flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                {cell.column.id === 'actions' ? null : renderLeadCell(cell)}
                               </TableCell>
                             ))}
                           </TableRow>
@@ -3436,6 +3500,11 @@ function LeadTable({
                   </TableCell>
                 </TableRow>
               )}
+              {bottomSpacer > 0 ? (
+                <tr aria-hidden="true">
+                  <td colSpan={columns.length} style={{ height: bottomSpacer, padding: 0 }} />
+                </tr>
+              ) : null}
             </TableBody>
           </Table>
         </div>
@@ -3599,6 +3668,19 @@ function LeadTable({
       </Dialog>
     </Card>
   );
+}
+
+/**
+ * `columns` is rebuilt whenever its callbacks or row state change, which is on
+ * most refetches. flexRender mounts a function cell as a component, so each new
+ * cell function was a new component type and React remounted every cell: an
+ * open "More lead actions" menu closed itself as soon as the list refreshed.
+ * Calling the cell function directly returns plain elements that reconcile in
+ * place. The cell renderers are hook-free, so this is safe.
+ */
+function renderLeadCell(cell: Cell<LeadRecord, unknown>) {
+  const render = cell.column.columnDef.cell;
+  return typeof render === 'function' ? render(cell.getContext()) : render;
 }
 
 export function LeadWorkspace({
@@ -3976,6 +4058,14 @@ export function LeadWorkspace({
     personalLeadFlagMutation.mutate({ leadId, flag, active });
   };
   const invalidate = useCallback(async () => {
+    // A list request that started before the mutation committed can settle
+    // after this invalidation and be cached as fresh, pinning pre-mutation rows
+    // (e.g. no follow-up) on another tab for the whole stale time. Cancel any
+    // in-flight lead request first so only post-mutation responses are kept.
+    await Promise.all([
+      queryClient.cancelQueries({ queryKey: ['lead-workspace', ...queryScope] }),
+      queryClient.cancelQueries({ queryKey: ['lead-workspace-meta', ...queryScope] }),
+    ]);
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['lead-workspace', ...queryScope] }),
       queryClient.invalidateQueries({ queryKey: ['lead-workspace-meta', ...queryScope] }),
@@ -3996,6 +4086,56 @@ export function LeadWorkspace({
     });
   }, [personalPreferencesFailed]);
 
+  // Temperature is a single audited field, so it changes on click: the badge is
+  // updated in every cached page, rolled back if the write is refused, and the
+  // lists and counters are refetched once the server has answered.
+  const temperatureMutation = useMutation({
+    meta: { toast: false },
+    mutationFn: ({
+      lead,
+      temperature,
+    }: {
+      lead: LeadRecord;
+      temperature: (typeof temperatureOptions)[number];
+    }) =>
+      updateLead({
+        leadId: lead.id,
+        expectedUpdatedAt: lead.updated_at,
+        patch: { temperature },
+        reason: `Temperature set to ${temperature} from the lead list`,
+      }),
+    onMutate: async ({ lead, temperature }) => {
+      const listKey = ['lead-workspace', ...queryScope];
+      await queryClient.cancelQueries({ queryKey: listKey });
+      const snapshots = queryClient.getQueriesData<LeadWorkspaceRecords>({ queryKey: listKey });
+      queryClient.setQueriesData<LeadWorkspaceRecords>({ queryKey: listKey }, (current) =>
+        current?.records
+          ? {
+              ...current,
+              records: current.records.map((record) =>
+                record.id === lead.id ? { ...record, temperature } : record,
+              ),
+            }
+          : current,
+      );
+      return { snapshots };
+    },
+    onError: (error, _input, context) => {
+      context?.snapshots.forEach(([key, data]) => queryClient.setQueryData(key, data));
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'Temperature was not changed',
+        description: isLeadVersionConflict(error)
+          ? 'Someone updated this lead just now. The list has been refreshed; try again.'
+          : 'Please try again.',
+      });
+    },
+    onSettled: (_result, _error, input) => {
+      salesConsultantCache.invalidate('lead.updated', { leadId: input.lead.id });
+      return invalidate();
+    },
+  });
   const salesContactMutation = useMutation({
     // Silent on success: this follows a call or message the user just placed,
     // so a second "Saved successfully" only competes with the real feedback.
@@ -4193,6 +4333,12 @@ export function LeadWorkspace({
         isFetching={workspace.isFetching}
         onAssign={setAssignmentLead}
         onEdit={(lead, preset) => setEditingLead({ lead, preset })}
+        onTemperatureChange={(lead, temperature) =>
+          temperatureMutation.mutate({ lead, temperature })
+        }
+        pendingTemperatureLeadId={
+          temperatureMutation.isPending ? (temperatureMutation.variables?.lead.id ?? null) : null
+        }
         onScheduleFollowup={(lead, reason) => setFollowupShortcut({ lead, reason })}
         onScheduleAppointment={(lead, type) => setAppointmentShortcut({ lead, type })}
         onMatchCustomer={setMatchingLead}

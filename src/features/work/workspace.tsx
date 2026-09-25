@@ -787,6 +787,8 @@ function WorkTable({
   const table = useReactTable({
     data: result.records,
     columns,
+    // Stable row identity keeps an open row menu mounted across refetches.
+    getRowId: (record) => record.id,
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
     rowCount: result.total,

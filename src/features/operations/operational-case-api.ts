@@ -264,16 +264,19 @@ export async function fetchOperationalCaseDetail(
   return detailSchema.parse(data);
 }
 
-export async function setDeliveryChecklistItem(input: {
-  itemId: string;
-  expectedVersion: number;
-  completed: boolean;
+// Saves the sheet's checklist draft in one request; any stale item rejects the batch.
+export async function saveDeliveryChecklist(input: {
+  deliveryId: string;
+  items: { id: string; expectedVersion: number; completed: boolean }[];
   requestId: string;
 }) {
-  const { data, error } = await createClient().rpc('set_delivery_checklist_item', {
-    target_item_id: input.itemId,
-    expected_version: input.expectedVersion,
-    target_completed: input.completed,
+  const { data, error } = await createClient().rpc('save_delivery_checklist', {
+    target_delivery_id: input.deliveryId,
+    target_items: input.items.map((item) => ({
+      id: item.id,
+      expected_version: item.expectedVersion,
+      completed: item.completed,
+    })),
     target_request_id: input.requestId,
   });
   if (error) {
@@ -282,10 +285,10 @@ export async function setDeliveryChecklistItem(input: {
   }
   return z
     .object({
-      id: z.uuid(),
       delivery_id: z.uuid(),
-      completed: z.boolean(),
-      version: z.coerce.number().int().positive(),
+      updated_items: z.coerce.number().int().nonnegative(),
+      completed_items: z.coerce.number().int().nonnegative(),
+      total_items: z.coerce.number().int().nonnegative(),
       case_version: z.coerce.number().int().positive(),
       case_status: z.string(),
       replayed: z.boolean(),

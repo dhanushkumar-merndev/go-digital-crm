@@ -8,6 +8,10 @@ const migration = readFileSync(
 const workspace = readFileSync('src/features/leads/lead-workspace.tsx', 'utf8');
 const workspaceApi = readFileSync('src/features/leads/lead-workspace-api.ts', 'utf8');
 const dashboard = readFileSync('src/features/dashboards/telecaller-dashboard.tsx', 'utf8');
+const handoff = readFileSync(
+  'supabase/migrations/202609250001_block_sales_handoff_with_open_followup.sql',
+  'utf8',
+);
 
 describe('Telecaller dashboard queue consistency', () => {
   it('routes the New dashboard card and My Leads tab to the same fresh queue', () => {
@@ -31,6 +35,11 @@ describe('Telecaller dashboard queue consistency', () => {
 });
 
 describe('Telecaller sales handoff cancellation', () => {
+  it('refuses a Sales handoff while an open or overdue follow-up still exists', () => {
+    expect(handoff).toContain('FOLLOWUP_PENDING_BEFORE_SALES_HANDOFF');
+    expect(handoff).toContain("followup_row.status in (''OPEN'', ''OVERDUE'')");
+  });
+
   it('returns only the original Telecaller’s active transferred lead to Contacted', () => {
     expect(migration).toContain('create or replace function public.cancel_sales_handoff(');
     expect(migration).toContain("target_lead.lifecycle_status <> 'Transferred to Sales'");
@@ -53,5 +62,10 @@ describe('Telecaller sales handoff cancellation', () => {
     expect(workspace).toContain('function SalesHandoffCancellationDialog');
     expect(workspace).toContain("row.original.lifecycle_status === 'Transferred to Sales'");
     expect(workspace).toContain('Cancel transfer');
+  });
+
+  it('disables the handoff control while a follow-up is still open', () => {
+    expect(workspace).toContain('!lead.next_followup_at');
+    expect(workspace).toContain('Complete or cancel the open follow-up before transferring');
   });
 });

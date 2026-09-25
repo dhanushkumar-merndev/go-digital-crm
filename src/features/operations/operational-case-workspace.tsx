@@ -46,10 +46,9 @@ import {
   fetchOperationalCaseDetail,
   fetchOperationalCasePermissions,
   fetchOperationalCaseWorkspace,
-  setDeliveryChecklistItem,
+  saveDeliveryChecklist,
   updateOperationalCase,
   uploadOperationalCaseDocument,
-  type DeliveryChecklistItem,
   type OperationalCaseRecord,
   type OperationalCaseWorkspaceResult,
 } from './operational-case-api';
@@ -452,8 +451,11 @@ export function OperationalCaseWorkspace({
     onError: (error) => setActionError(safeActionMessage(error)),
   });
   const checklistMutation = useMutation({
-    mutationFn: setDeliveryChecklistItem,
-    onSuccess: invalidate,
+    mutationFn: saveDeliveryChecklist,
+    onSuccess: async () => {
+      setActionError(undefined);
+      await invalidate();
+    },
     onError: (error) => setActionError(safeActionMessage(error)),
   });
   const uploadMutation = useMutation({
@@ -634,13 +636,9 @@ export function OperationalCaseWorkspace({
             requestId: input.requestId,
           });
         }}
-        onChecklist={async (item: DeliveryChecklistItem, completed, requestId) => {
-          await checklistMutation.mutateAsync({
-            itemId: item.id,
-            expectedVersion: item.version,
-            completed,
-            requestId,
-          });
+        onChecklistSave={async (items, requestId) => {
+          if (!detail.data) return;
+          await checklistMutation.mutateAsync({ deliveryId: detail.data.id, items, requestId });
         }}
         onUpload={async (file) => {
           if (!detail.data || !permissions.data) return;

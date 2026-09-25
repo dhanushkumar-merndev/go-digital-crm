@@ -23,9 +23,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import {
-  completePdiInspection,
   fetchOrCreatePdiInspection,
-  updatePdiItemResult,
+  savePdiInspection,
   type PdiItemCategory,
   type PdiItemStatus,
 } from './pdi-inspection-api';
@@ -68,64 +67,78 @@ export function PdiInspectionDialog({
     staleTime: 5_000,
   });
 
-  const updateItemMutation = useMutation({
-    mutationFn: (input: { itemId: string; status: PdiItemStatus; notes?: string }) =>
-      updatePdiItemResult(input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pdi-inspection', deliveryId] });
-      setEditingDefectId(null);
-      setDefectText('');
-    },
-    onError: (err: unknown) => {
-      toast.add({
-        type: 'error',
-        title: 'Status update failed',
-        description: err instanceof Error ? err.message : 'Could not update checklist item.',
-      });
-    },
-  });
+  // Results are a local draft keyed by item id. Clicking Pass, Defect or
+  // Rectified updates the sheet instantly; the draft reaches the server in one
+  // request, either as "Save progress" or together with the certification.
+  const [draft, setDraft] = useState<
+    Record<string, { status: PdiItemStatus; notes: string | null }>
+  >({});
+  const setItemResult = (itemId: string, status: PdiItemStatus, notes: string | null = null) => {
+    setDraft((current) => ({ ...current, [itemId]: { status, notes } }));
+    setEditingDefectId(null);
+    setDefectText('');
+  };
 
-  const completeMutation = useMutation({
-    mutationFn: () =>
-      completePdiInspection({
+  const saveMutation = useMutation({
+    mutationFn: (complete: boolean) =>
+      savePdiInspection({
         inspectionId: pdiQuery.data!.inspection.id,
+        items: Object.entries(draft).map(([id, result]) => ({ id, ...result })),
         notes: overallNotes,
+        complete,
       }),
-    onSuccess: () => {
+    onSuccess: async (_result, complete) => {
+      await queryClient.invalidateQueries({ queryKey: ['pdi-inspection', deliveryId] });
+      setDraft({});
+      if (!complete) {
+        toast.add({ type: 'success', title: 'PDI progress saved' });
+        return;
+      }
       toast.add({
         type: 'success',
         title: 'PDI Inspection Approved',
         description:
           'Vehicle has passed 100% Pre-Delivery Inspection and is certified for delivery.',
       });
-      queryClient.invalidateQueries({ queryKey: ['pdi-inspection', deliveryId] });
       queryClient.invalidateQueries({ queryKey: ['operational-case'] });
       onInspectionCompleted?.();
       onOpenChange(false);
     },
-    onError: (err: unknown) => {
+    onError: (err: unknown, complete) => {
       toast.add({
         type: 'error',
-        title: 'Could not complete inspection',
+        title: complete ? 'Could not complete inspection' : 'Could not save PDI progress',
         description:
           err instanceof Error ? err.message : 'Ensure all items are passed and defects resolved.',
       });
     },
   });
 
-  const items = pdiQuery.data?.items ?? [];
+  const items = (pdiQuery.data?.items ?? []).map((item) => {
+    const result = draft[item.id];
+    return result ? { ...item, status: result.status, defect_notes: result.notes } : item;
+  });
   const filteredItems =
     selectedCategory === 'ALL' ? items : items.filter((item) => item.category === selectedCategory);
 
-  const stats = pdiQuery.data?.stats;
   const inspection = pdiQuery.data?.inspection;
+  const stats = pdiQuery.data
+    ? {
+        total_items: items.length,
+        passed: items.filter((item) => item.status === 'PASSED' || item.status === 'RECTIFIED')
+          .length,
+        failed: items.filter((item) => item.status === 'FAILED').length,
+        pending: items.filter((item) => item.status === 'PENDING').length,
+      }
+    : undefined;
+  const unsavedChanges = Object.keys(draft).length;
 
   const canSignComplete =
     stats && stats.pending === 0 && stats.failed === 0 && inspection?.status !== 'PASSED';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] sm:max-w-3xl flex flex-col p-0 overflow-hidden">
+      <DialogContent className="max-h-[90vh] sm:max-w-3xl flex flex-col gap-0 p-0 overflow-hidden">
         <DialogHeader className="border-b px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
@@ -256,9 +269,7 @@ export function PdiInspectionDialog({
                       className={`h-7 px-2.5 text-xs ${
                         item.status === 'PASSED' ? 'bg-emerald-600 hover:bg-emerald-700' : ''
                       }`}
-                      onClick={() =>
-                        updateItemMutation.mutate({ itemId: item.id, status: 'PASSED' })
-                      }
+                      onClick={() => setItemResult(item.id, 'PASSED')}
                     >
                       <CheckCircle2 className="size-3.5 mr-1" /> Pass
                     </Button>
@@ -278,9 +289,7 @@ export function PdiInspectionDialog({
                         size="sm"
                         variant="secondary"
                         className="h-7 px-2.5 text-xs bg-amber-100 hover:bg-amber-200 text-amber-800"
-                        onClick={() =>
-                          updateItemMutation.mutate({ itemId: item.id, status: 'RECTIFIED' })
-                        }
+                        onClick={() => setItemResult(item.id, 'RECTIFIED', item.defect_notes)}
                       >
                         <Wrench className="size-3 mr-1" /> Rectified
                       </Button>
@@ -313,13 +322,8 @@ export function PdiInspectionDialog({
                         size="sm"
                         variant="destructive"
                         className="h-6 text-xs"
-                        onClick={() =>
-                          updateItemMutation.mutate({
-                            itemId: item.id,
-                            status: 'FAILED',
-                            notes: defectText,
-                          })
-                        }
+                        disabled={!defectText.trim()}
+                        onClick={() => setItemResult(item.id, 'FAILED', defectText.trim())}
                       >
                         Save Defect
                       </Button>
@@ -362,14 +366,28 @@ export function PdiInspectionDialog({
             <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
               Close
             </Button>
+            {inspection?.status !== 'PASSED' && unsavedChanges > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={saveMutation.isPending}
+                onClick={() => saveMutation.mutate(false)}
+              >
+                {saveMutation.isPending && !saveMutation.variables
+                  ? 'Saving...'
+                  : `Save progress (${unsavedChanges})`}
+              </Button>
+            )}
             {inspection?.status !== 'PASSED' && (
               <Button
                 size="sm"
-                disabled={!canSignComplete || completeMutation.isPending}
-                onClick={() => completeMutation.mutate()}
+                disabled={!canSignComplete || saveMutation.isPending}
+                onClick={() => saveMutation.mutate(true)}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
               >
-                {completeMutation.isPending ? 'Signing...' : 'Sign & Certify PDI'}
+                {saveMutation.isPending && saveMutation.variables
+                  ? 'Signing...'
+                  : 'Sign & Certify PDI'}
               </Button>
             )}
           </div>

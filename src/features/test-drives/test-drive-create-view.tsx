@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
   Building2,
@@ -33,7 +33,11 @@ import {
 import { SearchSelect } from '@/components/ui/search-select';
 import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
-import { optionQueryOptions } from '@/lib/query/option-query';
+import {
+  flattenOptionPages,
+  optionPagesQueryOptions,
+  optionQueryOptions,
+} from '@/lib/query/option-query';
 import {
   createTestDrive,
   fetchTestDriveLeadOptions,
@@ -103,14 +107,20 @@ export function TestDriveCreateView({
   const registrationInputRef = useRef<HTMLInputElement>(null);
   const debouncedLeadSearch = useDebouncedValue(leadSearch, 300);
   const debouncedVehicleSearch = useDebouncedValue(vehicleSearch, 300);
-  const leads = useQuery(
-    optionQueryOptions({
-      queryKey: [...salesConsultantKeys.testDriveLeadOptions(queryScope), debouncedLeadSearch],
-      queryFn: ({ signal }) => fetchTestDriveLeadOptions(debouncedLeadSearch, signal),
+  const leads = useInfiniteQuery(
+    optionPagesQueryOptions({
+      queryKey: [
+        ...salesConsultantKeys.testDriveLeadOptions(queryScope),
+        'pages',
+        debouncedLeadSearch,
+      ],
+      fetchRows: (offset, limit, signal) =>
+        fetchTestDriveLeadOptions(debouncedLeadSearch, signal, { offset, limit }),
       enabled: isBrowsingLeads,
     }),
   );
-  // The picked lead is held here rather than derived from `leads.data`. Typing a
+  const leadsRows = flattenOptionPages(leads.data);
+  // The picked lead is held here rather than derived from `leadsRows`. Typing a
   // new search replaces that page, and deriving from it made an already-chosen
   // customer read as "no longer available" without the user touching the field.
   const [pickedLead, setPickedLead] = useState<TestDriveLeadOption | null>(null);
@@ -131,7 +141,7 @@ export function TestDriveCreateView({
     ? (seededLead.data?.find((item) => item.lead_id === initialLeadId) ?? null)
     : null;
   const selectedLead =
-    leads.data?.find((item) => item.lead_id === leadId) ??
+    leadsRows?.find((item) => item.lead_id === leadId) ??
     pickedLead ??
     (leadId && leadId === initialLeadId ? seededMatch : null);
   // Until both lookups have settled we do not know whether the lead exists, and
@@ -164,10 +174,10 @@ export function TestDriveCreateView({
   const selectedVehicle =
     vehicles.data?.find((item) => item.stock_unit_id === stockUnitId) ?? pickedVehicle;
   const availableLeads = [
-    ...(selectedLead && !leads.data?.some((item) => item.lead_id === selectedLead.lead_id)
+    ...(selectedLead && !leadsRows?.some((item) => item.lead_id === selectedLead.lead_id)
       ? [selectedLead]
       : []),
-    ...(leads.data ?? []),
+    ...(leadsRows ?? []),
   ];
   const leadOptions = availableLeads.map((item) => ({
     value: item.lead_id,
@@ -278,6 +288,9 @@ export function TestDriveCreateView({
                   options={leadOptions}
                   isPending={isBrowsingLeads && leads.isPending}
                   isFetching={isBrowsingLeads && leads.isFetching}
+                  hasMore={leads.hasNextPage}
+                  onLoadMore={() => void leads.fetchNextPage()}
+                  isLoadingMore={leads.isFetchingNextPage}
                   isError={isBrowsingLeads && leads.isError}
                   placeholder="Select opportunity"
                   searchPlaceholder="Search customer, phone or interested model"
@@ -285,7 +298,7 @@ export function TestDriveCreateView({
                   aria-label="Find assigned customer or lead"
                   onValueChange={(value) => {
                     requestId.current = null;
-                    const option = leads.data?.find((item) => item.lead_id === value) ?? null;
+                    const option = leadsRows?.find((item) => item.lead_id === value) ?? null;
                     setPickedLead(option);
                     setLeadId(value);
                     setStockUnitId('');
