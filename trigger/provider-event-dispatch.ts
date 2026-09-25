@@ -20,6 +20,7 @@ type ProviderEvent = {
   event_type: string;
   payload: unknown;
   attempt_count: number;
+  received_at: string;
 };
 
 type ConnectedAccount = {
@@ -65,6 +66,7 @@ type TelecmiCall = {
   status: string;
   outcome: string | null;
   duration_seconds: number | null;
+  answered_at: string | null;
   ended_at: string | null;
   finalized_at: string | null;
   version: number;
@@ -642,6 +644,7 @@ const telecmiCallProjection = [
   'status',
   'outcome',
   'duration_seconds',
+  'answered_at',
   'ended_at',
   'finalized_at',
   'version',
@@ -724,7 +727,7 @@ function nextLiveTelecmiStatus(currentStatus: string, receipt: TelecmiCallReceip
   return currentStatus;
 }
 
-function telecmiCallChanges(call: TelecmiCall, receipt: TelecmiCallReceipt, now: string) {
+function telecmiCallChanges(call: TelecmiCall, receipt: TelecmiCallReceipt, at: string) {
   const changes: Record<string, unknown> = {};
   if (!call.provider_request_id && receipt.providerRequestId)
     changes.provider_request_id = receipt.providerRequestId;
@@ -748,10 +751,18 @@ function telecmiCallChanges(call: TelecmiCall, receipt: TelecmiCallReceipt, now:
   }
   if (nextStatus !== call.status) changes.status = nextStatus;
   if (nextOutcome !== call.outcome) changes.outcome = nextOutcome;
+  // Stamped once, the first time the customer leg answers. The live call bar
+  // counts the conversation from here rather than from the dial.
+  //
+  // `at` is when the webhook reached us, not when we processed it. TeleCMI
+  // sends no timestamp of its own, and the dispatcher runs on a one-minute
+  // cron, so stamping the processing time put answered_at up to a minute late
+  // -- and arbitrarily late when draining a backlog.
+  if (nextStatus === 'IN_PROGRESS' && !call.answered_at) changes.answered_at = at;
   if (receipt.durationSeconds !== null && receipt.durationSeconds > (call.duration_seconds ?? -1))
     changes.duration_seconds = receipt.durationSeconds;
-  if (completion && !call.ended_at) changes.ended_at = now;
-  if (completion && !call.finalized_at) changes.finalized_at = now;
+  if (completion && !call.ended_at) changes.ended_at = at;
+  if (completion && !call.finalized_at) changes.finalized_at = at;
   return changes;
 }
 
@@ -763,7 +774,7 @@ async function applyTelecmiCallReceipt(
 ) {
   let call = initialCall;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const changes = telecmiCallChanges(call, receipt, new Date().toISOString());
+    const changes = telecmiCallChanges(call, receipt, event.received_at);
     if (Object.keys(changes).length === 0) return call;
     const { data, error } = await supabase
       .from('calls')

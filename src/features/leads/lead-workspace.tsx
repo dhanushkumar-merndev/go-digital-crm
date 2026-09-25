@@ -3997,6 +3997,9 @@ export function LeadWorkspace({
   }, [personalPreferencesFailed]);
 
   const salesContactMutation = useMutation({
+    // Silent on success: this follows a call or message the user just placed,
+    // so a second "Saved successfully" only competes with the real feedback.
+    meta: { toast: false },
     mutationFn: recordSalesLeadContact,
     onSuccess: async (_result, input) => {
       salesConsultantCache.invalidate('lead.updated', { leadId: input.leadId });
@@ -4017,6 +4020,8 @@ export function LeadWorkspace({
   // lead out of the New/Pending queue into Contacted, so the tabs and the row
   // both have to be refetched.
   const intakeContactMutation = useMutation({
+    // Silent on success, for the same reason as salesContactMutation.
+    meta: { toast: false },
     mutationFn: recordTelecallerLeadContact,
     onSuccess: async () => {
       await Promise.all([

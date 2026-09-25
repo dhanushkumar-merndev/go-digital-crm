@@ -46,6 +46,12 @@ describe('test-drive web API boundary', () => {
     expect(workspace).toContain('record.assigned_user_id === permissions.userId');
   });
 
+  it("does not offer a Sales Consultant cancellation action for another consultant's drive", () => {
+    expect(workspace).toContain(
+      "role !== 'sales-consultant' || record.assigned_user_id === permissions.userId",
+    );
+  });
+
   it('explains disabled saves and gives changed retries a fresh idempotency key', () => {
     expect(createView).toContain('validationMessage');
     expect(createView).toContain('requestId.current = null');

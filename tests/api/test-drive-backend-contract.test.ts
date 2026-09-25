@@ -13,6 +13,9 @@ const hardeningMigration = source(
 const activeCancellationMigration = source(
   'supabase/migrations/202608310002_allow_active_test_drive_cancellation.sql',
 );
+const activeCancellationLifecycleMigration = source(
+  'supabase/migrations/202609240001_allow_cancelled_active_test_drive_lifecycle.sql',
+);
 const anchorEdge = source('supabase/functions/test-drive-anchor/index.ts');
 const completeEdge = source('supabase/functions/test-drive-complete/index.ts');
 const config = source('supabase/config.toml');
@@ -192,6 +195,18 @@ describe('test-drive lifecycle and concurrency boundary', () => {
     expect(activeCancellationMigration).toContain('app_private.replay_test_drive_request');
     expect(activeCancellationMigration).toContain('TEST_DRIVE_VERSION_CONFLICT');
     expect(activeCancellationMigration).toContain('insert into public.audit_logs');
+  });
+
+  it('allows an active drive to be cancelled while retaining its recorded start evidence', () => {
+    expect(activeCancellationLifecycleMigration).toContain(
+      'drop constraint if exists test_drives_lifecycle_check',
+    );
+    expect(activeCancellationLifecycleMigration).toContain("status = 'CANCELLED'");
+    expect(activeCancellationLifecycleMigration).toContain('started_at is not null');
+    expect(activeCancellationLifecycleMigration).toContain('start_anchor is not null');
+    expect(activeCancellationLifecycleMigration).toContain(
+      'validate constraint test_drives_lifecycle_check',
+    );
   });
 
   it('restricts driving evidence to the assignee and enforces recoverable ordering', () => {

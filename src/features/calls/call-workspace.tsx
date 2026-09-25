@@ -1,6 +1,6 @@
 'use client';
 
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   ChevronDown,
@@ -90,6 +90,7 @@ import {
   type CallWorkspacePermissions,
   type FinalizeManualCallInput,
 } from './call-workspace-api';
+import { liveCallQueryKeyRoot } from './live-call-api';
 import {
   isCallVersionConflict,
   parseCallQuery,
@@ -233,6 +234,7 @@ function ManualCallDialog({
   const debouncedPartySearch = useDebouncedValue(partySearch, 300);
   const requestIds = useRef<{ create: string; finalize: string } | null>(null);
   const providerRequestId = useRef<string | null>(null);
+  const queryClient = useQueryClient();
   const scopeOptions = useQuery({
     queryKey: ['call-scope-options', organizationId, ...queryScope],
     queryFn: ({ signal }) => fetchCallScopeOptions(signal),
@@ -268,6 +270,10 @@ function ManualCallDialog({
       });
     },
     onSuccess: () => {
+      // Surface LiveCallBar immediately; the insert broadcast that normally
+      // wakes it can be slow to arrive, and a telecaller needs to see that
+      // their phone is about to ring.
+      void queryClient.invalidateQueries({ queryKey: liveCallQueryKeyRoot });
       onCreated();
       close(false);
     },

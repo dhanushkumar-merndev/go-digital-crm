@@ -2,7 +2,7 @@
 /node_modules
 /mobile/node_modules
 /services/whatsapp-gateway/node_modules
-
+/services/whatsapp-gateway/.env.local
 # next / expo
 /.next
 /out
@@ -29,3 +29,11 @@ pnpm-debug.log*
 .vercel
 .whatsapp-auth/
 services/whatsapp-gateway/dist/
+
+
+# local scratch scripts: they hold database URLs and demo passwords
+/scratch/
+# Trigger.dev local build output (bundled copies of the tasks)
+/.trigger/
+# one-off helper scripts written during test runs
+*.tmp.mjs

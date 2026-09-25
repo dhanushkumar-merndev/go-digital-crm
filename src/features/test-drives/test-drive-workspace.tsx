@@ -312,7 +312,9 @@ function TestDriveTable({
           const canProgress =
             permissions.canProgressOwn && record.assigned_user_id === permissions.userId;
           const canCancel =
-            permissions.canManage && (record.status === 'READY' || record.status === 'ACTIVE');
+            permissions.canManage &&
+            (record.status === 'READY' || record.status === 'ACTIVE') &&
+            (role !== 'sales-consultant' || record.assigned_user_id === permissions.userId);
           const canStart = canProgress && record.status === 'READY';
           const canReach = canProgress && record.status === 'ACTIVE' && !record.reached_at;
           const canEnd = canProgress && record.status === 'ACTIVE';

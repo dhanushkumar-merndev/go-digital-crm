@@ -5,7 +5,12 @@ const runId = Date.now().toString(36);
 const customerName = `Amal browser QA ${runId}`;
 const edgeCustomerName = `Amal edge QA ${runId}`;
 const followupCustomerName = `Amal follow-up QA ${runId}`;
-const salesFlowLeadName = process.env.E2E_SALES_FLOW_LEAD;
+const cancelledFollowupCustomerName = `Amal cancel follow-up QA ${runId}`;
+const handoffCancellationCustomerName = `Amal transfer cancel QA ${runId}`;
+// A full local run owns one fresh lead from Telecaller creation through
+// delivery. Supplying this variable remains useful for focused reruns against
+// an existing lead, but must not be required for the complete suite.
+const salesFlowLeadName = process.env.E2E_SALES_FLOW_LEAD ?? customerName;
 const allocationVin = process.env.E2E_ALLOCATION_VIN ?? 'GDMNEV20260000002';
 
 // CI and ordinary local runs use Playwright's managed Chromium. This opt-in is
@@ -133,7 +138,7 @@ async function salesLeadId(page, leadName) {
 
 async function createOperationalCase(page, role, route, caseName) {
   await signInAs(page, role);
-  await page.goto(`${baseURL}/${role}/${route}`);
+  await page.goto(`${baseURL}/${role}/${route}?status=all`);
   await page.getByPlaceholder('Search this department').fill(salesFlowLeadName);
   let row = matchingRows(page, salesFlowLeadName).first();
   if (!(await row.isVisible().catch(() => false))) {
@@ -158,6 +163,16 @@ async function createOperationalCase(page, role, route, caseName) {
 }
 
 async function openOperationalCase(page, caseName) {
+  const existingSheet = page.getByRole('dialog', { name: `${caseName} case` });
+  if (await existingSheet.isVisible().catch(() => false)) {
+    await expect(
+      existingSheet.getByText(new RegExp(`^${escapeRegExp(caseName)} case$`, 'i')),
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(existingSheet.getByText('Loading scoped case data.', { exact: true })).toBeHidden({
+      timeout: 60_000,
+    });
+    return existingSheet;
+  }
   const row = matchingRows(page, salesFlowLeadName).first();
   await expect(row).toContainText(salesFlowLeadName, { timeout: 25_000 });
   await row.getByRole('button').first().click();
@@ -165,7 +180,12 @@ async function openOperationalCase(page, caseName) {
   // is stable and the title is verified independently below.
   const sheet = page.locator('[role="dialog"]').last();
   await expect(sheet).toBeVisible({ timeout: 25_000 });
-  await expect(sheet.getByText(new RegExp(`^${escapeRegExp(caseName)} case$`, 'i'))).toBeVisible();
+  await expect(sheet.getByText(new RegExp(`^${escapeRegExp(caseName)} case$`, 'i'))).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(sheet.getByText('Loading scoped case data.', { exact: true })).toBeHidden({
+    timeout: 60_000,
+  });
   return sheet;
 }
 
@@ -226,7 +246,9 @@ async function uploadCaseProof(page, sheet) {
     );
   }
   try {
-    await expect(sheet.getByText('logo.webp', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(sheet.getByRole('paragraph').filter({ hasText: 'logo.webp' }).first()).toBeVisible(
+      { timeout: 15_000 },
+    );
   } catch (error) {
     console.log(`Document upload request failures: ${failedRequests.join('; ') || 'none'}`);
     throw error;
@@ -243,16 +265,25 @@ async function progressCase(sheet, nextStatus, patch = {}) {
     .join(' ');
   const statusPicker = sheet.getByRole('combobox').first();
   await statusPicker.click();
-  await sheet
-    .page()
-    .locator('[role="option"]', { hasText: statusLabel })
-    .filter({ hasText: new RegExp(`^${escapeRegExp(statusLabel)}$`) })
-    .click();
+  const option = sheet.page().getByRole('option', { name: statusLabel, exact: true }).last();
+  await expect(option).toBeVisible({ timeout: 25_000 });
+  await option.click();
   for (const [id, value] of Object.entries(patch)) {
     await sheet.locator(`#case-${id}`).fill(value);
   }
   await sheet.locator('#case-change-reason').fill(`Browser QA transition to ${nextStatus}.`);
+  const update = sheet
+    .page()
+    .waitForResponse((response) => response.url().includes('/rpc/update_operational_case'), {
+      timeout: 30_000,
+    });
   await sheet.getByRole('button', { name: 'Save changes' }).click();
+  const updateResponse = await update;
+  if (!updateResponse.ok()) {
+    throw new Error(
+      `Operational case transition to ${nextStatus} failed: ${updateResponse.status()} ${JSON.stringify(await updateResponse.json())}`,
+    );
+  }
   await expect(sheet.getByRole('combobox').first()).toContainText(statusLabel, {
     timeout: 25_000,
   });
@@ -262,8 +293,199 @@ async function caseStatus(sheet) {
   return (await sheet.getByRole('combobox').first().textContent())?.trim().replace(/^Keep\s+/, '');
 }
 
+function statusLabel(status) {
+  return status
+    .toLowerCase()
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+async function transitionBooking(page, targetStatus) {
+  await signInAs(page, 'sales-consultant');
+  await page.goto(
+    `${baseURL}/sales-consultant/bookings?q=${encodeURIComponent(salesFlowLeadName)}`,
+  );
+  const row = matchingRows(page, salesFlowLeadName).first();
+  await expect(row).toContainText(salesFlowLeadName, { timeout: 25_000 });
+  const label = statusLabel(targetStatus);
+  if (
+    (await row
+      .getByText(targetStatus.replaceAll('_', ' '), { exact: true })
+      .isVisible()
+      .catch(() => false)) ||
+    (targetStatus === 'READY_FOR_DELIVERY' &&
+      (await row
+        .getByText('DELIVERED', { exact: true })
+        .isVisible()
+        .catch(() => false)))
+  )
+    return;
+  await row.getByRole('button', { name: 'Booking actions' }).click();
+  await page.getByRole('menuitem', { name: label }).click();
+  const transition = page.getByRole('dialog', { name: label });
+  await expect(transition).toBeVisible();
+  const update = page.waitForResponse(
+    (response) => response.url().includes('/rpc/transition_booking_status'),
+    { timeout: 30_000 },
+  );
+  await transition.getByRole('button', { name: `Confirm ${label}` }).click();
+  const updateResponse = await update;
+  if (!updateResponse.ok()) {
+    throw new Error(
+      `Booking transition to ${targetStatus} failed: ${updateResponse.status()} ${JSON.stringify(await updateResponse.json())}`,
+    );
+  }
+  await expect(transition).toBeHidden({ timeout: 25_000 });
+  await expect(row.getByText(targetStatus.replaceAll('_', ' '), { exact: true })).toBeVisible({
+    timeout: 25_000,
+  });
+}
+
+async function transitionStockLifecycle(page, targetStatus) {
+  await signInAs(page, 'inventory');
+  await page.goto(`${baseURL}/inventory/vehicle-inventory?q=${encodeURIComponent(allocationVin)}`);
+  const row = page.locator('tbody tr').filter({ hasText: allocationVin }).first();
+  await expect(row).toContainText(allocationVin, { timeout: 25_000 });
+  const targetLabel = targetStatus.replaceAll('_', ' ');
+  const alreadyAtOrBeyondTarget =
+    (await row
+      .getByText(targetLabel, { exact: true })
+      .isVisible()
+      .catch(() => false)) ||
+    (targetStatus === 'READY_FOR_DELIVERY' &&
+      (await row
+        .getByText('DELIVERED', { exact: true })
+        .isVisible()
+        .catch(() => false)));
+  if (alreadyAtOrBeyondTarget) return;
+  await row.getByRole('button', { name: 'Open' }).click();
+  const stock = page
+    .locator('[role="dialog"]')
+    .filter({ has: page.getByText('Stock unit detail', { exact: true }) })
+    .last();
+  await expect(stock.getByText('Stock unit detail', { exact: true })).toBeVisible({
+    timeout: 25_000,
+  });
+  // The sheet title renders before the scoped stock-detail query. The lifecycle
+  // form signals that the record has fully loaded and can be mutated.
+  await expect(stock.getByText('Change lifecycle status', { exact: true })).toBeVisible({
+    timeout: 25_000,
+  });
+  const reason = stock.locator('input[placeholder="Reason"]');
+  const form = reason.locator('xpath=ancestor::form');
+  await form.getByRole('combobox').click();
+  const option = page
+    .locator('[role="option"]')
+    .filter({ hasText: new RegExp(`^${escapeRegExp(targetLabel)}$`) });
+  if (targetStatus === 'READY_FOR_DELIVERY' && (await option.count()) === 0) {
+    await page.keyboard.press('Escape');
+    return;
+  }
+  await expect(option).toBeVisible({ timeout: 25_000 });
+  await option.click();
+  await reason.fill(`Browser QA vehicle transition to ${targetStatus}.`);
+  const update = page.waitForResponse(
+    (response) => response.url().includes('/rpc/set_stock_unit_status'),
+    { timeout: 30_000 },
+  );
+  await form.getByRole('button', { name: 'Update' }).click();
+  const updateResponse = await update;
+  if (!updateResponse.ok()) {
+    throw new Error(
+      `Stock transition to ${targetStatus} failed: ${updateResponse.status()} ${JSON.stringify(await updateResponse.json())}`,
+    );
+  }
+  await expect(
+    stock.locator('div.inline-flex').filter({ hasText: targetLabel }).first(),
+  ).toContainText(targetLabel, { timeout: 25_000 });
+}
+
+async function completeDeliveryChecklist(sheet) {
+  const checklist = sheet.locator('input[type="checkbox"]');
+  const total = await checklist.count();
+  expect(total, 'A delivery must have its generated completion checklist.').toBeGreaterThan(0);
+  while ((await sheet.locator('input[type="checkbox"]:checked').count()) < total) {
+    const completed = await sheet.locator('input[type="checkbox"]:checked').count();
+    const openItem = sheet.locator('input[type="checkbox"]:not(:checked)').first();
+    await expect(openItem).toBeVisible({ timeout: 25_000 });
+    const mutation = sheet
+      .page()
+      .waitForResponse((response) => response.url().includes('/rpc/set_delivery_checklist_item'), {
+        timeout: 30_000,
+      });
+    await openItem.click();
+    const response = await mutation;
+    if (!response.ok()) {
+      throw new Error(
+        `Delivery checklist update failed: ${response.status()} ${JSON.stringify(await response.json())}`,
+      );
+    }
+    await expect
+      .poll(async () => await sheet.locator('input[type="checkbox"]:checked').count(), {
+        timeout: 25_000,
+      })
+      .toBe(completed + 1);
+  }
+}
+
+async function completeDeliveryPdi(page, sheet) {
+  await sheet.getByRole('button', { name: 'Open PDI Sheet' }).click();
+  const pdi = page.getByRole('dialog', { name: 'Pre-Delivery Inspection (PDI)' });
+  await expect(pdi).toBeVisible({ timeout: 25_000 });
+  await expect(pdi.getByText('Total Points', { exact: true })).toBeVisible({ timeout: 25_000 });
+  if (
+    await pdi
+      .getByText('PASSED', { exact: true })
+      .isVisible()
+      .catch(() => false)
+  ) {
+    await pdi.getByText('Close', { exact: true }).click();
+    await expect(pdi).toBeHidden({ timeout: 25_000 });
+    return;
+  }
+  const passes = pdi.getByRole('button', { name: 'Pass', exact: true });
+  const pointCount = await passes.count();
+  expect(pointCount, 'The PDI must load its inspection points.').toBeGreaterThan(0);
+  for (let index = 0; index < pointCount; index += 1) {
+    const pass = passes.nth(index);
+    if (!(await pass.getAttribute('class'))?.includes('bg-emerald-600')) {
+      await pass.click();
+      await expect(pass).toHaveClass(/bg-emerald-600/, { timeout: 25_000 });
+    }
+  }
+  const notes = pdi.getByPlaceholder('Overall PDI notes (optional)...');
+  await expect(notes).toBeVisible({ timeout: 25_000 });
+  await notes.fill('Browser QA PDI completed without defects.');
+  const certification = page.waitForResponse(
+    (response) => response.url().includes('/rpc/complete_pdi_inspection'),
+    { timeout: 30_000 },
+  );
+  await pdi.getByRole('button', { name: 'Sign & Certify PDI' }).click();
+  const certificationResponse = await certification;
+  if (!certificationResponse.ok()) {
+    throw new Error(
+      `PDI certification failed: ${certificationResponse.status()} ${JSON.stringify(await certificationResponse.json())}`,
+    );
+  }
+  await expect(pdi).toBeHidden({ timeout: 25_000 });
+}
+
+async function selectDeliverySignature(page, sheet) {
+  // The progress form has status, priority, then the delivery-only signature selector.
+  const picker = sheet.getByRole('combobox').nth(2);
+  await picker.click();
+  const proof = page.getByRole('option', { name: 'logo.webp', exact: true }).last();
+  await expect(proof).toBeVisible({ timeout: 25_000 });
+  await proof.click();
+}
+
 test.describe('manual lead: Telecaller to Sales', () => {
-  test.setTimeout(120_000);
+  // A cold scoped-case query can take tens of seconds after each persisted
+  // workflow transition. Finance/RTO legitimately reopen a case several
+  // times, so the suite-level limit must cover that audited work rather than
+  // terminating a valid department flow midway through it.
+  test.setTimeout(240_000);
 
   test('creates Amal as a Manual lead, records contact, and hands the lead to Sales', async ({
     page,
@@ -376,7 +598,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await salesRow.getByLabel(`Schedule a follow-up for ${customerName}`).click();
     await page.getByRole('menuitem', { name: 'Customer Callback' }).click();
     const followup = page.getByRole('dialog', { name: 'Schedule follow-up' });
-    await followup.locator('#followups-scheduled-at').fill('2026-09-20T10:00');
+    await followup.locator('#followups-scheduled-at').fill(futureDateTimeInput());
     await followup.getByRole('button', { name: 'Save' }).click();
     await expect(followup).toBeHidden();
     await expect(salesRow.getByText('Follow-up', { exact: true })).toBeVisible({ timeout: 15_000 });
@@ -462,10 +684,121 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await expectLeadOutsideQuickView(page, followupCustomerName, 'Lost', 'lost');
   });
 
+  test('blocks Sales handoff until a Telecaller cancels the open follow-up', async ({ page }) => {
+    await signInAs(page, 'telecaller');
+    const createDialog = await openManualLeadDialog(page);
+    await createDialog.getByLabel('Customer name').fill(cancelledFollowupCustomerName);
+    await createDialog.getByLabel('Phone').fill('+91 85939 39234');
+    await createDialog.getByRole('button', { name: 'Create lead' }).click();
+    await expect(createDialog).toBeHidden({ timeout: 25_000 });
+
+    await page.getByPlaceholder('Search by name or mobile…').fill(cancelledFollowupCustomerName);
+    const row = matchingRows(page, cancelledFollowupCustomerName).first();
+    await clickWhatsAppWithoutLeavingCrm(
+      page,
+      row.getByLabel(`WhatsApp ${cancelledFollowupCustomerName}`),
+    );
+    await expect(row.getByText('Contacted', { exact: true })).toBeVisible({ timeout: 15_000 });
+    // Handoff requires a Customer link independently of follow-up state. Link
+    // first so this test exercises the pending-follow-up guard rather than the
+    // earlier Customer-ownership guard.
+    await row
+      .getByLabel(`Review possible customer match for ${cancelledFollowupCustomerName}`)
+      .click();
+    const customerMatch = page.getByRole('dialog', {
+      name: /Create customer|Review possible customer match/,
+    });
+    const decisionReason = customerMatch.getByLabel(/Decision reason/);
+    if (await decisionReason.isVisible().catch(() => false)) {
+      await decisionReason.fill('Separate browser QA customer for follow-up cancellation.');
+    }
+    await customerMatch.getByRole('button', { name: 'Create and link customer' }).click();
+    await page.waitForURL(/\/telecaller\/customers\//);
+    await page.goto(`${baseURL}/telecaller/my-leads`);
+    await page.getByPlaceholder('Search by name or mobile…').fill(cancelledFollowupCustomerName);
+    const linkedRow = matchingRows(page, cancelledFollowupCustomerName).first();
+    await linkedRow.getByLabel(`Schedule a follow-up for ${cancelledFollowupCustomerName}`).click();
+    await page.getByRole('menuitem', { name: 'Customer Callback' }).click();
+    const schedule = page.getByRole('dialog', { name: 'Schedule follow-up' });
+    await schedule.locator('#followups-scheduled-at').fill(futureDateTimeInput());
+    await schedule.getByRole('button', { name: 'Save' }).click();
+    await expect(schedule).toBeHidden({ timeout: 25_000 });
+    await expectLeadInQuickView(page, cancelledFollowupCustomerName, 'Follow-up', 'follow-up');
+
+    await selectQuickView(page, 'All', 'all');
+    const allRow = matchingRows(page, cancelledFollowupCustomerName).first();
+    await allRow.getByLabel(`Transfer ${cancelledFollowupCustomerName} to Sales`).click();
+    const pending = page.getByRole('dialog', { name: 'Follow-up still pending' });
+    await expect(pending).toBeVisible();
+    await pending.getByRole('button', { name: 'Cancel follow-up' }).click();
+    const cancel = page.getByRole('dialog', { name: 'Cancel follow-up' });
+    await cancel.locator('#cancel-work-note').fill('Customer requested a later call.');
+    await cancel.getByRole('button', { name: 'Confirm cancellation' }).click();
+    await expect(cancel).toBeHidden({ timeout: 25_000 });
+    await expectLeadInQuickView(page, cancelledFollowupCustomerName, 'Contacted', 'contacted');
+    await expectLeadOutsideQuickView(page, cancelledFollowupCustomerName, 'Follow-up', 'follow-up');
+  });
+
+  test('keeps a dismissed handoff unchanged and lets its Telecaller reverse a confirmed transfer', async ({
+    page,
+  }) => {
+    await signInAs(page, 'telecaller');
+    const createDialog = await openManualLeadDialog(page);
+    await createDialog.getByLabel('Customer name').fill(handoffCancellationCustomerName);
+    await createDialog.getByLabel('Phone').fill('+91 85939 39234');
+    await createDialog.getByRole('button', { name: 'Create lead' }).click();
+    await expect(createDialog).toBeHidden({ timeout: 25_000 });
+    await page.getByPlaceholder('Search by name or mobile…').fill(handoffCancellationCustomerName);
+    const row = matchingRows(page, handoffCancellationCustomerName).first();
+    await clickWhatsAppWithoutLeavingCrm(
+      page,
+      row.getByLabel(`WhatsApp ${handoffCancellationCustomerName}`),
+    );
+    await row
+      .getByLabel(`Review possible customer match for ${handoffCancellationCustomerName}`)
+      .click();
+    const customerMatch = page.getByRole('dialog', {
+      name: /Create customer|Review possible customer match/,
+    });
+    await customerMatch.getByRole('button', { name: 'Create and link customer' }).click();
+    await page.waitForURL(/\/telecaller\/customers\//);
+    await page.goto(`${baseURL}/telecaller/my-leads`);
+    await page.getByPlaceholder('Search by name or mobile…').fill(handoffCancellationCustomerName);
+    const linkedRow = matchingRows(page, handoffCancellationCustomerName).first();
+    await linkedRow.getByLabel(`Transfer ${handoffCancellationCustomerName} to Sales`).click();
+    const handoff = page.getByRole('dialog', { name: 'Transfer to Sales' });
+    await handoff.getByRole('button', { name: 'Cancel' }).click();
+    await expect(handoff).toBeHidden();
+    await expect(linkedRow.getByText('Contacted', { exact: true })).toBeVisible();
+
+    await linkedRow.getByLabel(`Transfer ${handoffCancellationCustomerName} to Sales`).click();
+    await handoff.getByLabel('Reason').fill('Qualified during Telecaller edge QA.');
+    await handoff.getByRole('combobox').click();
+    await page.getByRole('option', { name: /Dhanush Kumar/ }).click();
+    await handoff.getByRole('button', { name: 'Transfer to Sales' }).click();
+    await expect(handoff).toBeHidden({ timeout: 25_000 });
+    await expect(linkedRow.getByText('Transferred to Sales', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await linkedRow.getByLabel(`Cancel transfer for ${handoffCancellationCustomerName}`).click();
+    const reverse = page.getByRole('dialog', { name: 'Cancel transfer to Sales?' });
+    await reverse
+      .getByPlaceholder('Why should this lead return to the Telecaller queue?')
+      .fill('Customer needs a Telecaller follow-up first.');
+    await reverse.getByRole('button', { name: 'Cancel transfer' }).click();
+    await expect(reverse).toBeHidden({ timeout: 25_000 });
+    await expect(linkedRow.getByText('Contacted', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
   test('Sales Consultant contacts and schedules a follow-up for an existing Sales lead', async ({
     page,
   }) => {
-    test.skip(!salesFlowLeadName, 'Set E2E_SALES_FLOW_LEAD to run against an existing Sales lead.');
+    test.skip(
+      !process.env.E2E_SALES_FLOW_LEAD,
+      'This focused existing-lead check runs only when E2E_SALES_FLOW_LEAD is supplied.',
+    );
     await signInAs(page, 'sales-consultant');
     await page.goto(`${baseURL}/sales-consultant/my-leads?status=all`);
     await page.getByPlaceholder('Search by name or mobile…').fill(salesFlowLeadName);
@@ -525,6 +858,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     test.skip(!salesFlowLeadName, 'Set E2E_SALES_FLOW_LEAD to continue an existing Sales lead.');
     await signInAs(page, 'sales-consultant');
     const leadId = await salesLeadId(page, salesFlowLeadName);
+    const testDriveRegistration = `KA QA ${runId.toUpperCase()}`;
 
     await page.goto(
       `${baseURL}/sales-consultant/test-drives?action=create&lead=${leadId}&q=${encodeURIComponent(salesFlowLeadName)}`,
@@ -549,7 +883,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     const vehicleOption = page.getByRole('option').first();
     await expect(vehicleOption).toBeVisible({ timeout: 15_000 });
     await vehicleOption.click();
-    await page.locator('#test-drive-registration-number').fill('KA 01 QA 1234');
+    await page.locator('#test-drive-registration-number').fill(testDriveRegistration);
     await page.locator('input[type="datetime-local"]').fill(futureDateTimeInput(72));
     await page.getByPlaceholder('Showroom entrance').fill('Browser QA showroom');
     await page.getByPlaceholder('Planned destination').fill('Browser QA destination');
@@ -558,8 +892,16 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await page.goto(
       `${baseURL}/sales-consultant/test-drives?view=all&q=${encodeURIComponent(salesFlowLeadName)}`,
     );
-    let driveRow = matchingRows(page, salesFlowLeadName).first();
+    let driveRow = matchingRows(page, salesFlowLeadName)
+      .filter({ hasText: testDriveRegistration })
+      .filter({ has: page.getByText('READY', { exact: true }) })
+      .first();
     await expect(driveRow.getByText('READY', { exact: true })).toBeVisible({ timeout: 25_000 });
+    const currentDriveAtStatus = (status) =>
+      matchingRows(page, salesFlowLeadName)
+        .filter({ hasText: testDriveRegistration })
+        .filter({ has: page.getByText(status, { exact: true }) })
+        .first();
 
     await driveRow.getByRole('button', { name: 'Test-drive actions' }).click();
     await page.getByRole('menuitem', { name: 'Start test drive' }).click();
@@ -570,7 +912,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await start.getByRole('button', { name: 'Start test drive' }).click();
     await expect(start).toBeHidden({ timeout: 25_000 });
 
-    driveRow = matchingRows(page, salesFlowLeadName).first();
+    driveRow = currentDriveAtStatus('ACTIVE');
     await expect(driveRow.getByText('ACTIVE', { exact: true })).toBeVisible({ timeout: 25_000 });
     await driveRow.getByRole('button', { name: 'Test-drive actions' }).click();
     await page.getByRole('menuitem', { name: 'Complete test drive' }).click();
@@ -581,7 +923,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await complete.getByRole('button', { name: 'Complete test drive' }).click();
     await expect(complete).toBeHidden({ timeout: 25_000 });
 
-    driveRow = matchingRows(page, salesFlowLeadName).first();
+    driveRow = currentDriveAtStatus('COMPLETED');
     await expect(driveRow.getByText('COMPLETED', { exact: true })).toBeVisible({ timeout: 25_000 });
     await driveRow.getByRole('button', { name: 'Test-drive actions' }).click();
     await page.getByRole('menuitem', { name: 'Finalize route summary' }).click();
@@ -838,5 +1180,77 @@ test.describe('manual lead: Telecaller to Sales', () => {
     const allocated = page.getByRole('dialog', { name: 'Allocated' });
     await allocated.getByRole('button', { name: 'Confirm Allocated' }).click();
     await expect(allocated).toBeHidden({ timeout: 25_000 });
+  });
+
+  test('Delivery Manager completes PDI, checklist, signed delivery, and booking completion', async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    test.skip(!salesFlowLeadName, 'Set E2E_SALES_FLOW_LEAD to continue an existing Sales lead.');
+
+    // The allocated stock unit must be released to the delivery desk before the
+    // booking can be marked ready. These are separate audited workflows.
+    await transitionStockLifecycle(page, 'READY_FOR_DELIVERY');
+    await transitionBooking(page, 'READY_FOR_DELIVERY');
+
+    let delivery = await createOperationalCase(page, 'delivery', 'upcoming-deliveries', 'Delivery');
+    let status = await caseStatus(delivery);
+    if (status === 'Planning') {
+      await completeDeliveryPdi(page, delivery);
+      await completeDeliveryChecklist(delivery);
+      delivery = await openOperationalCase(page, 'Delivery');
+      status = await caseStatus(delivery);
+    }
+    if (status === 'Checklist Pending') {
+      await completeDeliveryPdi(page, delivery);
+      await completeDeliveryChecklist(delivery);
+      delivery = await openOperationalCase(page, 'Delivery');
+      status = await caseStatus(delivery);
+    }
+    if (status === 'Checklist Pending') {
+      await progressCase(delivery, 'READY');
+      delivery = await openOperationalCase(page, 'Delivery');
+      status = 'Ready';
+    }
+    if (status === 'Ready') {
+      const scheduledAt = futureDateTimeInput(48);
+      await progressCase(delivery, 'SCHEDULED', { scheduled_at: scheduledAt });
+      delivery = await openOperationalCase(page, 'Delivery');
+      status = 'Scheduled';
+    }
+    if (status === 'Delivered') {
+      await transitionStockLifecycle(page, 'DELIVERED');
+      await transitionBooking(page, 'DELIVERED');
+      return;
+    }
+    await expect(delivery.getByRole('combobox').first()).toContainText('Scheduled');
+
+    // Vehicle delivery is a stock lifecycle action, not an implicit side effect
+    // of case completion; proving both prevents a booking from outpacing stock.
+    await transitionStockLifecycle(page, 'DELIVERED');
+    await signInAs(page, 'delivery');
+    await page.goto(
+      `${baseURL}/delivery/upcoming-deliveries?q=${encodeURIComponent(salesFlowLeadName)}`,
+    );
+    delivery = await openOperationalCase(page, 'Delivery');
+    if (
+      !(await delivery
+        .getByRole('paragraph')
+        .filter({ hasText: 'logo.webp' })
+        .first()
+        .isVisible()
+        .catch(() => false))
+    ) {
+      await uploadCaseProof(page, delivery);
+    }
+    const scheduledAt = await delivery.locator('#case-scheduled_at').inputValue();
+    await selectDeliverySignature(page, delivery);
+    await progressCase(delivery, 'DELIVERED', {
+      scheduled_at: scheduledAt,
+      delivered_at: futureDateTimeInput(72),
+    });
+    await expect(delivery.getByRole('combobox').first()).toContainText('Delivered');
+
+    await transitionBooking(page, 'DELIVERED');
   });
 });

@@ -167,12 +167,13 @@ describe('outbound call mode', () => {
 });
 
 describe('call feedback', () => {
-  it('tells the caller what their phone is about to do, not that something saved', () => {
+  it('leaves the call feedback to the live bar, not the generic save toast', () => {
     // The global mutation cache toasts "Saved successfully / Your changes have
     // been applied" for every mutation, and starting a call ran two of them.
+    // LiveCallBar now follows the call instead, so the dialog stays silent.
     expect(customerActions).toContain('meta: { toast: false }');
-    expect(customerActions).toContain("title: 'Calling ' + customerName");
-    expect(customerActions).toContain('Answer on your dealership line');
+    expect(customerActions).toContain('LiveCallBar takes over from here');
+    expect(customerActions).not.toContain("title: 'Calling ' + customerName");
   });
 
   it('keeps the contact record silent so it does not double-toast the call', () => {

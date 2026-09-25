@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileUp, PhoneCall, Plus } from 'lucide-react';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
@@ -22,8 +22,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { toast } from '@/components/ui/toast';
 import { ProviderCallStartError, startProviderCall } from '@/features/calls/call-workspace-api';
+import { liveCallQueryKeyRoot } from '@/features/calls/live-call-api';
 import {
   fetchCustomerTelecmiCallOptions,
   fetchCustomer360EditData,
@@ -711,6 +711,7 @@ export function CustomerTelecmiCallDialog({
   leadId?: string;
   onStarted: () => void;
 }) {
+  const queryClient = useQueryClient();
   const optionsQuery = useQuery({
     queryKey: ['customer-telecmi-call-options', organizationId, customerId, leadId],
     queryFn: ({ signal }) => fetchCustomerTelecmiCallOptions(customerId, signal, leadId),
@@ -742,12 +743,10 @@ export function CustomerTelecmiCallDialog({
     onSuccess: () => {
       requestId.current = null;
       onOpenChange(false);
-      toast.add({
-        type: 'success',
-        title: 'Calling ' + customerName,
-        description:
-          'Answer on your dealership line, then we connect the customer. They see the dealership number.',
-      });
+      // No toast: LiveCallBar takes over from here and follows the call through
+      // ringing, connection and outcome instead of announcing it once. Show it
+      // now rather than waiting for the insert broadcast to make the round trip.
+      void queryClient.invalidateQueries({ queryKey: liveCallQueryKeyRoot });
       onStarted();
     },
   });
@@ -841,7 +840,9 @@ export function CustomerTelecmiCallDialog({
             disabled={optionsQuery.isPending || unavailable || start.isPending}
           >
             <PhoneCall className="size-4" />
-            {start.isPending ? 'Starting…' : 'Call through CRM'}
+            {/* The dialog title already says "Call through CRM"; repeating it on
+                the button says nothing about what pressing it does. */}
+            {start.isPending ? 'Starting…' : `Call ${customerName}`}
           </Button>
         </DialogFooter>
       </DialogContent>

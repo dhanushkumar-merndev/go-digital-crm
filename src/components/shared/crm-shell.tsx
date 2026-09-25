@@ -6,6 +6,7 @@ import {
 } from '@/components/providers/workspace-session-provider';
 import { isLocalPreviewMode } from '@/lib/runtime/runtime-mode';
 import { SessionExpiryGuard } from '@/features/auth/session-expiry-guard';
+import { LiveCallBar } from '@/features/calls/live-call-bar';
 import { AppHeader } from './app-header';
 import { AppSidebar } from './app-sidebar';
 
@@ -24,6 +25,9 @@ export function CrmShell({
   return (
     <WorkspaceSessionProvider session={session}>
       <SessionExpiryGuard />
+      {/* Follows a dealership call wherever the user navigates, so leaving the
+          lead list does not lose sight of a call that is still ringing. */}
+      <LiveCallBar />
       {/* Two halves of one rule: the desktop layout is never squeezed below
           1280 (it scrolls instead of cramming), and never stretched past the
           1920 canvas it was designed on (it centres instead). Above 1920 the
