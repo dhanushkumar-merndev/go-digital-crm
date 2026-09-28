@@ -1,17 +1,27 @@
 'use client';
 
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  onlineManager,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+import {
+  Check,
+  CheckCheck,
   ChevronLeft,
-  LoaderCircle,
+  CircleAlert,
+  Clock3,
   MessageCircleMore,
   RefreshCw,
   Search,
   Send,
   UserRound,
+  WifiOff,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { PersonalWhatsAppDialog } from './personal-whatsapp-dialog';
 import { PersonalWhatsAppTemplatePicker } from './personal-whatsapp-template-picker';
 import { InboxLeadContext } from './inbox-lead-context';
@@ -49,6 +59,68 @@ import {
   sendInboxWhatsAppMessage,
   type InboxConversation,
 } from './inbox-api';
+
+// WhatsApp-style ticks, kept to three states: Sending, Sent, Seen. An
+// unconfirmed (UNKNOWN) send is still waiting for WhatsApp's receipt, which
+// upgrades it by itself, so it reads as Sending rather than as an error.
+function MessageStatus({ status }: { status: string | null }) {
+  if (!status) return null;
+  const view =
+    status === 'READ'
+      ? { icon: <CheckCheck className="size-3 text-sky-600" />, label: 'Seen', tone: '' }
+      : status === 'DELIVERED'
+        ? { icon: <CheckCheck className="size-3" />, label: 'Sent', tone: '' }
+        : status === 'SENT'
+          ? { icon: <Check className="size-3" />, label: 'Sent', tone: '' }
+          : status === 'FAILED'
+            ? { icon: <CircleAlert className="size-3" />, label: 'Not sent', tone: 'text-red-600' }
+            : status === 'UNCONFIRMED'
+              ? { icon: <Clock3 className="size-3" />, label: 'Not confirmed', tone: '' }
+              : { icon: <Clock3 className="size-3" />, label: 'Sending', tone: '' };
+  return (
+    <span className={`inline-flex items-center gap-0.5 ${view.tone}`}>
+      {view.icon}
+      {view.label}
+    </span>
+  );
+}
+
+// A reply typed in the composer. It shows immediately and is dispatched in
+// order, one at a time, because personal WhatsApp allows a single send in
+// flight and a short gap between sends. `id` is the idempotency key.
+type OutboxItem = {
+  id: string;
+  organizationId: string;
+  conversationId: string;
+  expectedLeadId: string | null;
+  context: string;
+  body: string;
+  personal: boolean;
+  state: 'queued' | 'sent' | 'failed';
+  attempts: number;
+  createdAt: number;
+  retryAt?: number;
+  messageId?: string;
+  status?: string;
+};
+// Server says "not yet" (previous send still settling): wait for WhatsApp's
+// receipt and try the same message again instead of failing it.
+const TRANSIENT_SEND_ERRORS = [
+  'PERSONAL_WHATSAPP_SEND_UNRESOLVED',
+  'PERSONAL_WHATSAPP_RATE_LIMITED',
+];
+// The gateway rejected before dispatch (the server marks that attempt FAILED),
+// so nothing reached WhatsApp: queue it again under a new key once reconnected.
+const REJECTED_BEFORE_SEND = ['PERSONAL_WHATSAPP_DISCONNECTED', 'PERSONAL_WHATSAPP_LEASE_LOST'];
+function sendFailureReason(code: string) {
+  return code === 'LEAD_CONTEXT_CHANGED'
+    ? 'The working lead changed. Check the selected lead before sending again.'
+    : code.startsWith('PERSONAL_WHATSAPP_')
+      ? (personalWhatsAppReason(code) ?? 'Reply unavailable.')
+      : code === 'WHATSAPP_TEMPLATE_REQUIRED'
+        ? 'The WhatsApp service window has closed. Use an approved template.'
+        : 'Check the connected channel and try again.';
+}
 
 function formatTime(value: string | null) {
   if (!value) return '';
@@ -152,7 +224,18 @@ export function InboxWorkspace({
   const [draft, setDraft] = useState('');
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [draftConversation, setDraftConversation] = useState<string | null>(null);
-  const sendKey = useRef<{ context: string; id: string } | null>(null);
+  const [outbox, setOutbox] = useState<OutboxItem[]>([]);
+  const dispatching = useRef<string | null>(null);
+  const lastSendDone = useRef(0);
+  // Set when the last result left the server with an unresolved send, so the
+  // next dispatch waits for a status read taken after it.
+  const awaitStatus = useRef(false);
+  const online = useSyncExternalStore(
+    (notify) => onlineManager.subscribe(notify),
+    () => onlineManager.isOnline(),
+    () => true,
+  );
+  const [dispatchWake, setDispatchWake] = useState(0);
   const queryClient = useQueryClient();
   const refreshes = useRef<number[]>([]);
   const debouncedSearch = useDebouncedValue(search, 300);
@@ -288,89 +371,167 @@ export function InboxWorkspace({
         personalStatus.data &&
         !personalStatus.data.send_disabled_reason)) &&
     activeConversation.status === 'OPEN';
+  // Personal replies may still be typed while the previous one settles or the
+  // short send gap runs; they wait in the outbox. Other reasons block the composer.
+  const personalReason = personalStatus.data?.send_disabled_reason ?? null;
+  const canCompose =
+    canSend ||
+    (!readOnly &&
+      (!historyLeadId || activeConversation?.lead_id === historyLeadId) &&
+      Boolean(session?.organizationId) &&
+      hasWorkspacePermission(session, 'message.send') &&
+      personalConversation &&
+      Boolean(personalStatus.data) &&
+      (personalReason === 'PERSONAL_WHATSAPP_SEND_UNRESOLVED' ||
+        personalReason === 'PERSONAL_WHATSAPP_DISCONNECTED') &&
+      activeConversation.status === 'OPEN');
   const send = useMutation({
-    mutationFn: (
-      input: Parameters<typeof sendInboxWhatsAppMessage>[0] & {
-        context: string;
-        startedAt: string;
-      },
-    ) => sendInboxWhatsAppMessage(input),
-    onSuccess: (result, input) => {
-      if (draftContext === input.context && visibleDraft.trim() === input.body) setDraft('');
-      sendKey.current = null;
-      // Refresh each resource once, without extending the send spinner through list refetches.
-      salesConsultantCache.invalidate('inbox.message.sent');
-      void queryClient.invalidateQueries({
-        queryKey: ['personal-whatsapp-status', ...queryScope],
-      });
-      toast.add({
-        type: result?.status === 'UNKNOWN' ? 'error' : 'success',
-        title:
-          result?.status === 'UNKNOWN'
-            ? 'Send result unconfirmed'
-            : result?.status === 'PENDING'
-              ? 'Message pending'
-              : 'Message sent',
-        description:
-          result?.status === 'UNKNOWN'
-            ? 'Check WhatsApp on your phone. This message will not be resent automatically.'
-            : 'The latest delivery status appears beside the message.',
-      });
-    },
-    onError: (error) => {
-      const code = error instanceof Error ? error.message : '';
-      void queryClient.invalidateQueries({
-        queryKey: ['personal-whatsapp-status', ...queryScope],
-      });
-      toast.add({
-        type: 'error',
-        title: 'Message was not sent',
-        description:
-          code === 'LEAD_CONTEXT_CHANGED'
-            ? 'The working lead changed. Check the selected lead before sending again.'
-            : code.startsWith('PERSONAL_WHATSAPP_')
-              ? (personalWhatsAppReason(code) ?? 'Reply unavailable.')
-              : code === 'WHATSAPP_TEMPLATE_REQUIRED'
-                ? 'The WhatsApp service window has closed. Use an approved template.'
-                : 'Check the connected channel and try again.',
-      });
-    },
+    mutationFn: (item: OutboxItem) =>
+      sendInboxWhatsAppMessage({
+        organizationId: item.organizationId,
+        conversationId: item.conversationId,
+        expectedLeadId: item.expectedLeadId,
+        body: item.body,
+        applicationMessageId: item.id,
+      }),
   });
+  const sendMutate = send.mutateAsync;
+  const outboxBusy = outbox.some((item) => item.state === 'queued');
+  useEffect(() => {
+    if (dispatching.current || !online) return;
+    const next = outbox.find((item) => item.state === 'queued');
+    if (!next) return;
+    if (next.personal) {
+      const reason = personalStatus.data?.send_disabled_reason;
+      if (!personalStatus.data) return;
+      // A confirmed send frees the slot at once; only an unresolved one needs
+      // a fresh status read first. Other reasons are waited out, never failed.
+      if (awaitStatus.current && (reason || personalStatus.dataUpdatedAt <= lastSendDone.current))
+        return;
+      if (reason && reason !== 'PERSONAL_WHATSAPP_SEND_UNRESOLVED') return;
+    }
+    const wait = (next.retryAt ?? 0) - Date.now();
+    if (wait > 0) {
+      const timer = setTimeout(() => setDispatchWake((value) => value + 1), wait);
+      return () => clearTimeout(timer);
+    }
+    dispatching.current = next.id;
+    const settle = (patch: Partial<OutboxItem>, unresolved: boolean) => {
+      dispatching.current = null;
+      awaitStatus.current = unresolved;
+      lastSendDone.current = Date.now();
+      setOutbox((items) =>
+        items.map((item) => (item.id === next.id ? { ...item, ...patch } : item)),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ['personal-whatsapp-status', ...queryScope],
+      });
+    };
+    sendMutate(next)
+      .then((result) => {
+        salesConsultantCache.invalidate('inbox.message.sent');
+        settle(
+          { state: 'sent', messageId: result?.message_id, status: result?.status },
+          next.personal && !['SENT', 'DELIVERED', 'READ', 'FAILED'].includes(result?.status ?? ''),
+        );
+      })
+      .catch((error: unknown) => {
+        const code = error instanceof Error ? error.message : '';
+        // Lost network: keep it queued and resend with the same idempotency
+        // key, so a request that did reach the server is never sent twice.
+        if (code === 'NETWORK_UNAVAILABLE') {
+          settle({ retryAt: Date.now() + 2000 }, false);
+          return;
+        }
+        if (REJECTED_BEFORE_SEND.includes(code) && next.attempts < 6) {
+          settle(
+            { id: crypto.randomUUID(), attempts: next.attempts + 1, retryAt: Date.now() + 2000 },
+            true,
+          );
+          return;
+        }
+        if (TRANSIENT_SEND_ERRORS.includes(code) && next.attempts < 6) {
+          settle({ attempts: next.attempts + 1, retryAt: Date.now() + 1000 }, true);
+          return;
+        }
+        settle({ state: 'failed' }, false);
+        toast.add({
+          type: 'error',
+          title: 'Message was not sent',
+          description: sendFailureReason(code),
+        });
+      });
+  }, [
+    outbox,
+    online,
+    personalStatus.data,
+    personalStatus.dataUpdatedAt,
+    dispatchWake,
+    sendMutate,
+    queryClient,
+    queryScope,
+    salesConsultantCache,
+  ]);
   function sendReply() {
-    if (
-      !session?.organizationId ||
-      !activeConversation ||
-      !canSend ||
-      send.isPending ||
-      !visibleDraft.trim()
-    )
-      return;
-    const context = `${draftContext}:${visibleDraft.trim()}`;
-    if (sendKey.current?.context !== context)
-      sendKey.current = { context, id: crypto.randomUUID() };
-    send.mutate({
-      organizationId: session.organizationId,
-      conversationId: activeConversation.id,
-      expectedLeadId: activeConversation.lead_id,
-      body: visibleDraft.trim(),
-      applicationMessageId: sendKey.current.id,
-      context: draftContext,
-      startedAt: new Date().toISOString(),
-    });
+    const body = visibleDraft.trim();
+    if (!session?.organizationId || !activeConversation || !canCompose || !body) return;
+    setOutbox((items) => [
+      ...items,
+      {
+        id: crypto.randomUUID(),
+        organizationId: session.organizationId!,
+        conversationId: activeConversation.id,
+        expectedLeadId: activeConversation.lead_id,
+        context: draftContext,
+        body,
+        personal: Boolean(personalConversation),
+        state: 'queued',
+        attempts: 0,
+        createdAt: Date.now(),
+      },
+    ]);
+    setDraft('');
+    composerRef.current?.focus();
   }
-  const pendingReply =
-    send.variables?.context === draftContext &&
-    !send.isError &&
-    (send.isPending || (send.isSuccess && send.data?.message_id)) &&
-    !messageRows.some((message) =>
-      send.data?.message_id
-        ? message.id === send.data.message_id
-        : message.direction === 'OUTBOUND' &&
-          message.body === send.variables?.body &&
-          message.sent_at >= send.variables.startedAt,
-    )
-      ? send.variables
-      : null;
+  function retryOutbox(id: string) {
+    // An explicit retry is a new send attempt, so it gets a new idempotency key.
+    setOutbox((items) =>
+      items.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              id: crypto.randomUUID(),
+              state: 'queued',
+              attempts: 0,
+              createdAt: Date.now(),
+            }
+          : item,
+      ),
+    );
+  }
+  // Optimistic bubbles for this thread. Once a reply is dispatched, the list
+  // poll can return its server row before the send call resolves, so each
+  // dispatched bubble hides behind at most one matching server row.
+  const claimedRows = new Set<string>();
+  const visibleOutbox = outbox.filter((item) => {
+    if (item.context !== draftContext) return false;
+    const dispatched =
+      item.state === 'sent' || (item.state === 'queued' && send.variables?.id === item.id);
+    if (!dispatched) return true;
+    const row = messageRows.find(
+      (message) =>
+        !claimedRows.has(message.id) &&
+        (item.messageId
+          ? message.id === item.messageId
+          : message.direction === 'OUTBOUND' &&
+            message.body === item.body &&
+            Date.parse(message.sent_at) >= item.createdAt - 60_000),
+    );
+    if (!row) return true;
+    claimedRows.add(row.id);
+    return false;
+  });
+  const queuedHere = visibleOutbox.filter((item) => item.state === 'queued').length;
   const acknowledge = useMutation({
     mutationFn: acknowledgeUnknownWhatsAppMessage,
     onSuccess: async () => {
@@ -571,14 +732,14 @@ export function InboxWorkspace({
                     conversation={activeConversation}
                     leadId={historyLeadId}
                     onViewLeadChange={viewLeadHistory}
-                    disabled={send.isPending || readOnly}
+                    disabled={outboxBusy || readOnly}
                   />
                 </div>
                 <InboxMessageScroller
                   key={`${activeConversation.id}:${historyLeadId ?? 'all'}`}
                   identity={`${activeConversation.id}:${historyLeadId ?? 'all'}`}
-                  count={messageRows.length + (pendingReply ? 1 : 0)}
-                  newestId={pendingReply?.applicationMessageId ?? messageRows.at(-1)?.id}
+                  count={messageRows.length + visibleOutbox.length}
+                  newestId={visibleOutbox.at(-1)?.id ?? messageRows.at(-1)?.id}
                   hasMore={messages.hasNextPage}
                   fetching={messages.isFetching}
                   loadMore={() => messages.fetchNextPage()}
@@ -635,6 +796,12 @@ export function InboxWorkspace({
                             </Link>
                           )}
                           {personalConversation && message.delivery_status === 'UNKNOWN' && (
+                            <p className="mt-2 text-[11px] text-muted-foreground">
+                              WhatsApp has not confirmed this yet. It updates by itself when
+                              confirmed. If it never arrived, check your phone:
+                            </p>
+                          )}
+                          {personalConversation && message.delivery_status === 'UNKNOWN' && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -645,29 +812,61 @@ export function InboxWorkspace({
                               I checked this message on my phone
                             </Button>
                           )}
-                          <p className="mt-1 text-right text-[10px] text-muted-foreground">
+                          <p className="mt-1 flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
                             {new Intl.DateTimeFormat('en-IN', {
                               hour: '2-digit',
                               minute: '2-digit',
                             }).format(new Date(message.sent_at))}
-                            {message.delivery_status ? ` · ${message.delivery_status}` : ''}
+                            {message.direction === 'OUTBOUND' && (
+                              <MessageStatus status={message.delivery_status} />
+                            )}
                           </p>
                         </div>
                       </div>
                     ))
-                  ) : pendingReply ? null : (
+                  ) : visibleOutbox.length ? null : (
                     <InboxEmpty label="No messages in this conversation" />
                   )}
-                  {pendingReply && (
-                    <div className="flex justify-end" aria-live="polite">
-                      <div className="max-w-[85%] rounded-2xl bg-emerald-100 px-3 py-2 text-sm text-slate-900">
-                        <p className="whitespace-pre-wrap">{pendingReply.body}</p>
-                        <p className="mt-1 text-right text-[10px] text-muted-foreground">
-                          {send.isPending ? 'Sending…' : (send.data?.status ?? 'Submitted')}
+                  {visibleOutbox.map((item) => (
+                    <div key={item.id} className="flex justify-end" aria-live="polite">
+                      <div
+                        className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm text-slate-900 shadow-sm ${item.state === 'failed' ? 'border border-red-200 bg-red-50' : 'bg-emerald-100'}`}
+                      >
+                        <p className="whitespace-pre-wrap">{item.body}</p>
+                        <p className="mt-1 flex justify-end text-[10px] text-muted-foreground">
+                          <MessageStatus
+                            status={
+                              item.state === 'failed'
+                                ? 'FAILED'
+                                : item.state === 'sent'
+                                  ? (item.status ?? 'SENT')
+                                  : 'SENDING'
+                            }
+                          />
                         </p>
+                        {item.state === 'failed' && (
+                          <div className="mt-2 flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                setOutbox((items) => items.filter((entry) => entry.id !== item.id))
+                              }
+                            >
+                              Remove
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => retryOutbox(item.id)}
+                            >
+                              Retry
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  )}
+                  ))}
                 </InboxMessageScroller>
                 <div className="shrink-0 border-t bg-white p-3">
                   {personalConversation && (
@@ -686,7 +885,28 @@ export function InboxWorkspace({
                         )}
                     </div>
                   )}
-                  {canSend ? (
+                  {(!online ||
+                    queuedHere > 0 ||
+                    (personalConversation &&
+                      personalReason === 'PERSONAL_WHATSAPP_DISCONNECTED')) && (
+                    <p
+                      className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground"
+                      aria-live="polite"
+                    >
+                      {online ? (
+                        <RefreshCw className="size-3 animate-spin" />
+                      ) : (
+                        <WifiOff className="size-3" />
+                      )}
+                      {!online
+                        ? `You're offline. ${queuedHere ? `${queuedHere} message${queuedHere === 1 ? '' : 's'} will` : 'Messages will'} send when you're back online.`
+                        : personalConversation &&
+                            personalReason === 'PERSONAL_WHATSAPP_DISCONNECTED'
+                          ? `Reconnecting to WhatsApp…${queuedHere ? ` ${queuedHere} message${queuedHere === 1 ? '' : 's'} will send automatically.` : ''}`
+                          : `Syncing ${queuedHere} message${queuedHere === 1 ? '' : 's'}…`}
+                    </p>
+                  )}
+                  {canCompose ? (
                     <div className="flex items-end gap-2">
                       <Textarea
                         ref={composerRef}
@@ -705,16 +925,8 @@ export function InboxWorkspace({
                           }
                         }}
                       />
-                      <Button
-                        size="icon"
-                        disabled={!visibleDraft.trim() || send.isPending}
-                        onClick={sendReply}
-                      >
-                        {send.isPending ? (
-                          <LoaderCircle className="size-4 animate-spin" />
-                        ) : (
-                          <Send className="size-4" />
-                        )}
+                      <Button size="icon" disabled={!visibleDraft.trim()} onClick={sendReply}>
+                        <Send className="size-4" />
                       </Button>
                     </div>
                   ) : (
@@ -761,7 +973,7 @@ export function InboxWorkspace({
                   conversation={activeConversation}
                   leadId={historyLeadId}
                   onViewLeadChange={viewLeadHistory}
-                  disabled={send.isPending || readOnly}
+                  disabled={outboxBusy || readOnly}
                 />
                 <div className="space-y-3 border-t pt-4">
                   <Detail label="Channel" value={channelLabel(activeConversation.channel)} />
@@ -796,7 +1008,7 @@ export function InboxWorkspace({
                     <PersonalWhatsAppTemplatePicker
                       key={draftContext}
                       conversationId={activeConversation.id}
-                      disabled={!canSend || send.isPending}
+                      disabled={!canCompose}
                       onUse={(body) => {
                         setDraftConversation(draftContext);
                         setDraft(body);

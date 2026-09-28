@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SearchSelect } from '@/components/ui/search-select';
 import {
   Select,
   SelectContent,
@@ -57,6 +58,9 @@ export function CreateOperationalCaseDialog({
   onOpenChange,
   department,
   options,
+  optionsPending,
+  optionsFetching,
+  optionsError,
   search,
   onSearchChange,
   busy,
@@ -66,7 +70,10 @@ export function CreateOperationalCaseDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   department: OperationalCaseDepartment;
-  options: OperationalCaseBookingOption[];
+  options: OperationalCaseBookingOption[] | undefined;
+  optionsPending: boolean;
+  optionsFetching: boolean;
+  optionsError: boolean;
   search: string;
   onSearchChange: (value: string) => void;
   busy: boolean;
@@ -112,25 +119,29 @@ export function CreateOperationalCaseDialog({
         </DialogHeader>
         <form className="space-y-4" onSubmit={submit} onChange={changed}>
           <div className="space-y-2">
-            <Label htmlFor="case-booking-search">Find booking</Label>
-            <Input
-              id="case-booking-search"
-              value={search}
-              onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Booking number, customer or phone"
+            <Label htmlFor="case-booking">Booking</Label>
+            <SearchSelect
+              id="case-booking"
+              value={bookingId}
+              search={search}
+              onSearchChange={onSearchChange}
+              options={options?.map((option) => ({
+                value: option.booking_id,
+                label: `${option.booking_number} · ${option.customer_name}`,
+                description: option.phone ?? undefined,
+              }))}
+              isPending={optionsPending}
+              isFetching={optionsFetching}
+              isError={optionsError}
+              placeholder="Select booking"
+              searchPlaceholder="Booking number, customer or phone"
+              emptyMessage="No eligible booking matches this search."
+              aria-label="Booking"
+              onValueChange={(value) => {
+                changed();
+                setBookingId(value);
+              }}
             />
-            <Select value={bookingId} onValueChange={(value) => setBookingId(value)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select booking" />
-              </SelectTrigger>
-              <SelectContent>
-                {options.map((option) => (
-                  <SelectItem key={option.booking_id} value={option.booking_id}>
-                    {option.booking_number} · {option.customer_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">

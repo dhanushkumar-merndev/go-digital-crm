@@ -90,7 +90,9 @@ export function ManagerApprovalsWorkspace() {
       setComment('');
       setSelectedId(null);
       await queryClient.invalidateQueries({ queryKey: ['manager-approvals'] });
-      await queryClient.invalidateQueries({ queryKey: ['sales-document-workspace', 'quotations'] });
+      await queryClient.invalidateQueries({
+        queryKey: ['sales-document-workspace', ...queryScope],
+      });
       toast.add({
         type: 'success',
         title: decision === 'APPROVED' ? 'Discount approved' : 'Discount rejected',

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
 
 const schema = z.object({
-  days: z.union([z.literal(7), z.literal(14), z.literal(30)]),
+  days: z.union([z.literal(7), z.literal(14), z.literal(30), z.literal(9999)]),
   generated_at: z.string(),
   kpis: z.object({
     leads: z.coerce.number(),
@@ -27,7 +27,7 @@ const schema = z.object({
   targets: z.record(z.string(), z.coerce.number()),
 });
 export type SalesPerformance = z.infer<typeof schema>;
-export async function fetchSalesPerformance(days: 7 | 14 | 30, signal?: AbortSignal) {
+export async function fetchSalesPerformance(days: 7 | 14 | 30 | 9999, signal?: AbortSignal) {
   const request = createClient().rpc('get_sales_consultant_performance', {
     target_days: days,
     target_timezone: 'Asia/Kolkata',
@@ -62,7 +62,7 @@ const telecallerSchema = z.object({
   targets: schema.shape.targets,
 });
 
-export async function fetchTelecallerPerformance(days: 7 | 14 | 30, signal?: AbortSignal) {
+export async function fetchTelecallerPerformance(days: 7 | 14 | 30 | 9999, signal?: AbortSignal) {
   const request = createClient().rpc('get_telecaller_performance', {
     target_days: days,
     target_timezone: 'Asia/Kolkata',

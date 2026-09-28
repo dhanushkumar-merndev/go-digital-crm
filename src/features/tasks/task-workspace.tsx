@@ -5,21 +5,18 @@ import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tan
 import {
   CalendarCheck2,
   CalendarDays,
-  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   CircleCheckBig,
   ClipboardList,
   ClockAlert,
-  MoreHorizontal,
   Pencil,
   RotateCcw,
   Search,
   TrendingDown,
   TrendingUp,
   TriangleAlert,
-  X,
   XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -32,13 +29,6 @@ import { StatusBadge } from '@/components/shared/status-badge';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -458,6 +448,7 @@ function TaskTable({
                   className="size-7"
                   onClick={() => onEdit(row.original)}
                   title="Edit task"
+                  aria-label={`Edit ${row.original.title}`}
                 >
                   <Pencil className="size-3.5" />
                 </Button>
@@ -469,6 +460,7 @@ function TaskTable({
                   size="sm"
                   className="h-7 gap-1 whitespace-nowrap border-emerald-200 px-2 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
                   onClick={() => onAction('complete', row.original)}
+                  aria-label={`Complete ${row.original.title}`}
                 >
                   <CheckCircle2 className="size-3.5" /> Complete
                 </Button>
@@ -480,6 +472,7 @@ function TaskTable({
                   size="sm"
                   className="h-7 gap-1 whitespace-nowrap border-rose-200 px-2 text-[11px] font-semibold text-rose-700 hover:bg-rose-50"
                   onClick={() => onAction('cancel', row.original)}
+                  aria-label={`Cancel ${row.original.title}`}
                 >
                   <XCircle className="size-3.5" /> Cancel
                 </Button>
@@ -489,7 +482,7 @@ function TaskTable({
         },
       },
     ],
-    [onAction, onEdit, permissions, role],
+    [onAction, onEdit, permissions, query.status, role],
   );
   // TanStack Table intentionally owns an imperative row model.
   // eslint-disable-next-line react-hooks/incompatible-library

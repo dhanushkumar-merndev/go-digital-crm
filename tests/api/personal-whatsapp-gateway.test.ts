@@ -281,8 +281,9 @@ describe('Baileys gateway lifecycle with simulated sockets', () => {
     }
   });
   it('does not send twice and never retries an uncertain provider response', async () => {
-    const { gateway, rpc, socket, identity } = setup();
+    const { gateway, ev, rpc, socket, identity } = setup();
     await gateway.connect(identity);
+    ev.emit('connection.update', { connection: 'open' });
     socket.sendMessage.mockRejectedValueOnce(new Error('Network failed after write'));
     const result = await gateway.send(identity, randomUUID());
     expect(result.status).toBe('UNKNOWN');
@@ -293,6 +294,36 @@ describe('Baileys gateway lifecycle with simulated sockets', () => {
           name === 'personal_whatsapp_send_result' && args.target_status === 'UNKNOWN',
       ),
     ).toBe(true);
+  });
+  it('waits out a transient reconnect instead of failing the reply', async () => {
+    vi.useFakeTimers();
+    const { gateway, ev, rpc, socket, identity } = setup();
+    await gateway.connect(identity);
+    ev.emit('connection.update', { connection: 'open' });
+    ev.emit('connection.update', {
+      connection: 'close',
+      lastDisconnect: { error: { output: { statusCode: 408 } } },
+    });
+    const sending = gateway.send(identity, randomUUID());
+    await vi.advanceTimersByTimeAsync(1000);
+    // Nothing is claimed or sent while the socket is down.
+    expect(rpc.mock.calls.some(([name]) => name === 'personal_whatsapp_send_claim')).toBe(false);
+    expect(socket.sendMessage).not.toHaveBeenCalled();
+    ev.emit('connection.update', { connection: 'open' });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect((await sending).status).toBe('SENT');
+    expect(socket.sendMessage).toHaveBeenCalledTimes(1);
+  });
+  it('rejects before claiming when the socket never reopens', async () => {
+    vi.useFakeTimers();
+    const { gateway, rpc, socket, identity } = setup();
+    await gateway.connect(identity);
+    const sending = gateway.send(identity, randomUUID());
+    const rejected = expect(sending).rejects.toThrow('PERSONAL_WHATSAPP_DISCONNECTED');
+    await vi.advanceTimersByTimeAsync(11_000);
+    await rejected;
+    expect(rpc.mock.calls.some(([name]) => name === 'personal_whatsapp_send_claim')).toBe(false);
+    expect(socket.sendMessage).not.toHaveBeenCalled();
   });
   it('stops on logout and does not create a reconnect loop', async () => {
     const { gateway, ev, rpc, socket, identity, factory } = setup();

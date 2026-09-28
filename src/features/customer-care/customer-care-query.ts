@@ -1,3 +1,5 @@
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
+
 export const customerCareViews = [
   'ALL',
   'OPEN',
@@ -115,7 +117,7 @@ export function isCustomerCareVersionConflict(error: unknown) {
   return (
     typeof error === 'object' &&
     error !== null &&
-    ((error as { code?: string }).code === '40001' ||
+    (isVersionConflictCode((error as { code?: string }).code) ||
       (error as { message?: string }).message === 'CUSTOMER_CARE_VERSION_CONFLICT')
   );
 }

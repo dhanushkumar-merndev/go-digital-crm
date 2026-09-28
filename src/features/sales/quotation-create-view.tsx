@@ -14,9 +14,12 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  hasWorkspacePermission,
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
+import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
+import { BookingCreateDialog } from './sales-document-dialogs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -238,6 +241,14 @@ export function QuotationCreateView({
   }, [record, branchId, model, variant, pricing.data]);
 
   const mutation = useMutation({ mutationFn: saveQuotation, onSuccess: onSaved });
+  const salesConsultantCache = useSalesConsultantCache();
+  // Book now prices, sends, accepts and books in one save for a customer who
+  // agrees on the spot, with or without a test drive first.
+  const canBook =
+    hasWorkspacePermission(workspaceSession, 'booking.manage') &&
+    hasWorkspacePermission(workspaceSession, 'quotation.manage') &&
+    (!record || record.status === 'DRAFT');
+  const [bookingOpen, setBookingOpen] = useState(false);
 
   const additions =
     asAmount(prices.insurance) +
@@ -364,18 +375,52 @@ export function QuotationCreateView({
           <Button variant="outline" onClick={onBack}>
             Cancel
           </Button>
-          <Button disabled={!valid || mutation.isPending} onClick={submit}>
+          <Button
+            variant={canBook && !requiresApproval ? 'outline' : 'default'}
+            disabled={!valid || mutation.isPending}
+            onClick={submit}
+          >
             <Save className="size-4" />
             {mutation.isPending ? 'Saving…' : requiresApproval ? 'Request Approval' : 'Save Draft'}
           </Button>
+          {canBook && !requiresApproval && (
+            <Button disabled={!valid || mutation.isPending} onClick={() => setBookingOpen(true)}>
+              <CheckCircle2 className="size-4" /> Book now
+            </Button>
+          )}
         </div>
       </div>
+      {bookingOpen && (
+        <BookingCreateDialog
+          open
+          onOpenChange={setBookingOpen}
+          priced={{
+            leadId,
+            quotationId: record?.id ?? null,
+            expectedVersion: record?.version ?? null,
+            items,
+            total,
+            label: [
+              selected?.customer_name ?? record?.customer_name,
+              [model, variant].filter(Boolean).join(' '),
+            ]
+              .filter(Boolean)
+              .join(' · '),
+          }}
+          onSaved={() => {
+            salesConsultantCache.invalidate('lead.updated', { leadId });
+            onSaved();
+          }}
+        />
+      )}
       {mutation.isError && (
         <Alert variant="destructive">
           <AlertDescription>
             {isSalesDocumentVersionConflict(mutation.error)
               ? 'This quotation changed elsewhere. Return to the list and reopen it.'
-              : 'The quotation could not be saved. Check the customer and pricing values.'}
+              : (mutation.error as { message?: string } | null)?.message === 'LEAD_IS_LOST'
+                ? 'This lead is marked Lost. Reopen it before creating a quotation.'
+                : 'The quotation could not be saved. Check the customer and pricing values.'}
           </AlertDescription>
         </Alert>
       )}

@@ -12,6 +12,9 @@ const edgeCustomerName = `Amal edge QA ${runId}`;
 const followupCustomerName = `Amal follow-up QA ${runId}`;
 const cancelledFollowupCustomerName = `Amal cancel follow-up QA ${runId}`;
 const handoffCancellationCustomerName = `Amal transfer cancel QA ${runId}`;
+const quickBookCustomerName = `Amal quick book QA ${runId}`;
+const rowBookCustomerName = `Amal row book QA ${runId}`;
+const leadBookCustomerName = `Amal lead book QA ${runId}`;
 // Keep the requested Amal mobile on the primary end-to-end lead. Edge fixtures
 // use distinct valid mobiles so repeated runs do not build one enormous phone
 // group and distort the queue/search behavior being tested.
@@ -31,15 +34,27 @@ let allocationVin = process.env.E2E_ALLOCATION_VIN ?? null;
 // only for a workstation whose managed browser download is still in progress.
 if (process.env.E2E_CHROMIUM_EXECUTABLE) {
   const visibleBrowser = process.env.E2E_VISIBLE_BROWSER === 'true';
+  // `x,y` of the display to open on, e.g. `1920,0` for a right-hand monitor.
+  // Native Wayland Chromium ignores --window-position and the compositor opens
+  // it wherever the cursor is, so a pinned position runs it through XWayland.
+  const windowPosition = process.env.E2E_WINDOW_POSITION;
   test.use({
     launchOptions: {
       executablePath: process.env.E2E_CHROMIUM_EXECUTABLE,
-      // Keeps an observed local run on the left display at full usable size.
+      // Keeps an observed local run on one display at full usable size.
       // CI/headless runs do not opt into these desktop-window arguments.
       ...(visibleBrowser
         ? {
             headless: false,
-            args: ['--start-fullscreen', '--window-position=0,0', '--window-size=1920,1080'],
+            args: [
+              '--start-fullscreen',
+              `--window-position=${windowPosition ?? '0,0'}`,
+              '--window-size=1920,1080',
+              // A distinct WM_CLASS lets a local window-manager rule keep this
+              // window from taking keyboard focus; Playwright drives input over
+              // CDP, so the run never needs OS focus.
+              ...(windowPosition ? ['--ozone-platform=x11', '--class=gdm-e2e'] : []),
+            ],
           }
         : {}),
     },
@@ -161,6 +176,91 @@ async function salesLeadId(page, leadName) {
   return leadId;
 }
 
+/** Telecaller creates, contacts, links and hands a fresh lead to Sales. */
+async function handOverNewSalesLead(page, customerName, phone) {
+  await signInAs(page, 'telecaller');
+  const createDialog = await openManualLeadDialog(page);
+  await createDialog.getByLabel('Customer name').fill(customerName);
+  await createDialog.getByLabel('Phone').fill(phone);
+  await createDialog.getByRole('button', { name: 'Create lead' }).click();
+  await expect(createDialog).toBeHidden({ timeout: 25_000 });
+  await page.getByPlaceholder('Search by name or mobile…').fill(customerName);
+  const row = matchingRows(page, customerName).first();
+  await clickWhatsAppWithoutLeavingCrm(page, row.getByLabel(`WhatsApp ${customerName}`));
+  await expect(row.getByText('Contacted', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await row.getByLabel(`Review possible customer match for ${customerName}`).click();
+  const customerMatch = page.getByRole('dialog', {
+    name: /Create customer|Review possible customer match/,
+  });
+  const decisionReason = customerMatch.getByLabel(/Decision reason/);
+  if (await decisionReason.isVisible().catch(() => false)) {
+    await decisionReason.fill('Separate browser QA customer for a Sales booking path.');
+  }
+  await Promise.all([
+    page.waitForURL(/\/telecaller\/customers\//),
+    customerMatch.getByRole('button', { name: 'Create and link customer' }).click(),
+  ]);
+  await page.goto(`${baseURL}/telecaller/my-leads`);
+  await page.getByPlaceholder('Search by name or mobile…').fill(customerName);
+  const linkedRow = matchingRows(page, customerName).first();
+  await linkedRow.getByLabel(`Transfer ${customerName} to Sales`).click();
+  const handoff = page.getByRole('dialog', { name: 'Transfer to Sales' });
+  await handoff.getByLabel('Reason').fill('Customer ready to book on the spot.');
+  await handoff.getByRole('combobox').click();
+  await page.getByRole('option', { name: /Dhanush Kumar/ }).click();
+  await handoff.getByRole('button', { name: 'Transfer to Sales' }).click();
+  await expect(handoff).toBeHidden({ timeout: 25_000 });
+}
+
+/** Fills the quotation screen for a lead opened from `?action=create&lead=`. */
+async function fillQuotationPricing(page, customerName, vehiclePrice) {
+  const customer = page.getByRole('combobox', { name: 'Customer opportunity' });
+  await expect(customer).toHaveText(customerName, { timeout: 35_000 });
+  const manualModel = page.getByRole('textbox', { name: 'Enter model' });
+  if (await manualModel.isVisible().catch(() => false)) {
+    await manualModel.fill('Browser QA Sedan');
+  } else {
+    await page.getByRole('combobox').nth(1).click();
+    const modelOption = page.getByRole('option').first();
+    await expect(modelOption).toBeVisible({ timeout: 30_000 });
+    await modelOption.click();
+  }
+  await page.locator('#quotation-vehicle').fill(String(vehiclePrice));
+  await page
+    .locator('#quotation-validity')
+    .fill(new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString().slice(0, 10));
+}
+
+/**
+ * A lead's handoff can leave an open follow-up, and advancing the lead asks for
+ * it to be resolved first. Cancels it when asked; otherwise does nothing.
+ */
+async function resolveFollowupGuard(page, next) {
+  const guard = page.getByRole('dialog', { name: 'Follow-up still pending' });
+  await expect(next.or(guard)).toBeVisible({ timeout: 30_000 });
+  if (!(await guard.isVisible())) return;
+  await guard.getByRole('button', { name: 'Cancel follow-up' }).click();
+  const cancel = page.getByRole('dialog', { name: 'Cancel follow-up' });
+  await cancel.getByLabel('Cancellation reason').fill('Customer is booking now.');
+  await cancel.getByRole('button', { name: 'Confirm cancellation' }).click();
+  await expect(cancel).toBeHidden({ timeout: 25_000 });
+  await expect(next).toBeVisible({ timeout: 30_000 });
+}
+
+async function confirmBookingDialog(page, customerName) {
+  const booking = page.getByRole('dialog', { name: 'Create booking' });
+  await expect(booking.locator('#booking-amount')).not.toHaveValue('');
+  await booking
+    .locator('#delivery-date')
+    .fill(new Date(Date.now() + 40 * 24 * 60 * 60_000).toISOString().slice(0, 10));
+  await booking.getByRole('button', { name: 'Create booking' }).click();
+  await expect(booking).toBeHidden({ timeout: 25_000 });
+  await page.goto(`${baseURL}/sales-consultant/bookings?q=${encodeURIComponent(customerName)}`);
+  await expect(
+    matchingRows(page, customerName).first().getByText('CONFIRMED', { exact: true }),
+  ).toBeVisible({ timeout: 25_000 });
+}
+
 async function createOperationalCase(page, role, route, caseName) {
   await signInAs(page, role);
   await page.goto(`${baseURL}/${role}/${route}?status=all`);
@@ -170,8 +270,11 @@ async function createOperationalCase(page, role, route, caseName) {
     await page.getByRole('button', { name: 'Create case' }).click();
     const dialog = page.getByRole('dialog', { name: `Create ${caseName} case` });
     await expect(dialog).toBeVisible();
-    await dialog.locator('#case-booking-search').fill(salesFlowLeadName);
-    await dialog.getByRole('combobox').first().click();
+    await dialog.getByRole('combobox', { name: 'Booking' }).click();
+    // SearchSelect renders its search box and list in a portal, outside the Dialog.
+    await page
+      .getByRole('textbox', { name: 'Booking number, customer or phone' })
+      .fill(salesFlowLeadName);
     const option = page
       .getByRole('option', { name: new RegExp(escapeRegExp(salesFlowLeadName)) })
       .first();
@@ -1261,17 +1364,23 @@ test.describe('manual lead: Telecaller to Sales', () => {
     }
 
     await signInAs(page, 'inventory');
-    await page.goto(`${baseURL}/inventory/vehicle-inventory?status=AVAILABLE`);
+    // Candidates come from the page's own RPC response rather than the rendered
+    // rows, so the attempt order is the server's and every listed unit is tried.
+    const listResponse = page.waitForResponse(
+      (response) => response.url().includes('/rpc/get_stock_unit_page') && response.ok(),
+      { timeout: 30_000 },
+    );
+    // Filter values are lowercase: `?status=AVAILABLE` was ignored and listed every status.
+    await page.goto(`${baseURL}/inventory/vehicle-inventory?status=available`);
+    const listed = await (await listResponse).json();
     const availableRows = page
       .locator('tbody tr')
       .filter({ has: page.getByText('AVAILABLE', { exact: true }) });
     await expect(availableRows.first()).toBeVisible({ timeout: 25_000 });
-    // The first cell renders the VIN above the chassis number.
     const candidateVins = allocationVin
       ? [allocationVin]
-      : (await availableRows.locator('td:first-child p:first-child').allTextContents()).map((vin) =>
-          vin.trim(),
-        );
+      : listed.records.filter((unit) => unit.status === 'AVAILABLE').map((unit) => unit.vin);
+    const refusedVins = [];
     expect(candidateVins.length, 'Inventory must list an AVAILABLE unit.').toBeGreaterThan(0);
 
     // An AVAILABLE unit that still has a scheduled or active test drive is
@@ -1313,6 +1422,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
       if (failure?.message !== 'TEST_DRIVE_PREVENTS_STOCK_ALLOCATION') {
         throw new Error(`Inventory allocation failed: ${JSON.stringify(failure)}`);
       }
+      refusedVins.push(vin);
       await expect(
         stock.getByText(/has a scheduled or active test drive/, { exact: false }),
       ).toBeVisible();
@@ -1321,7 +1431,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     }
     expect(
       allocationVin,
-      'An AVAILABLE unit free of test drives must be allocatable.',
+      `An AVAILABLE unit free of test drives must be allocatable. Listed: ${candidateVins.join(', ')}. Refused: ${refusedVins.join(', ')}.`,
     ).toBeTruthy();
     await expect(stock.getByText('ALLOCATED', { exact: true })).toBeVisible({ timeout: 25_000 });
 
@@ -1416,5 +1526,84 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await expectCaseRowStatus(page, 'DELIVERED');
 
     await transitionBooking(page, 'DELIVERED');
+  });
+
+  test('Sales Consultant books a contacted lead directly, with no test drive', async ({ page }) => {
+    await handOverNewSalesLead(page, quickBookCustomerName, edgePhone(5));
+
+    // Sales Consultant: Create booking from the lead row. With no quotation
+    // yet, the dialog offers Price and book instead of an empty picker.
+    await signInAs(page, 'sales-consultant');
+    await page.goto(`${baseURL}/sales-consultant/my-leads?status=all`);
+    await page.getByPlaceholder('Search by name or mobile…').fill(quickBookCustomerName);
+    const salesRow = matchingRows(page, quickBookCustomerName).first();
+    await expect(salesRow).toContainText(quickBookCustomerName, { timeout: 30_000 });
+    await salesRow.getByRole('button', { name: 'More lead actions' }).click();
+    await page.getByRole('menuitem', { name: 'Create booking' }).click();
+    const booking = page.getByRole('dialog', { name: 'Create booking' });
+    await resolveFollowupGuard(page, booking);
+    await booking.getByRole('button', { name: 'Price and book' }).click();
+
+    await fillQuotationPricing(page, quickBookCustomerName, 1_200_000);
+    await page.getByRole('button', { name: 'Book now' }).click();
+    await expect(page.getByRole('dialog', { name: 'Create booking' })).toContainText(
+      quickBookCustomerName,
+    );
+    await confirmBookingDialog(page, quickBookCustomerName);
+  });
+
+  test('Sales Consultant books a sent quotation from the quotation list', async ({ page }) => {
+    await handOverNewSalesLead(page, rowBookCustomerName, edgePhone(6));
+    await signInAs(page, 'sales-consultant');
+    const leadId = await salesLeadId(page, rowBookCustomerName);
+    await page.goto(`${baseURL}/sales-consultant/quotations?action=create&lead=${leadId}`);
+    await fillQuotationPricing(page, rowBookCustomerName, 900_000);
+    await page.getByRole('button', { name: 'Save Draft' }).first().click();
+
+    // The All view keeps the row in place so its refresh after Mark sent shows.
+    await page.goto(
+      `${baseURL}/sales-consultant/quotations?status=all&q=${encodeURIComponent(rowBookCustomerName)}`,
+    );
+    const row = matchingRows(page, rowBookCustomerName).first();
+    await expect(row.getByText('DRAFT', { exact: true })).toBeVisible({ timeout: 25_000 });
+    await row.getByRole('button', { name: 'Quotation actions' }).click();
+    await page.getByRole('menuitem', { name: 'Mark sent' }).click();
+    const sent = page.getByRole('dialog', { name: 'Sent' });
+    await sent.getByRole('button', { name: 'Confirm Sent' }).click();
+    await expect(sent).toBeHidden({ timeout: 25_000 });
+    await expect(row.getByText('SENT', { exact: true })).toBeVisible({ timeout: 25_000 });
+
+    await row.getByRole('button', { name: 'Quotation actions' }).click();
+    await page.getByRole('menuitem', { name: 'Book now' }).click();
+    await expect(page.getByRole('dialog', { name: 'Create booking' })).toContainText(
+      rowBookCustomerName,
+    );
+    await confirmBookingDialog(page, rowBookCustomerName);
+  });
+
+  test('Sales Consultant books a lead from its existing draft quotation', async ({ page }) => {
+    await handOverNewSalesLead(page, leadBookCustomerName, edgePhone(7));
+    await signInAs(page, 'sales-consultant');
+    const leadId = await salesLeadId(page, leadBookCustomerName);
+    await page.goto(`${baseURL}/sales-consultant/quotations?action=create&lead=${leadId}`);
+    await fillQuotationPricing(page, leadBookCustomerName, 1_100_000);
+    await page.getByRole('button', { name: 'Save Draft' }).first().click();
+    await expect(page.getByRole('button', { name: 'Save Draft' })).toHaveCount(0, {
+      timeout: 25_000,
+    });
+
+    await page.goto(`${baseURL}/sales-consultant/my-leads?status=all`);
+    await page.getByPlaceholder('Search by name or mobile…').fill(leadBookCustomerName);
+    const salesRow = matchingRows(page, leadBookCustomerName).first();
+    await expect(salesRow).toContainText(leadBookCustomerName, { timeout: 30_000 });
+    await salesRow.getByRole('button', { name: 'More lead actions' }).click();
+    await page.getByRole('menuitem', { name: 'Create booking' }).click();
+    const booking = page.getByRole('dialog', { name: 'Create booking' });
+    await resolveFollowupGuard(page, booking);
+    await booking.getByRole('combobox', { name: 'Quotation' }).click();
+    const draftOption = page.getByRole('option', { name: /· Draft/ }).first();
+    await expect(draftOption).toBeVisible({ timeout: 25_000 });
+    await draftOption.click();
+    await confirmBookingDialog(page, leadBookCustomerName);
   });
 });

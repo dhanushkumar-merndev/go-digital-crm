@@ -426,6 +426,72 @@ export async function createBooking(input: {
   );
 }
 
+const leadBookableQuotationSchema = z.object({
+  id: z.uuid(),
+  quotation_number: z.string(),
+  status: z.enum(['DRAFT', 'SENT', 'ACCEPTED']),
+  version: z.coerce.number().int().positive(),
+  total_amount: z.coerce.number().positive(),
+});
+export type LeadBookableQuotation = z.infer<typeof leadBookableQuotationSchema>;
+
+/**
+ * One lead's quotations that `quick_book_lead` can finish as a booking. Drafts
+ * and sent quotations are included because quick booking sends and accepts
+ * them in the same save; anything awaiting or refused approval is not.
+ */
+export async function fetchLeadBookableQuotations(
+  organizationId: string,
+  leadId: string,
+  signal?: AbortSignal,
+) {
+  const request = createClient()
+    .from('quotations')
+    .select('id,quotation_number,status,version,total_amount')
+    .eq('organization_id', organizationId)
+    .eq('lead_id', leadId)
+    .in('status', ['DRAFT', 'SENT', 'ACCEPTED'])
+    .not('approval_status', 'in', '(PENDING,REJECTED)')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(10);
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return z.array(leadBookableQuotationSchema).parse(data ?? []);
+}
+
+/**
+ * Books a lead from any quotation state in one transaction: new pricing
+ * (`items` without a quotation), a draft (optionally re-priced), a sent or an
+ * accepted quotation.
+ */
+export async function quickBookLead(input: {
+  leadId: string;
+  quotationId: string | null;
+  expectedQuotationVersion: number | null;
+  items: QuotationItem[] | null;
+  bookingAmount: number;
+  financeRequired: boolean;
+  exchangeRequired: boolean;
+  expectedDeliveryDate: string | null;
+  requestId: string;
+}) {
+  return parseMutation(
+    createClient().rpc('quick_book_lead', {
+      target_lead_id: input.leadId,
+      target_quotation_id: input.quotationId,
+      expected_quotation_version: input.expectedQuotationVersion,
+      target_items: input.items,
+      target_booking_amount: input.bookingAmount,
+      target_finance_required: input.financeRequired,
+      target_exchange_required: input.exchangeRequired,
+      target_expected_delivery_date: input.expectedDeliveryDate,
+      target_request_id: input.requestId,
+    }),
+    'booking',
+  );
+}
+
 export async function transitionBooking(input: {
   bookingId: string;
   expectedVersion: number;

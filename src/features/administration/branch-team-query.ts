@@ -1,4 +1,5 @@
 export const administrationPageSizes = [25, 50, 100] as const;
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
 export type AdministrationPageSize = (typeof administrationPageSizes)[number];
 
 export type AdministrationKind = 'branches' | 'teams';
@@ -94,7 +95,7 @@ export function isAdministrationVersionConflict(error: unknown) {
     error instanceof AdministrationVersionConflictError ||
     (typeof error === 'object' &&
       error !== null &&
-      ((error as { code?: string }).code === '40001' ||
+      (isVersionConflictCode((error as { code?: string }).code) ||
         (error as { message?: string }).message?.includes('VERSION_CONFLICT')))
   );
 }

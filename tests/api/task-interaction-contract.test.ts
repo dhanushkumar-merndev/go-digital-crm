@@ -51,10 +51,14 @@ describe('task workspace interaction contract', () => {
   });
 
   it('uses keyboard-and-pointer safe row actions and remounts a fresh create form', () => {
-    expect(workspace).toContain('aria-label={`Actions for ${row.original.title}`}');
-    expect(workspace).toContain('onSelect={() => onEdit(row.original)}');
-    expect(workspace).toContain("onSelect={() => onAction('complete', row.original)}");
-    expect(workspace).toContain("onSelect={() => onAction('cancel', row.original)}");
+    // Row actions are inline buttons; each carries the task title in its
+    // accessible name so repeated rows stay distinguishable to assistive tech.
+    expect(workspace).toContain('onClick={() => onEdit(row.original)}');
+    expect(workspace).toContain('aria-label={`Edit ${row.original.title}`}');
+    expect(workspace).toContain("onClick={() => onAction('complete', row.original)}");
+    expect(workspace).toContain('aria-label={`Complete ${row.original.title}`}');
+    expect(workspace).toContain("onClick={() => onAction('cancel', row.original)}");
+    expect(workspace).toContain('aria-label={`Cancel ${row.original.title}`}');
     expect(workspace).not.toMatch(/DropdownMenuItem onClick/);
     expect(workspace).toContain('permissions.canCreate && createOpen &&');
     expect(workspace).toContain('initialLead={createContext}');

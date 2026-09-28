@@ -21,7 +21,7 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   focusRowElementId,
   focusedRowClassName,
@@ -86,6 +86,7 @@ import {
   BookingCreateDialog,
   SalesDocumentActionDialog,
   type BookingAction,
+  type PricedBookingSource,
   type QuotationAction,
 } from './sales-document-dialogs';
 import { QuotationCreateView } from './quotation-create-view';
@@ -555,8 +556,16 @@ export function SalesDocumentWorkspace({
       }
     : undefined;
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const salesConsultantCache = useSalesConsultantCache();
+  // Booking straight from a quotation row needs both rights; the server checks
+  // them again in quick_book_lead.
+  const canBook =
+    hasWorkspacePermission(workspaceSession, 'booking.manage') &&
+    hasWorkspacePermission(workspaceSession, 'quotation.manage');
+  const [bookingSource, setBookingSource] = useState<PricedBookingSource | null>(null);
+  const bookingLeadId = kind === 'bookings' ? searchParams.get('lead') : null;
   const [query, setQuery] = useState(() => parseSalesDocumentQuery(searchParams, kind));
   const [createOpen, setCreateOpen] = useState(() => searchParams.get('action') === 'create');
   const [quotationScreen, setQuotationScreen] = useState<'list' | 'create'>(() =>
@@ -586,11 +595,11 @@ export function SalesDocumentWorkspace({
   useTenantRealtimeInvalidation(permissions?.organizationId, [
     {
       resource: 'sales',
-      queryKeys: [['sales-document-workspace', kind, ...queryScope]],
+      queryKeys: [['sales-document-workspace', ...queryScope, kind]],
     },
   ]);
   const workspace = useQuery({
-    queryKey: ['sales-document-workspace', kind, ...queryScope, requestQuery],
+    queryKey: ['sales-document-workspace', ...queryScope, kind, requestQuery],
     queryFn: ({ signal }) => fetchSalesDocumentWorkspace(kind, requestQuery, signal),
     enabled: Boolean(permissions) && !directCreate,
     placeholderData: keepPreviousData,
@@ -627,6 +636,15 @@ export function SalesDocumentWorkspace({
   const invalidate = useCallback(() => {
     salesConsultantCache.invalidate('quotation.changed');
   }, [salesConsultantCache]);
+  // A booking converts its quotation and moves the lead's sales stage, so the
+  // lead list and that lead's detail refresh along with both document lists.
+  const invalidateBooked = useCallback(
+    (leadId: string | null | undefined) => {
+      salesConsultantCache.invalidate('quotation.changed');
+      salesConsultantCache.invalidate('lead.updated', leadId ? { leadId } : {});
+    },
+    [salesConsultantCache],
+  );
 
   const quotationColumns = useMemo<ColumnDef<QuotationRecord>[]>(
     () => [
@@ -708,9 +726,14 @@ export function SalesDocumentWorkspace({
           const canEdit =
             permissions?.canManage && ['DRAFT', 'PENDING_APPROVAL'].includes(record.status);
           const canDecide = permissions?.canApprove && record.approval_status === 'PENDING';
+          const canBookNow =
+            canBook &&
+            Boolean(record.lead_id) &&
+            ['DRAFT', 'SENT', 'ACCEPTED'].includes(record.status) &&
+            !['PENDING', 'REJECTED'].includes(record.approval_status);
           const hasTransition =
             (permissions?.canManage && ['DRAFT', 'SENT'].includes(record.status)) || canDecide;
-          if (!canEdit && !hasTransition) return null;
+          if (!canEdit && !hasTransition && !canBookNow) return null;
           return (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -729,6 +752,23 @@ export function SalesDocumentWorkspace({
                     <Pencil className="size-4" /> Edit and version
                   </DropdownMenuItem>
                 )}
+                {canBookNow && (
+                  <DropdownMenuItem
+                    onClick={() =>
+                      setBookingSource({
+                        leadId: record.lead_id!,
+                        quotationId: record.id,
+                        expectedVersion: record.version,
+                        items: null,
+                        total: record.total_amount,
+                        label: `${record.quotation_number} · ${record.customer_name}`,
+                      })
+                    }
+                  >
+                    <CircleCheck className="size-4" /> Book now
+                  </DropdownMenuItem>
+                )}
+                {canBookNow && (canEdit || hasTransition) && <DropdownMenuSeparator />}
                 {canEdit && hasTransition && <DropdownMenuSeparator />}
                 {permissions?.canManage &&
                   record.status === 'DRAFT' &&
@@ -777,6 +817,7 @@ export function SalesDocumentWorkspace({
       },
     ],
     [
+      canBook,
       permissions?.canApprove,
       permissions?.canManage,
       role,
@@ -982,7 +1023,20 @@ export function SalesDocumentWorkspace({
     return (
       <div className="mx-auto max-w-[1800px]">
         <PageHeader className="mb-0" spec={{ ...spec, primaryAction: undefined }} />
-        <BookingCreateDialog open onOpenChange={setCreateOpen} onSaved={invalidate} />
+        <BookingCreateDialog
+          open
+          onOpenChange={setCreateOpen}
+          leadId={bookingLeadId}
+          onSaved={() => invalidateBooked(bookingLeadId)}
+          onPriceAndBook={
+            bookingLeadId
+              ? () =>
+                  router.push(
+                    `/${role}/quotations?action=create&lead=${encodeURIComponent(bookingLeadId)}`,
+                  )
+              : undefined
+          }
+        />
       </div>
     );
 
@@ -1081,6 +1135,15 @@ export function SalesDocumentWorkspace({
       </div>
       {kind === 'bookings' && permissions.canManage && (
         <BookingCreateDialog open={createOpen} onOpenChange={setCreateOpen} onSaved={invalidate} />
+      )}
+      {bookingSource && (
+        <BookingCreateDialog
+          key={`${bookingSource.quotationId}:${bookingSource.expectedVersion}`}
+          open
+          onOpenChange={(open) => !open && setBookingSource(null)}
+          priced={bookingSource}
+          onSaved={() => invalidateBooked(bookingSource.leadId)}
+        />
       )}
       {actionState && (
         <SalesDocumentActionDialog

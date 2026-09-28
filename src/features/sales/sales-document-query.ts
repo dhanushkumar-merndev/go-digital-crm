@@ -1,4 +1,5 @@
 export type SalesDocumentKind = 'quotations' | 'bookings';
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
 
 export const salesPageSizes = [25, 50, 100] as const;
 export type SalesPageSize = (typeof salesPageSizes)[number];
@@ -141,7 +142,7 @@ export function isSalesDocumentVersionConflict(error: unknown) {
     error instanceof SalesDocumentVersionConflictError ||
     (typeof error === 'object' &&
       error !== null &&
-      ((error as { code?: string }).code === '40001' ||
+      (isVersionConflictCode((error as { code?: string }).code) ||
         /_(VERSION_CONFLICT)$/.test((error as { message?: string }).message ?? '')))
   );
 }

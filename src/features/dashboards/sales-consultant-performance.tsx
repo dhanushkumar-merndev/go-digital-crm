@@ -40,35 +40,13 @@ import {
 const duration = (seconds: number) =>
   `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 
-const performancePeriods = [7, 14, 30] as const;
-
-function rangeStartFor(days: number, end = istToday()) {
-  const date = new Date(`${end}T00:00:00`);
-  date.setDate(date.getDate() - (days - 1));
-  return toDateInputValue(date);
-}
-
-function inclusiveDays(start: string, end: string) {
-  const startTime = Date.parse(`${start}T00:00:00Z`);
-  const endTime = Date.parse(`${end}T00:00:00Z`);
-  return Math.round((endTime - startTime) / 86_400_000) + 1;
-}
 
 export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role?: string }) {
   const workspaceSession = useWorkspaceSession();
   const queryScope = workspaceQueryScope(workspaceSession);
-  const [days, setDays] = useState<7 | 14 | 30>(7);
-  const [rangeStart, setRangeStart] = useState(() => rangeStartFor(7));
-  const today = istToday();
-  const selectPeriod = (nextDays: 7 | 14 | 30) => {
+  const [days, setDays] = useState<7 | 14 | 30 | 9999>(7);
+  const selectPeriod = (nextDays: 7 | 14 | 30 | 9999) => {
     setDays(nextDays);
-    setRangeStart(rangeStartFor(nextDays, today));
-  };
-  const selectRangeStart = (nextStart: string) => {
-    const rangeDays = inclusiveDays(nextStart, today);
-    if (!performancePeriods.includes(rangeDays as 7 | 14 | 30)) return;
-    setRangeStart(nextStart);
-    setDays(rangeDays as 7 | 14 | 30);
   };
   const query = useQuery({
     queryKey: [...salesConsultantKeys.performance(queryScope), role, 'activity-v2', days],
@@ -259,7 +237,7 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Select
             value={String(days)}
-            onValueChange={(value) => selectPeriod(Number(value) as 7 | 14 | 30)}
+            onValueChange={(value) => selectPeriod(Number(value) as 7 | 14 | 30 | 9999)}
           >
             <SelectTrigger className="w-40">
               <CalendarDays className="size-4" />
@@ -269,22 +247,9 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
               <SelectItem value="7">Last 7 days</SelectItem>
               <SelectItem value="14">Last 14 days</SelectItem>
               <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="9999">All time</SelectItem>
             </SelectContent>
           </Select>
-          <div className="flex h-9 items-center gap-2 rounded-md border bg-background px-2.5 text-xs">
-            <CalendarDays className="size-3.5 text-muted-foreground" />
-            <Input
-              type="date"
-              value={rangeStart}
-              min={rangeStartFor(30, today)}
-              max={rangeStartFor(7, today)}
-              onChange={(event) => selectRangeStart(event.target.value)}
-              aria-label="Performance period start"
-              className="h-7 w-[8.25rem] border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0"
-            />
-            <span className="text-muted-foreground">to</span>
-            <span className="whitespace-nowrap font-medium text-foreground">{today}</span>
-          </div>
         </div>
       </div>
       <KpiGrid metrics={metrics.slice(0, 5)} className="xl:grid-cols-5" />

@@ -1,4 +1,5 @@
 import type { LeadWorkState } from '@/lib/domain';
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
 
 export const leadPageSizes = [25, 50, 100] as const;
 export type LeadPageSize = (typeof leadPageSizes)[number];
@@ -205,7 +206,7 @@ export function isLeadVersionConflict(error: unknown) {
     error instanceof LeadVersionConflictError ||
     (typeof error === 'object' &&
       error !== null &&
-      ((error as { code?: string }).code === '40001' ||
+      (isVersionConflictCode((error as { code?: string }).code) ||
         (error as { message?: string }).message === 'LEAD_VERSION_CONFLICT'))
   );
 }

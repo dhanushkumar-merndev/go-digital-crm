@@ -6,6 +6,7 @@ import {
   type AdministrationQuery,
   type BranchWorkspacePreset,
 } from './branch-team-query';
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
 
 const nullableText = z.string().nullable();
 const jsonObject = z.record(z.string(), z.unknown());
@@ -243,7 +244,7 @@ const mutationResultSchema = z.object({
 
 function throwMutationError(error: { code?: string; message?: string } | null) {
   if (!error) return;
-  if (error.code === '40001' || error.message?.includes('VERSION_CONFLICT'))
+  if (isVersionConflictCode(error.code) || error.message?.includes('VERSION_CONFLICT'))
     throw new AdministrationVersionConflictError();
   throw error;
 }

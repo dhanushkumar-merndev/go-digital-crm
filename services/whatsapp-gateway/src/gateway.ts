@@ -15,6 +15,8 @@ type Session = {
   store: ReturnType<typeof sessionStore>;
   auth?: Awaited<ReturnType<typeof authState>>;
   stopped: boolean;
+  // True only while the current socket has reported `connection: 'open'`.
+  open: boolean;
   failures: number;
   linkedAt: number;
   requestedAt: number;
@@ -74,6 +76,7 @@ export class Gateway {
       identity,
       store,
       stopped: false,
+      open: false,
       failures: 0,
       linkedAt: row.linked_at ? Date.parse(row.linked_at) : Date.now(),
       requestedAt: Date.parse(row.requested_at),
@@ -138,6 +141,13 @@ export class Gateway {
       getMessage: async () => undefined,
     });
     session.socket = socket;
+    session.open = false;
+    socket.ev.on('connection.update', (update) => {
+      // Tracked outside the queue so a waiting send sees reconnects immediately.
+      if (session.socket !== socket) return;
+      if (update.connection === 'open') session.open = true;
+      if (update.connection === 'close') session.open = false;
+    });
     socket.ev.on('creds.update', () => {
       void session.auth!.save().catch(() => this.stop(session, false));
     });
@@ -192,7 +202,7 @@ export class Gateway {
       this.enqueue(
         session,
         async () => {
-          for (const message of messages.slice(-1000)) {
+          for (const message of messages.slice(-100)) {
             if (session.socket !== socket || session.stopped) return;
             const normalized = await normalizeMessage(
               message,
@@ -239,10 +249,23 @@ export class Gateway {
     });
   }
 
-  async send(identity: SessionIdentity, messageId: string) {
-    const session = this.sessions.get(identity.connection_id);
-    if (!session?.socket || session.stopped || session.identity.generation !== identity.generation)
-      throw new Error('PERSONAL_WHATSAPP_DISCONNECTED');
+  // A transient WhatsApp reconnect (network blip, phone busy) must not turn a
+  // reply into a failure. Wait for the socket before claiming the message:
+  // nothing has been sent yet, so waiting is safe and never duplicates.
+  private async openSession(identity: SessionIdentity, waitMs: number) {
+    const deadline = Date.now() + waitMs;
+    for (;;) {
+      const session = this.sessions.get(identity.connection_id);
+      if (!session || session.stopped || session.identity.generation !== identity.generation)
+        throw new Error('PERSONAL_WHATSAPP_DISCONNECTED');
+      if (session.open && session.socket) return session as Session & { socket: WASocket };
+      if (Date.now() >= deadline) throw new Error('PERSONAL_WHATSAPP_DISCONNECTED');
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+
+  async send(identity: SessionIdentity, messageId: string, waitMs = 10_000) {
+    const session = await this.openSession(identity, waitMs);
     const providerId = generateMessageIDV2(session.socket.user?.id);
     const send = await this.deps.rpc<{ phone: string; body: string }>(
       'personal_whatsapp_send_claim',

@@ -1,4 +1,5 @@
 export const callPageSizes = [25, 50, 100] as const;
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
 export type CallPageSize = (typeof callPageSizes)[number];
 
 export const callStatusFilters = ['all', 'pending', 'completed', 'failed', 'cancelled'] as const;
@@ -133,7 +134,7 @@ export function isCallVersionConflict(error: unknown) {
     error instanceof CallVersionConflictError ||
     (typeof error === 'object' &&
       error !== null &&
-      ((error as { code?: string }).code === '40001' ||
+      (isVersionConflictCode((error as { code?: string }).code) ||
         (error as { message?: string }).message === 'CALL_VERSION_CONFLICT'))
   );
 }

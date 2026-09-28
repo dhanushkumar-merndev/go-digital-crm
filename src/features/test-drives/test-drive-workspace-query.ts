@@ -1,4 +1,5 @@
 export const testDrivePageSizes = [25, 50, 100] as const;
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
 export type TestDrivePageSize = (typeof testDrivePageSizes)[number];
 
 // `all` deliberately has no date restriction. It is the lifetime history tab;
@@ -101,7 +102,7 @@ export function isTestDriveVersionConflict(error: unknown) {
     error instanceof TestDriveVersionConflictError ||
     (typeof error === 'object' &&
       error !== null &&
-      ((error as { code?: string }).code === '40001' ||
+      (isVersionConflictCode((error as { code?: string }).code) ||
         (error as { message?: string }).message === 'TEST_DRIVE_VERSION_CONFLICT'))
   );
 }

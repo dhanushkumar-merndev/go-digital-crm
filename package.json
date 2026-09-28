@@ -37,6 +37,7 @@
     "seed:demo:competitor-comparison": "node scripts/seed-demo-competitor-comparison.mjs --apply",
     "test:demo:flow": "node scripts/test-demo-business-flow.mjs",
     "test:demo:roles": "node scripts/test-demo-role-access.mjs",
+    "test:demo:combinations": "node scripts/test-demo-lead-flow-combinations.mjs",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm typecheck:mobile && pnpm mobile:doctor && pnpm test:api && pnpm check:supabase-config && pnpm check:edge && pnpm build:webpack",
     "supabase:local:start": "pnpm dlx supabase@2.114.0 start",
     "supabase:local:reset": "pnpm dlx supabase@2.114.0 db reset",

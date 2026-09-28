@@ -108,7 +108,12 @@ export async function sendInboxWhatsAppMessage(input: {
     },
   });
   if (error) {
-    const envelope = await (error as { context?: Response }).context?.json().catch(() => null);
+    // The request never got a response (connection dropped): the caller may
+    // resend with the same application_message_id, which the server dedupes.
+    if (error.name === 'FunctionsFetchError' || error.name === 'FunctionsRelayError')
+      throw new Error('NETWORK_UNAVAILABLE');
+    const context = (error as { context?: unknown }).context;
+    const envelope = context instanceof Response ? await context.json().catch(() => null) : null;
     throw new Error(envelope?.error?.code ?? 'MESSAGE_SEND_FAILED');
   }
   if (!data?.ok) throw new Error(data?.error?.code ?? 'MESSAGE_SEND_FAILED');

@@ -38,12 +38,15 @@ import {
   createBooking,
   decideQuotationApproval,
   fetchBookingQuotationOptions,
+  fetchLeadBookableQuotations,
   fetchQuotationLeadOptions,
+  quickBookLead,
   saveQuotation,
   transitionBooking,
   transitionQuotation,
   type BookingQuotationOption,
   type BookingRecord,
+  type LeadBookableQuotation,
   type QuotationItem,
   type QuotationRecord,
 } from './sales-document-api';
@@ -325,20 +328,75 @@ export function QuotationDialog({
   );
 }
 
+/**
+ * The quotation a new booking is taken from. `items` is set when the quotation
+ * is being priced (or re-priced) in the same save; `quotationId` is null when
+ * no quotation exists yet.
+ */
+export type PricedBookingSource = {
+  leadId: string;
+  quotationId: string | null;
+  expectedVersion: number | null;
+  items: QuotationItem[] | null;
+  total: number;
+  label: string;
+};
+
+const quotationStatusLabel: Record<LeadBookableQuotation['status'], string> = {
+  DRAFT: 'Draft',
+  SENT: 'Sent',
+  ACCEPTED: 'Accepted',
+};
+
+function bookingErrorMessage(error: unknown) {
+  if (isSalesDocumentVersionConflict(error))
+    return 'The quotation changed. Close and reopen this dialog.';
+  switch ((error as { message?: string } | null)?.message) {
+    case 'QUOTATION_APPROVAL_REQUIRED':
+      return 'This discount needs manager approval. Save the quotation to request approval, then book it once approved.';
+    case 'QUOTATION_ALREADY_BOOKED':
+      return 'This quotation already has a booking.';
+    case 'LEAD_IS_LOST':
+      return 'This lead is marked Lost. Reopen it before quoting or booking.';
+    case 'QUOTATION_NOT_BOOKABLE':
+      return 'The booking amount cannot be more than the quotation total.';
+    default:
+      return 'The booking could not be created. Confirm the quotation is still open and unbooked.';
+  }
+}
+
+/**
+ * Creates a booking in one of three ways:
+ * - no `leadId`/`priced`: from any accepted quotation in scope (search picker);
+ * - `leadId`: from that lead's draft, sent or accepted quotation, which is sent
+ *   and accepted in the same save;
+ * - `priced`: from the quotation being priced on screen right now.
+ * The last two go through `quick_book_lead`, so a lead can be booked straight
+ * after contact without first walking the quotation through every status.
+ */
 export function BookingCreateDialog({
   open,
   onOpenChange,
   onSaved,
+  leadId,
+  priced,
+  onPriceAndBook,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
+  leadId?: string | null;
+  priced?: PricedBookingSource | null;
+  onPriceAndBook?: () => void;
 }) {
   const workspaceSession = useWorkspaceSession();
   const queryScope = workspaceQueryScope(workspaceSession);
+  const mode = priced ? 'priced' : leadId ? 'lead' : 'accepted';
   const [quotationId, setQuotationId] = useState('');
   const [quotationSearch, setQuotationSearch] = useState('');
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(() =>
+    priced ? String(Math.round(priced.total * 0.1 * 100) / 100) : '',
+  );
   const [deliveryDate, setDeliveryDate] = useState('');
   const [financeRequired, setFinanceRequired] = useState(false);
   const [exchangeRequired, setExchangeRequired] = useState(false);
@@ -351,7 +409,19 @@ export function BookingCreateDialog({
         debouncedQuotationSearch,
       ],
       queryFn: ({ signal }) => fetchBookingQuotationOptions(debouncedQuotationSearch, signal),
-      enabled: open,
+      enabled: open && mode === 'accepted',
+    }),
+  );
+  const leadQuotations = useQuery(
+    optionQueryOptions({
+      queryKey: [
+        ...salesConsultantKeys.bookingQuotationOptions(queryScope),
+        'lead',
+        leadId ?? null,
+      ],
+      queryFn: ({ signal }) =>
+        fetchLeadBookableQuotations(workspaceSession!.organizationId!, leadId!, signal),
+      enabled: open && mode === 'lead' && Boolean(workspaceSession?.organizationId),
     }),
   );
   // Held rather than derived: submit reads `selected.version` for the optimistic
@@ -361,19 +431,64 @@ export function BookingCreateDialog({
   const selected =
     options.data?.find((option) => option.quotation_id === quotationId) ??
     (picked?.quotation_id === quotationId ? picked : null);
-  const quotationOptions = options.data?.map((option) => ({
-    value: option.quotation_id,
-    label: `${option.quotation_number} · ${option.customer_name}`,
-    description: [
-      currency(option.total_amount),
-      option.interested_model ?? 'Vehicle TBD',
-      option.branch_name,
-    ]
-      .filter(Boolean)
-      .join(' · '),
-  }));
+  const leadSelected = leadQuotations.data?.find((option) => option.id === quotationId) ?? null;
+  const quotationOptions =
+    mode === 'lead'
+      ? leadQuotations.data?.map((option) => ({
+          value: option.id,
+          label: `${option.quotation_number} · ${quotationStatusLabel[option.status]}`,
+          description: currency(option.total_amount),
+        }))
+      : options.data?.map((option) => ({
+          value: option.quotation_id,
+          label: `${option.quotation_number} · ${option.customer_name}`,
+          description: [
+            currency(option.total_amount),
+            option.interested_model ?? 'Vehicle TBD',
+            option.branch_name,
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        }));
+  const bookingTotal =
+    mode === 'priced'
+      ? priced!.total
+      : mode === 'lead'
+        ? leadSelected?.total_amount
+        : selected?.total_amount;
+  const ready = mode === 'priced' || (mode === 'lead' ? leadSelected : selected);
+  const leadHasNoQuotation =
+    mode === 'lead' && leadQuotations.isSuccess && leadQuotations.data.length === 0;
   const mutation = useMutation({
-    mutationFn: createBooking,
+    mutationFn: (input: {
+      bookingAmount: number;
+      financeRequired: boolean;
+      exchangeRequired: boolean;
+      expectedDeliveryDate: string | null;
+      requestId: string;
+    }) => {
+      if (mode === 'priced')
+        return quickBookLead({
+          ...input,
+          leadId: priced!.leadId,
+          quotationId: priced!.quotationId,
+          expectedQuotationVersion: priced!.expectedVersion,
+          items: priced!.items,
+        });
+      if (mode === 'lead')
+        return quickBookLead({
+          ...input,
+          leadId: leadId!,
+          quotationId: leadSelected!.id,
+          expectedQuotationVersion: leadSelected!.version,
+          items: null,
+        });
+      return createBooking({
+        ...input,
+        quotationId: selected!.quotation_id,
+        expectedQuotationVersion: selected!.version,
+      });
+    },
     onSuccess: () => {
       requestId.current = null;
       onSaved();
@@ -386,18 +501,18 @@ export function BookingCreateDialog({
         <DialogHeader>
           <DialogTitle>Create booking</DialogTitle>
           <DialogDescription>
-            A booking can only be created once from an accepted quotation.
+            {mode === 'accepted'
+              ? 'A booking can only be created once from an accepted quotation.'
+              : 'The quotation is marked accepted in the same save, as agreed with the customer.'}
           </DialogDescription>
         </DialogHeader>
         <form
           className="mt-5 space-y-4"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!selected) return;
+            if (!ready) return;
             requestId.current ??= globalThis.crypto.randomUUID();
             mutation.mutate({
-              quotationId: selected.quotation_id,
-              expectedQuotationVersion: selected.version,
               bookingAmount: Number(amount),
               financeRequired,
               exchangeRequired,
@@ -406,33 +521,67 @@ export function BookingCreateDialog({
             });
           }}
         >
-          <div className="grid gap-2">
-            <Label>Accepted quotation</Label>
-            <SearchSelect
-              value={quotationId}
-              search={quotationSearch}
-              onSearchChange={setQuotationSearch}
-              options={quotationOptions}
-              isPending={options.isPending}
-              isFetching={options.isFetching}
-              isError={options.isError}
-              placeholder="Select quotation"
-              searchPlaceholder="Search quotation, customer or phone"
-              emptyMessage="No accepted quotation is available to book."
-              aria-label="Accepted quotation"
-              onValueChange={(value) => {
-                requestId.current = null;
-                const option =
-                  options.data?.find((candidate) => candidate.quotation_id === value) ?? null;
-                setPicked(option);
-                setQuotationId(value);
-                setAmount(
-                  option ? String(Math.min(option.total_amount, option.total_amount * 0.1)) : '',
-                );
-              }}
-            />
-          </div>
-          {selected && (
+          {mode === 'priced' ? (
+            <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+              <p className="font-medium">{priced!.label}</p>
+              <p className="text-xs text-muted-foreground">
+                Quotation total {currency(priced!.total)}
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              <Label>{mode === 'lead' ? 'Quotation' : 'Accepted quotation'}</Label>
+              <SearchSelect
+                value={quotationId}
+                search={quotationSearch}
+                onSearchChange={setQuotationSearch}
+                options={
+                  mode === 'lead' && quotationSearch.trim()
+                    ? quotationOptions?.filter((option) =>
+                        option.label.toLowerCase().includes(quotationSearch.trim().toLowerCase()),
+                      )
+                    : quotationOptions
+                }
+                isPending={mode === 'lead' ? leadQuotations.isPending : options.isPending}
+                isFetching={mode === 'lead' ? leadQuotations.isFetching : options.isFetching}
+                isError={mode === 'lead' ? leadQuotations.isError : options.isError}
+                placeholder="Select quotation"
+                searchPlaceholder="Search quotation, customer or phone"
+                emptyMessage={
+                  mode === 'lead'
+                    ? 'This lead has no open quotation.'
+                    : 'No accepted quotation is available to book.'
+                }
+                aria-label={mode === 'lead' ? 'Quotation' : 'Accepted quotation'}
+                onValueChange={(value) => {
+                  requestId.current = null;
+                  const option =
+                    options.data?.find((candidate) => candidate.quotation_id === value) ?? null;
+                  setPicked(option);
+                  setQuotationId(value);
+                  const total =
+                    mode === 'lead'
+                      ? leadQuotations.data?.find((candidate) => candidate.id === value)
+                          ?.total_amount
+                      : option?.total_amount;
+                  setAmount(total ? String(Math.round(total * 0.1 * 100) / 100) : '');
+                }}
+              />
+            </div>
+          )}
+          {leadHasNoQuotation && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed px-3 py-3 text-sm">
+              <span className="text-muted-foreground">
+                No quotation yet. Price the vehicle and book in one step.
+              </span>
+              {onPriceAndBook && (
+                <Button type="button" size="sm" onClick={onPriceAndBook}>
+                  Price and book
+                </Button>
+              )}
+            </div>
+          )}
+          {mode === 'accepted' && selected && (
             <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
               <p className="font-medium">{selected.customer_name}</p>
               <p className="text-xs text-muted-foreground">
@@ -448,7 +597,7 @@ export function BookingCreateDialog({
                 id="booking-amount"
                 type="number"
                 min="0.01"
-                max={selected?.total_amount}
+                max={bookingTotal}
                 step="0.01"
                 required
                 value={amount}
@@ -496,18 +645,14 @@ export function BookingCreateDialog({
           </div>
           {mutation.isError && (
             <Alert variant="destructive">
-              <AlertDescription>
-                {isSalesDocumentVersionConflict(mutation.error)
-                  ? 'The quotation changed. Close and reopen this dialog.'
-                  : 'The booking could not be created. Confirm the quotation is still accepted and unbooked.'}
-              </AlertDescription>
+              <AlertDescription>{bookingErrorMessage(mutation.error)}</AlertDescription>
             </Alert>
           )}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={mutation.isPending || !selected || Number(amount) <= 0}>
+            <Button type="submit" disabled={mutation.isPending || !ready || Number(amount) <= 0}>
               {mutation.isPending ? 'Creating…' : 'Create booking'}
             </Button>
           </div>

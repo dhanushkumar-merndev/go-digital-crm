@@ -1,4 +1,5 @@
 export const workPageSizes = [25, 50, 100] as const;
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
 export type WorkPageSize = (typeof workPageSizes)[number];
 
 export type WorkKind = 'followups' | 'appointments';
@@ -197,7 +198,7 @@ export function isWorkVersionConflict(error: unknown) {
     error instanceof WorkVersionConflictError ||
     (typeof error === 'object' &&
       error !== null &&
-      ((error as { code?: string }).code === '40001' ||
+      (isVersionConflictCode((error as { code?: string }).code) ||
         (error as { message?: string }).message === 'WORK_VERSION_CONFLICT'))
   );
 }

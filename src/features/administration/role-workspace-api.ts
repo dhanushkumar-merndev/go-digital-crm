@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
 import type { RoleWorkspaceQuery } from './role-workspace-query';
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
 
 const roleRecordSchema = z.object({
   id: z.uuid(),
@@ -85,5 +86,5 @@ export async function saveDelegatedRole(input: {
 export function isRoleVersionConflict(error: unknown) {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as { code?: unknown; message?: unknown };
-  return candidate.code === '40001' || candidate.message === 'ROLE_VERSION_CONFLICT';
+  return isVersionConflictCode(candidate.code) || candidate.message === 'ROLE_VERSION_CONFLICT';
 }

@@ -39,6 +39,7 @@ import type { RoleKey } from '@/config/navigation/types';
 import type { PageSpec } from '@/lib/domain';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
+import { optionQueryOptions } from '@/lib/query/option-query';
 import {
   createOperationalCase,
   downloadOperationalCaseDocument,
@@ -396,17 +397,19 @@ export function OperationalCaseWorkspace({
     enabled: Boolean(permissions.data),
     placeholderData: keepPreviousData,
   });
-  const options = useQuery({
-    queryKey: [
-      'operational-case-booking-options',
-      ...queryScope,
-      route.department,
-      debouncedBookingSearch,
-    ],
-    queryFn: ({ signal }) =>
-      fetchOperationalCaseBookingOptions(route.department, debouncedBookingSearch, signal),
-    enabled: createOpen && Boolean(permissions.data?.canManage || permissions.data?.canRequest),
-  });
+  const options = useQuery(
+    optionQueryOptions({
+      queryKey: [
+        'operational-case-booking-options',
+        ...queryScope,
+        route.department,
+        debouncedBookingSearch,
+      ],
+      queryFn: ({ signal }) =>
+        fetchOperationalCaseBookingOptions(route.department, debouncedBookingSearch, signal),
+      enabled: createOpen && Boolean(permissions.data?.canManage || permissions.data?.canRequest),
+    }),
+  );
   const detail = useQuery({
     queryKey: [
       'operational-case-detail',
@@ -592,7 +595,10 @@ export function OperationalCaseWorkspace({
             if (!open) setActionError(undefined);
           }}
           department={route.department}
-          options={options.data ?? []}
+          options={options.data}
+          optionsPending={options.isPending}
+          optionsFetching={options.isFetching}
+          optionsError={options.isError}
           search={bookingSearch}
           onSearchChange={setBookingSearch}
           busy={busy}

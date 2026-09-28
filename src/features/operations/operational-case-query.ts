@@ -1,4 +1,5 @@
 import type { RoleKey } from '@/config/navigation/types';
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
 
 export const operationalCaseDepartments = [
   'FINANCE',
@@ -282,7 +283,7 @@ export function isOperationalCaseVersionConflict(error: unknown) {
     error instanceof OperationalCaseVersionConflictError ||
     (typeof error === 'object' &&
       error !== null &&
-      ((error as { code?: string }).code === '40001' ||
+      (isVersionConflictCode((error as { code?: string }).code) ||
         ['OPERATIONAL_CASE_VERSION_CONFLICT', 'DELIVERY_CHECKLIST_VERSION_CONFLICT'].includes(
           (error as { message?: string }).message ?? '',
         )))

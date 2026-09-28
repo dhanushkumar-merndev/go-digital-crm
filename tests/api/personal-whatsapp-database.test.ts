@@ -73,6 +73,10 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
       source('supabase/migrations/202609160013_personal_whatsapp_customer_link_sync.sql'),
     );
     await db.exec(
+      source('supabase/migrations/202609280007_personal_whatsapp_rescued_send_clears_failure.sql'),
+    );
+    await db.exec(source('supabase/migrations/202609280008_personal_whatsapp_remove_send_gap.sql'));
+    await db.exec(
       `create trigger personal_message_lead_snapshot before insert or update of lead_id,conversation_id,organization_id on personal_whatsapp_messages for each row execute function app_private.snapshot_message_lead()`,
     );
     await db.query('insert into organizations(id) values($1)', [org]);
@@ -332,10 +336,12 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
       'IDEMPOTENCY_PAYLOAD_MISMATCH',
     );
   });
-  it('enforces cooldowns before a second outbound reservation', async () => {
+  it('allows only one outbound reservation in flight', async () => {
     const thread = await incoming();
     await prepare(thread.conversation_id);
-    await expect(prepare(thread.conversation_id)).rejects.toThrow('PERSONAL_WHATSAPP_RATE_LIMITED');
+    await expect(prepare(thread.conversation_id)).rejects.toThrow(
+      'PERSONAL_WHATSAPP_SEND_UNRESOLVED',
+    );
   });
   it('uses a lease and generation fence to prevent duplicate gateway owners', async () => {
     await expect(
@@ -469,6 +475,45 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
       daily_sent: 1,
     });
     expect(await prepare(thread.conversation_id)).toMatchObject({ duplicate: false });
+  });
+  it('sends the next reply immediately once the previous one is confirmed', async () => {
+    const thread = await incoming();
+    const first = await prepare(thread.conversation_id);
+    await claims(actor, 'service_role');
+    await rpc('personal_whatsapp_send_result', [session.connection_id, first.message_id, 'SENT']);
+    await claims(actor);
+    expect(await rpc('get_personal_whatsapp_status', [thread.conversation_id])).toMatchObject({
+      send_disabled_reason: null,
+      next_send_at: null,
+    });
+    expect(await prepare(thread.conversation_id)).toMatchObject({ duplicate: false });
+  });
+  it('does not pause for unconfirmed sends that WhatsApp later confirmed', async () => {
+    const thread = await incoming();
+    await claims(actor, 'service_role');
+    for (let i = 0; i < 2; i++) {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into personal_whatsapp_messages(organization_id,connection_id,conversation_id,direction,body,origin,delivery_status,sent_at,created_at,failed_at)
+        values($1,$2,$3,'OUTBOUND','reply','CRM','UNKNOWN',now()-interval '5 minutes',now()-interval '5 minutes',now()-interval '5 minutes') returning id`,
+        [org, session.connection_id, thread.conversation_id],
+      );
+      await rpc('personal_whatsapp_send_result', [session.connection_id, rows[0].id, 'DELIVERED']);
+    }
+    await claims(actor);
+    const message = await prepare(thread.conversation_id);
+    await claims(actor, 'service_role');
+    await rpc('personal_whatsapp_send_result', [
+      session.connection_id,
+      message.message_id,
+      'UNKNOWN',
+    ]);
+    await rpc('personal_whatsapp_send_result', [session.connection_id, message.message_id, 'SENT']);
+    const { rows } = await db.query<{ failed: number; paused: boolean }>(
+      `select (select count(*)::int from personal_whatsapp_messages where connection_id=$1 and failed_at is not null) as failed,
+        coalesce((select paused_until>now() from personal_whatsapp_sessions where connection_id=$1),false) as paused`,
+      [session.connection_id],
+    );
+    expect(rows[0]).toEqual({ failed: 0, paused: false });
   });
   it('pauses after three failures and never regresses delivered/read statuses', async () => {
     const thread = await incoming();

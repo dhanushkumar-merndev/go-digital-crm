@@ -1,4 +1,5 @@
 export const taskPageSizes = [25, 50, 100] as const;
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
 export type TaskPageSize = (typeof taskPageSizes)[number];
 
 export const taskStatusFilters = [
@@ -101,7 +102,7 @@ export function isTaskVersionConflict(error: unknown) {
     error instanceof TaskVersionConflictError ||
     (typeof error === 'object' &&
       error !== null &&
-      ((error as { code?: string }).code === '40001' ||
+      (isVersionConflictCode((error as { code?: string }).code) ||
         (error as { message?: string }).message === 'TASK_VERSION_CONFLICT'))
   );
 }

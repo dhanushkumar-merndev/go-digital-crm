@@ -1,4 +1,5 @@
 export const inventoryPageSizes = [25, 50, 100] as const;
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
 export type InventoryPageSize = (typeof inventoryPageSizes)[number];
 
 export type InventoryView =
@@ -239,7 +240,7 @@ export function isInventoryVersionConflict(error: unknown) {
     error instanceof InventoryVersionConflictError ||
     (typeof error === 'object' &&
       error !== null &&
-      ((error as { code?: string }).code === '40001' ||
+      (isVersionConflictCode((error as { code?: string }).code) ||
         /(?:STOCK|ALLOCATION)_VERSION_CONFLICT/.test(
           (error as { message?: string }).message ?? '',
         )))

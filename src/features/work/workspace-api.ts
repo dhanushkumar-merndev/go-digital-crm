@@ -7,6 +7,7 @@ import {
   type WorkKind,
   type WorkQuery,
 } from './workspace-query';
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
 
 const nullableString = z.string().nullable();
 
@@ -457,7 +458,7 @@ const mutationResultSchema = z.object({
 
 function throwMutationError(error: { code?: string; message?: string } | null) {
   if (!error) return;
-  if (error.code === '40001' || error.message === 'WORK_VERSION_CONFLICT')
+  if (isVersionConflictCode(error.code) || error.message === 'WORK_VERSION_CONFLICT')
     throw new WorkVersionConflictError();
   throw error;
 }

@@ -1,4 +1,5 @@
 export const salesEscalationStatuses = ['ALL', 'OPEN', 'RESOLVED'] as const;
+import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
 export type SalesEscalationStatus = (typeof salesEscalationStatuses)[number];
 
 export const salesEscalationSeverities = ['ALL', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
@@ -69,7 +70,7 @@ export function isSalesEscalationVersionConflict(error: unknown) {
   return (
     typeof error === 'object' &&
     error !== null &&
-    ((error as { code?: string }).code === '40001' ||
+    (isVersionConflictCode((error as { code?: string }).code) ||
       (error as { message?: string }).message === 'SALES_ESCALATION_VERSION_CONFLICT')
   );
 }
