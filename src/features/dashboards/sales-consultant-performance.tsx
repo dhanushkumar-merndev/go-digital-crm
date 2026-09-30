@@ -18,18 +18,11 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import { PerformanceDateRangeSelector } from '@/components/shared/performance-date-range-selector';
 import { SalesConsultantPerformanceSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import type { Metric } from '@/lib/domain';
-import { istToday, toDateInputValue } from '@/components/ui/day-picker';
+import { performanceRangeForLastDays } from '@/lib/performance-date-range';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import {
@@ -40,20 +33,22 @@ import {
 const duration = (seconds: number) =>
   `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 
-
 export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role?: string }) {
   const workspaceSession = useWorkspaceSession();
   const queryScope = workspaceQueryScope(workspaceSession);
-  const [days, setDays] = useState<7 | 14 | 30 | 9999>(7);
-  const selectPeriod = (nextDays: 7 | 14 | 30 | 9999) => {
-    setDays(nextDays);
-  };
+  const [range, setRange] = useState(() => performanceRangeForLastDays(7));
   const query = useQuery({
-    queryKey: [...salesConsultantKeys.performance(queryScope), role, 'activity-v2', days],
+    queryKey: [
+      ...salesConsultantKeys.performance(queryScope),
+      role,
+      'activity-v2',
+      range.from,
+      range.to,
+    ],
     queryFn: async ({ signal }) =>
       role === 'telecaller'
-        ? fetchTelecallerPerformance(days, signal)
-        : fetchSalesPerformance(days, signal),
+        ? fetchTelecallerPerformance(range, signal)
+        : fetchSalesPerformance(range, signal),
     staleTime: 60_000,
   });
   useTenantRealtimeInvalidation(
@@ -235,21 +230,7 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <Select
-            value={String(days)}
-            onValueChange={(value) => selectPeriod(Number(value) as 7 | 14 | 30 | 9999)}
-          >
-            <SelectTrigger className="w-40">
-              <CalendarDays className="size-4" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="7">Last 7 days</SelectItem>
-              <SelectItem value="14">Last 14 days</SelectItem>
-              <SelectItem value="30">Last 30 days</SelectItem>
-              <SelectItem value="9999">All time</SelectItem>
-            </SelectContent>
-          </Select>
+          <PerformanceDateRangeSelector value={range} onChange={setRange} includeAllTime />
         </div>
       </div>
       <KpiGrid metrics={metrics.slice(0, 5)} className="xl:grid-cols-5" />

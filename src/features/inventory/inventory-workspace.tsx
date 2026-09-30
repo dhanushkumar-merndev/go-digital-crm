@@ -28,6 +28,7 @@ import {
 } from '@/components/providers/workspace-session-provider';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import { PageHeader } from '@/components/shared/page-header';
 import { StockCheckSkeleton, InventoryWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -1158,7 +1159,8 @@ function ListWorkspace({
 
   if (page.isPending)
     return view === 'stock-check' ? <StockCheckSkeleton /> : <InventoryWorkspaceSkeleton />;
-  if (page.isError || !page.data)
+  // A failed background refresh keeps the rows on screen with a notice.
+  if (!page.data)
     return (
       <Alert variant="destructive">
         <TriangleAlert className="size-4" />
@@ -1174,6 +1176,11 @@ function ListWorkspace({
 
   return (
     <div className="space-y-6">
+      <RefreshFailedNotice
+        show={page.isError}
+        retrying={page.isFetching}
+        onRetry={() => void page.refetch()}
+      />
       <KpiGrid metrics={pageMetrics(page.data)} />
       <Card className="sales-consultant-list-card shadow-none">
         <CardHeader className="p-4">

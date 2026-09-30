@@ -210,7 +210,7 @@ describe('durable provider event dispatch contract', () => {
     expect(metaIngress).toContain('.upsert(');
     expect(whatsappIngress).toContain('.upsert(receipts');
     expect(googleIngress).toContain(".from('provider_events').insert");
-    expect(telecmiIngress).toContain(".from('provider_events').insert(");
+    expect(telecmiIngress).toContain(".from('provider_events')\n      .insert(");
     expect(telecmiIngress).toContain("receiptError.code !== '23505'");
     expect(telecmiIngress).toContain('constantTimeEqual(existing.payload_hash, payloadHash)');
     expect(telecmiIngress).toContain('constantTimeEqual(suppliedToken, credential.webhook_secret)');

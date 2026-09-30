@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
+import { readRpc } from '@/lib/supabase/read-rpc';
 import type { LeadQuery } from './lead-workspace-query';
 import { isLeadVersionConflict, LeadVersionConflictError } from './lead-workspace-query';
 
@@ -376,8 +377,7 @@ export async function fetchSalesHandoffCandidates(
     target_lead_id: leadId,
     target_search: search.normalize('NFKC').trim().slice(0, 160),
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return (data ?? []) as SalesHandoffCandidate[];
 }
 

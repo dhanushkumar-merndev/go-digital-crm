@@ -1,3 +1,4 @@
+import { appendFileSync } from 'node:fs';
 import { test, expect as baseExpect } from '@playwright/test';
 
 // `next dev` compiles each route and its client chunks on first visit, which
@@ -62,8 +63,93 @@ if (process.env.E2E_CHROMIUM_EXECUTABLE) {
   });
 }
 
+// Follow-ups this suite schedules 24 hours ahead come due on a later run, and
+// the reminder manager then opens a modal "Follow-up due now" over whatever
+// page the test is on. A user dismisses it and carries on; so does the suite.
+test.beforeEach(async ({ page }) => {
+  await page.addLocatorHandler(
+    page.getByRole('dialog', { name: 'Follow-up due now' }),
+    async (reminder) => {
+      await reminder.getByRole('button', { name: 'Dismiss' }).click();
+    },
+  );
+});
+
+// Opt-in: `E2E_API_TIMINGS=<file>` appends one JSON line per Supabase RPC or
+// Edge Function call the flow makes (name, status, milliseconds, test), so a
+// run shows which APIs the real workflow waits on.
+const apiTimingsFile = process.env.E2E_API_TIMINGS;
+if (apiTimingsFile) {
+  test.beforeEach(async ({ page }, testInfo) => {
+    page.on('requestfinished', (request) => {
+      const match = request.url().match(/\/(rest\/v1\/rpc|functions\/v1)\/([^?/]+)/);
+      if (!match) return;
+      const timing = request.timing();
+      if (timing.responseEnd < 0) return;
+      const api = match[2];
+      // Read RPC bodies are kept so a load test can replay the exact queries
+      // the pages sent; write bodies and auth headers are never recorded.
+      const isRead = match[1] === 'rest/v1/rpc' && /^(get|list|search)_/.test(api);
+      const role = new URL(page.url()).pathname.split('/')[1] ?? '';
+      request
+        .response()
+        .then(async (response) => {
+          // Capture a stable server error code without recording error messages,
+          // auth headers or response bodies containing customer data.
+          const failure =
+            response && !response.ok() ? await response.json().catch(() => null) : null;
+          appendFileSync(
+            apiTimingsFile,
+            `${JSON.stringify({
+              api,
+              kind: match[1] === 'functions/v1' ? 'edge' : 'rpc',
+              status: response?.status() ?? 0,
+              ms: Math.round(timing.responseEnd),
+              test: testInfo.title,
+              role,
+              ...(failure?.code ? { errorCode: failure.code } : {}),
+              ...(isRead ? { body: request.postData() ?? '{}' } : {}),
+            })}\n`,
+          );
+        })
+        .catch(() => {});
+    });
+    // Aborted or failed calls never finish, and a page that falls back to an
+    // error state often only says why in the console; record both.
+    page.on('requestfailed', (request) => {
+      const match = request.url().match(/\/(rest\/v1\/rpc|functions\/v1|auth\/v1)\/([^?/]+)/);
+      if (!match) return;
+      appendFileSync(
+        apiTimingsFile,
+        `${JSON.stringify({ api: match[2], failed: request.failure()?.errorText ?? 'unknown', test: testInfo.title })}\n`,
+      );
+    });
+    page.on('console', (message) => {
+      if (message.type() !== 'error') return;
+      appendFileSync(
+        apiTimingsFile,
+        `${JSON.stringify({ console: message.text().slice(0, 500), test: testInfo.title })}\n`,
+      );
+    });
+  });
+}
+
+async function gotoWithAbortRetry(page, url, options) {
+  try {
+    return await page.goto(url, options);
+  } catch (error) {
+    // Supabase role switching can finish an auth redirect at the same instant
+    // the next test navigation starts. Chromium reports that superseded
+    // navigation as ERR_ABORTED; retry it once, while surfacing every other
+    // navigation failure unchanged.
+    if (!(error instanceof Error) || !error.message.includes('net::ERR_ABORTED')) throw error;
+    await page.waitForTimeout(250);
+    return page.goto(url, options);
+  }
+}
+
 async function signInAs(page, role) {
-  await page.goto(`${baseURL}/login`);
+  await gotoWithAbortRetry(page, `${baseURL}/login`);
   await page.getByRole('button', { name: /Open development role switcher/ }).click();
   const roleLabels = {
     telecaller: 'Telecaller / BDC Executive',
@@ -101,8 +187,28 @@ async function searchForLead(page) {
   await search.fill(customerName);
 }
 
+async function saveDraftQuotation(page) {
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes('/rest/v1/rpc/save_quotation') &&
+      response.request().method() === 'POST',
+    { timeout: 30_000 },
+  );
+  const [response] = await Promise.all([
+    responsePromise,
+    page.getByRole('button', { name: 'Save Draft', exact: true }).first().click(),
+  ]);
+  expect(response.ok(), `Quotation save returned HTTP ${response.status()}`).toBe(true);
+  const saved = await response.json();
+  expect(saved.id, 'The server must confirm the saved quotation before navigation.').toBeTruthy();
+  expect(saved.status).toBe('DRAFT');
+  // The button becomes "Saving…" immediately; its old label disappearing is
+  // not a persistence acknowledgement. The editor closes only on success.
+  await expect(page.getByRole('heading', { name: 'Create Quotation', exact: true })).toBeHidden();
+}
+
 async function openManualLeadDialog(page) {
-  await page.goto(`${baseURL}/telecaller/my-leads`);
+  await gotoWithAbortRetry(page, `${baseURL}/telecaller/my-leads`);
   await page.getByRole('button', { name: 'Add lead' }).click();
   return page.getByRole('dialog', { name: 'Add lead' });
 }
@@ -216,6 +322,9 @@ async function handOverNewSalesLead(page, customerName, phone) {
 async function fillQuotationPricing(page, customerName, vehiclePrice) {
   const customer = page.getByRole('combobox', { name: 'Customer opportunity' });
   await expect(customer).toHaveText(customerName, { timeout: 35_000 });
+  // A resolved customer establishes the branch. Wait for that branch's model
+  // options before deciding between the dropdown and the manual fallback.
+  await expect(page.getByRole('status', { name: 'Loading model options' })).toBeHidden();
   const manualModel = page.getByRole('textbox', { name: 'Enter model' });
   if (await manualModel.isVisible().catch(() => false)) {
     await manualModel.fill('Browser QA Sedan');
@@ -318,6 +427,10 @@ async function openOperationalCase(page, caseName) {
 }
 
 async function uploadCaseProof(page, sheet) {
+  // Presign, object-store PUT and finalize are sequential. Under provider
+  // latency the presign alone can take 20+ seconds, so each observer must span
+  // the complete upload chain rather than expiring at the old 30-second mark.
+  const uploadTimeout = 90_000;
   const upload = sheet.locator('input[type="file"]');
   await expect(upload).toBeAttached();
   const failedRequests = [];
@@ -334,17 +447,17 @@ async function uploadCaseProof(page, sheet) {
   page.on('requestfailed', onRequestFailed);
   const presignResponse = page.waitForResponse(
     (response) => response.url().includes('/functions/v1/presign-upload'),
-    { timeout: 30_000 },
+    { timeout: uploadTimeout },
   );
   const storageResponse = page.waitForResponse(
     (response) =>
       new URL(response.url()).hostname.endsWith('.storage.dev') &&
       response.request().method() === 'PUT',
-    { timeout: 30_000 },
+    { timeout: uploadTimeout },
   );
   const finalizeResponse = page.waitForResponse(
     (response) => response.url().includes('/functions/v1/object-upload-finalize'),
-    { timeout: 30_000 },
+    { timeout: uploadTimeout },
   );
   await upload.setInputFiles('public/logo.webp');
   const presigned = await presignResponse;
@@ -1118,7 +1231,19 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await page.locator('input[type="datetime-local"]').fill(futureDateTimeInput(72));
     await page.getByPlaceholder('Showroom entrance').fill('Browser QA showroom');
     await page.getByPlaceholder('Planned destination').fill('Browser QA destination');
+    // Navigating away before the save returns aborts it in the browser; wait
+    // for the write so the list below reads the drive rather than racing it.
+    const created = page.waitForResponse(
+      (response) => response.url().includes('/rpc/create_test_drive'),
+      { timeout: 30_000 },
+    );
     await page.getByRole('button', { name: 'Save test drive' }).click();
+    const createdResponse = await created;
+    if (!createdResponse.ok()) {
+      throw new Error(
+        `Test drive creation failed: ${createdResponse.status()} ${await createdResponse.text()}`,
+      );
+    }
 
     await page.goto(
       `${baseURL}/sales-consultant/test-drives?view=all&q=${encodeURIComponent(salesFlowLeadName)}`,
@@ -1171,6 +1296,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
 
     const customer = page.getByRole('combobox', { name: 'Customer opportunity' });
     await expect(customer).toHaveText(salesFlowLeadName, { timeout: 35_000 });
+    await expect(page.getByRole('status', { name: 'Loading model options' })).toBeHidden();
     // Quotations support both a manual model (when stock is unavailable) and
     // stock-backed Model/Variant/Colour selectors. Exercise whichever branch
     // the current branch inventory exposes.
@@ -1188,7 +1314,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await page
       .locator('#quotation-validity')
       .fill(new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString().slice(0, 10));
-    await page.getByRole('button', { name: 'Save Draft' }).first().click();
+    await saveDraftQuotation(page);
     await page.goto(
       `${baseURL}/sales-consultant/quotations?q=${encodeURIComponent(salesFlowLeadName)}`,
     );
@@ -1558,7 +1684,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     const leadId = await salesLeadId(page, rowBookCustomerName);
     await page.goto(`${baseURL}/sales-consultant/quotations?action=create&lead=${leadId}`);
     await fillQuotationPricing(page, rowBookCustomerName, 900_000);
-    await page.getByRole('button', { name: 'Save Draft' }).first().click();
+    await saveDraftQuotation(page);
 
     // The All view keeps the row in place so its refresh after Mark sent shows.
     await page.goto(
@@ -1587,10 +1713,19 @@ test.describe('manual lead: Telecaller to Sales', () => {
     const leadId = await salesLeadId(page, leadBookCustomerName);
     await page.goto(`${baseURL}/sales-consultant/quotations?action=create&lead=${leadId}`);
     await fillQuotationPricing(page, leadBookCustomerName, 1_100_000);
-    await page.getByRole('button', { name: 'Save Draft' }).first().click();
-    await expect(page.getByRole('button', { name: 'Save Draft' })).toHaveCount(0, {
-      timeout: 25_000,
+    // Exercise the pending state so a fast local RPC cannot hide a premature
+    // navigation regression. This delays only this test's quotation request.
+    await page.route('**/rest/v1/rpc/save_quotation', async (route) => {
+      await expect(
+        page.getByRole('button', { name: 'Saving…', exact: true }).first(),
+      ).toBeDisabled();
+      await expect(
+        page.getByRole('heading', { name: 'Create Quotation', exact: true }),
+      ).toBeVisible();
+      await new Promise((resolve) => setTimeout(resolve, 750));
+      await route.continue();
     });
+    await saveDraftQuotation(page);
 
     await page.goto(`${baseURL}/sales-consultant/my-leads?status=all`);
     await page.getByPlaceholder('Search by name or mobile…').fill(leadBookCustomerName);

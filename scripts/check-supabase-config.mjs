@@ -13,6 +13,10 @@ const publicBoundaryFunctions = new Set([
   'provider-call-flow-telecmi',
   'provider-webhook-ai-voice',
   'provider-webhook-whatsapp',
+  'provider-webhook-indiamart',
+  'provider-webhook-carwale',
+  'provider-webhook-cardekho',
+  'provider-webhook-justdial',
 ]);
 
 const functionNames = readdirSync(functionsDirectory)

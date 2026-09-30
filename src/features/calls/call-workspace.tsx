@@ -34,6 +34,7 @@ import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
 import { SummaryToggle } from '@/components/domain/summary-toggle';
 import { CallsSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
@@ -1614,7 +1615,11 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
 
   if ((!useWorkspaceBootstrap && legacyPermissions.isPending) || workspace.isPending)
     return <CallsSkeleton />;
-  if ((!useWorkspaceBootstrap && legacyPermissions.isError) || workspace.isError)
+  // A failed background refresh keeps the rows on screen with a notice.
+  if (
+    (!useWorkspaceBootstrap && legacyPermissions.isError) ||
+    (workspace.isError && !workspace.data)
+  )
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -1682,6 +1687,12 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
 
   return (
     <div className="mx-auto max-w-[1800px]">
+      <RefreshFailedNotice
+        className="mb-4"
+        show={workspace.isError}
+        retrying={workspace.isFetching}
+        onRetry={() => void workspace.refetch()}
+      />
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">

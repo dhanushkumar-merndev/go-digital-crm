@@ -8,6 +8,7 @@ import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tan
 import { ChevronLeft, ChevronRight, Plus, RotateCcw, Search, TriangleAlert } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
+import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import { OperationalCaseWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
@@ -486,7 +487,9 @@ export function OperationalCaseWorkspace({
 
   if (permissions.isPending || (workspace.isPending && permissions.data))
     return <OperationalCaseWorkspaceSkeleton />;
-  if (permissions.isError || workspace.isError || !permissions.data || !workspace.data)
+  // A failed background refresh keeps the rows already on screen (with a
+  // notice); the full error state is only for a page that never loaded.
+  if (permissions.isError || !permissions.data || !workspace.data)
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -532,6 +535,11 @@ export function OperationalCaseWorkspace({
         ) : null}
       </div>
       <div className="space-y-6">
+        <RefreshFailedNotice
+          show={workspace.isError}
+          retrying={workspace.isFetching}
+          onRetry={() => void workspace.refetch()}
+        />
         <KpiGrid metrics={metrics(workspace.data)} />
         <ConnectedOperationalOverview
           department={route.department}
@@ -616,7 +624,7 @@ export function OperationalCaseWorkspace({
         />
       ) : null}
       <OperationalCaseDetailSheet
-        key={detail.data ? `${detail.data.id}:${detail.data.version}` : (selected?.id ?? 'none')}
+        key={selected?.id ?? 'none'}
         open={Boolean(selected)}
         onOpenChange={(open) => {
           if (!open) {

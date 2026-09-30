@@ -37,6 +37,12 @@ export const liveCallSchema = z.object({
   phone: z.string().nullable(),
   started_at: z.string(),
   answered_at: z.string().nullable(),
+  // When the employee's own leg picked up. Optional so a response from before
+  // the column existed still parses instead of blanking the bar.
+  agent_answered_at: z
+    .string()
+    .nullish()
+    .transform((value) => value ?? null),
   ended_at: z.string().nullable(),
   duration_seconds: z.number().int().nullable(),
 });

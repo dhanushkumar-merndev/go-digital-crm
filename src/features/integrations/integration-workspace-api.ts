@@ -13,7 +13,11 @@ export type IntegrationProviderKey =
   | 'whatsapp_personal_baileys'
   | 'openrouter'
   | 'groq'
-  | 'telecmi';
+  | 'telecmi'
+  | 'indiamart'
+  | 'carwale'
+  | 'cardekho'
+  | 'justdial';
 export type IntegrationScopeMode = 'ONE_BRANCH' | 'SELECTED_BRANCHES' | 'ALL_BRANCHES';
 
 export type IntegrationRecord = {
@@ -227,7 +231,7 @@ async function readEdgeErrorBody(error: unknown) {
   return new IntegrationRequestError(envelopeError.code, envelopeError.message);
 }
 
-async function invokeIntegrationFunction<T>(name: string, body: Record<string, unknown>) {
+export async function invokeIntegrationFunction<T>(name: string, body: Record<string, unknown>) {
   const { data, error } = await createClient().functions.invoke<EdgeEnvelope<T>>(name, { body });
   if (error) throw (await readEdgeErrorBody(error)) ?? error;
   if (!data?.ok || !data.data)
@@ -242,7 +246,7 @@ export function startOAuthConnection(input: {
   organizationId: string;
   providerKey: Exclude<
     IntegrationProviderKey,
-    'whatsapp_cloud' | 'telecmi' | 'whatsapp_personal_baileys'
+    'whatsapp_cloud' | 'telecmi' | 'whatsapp_personal_baileys' | 'indiamart'
   >;
   displayName: string;
   scopeMode: IntegrationScopeMode;
@@ -289,6 +293,114 @@ export function connectWhatsApp(input: {
       access_token: input.accessToken,
     },
   );
+}
+
+export function connectIndiaMart(input: {
+  organizationId: string;
+  connectionId?: string;
+  displayName: string;
+  scopeMode: IntegrationScopeMode;
+  branchIds: string[];
+  defaultTeamId?: string;
+  mobile: string;
+  crmKey: string;
+}) {
+  return invokeIntegrationFunction<{
+    connection_id: string;
+    account_label: string;
+    status: string;
+    webhook_url: string;
+  }>('integration-connect-indiamart', {
+    organization_id: input.organizationId,
+    connection_id: input.connectionId,
+    display_name: input.displayName,
+    scope_mode: input.scopeMode,
+    branch_ids: input.branchIds,
+    default_team_id: input.defaultTeamId,
+    mobile: input.mobile,
+    crm_key: input.crmKey,
+  });
+}
+
+export function connectCarWale(input: {
+  organizationId: string;
+  connectionId?: string;
+  displayName: string;
+  scopeMode: IntegrationScopeMode;
+  branchIds: string[];
+  defaultTeamId?: string;
+  dealerId: string;
+  apiKey: string;
+}) {
+  return invokeIntegrationFunction<{
+    connection_id: string;
+    account_label: string;
+    status: string;
+    webhook_url: string;
+  }>('integration-connect-carwale', {
+    organization_id: input.organizationId,
+    connection_id: input.connectionId,
+    display_name: input.displayName,
+    scope_mode: input.scopeMode,
+    branch_ids: input.branchIds,
+    default_team_id: input.defaultTeamId,
+    dealer_id: input.dealerId,
+    api_key: input.apiKey,
+  });
+}
+
+export function connectCarDekho(input: {
+  organizationId: string;
+  connectionId?: string;
+  displayName: string;
+  scopeMode: IntegrationScopeMode;
+  branchIds: string[];
+  defaultTeamId?: string;
+  dealerId: string;
+  apiKey: string;
+}) {
+  return invokeIntegrationFunction<{
+    connection_id: string;
+    account_label: string;
+    status: string;
+    webhook_url: string;
+  }>('integration-connect-cardekho', {
+    organization_id: input.organizationId,
+    connection_id: input.connectionId,
+    display_name: input.displayName,
+    scope_mode: input.scopeMode,
+    branch_ids: input.branchIds,
+    default_team_id: input.defaultTeamId,
+    dealer_id: input.dealerId,
+    api_key: input.apiKey,
+  });
+}
+
+export function connectJustdial(input: {
+  organizationId: string;
+  connectionId?: string;
+  displayName: string;
+  scopeMode: IntegrationScopeMode;
+  branchIds: string[];
+  defaultTeamId?: string;
+  vendorMobile: string;
+  apiKey: string;
+}) {
+  return invokeIntegrationFunction<{
+    connection_id: string;
+    account_label: string;
+    status: string;
+    webhook_url: string;
+  }>('integration-connect-justdial', {
+    organization_id: input.organizationId,
+    connection_id: input.connectionId,
+    display_name: input.displayName,
+    scope_mode: input.scopeMode,
+    branch_ids: input.branchIds,
+    default_team_id: input.defaultTeamId,
+    vendor_mobile: input.vendorMobile,
+    api_key: input.apiKey,
+  });
 }
 
 export function connectTelecmi(input: {

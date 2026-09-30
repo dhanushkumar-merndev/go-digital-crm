@@ -37,6 +37,7 @@ import {
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
+import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import {
   QuotationsSkeleton,
   BookingsSkeleton,
@@ -972,7 +973,7 @@ export function SalesDocumentWorkspace({
     (!useWorkspaceBootstrap && legacyPermissions.isError) ||
     !permissions ||
     (directCreate && !permissions?.canManage) ||
-    (!directCreate && workspace.isError) ||
+    // A failed background refresh keeps the rows on screen with a notice.
     (!directCreate && !workspace.data) ||
     (!useSalesHotPath && kind === 'bookings' && bookingFilterOptions.isError)
   )
@@ -1044,6 +1045,12 @@ export function SalesDocumentWorkspace({
   const result = workspace.data;
   return (
     <div className="mx-auto max-w-[1800px]">
+      <RefreshFailedNotice
+        className="mb-4"
+        show={!directCreate && workspace.isError}
+        retrying={workspace.isFetching}
+        onRetry={() => void workspace.refetch()}
+      />
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <PageHeader className="mb-0" spec={{ ...spec, primaryAction: undefined }} />
         {permissions.canManage && (

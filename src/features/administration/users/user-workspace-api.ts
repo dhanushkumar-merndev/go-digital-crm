@@ -168,8 +168,32 @@ async function invokeUserFunction<T>(
   return envelope.data;
 }
 
+/**
+ * What happened to the invited user's TeleCMI agent. CREATED / LINKED_EXISTING /
+ * ALREADY_LINKED mean they can call from the CRM; SKIPPED means they do not
+ * need one (role, no mobile, no line); FAILED carries the reason to show.
+ */
+export type InviteTelecmiOutcome =
+  | {
+      status: 'CREATED' | 'LINKED_EXISTING' | 'ALREADY_LINKED';
+      agent_user_id: string;
+      extension: number | null;
+    }
+  | { status: 'SKIPPED'; code: string }
+  | { status: 'FAILED'; code: string; message: string };
+
+export function describeInviteTelecmiOutcome(outcome: InviteTelecmiOutcome | undefined) {
+  if (!outcome) return null;
+  if (outcome.status === 'CREATED')
+    return `TeleCMI agent created on extension ${outcome.extension ?? '—'}.`;
+  if (outcome.status === 'LINKED_EXISTING' || outcome.status === 'ALREADY_LINKED')
+    return 'Linked to the TeleCMI agent that already uses this mobile.';
+  if (outcome.status === 'FAILED') return `TeleCMI agent not created: ${outcome.message}`;
+  return null;
+}
+
 export function inviteTenantUser(input: UserMutationInput & { email: string; requestId: string }) {
-  return invokeUserFunction<{ user_id: string; version: number }>(
+  return invokeUserFunction<{ user_id: string; version: number; telecmi?: InviteTelecmiOutcome }>(
     'tenant-user-invite',
     input.requestId,
     {

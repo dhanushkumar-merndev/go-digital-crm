@@ -41,6 +41,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import { TestDrivesSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
@@ -703,7 +704,8 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
       />
     );
   if (workspace.isPending) return <TestDrivesSkeleton />;
-  if (workspace.isError || !workspace.data)
+  // A failed background refresh keeps the rows on screen with a notice.
+  if (!workspace.data)
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -784,6 +786,11 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
         )}
       </div>
       <div className="space-y-6">
+        <RefreshFailedNotice
+          show={workspace.isError}
+          retrying={workspace.isFetching}
+          onRetry={() => void workspace.refetch()}
+        />
         <div className="flex h-10 gap-2 overflow-x-auto border-b">
           {testDriveViews.map((view) => {
             const active = query.view === view;

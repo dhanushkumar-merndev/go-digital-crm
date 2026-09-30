@@ -9,6 +9,11 @@ import {
 
 const migration = readFileSync('supabase/migrations/202609240002_live_call_status.sql', 'utf8');
 const dispatch = readFileSync('trigger/provider-event-dispatch.ts', 'utf8');
+const webhook = readFileSync('supabase/functions/provider-webhook-telecmi/index.ts', 'utf8');
+const applyMigration = readFileSync(
+  'supabase/migrations/20260928180000_telecmi_live_call_apply.sql',
+  'utf8',
+);
 const bar = readFileSync('src/features/calls/live-call-bar.tsx', 'utf8');
 const shell = readFileSync('src/components/shared/crm-shell.tsx', 'utf8');
 const callDialog = readFileSync('src/features/customers/customer-360-actions.tsx', 'utf8');
@@ -38,23 +43,15 @@ describe('active call lookup', () => {
 
   it('records when the customer leg answered, not when dialling began', () => {
     expect(migration).toContain('add column if not exists answered_at timestamptz');
-    expect(dispatch).toContain(
-      "if (nextStatus === 'IN_PROGRESS' && !call.answered_at) changes.answered_at = at;",
-    );
-    expect(dispatch).toContain("'answered_at',");
+    expect(applyMigration).toContain('next_answered_at := coalesce(next_answered_at, event_at);');
     expect(bar).toContain('call.answered_at ?? call.started_at');
   });
 
   it('times call milestones from webhook arrival, not from processing', () => {
-    // TeleCMI sends no timestamp, and the dispatcher runs on a one-minute cron,
-    // so stamping new Date() here made answered_at up to a minute late and
-    // arbitrarily late whenever a backlog was drained.
-    expect(dispatch).toContain(
-      'const changes = telecmiCallChanges(call, receipt, event.received_at);',
-    );
-    expect(dispatch).not.toContain('telecmiCallChanges(call, receipt, new Date().toISOString())');
-    // The claim RPC returns `setof public.provider_events`, so received_at is
-    // already on the row; it only has to be carried on the type.
+    // TeleCMI sends no timestamp. Both callers pass the receipt's received_at,
+    // so a backlog drained by the dispatcher cannot stamp a late answered_at.
+    expect(webhook).toContain('target_received_at: storedReceipt.received_at');
+    expect(dispatch).toContain('target_received_at: event.received_at');
     expect(dispatch).toContain('received_at: string;');
   });
 });
@@ -107,9 +104,17 @@ describe('live call bar', () => {
     expect(bar).toContain("title: 'Ringing you'");
     expect(bar).toContain("title: 'Connected'");
     expect(bar).toContain("title: 'Call ended'");
-    expect(bar).toContain("call.outcome === 'NO_ANSWER' ? 'No answer' : 'Call failed'");
+    expect(bar).toContain("title: 'Calling customer'");
+    expect(bar).toContain("title: 'No answer'");
+    expect(bar).toContain("title: 'Missed on your line'");
+    expect(bar).toContain("title: 'Call failed'");
     expect(bar).toContain('aria-live="polite"');
     expect(bar).toContain('role="status"');
+  });
+
+  it('clears an ended call after three seconds', () => {
+    expect(bar).toContain('const ENDED_CALL_VISIBLE_MS = 3_000;');
+    expect(bar).toContain('setTimeout(() => setDismissedKey(endedKey), ENDED_CALL_VISIBLE_MS)');
   });
 
   it('moves on realtime broadcasts instead of polling hard', () => {

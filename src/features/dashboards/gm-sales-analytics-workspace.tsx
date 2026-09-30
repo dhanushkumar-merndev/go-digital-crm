@@ -9,16 +9,11 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import { PerformanceDateRangeSelector } from '@/components/shared/performance-date-range-selector';
 import { GmSalesAnalyticsSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { performanceRangeForLastDays, performanceRangeLabel } from '@/lib/performance-date-range';
 import {
   Table,
   TableBody,
@@ -64,12 +59,12 @@ function initials(name: string) {
 
 export function GmSalesAnalyticsWorkspace({ view }: { view: GmSalesAnalyticsView }) {
   const session = useWorkspaceSession();
-  const [days, setDays] = useState<7 | 14 | 30>(30);
+  const [range, setRange] = useState(() => performanceRangeForLastDays(30));
   const query = useQuery({
     // Every GM analytics route consumes the same bounded aggregate payload.
     // Keep one scope-aware cache entry so changing views does not repeat the RPC.
-    queryKey: ['gm-sales-analytics', ...workspaceQueryScope(session), days],
-    queryFn: ({ signal }) => fetchGmSalesAnalytics(days, signal),
+    queryKey: ['gm-sales-analytics', ...workspaceQueryScope(session), range.from, range.to],
+    queryFn: ({ signal }) => fetchGmSalesAnalytics(range, signal),
     staleTime: 60_000,
   });
   useTenantRealtimeInvalidation(
@@ -97,7 +92,7 @@ export function GmSalesAnalyticsWorkspace({ view }: { view: GmSalesAnalyticsView
     {
       label: 'Leads',
       value: data.kpis.leads.toLocaleString(),
-      helper: `Last ${data.days} days`,
+      helper: performanceRangeLabel(range),
       icon: UsersRound,
       tone: 'bg-blue-50 text-blue-600',
     },
@@ -139,19 +134,7 @@ export function GmSalesAnalyticsWorkspace({ view }: { view: GmSalesAnalyticsView
           <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">{heading.title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{heading.description}</p>
         </div>
-        <Select
-          value={String(days)}
-          onValueChange={(value) => setDays(Number(value) as 7 | 14 | 30)}
-        >
-          <SelectTrigger className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7">Last 7 days</SelectItem>
-            <SelectItem value="14">Last 14 days</SelectItem>
-            <SelectItem value="30">Last 30 days</SelectItem>
-          </SelectContent>
-        </Select>
+        <PerformanceDateRangeSelector value={range} onChange={setRange} />
       </div>
       <KpiGrid metrics={metrics} className="xl:grid-cols-5" />
       {view === 'sales-performance' ? <PerformanceContent data={data} /> : null}

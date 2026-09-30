@@ -38,7 +38,17 @@ const fieldLabels: Record<string, string> = {
   externalLeadId: 'External lead ID',
 };
 
-export function IntegrationFieldMappingPanel({ connectionId }: { connectionId: string }) {
+export function IntegrationFieldMappingPanel({
+  connectionId,
+  allowedFields,
+  onSaved,
+}: {
+  connectionId: string;
+  /** Narrows the targets to the fields a given ingestion path actually fills. */
+  allowedFields?: readonly string[];
+  /** Lets a host page refresh its own summary (e.g. mapped-column counts). */
+  onSaved?: () => void;
+}) {
   const mapping = useQuery({
     queryKey: integrationFieldMappingKey(connectionId),
     queryFn: ({ signal }) => fetchIntegrationFieldMappings(connectionId, signal),
@@ -50,7 +60,7 @@ export function IntegrationFieldMappingPanel({ connectionId }: { connectionId: s
       <Alert>
         <AlertTitle>Field mapping is unavailable</AlertTitle>
         <AlertDescription>
-          Confirm integration management access for this connection.
+          Confirm marketing or integration management access for this connection.
         </AlertDescription>
       </Alert>
     );
@@ -60,7 +70,12 @@ export function IntegrationFieldMappingPanel({ connectionId }: { connectionId: s
     <FieldMappingEditor
       key={connectionId}
       connectionId={connectionId}
-      canonicalFields={mapping.data.canonical_fields}
+      onSaved={onSaved}
+      canonicalFields={
+        allowedFields
+          ? mapping.data.canonical_fields.filter((field) => allowedFields.includes(field))
+          : mapping.data.canonical_fields
+      }
       initialRows={mapping.data.mappings.map((item) => ({
         external_field: item.external_field,
         canonical_field: item.canonical_field,
@@ -73,8 +88,10 @@ function FieldMappingEditor({
   connectionId,
   canonicalFields,
   initialRows,
+  onSaved,
 }: {
   connectionId: string;
+  onSaved?: () => void;
   canonicalFields: string[];
   initialRows: Row[];
 }) {
@@ -92,6 +109,7 @@ function FieldMappingEditor({
         description: `${result.mapping_count} column${result.mapping_count === 1 ? '' : 's'} mapped for incoming leads.`,
       });
       void client.invalidateQueries({ queryKey: integrationFieldMappingKey(connectionId) });
+      onSaved?.();
     },
     onError: (error) =>
       toast.add({

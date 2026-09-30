@@ -1,4 +1,5 @@
 import type { CanonicalLeadInput } from './contracts';
+import { mappedLeadValues, type LeadFieldMappingRule } from './lead-field-mapping';
 
 type GoogleLeadColumn = {
   column_id?: unknown;
@@ -48,7 +49,10 @@ export function parseGoogleLeadEnvelope(payload: unknown): GoogleLeadEnvelope {
   };
 }
 
-export function normalizeGoogleLead(envelope: GoogleLeadEnvelope): CanonicalLeadInput {
+export function normalizeGoogleLead(
+  envelope: GoogleLeadEnvelope,
+  fieldMappings: LeadFieldMappingRule[] = [],
+): CanonicalLeadInput {
   const fields = new Map<string, string>();
   for (const rawColumn of envelope.raw.user_column_data as GoogleLeadColumn[]) {
     const value = text(rawColumn.string_value);
@@ -58,29 +62,38 @@ export function normalizeGoogleLead(envelope: GoogleLeadEnvelope): CanonicalLead
     if (columnId) fields.set(columnId, value);
     if (columnName) fields.set(columnName, value);
   }
+  const mapped = mappedLeadValues(fields, fieldMappings);
   const customerName =
+    mapped.customerName ??
     fields.get('FULL_NAME') ??
     fields.get('full name') ??
     [fields.get('FIRST_NAME'), fields.get('LAST_NAME')].filter(Boolean).join(' ').trim();
   const phone =
-    fields.get('PHONE_NUMBER') ?? fields.get('phone number') ?? fields.get('user phone');
+    mapped.phone ??
+    fields.get('PHONE_NUMBER') ??
+    fields.get('phone number') ??
+    fields.get('user phone');
   if (!customerName || !phone) throw new Error('GOOGLE_LEAD_MINIMUM_FIELDS_MISSING');
   return {
     source: 'Google Ads',
     customerName,
     phone: normalizeProviderPhone(phone),
-    email: fields.get('EMAIL') ?? fields.get('user email'),
+    email: mapped.email ?? fields.get('EMAIL') ?? fields.get('user email'),
     location:
+      mapped.location ??
       fields.get('CITY') ??
       fields.get('city') ??
       fields.get('POSTAL_CODE') ??
       fields.get('postal code'),
-    campaign: envelope.campaignId,
+    campaign: mapped.campaign ?? envelope.campaignId,
     interestedModel:
+      mapped.interestedModel ??
       fields.get('INTERESTED_MODEL') ??
       fields.get('preferred model') ??
       fields.get('what is your preferred model?'),
-    sourceDetail: envelope.formId ? `Google Lead Form ${envelope.formId}` : 'Google Lead Form',
+    sourceDetail:
+      mapped.sourceDetail ??
+      (envelope.formId ? `Google Lead Form ${envelope.formId}` : 'Google Lead Form'),
     externalLeadId: envelope.leadId,
   };
 }

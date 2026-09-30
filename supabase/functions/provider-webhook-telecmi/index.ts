@@ -102,27 +102,53 @@ Deno.serve(async (request) => {
       recording_file: text(payload.filename, 255) || null,
     };
     const payloadHash = await sha256Base64Url(rawBody || JSON.stringify(safePayload));
-    const { error: receiptError } = await admin.from('provider_events').insert({
-      organization_id: connection.organization_id,
-      connected_account_id: connection.id,
-      provider_event_id: eventId,
-      event_type: 'TELECMI_CALL_EVENT',
-      payload_hash: payloadHash,
-      payload: safePayload,
-      status: 'RECEIVED',
-    });
+    const { data: receipt, error: receiptError } = await admin
+      .from('provider_events')
+      .insert({
+        organization_id: connection.organization_id,
+        connected_account_id: connection.id,
+        provider_event_id: eventId,
+        event_type: 'TELECMI_CALL_EVENT',
+        payload_hash: payloadHash,
+        payload: safePayload,
+        status: 'RECEIVED',
+      })
+      .select('id,received_at')
+      .single();
+    let storedReceipt = receipt as { id: string; received_at: string } | null;
     if (receiptError) {
       if (receiptError.code !== '23505') throw receiptError;
       const { data: existing, error: existingError } = await admin
         .from('provider_events')
-        .select('payload_hash')
+        .select('id,received_at,payload_hash')
         .eq('organization_id', connection.organization_id)
         .eq('connected_account_id', connection.id)
         .eq('provider_event_id', eventId)
         .maybeSingle();
       if (existingError) throw existingError;
       if (!existing || !constantTimeEqual(existing.payload_hash, payloadHash)) return response(409);
+      // A redelivery is applied again rather than skipped: the first delivery
+      // may have stored its receipt and then failed before moving the call.
+      storedReceipt = existing;
     }
+    if (!storedReceipt) throw new Error('TELECMI_RECEIPT_NOT_STORED');
+
+    // Move the call now, not on the next dispatcher cron tick. The live call
+    // bar follows public.calls over realtime, so this is what makes "Ringing
+    // you" -> "Calling customer" -> "Connected" -> "Call ended" track the phone
+    // within a second. The dispatcher replays the same receipt later for
+    // recording ingestion; the apply is idempotent, so the replay is a no-op.
+    const { error: applyError } = await admin.rpc('apply_telecmi_call_event', {
+      target_organization_id: connection.organization_id,
+      target_connection_id: connection.id,
+      target_provider_event_id: storedReceipt.id,
+      target_received_at: storedReceipt.received_at,
+      target_receipt: safePayload,
+    });
+    // A receipt the database rejects as malformed or unmappable stays stored for
+    // the dispatcher to settle and report; asking TeleCMI to redeliver it would
+    // not change the answer. Anything else is transient, so TeleCMI retries.
+    if (applyError && !applyError.code?.startsWith('22')) throw applyError;
     return response();
   } catch {
     return response(500);

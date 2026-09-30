@@ -17,6 +17,7 @@ describe('Supabase retry classification', () => {
     { code: '22023', message: 'invalid query' },
     { code: 'PGRST202', message: 'function not found' },
     { code: '23505', message: 'unique violation' },
+    { code: 20, message: 'The operation was aborted' },
   ])('does not double authorization, validation, or contract failures', (error) => {
     expect(isTransientSupabaseError(error)).toBe(false);
   });

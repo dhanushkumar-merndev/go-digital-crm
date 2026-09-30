@@ -483,6 +483,7 @@ export function QuotationCreateView({
                   value={model}
                   options={vehicleOptions.data?.models ?? []}
                   awaitingCustomer={!branchId}
+                  loading={Boolean(branchId) && vehicleOptions.isPending}
                   onChange={setModel}
                   required
                 />
@@ -491,6 +492,7 @@ export function QuotationCreateView({
                   value={variant}
                   options={vehicleOptions.data?.variants ?? []}
                   awaitingCustomer={!branchId}
+                  loading={Boolean(branchId) && vehicleOptions.isPending}
                   onChange={setVariant}
                 />
                 <VehicleSelect
@@ -498,6 +500,7 @@ export function QuotationCreateView({
                   value={colour}
                   options={vehicleOptions.data?.colors ?? []}
                   awaitingCustomer={!branchId}
+                  loading={Boolean(branchId) && vehicleOptions.isPending}
                   onChange={setColour}
                 />
                 <div className="space-y-2">
@@ -617,6 +620,7 @@ function VehicleSelect({
   onChange,
   required,
   awaitingCustomer,
+  loading,
 }: {
   label: string;
   value: string;
@@ -624,6 +628,7 @@ function VehicleSelect({
   onChange: (value: string) => void;
   required?: boolean;
   awaitingCustomer?: boolean;
+  loading?: boolean;
 }) {
   const values = value && !options.includes(value) ? [value, ...options] : options;
   return (
@@ -636,7 +641,15 @@ function VehicleSelect({
         <div className="flex h-10 items-center truncate rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground">
           Select customer first
         </div>
-      ) : values.length ? (
+      ) : loading ? (
+        <div
+          role="status"
+          aria-label={`Loading ${label.toLowerCase()} options`}
+          className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground"
+        >
+          Loading {label.toLowerCase()} options…
+        </div>
+      ) : options.length ? (
         <Select value={value} onValueChange={onChange}>
           <SelectTrigger>
             <SelectValue placeholder={`Select ${label.toLowerCase()}`} />

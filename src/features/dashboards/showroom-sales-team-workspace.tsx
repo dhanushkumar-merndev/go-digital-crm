@@ -9,6 +9,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import { PerformanceDateRangeSelector } from '@/components/shared/performance-date-range-selector';
 import { ShowroomSalesTeamSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { Metric } from '@/lib/domain';
+import { performanceRangeForLastDays, performanceRangeLabel } from '@/lib/performance-date-range';
 import { fetchShowroomSalesTeam } from './showroom-sales-team-api';
 
 function percent(value: number, total: number) {
@@ -42,12 +44,12 @@ function roleLabel(value: 'SALES_CONSULTANT' | 'TELECALLER_BDC') {
 export function ShowroomSalesTeamWorkspace() {
   const session = useWorkspaceSession();
   const queryScope = workspaceQueryScope(session);
-  const [days, setDays] = useState<7 | 30>(7);
+  const [range, setRange] = useState(() => performanceRangeForLastDays(7));
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
   const query = useQuery({
-    queryKey: ['showroom-sales-team', ...queryScope, days, page, pageSize],
-    queryFn: ({ signal }) => fetchShowroomSalesTeam({ days, page, pageSize }, signal),
+    queryKey: ['showroom-sales-team', ...queryScope, range.from, range.to, page, pageSize],
+    queryFn: ({ signal }) => fetchShowroomSalesTeam({ range, page, pageSize }, signal),
     staleTime: 60_000,
   });
   if (query.isPending) return <ShowroomSalesTeamSkeleton />;
@@ -76,7 +78,7 @@ export function ShowroomSalesTeamWorkspace() {
     {
       label: 'Active in period',
       value: String(data.kpis.active_in_period),
-      helper: `Activity in last ${days} days`,
+      helper: `Activity in ${performanceRangeLabel(range)}`,
       icon: CircleDot,
       tone: 'bg-emerald-50 text-emerald-600',
     },
@@ -90,14 +92,14 @@ export function ShowroomSalesTeamWorkspace() {
     {
       label: 'Test drives',
       value: String(data.kpis.test_drives),
-      helper: `Scheduled in last ${days} days`,
+      helper: `Scheduled in ${performanceRangeLabel(range)}`,
       icon: CircleDot,
       tone: 'bg-cyan-50 text-cyan-600',
     },
     {
       label: 'Bookings',
       value: String(data.kpis.bookings),
-      helper: `Created in last ${days} days`,
+      helper: `Created in ${performanceRangeLabel(range)}`,
       icon: CircleDot,
       tone: 'bg-orange-50 text-orange-600',
     },
@@ -130,21 +132,13 @@ export function ShowroomSalesTeamWorkspace() {
             Monitor consultant workload and real sales activity at {data.branch.name}.
           </p>
         </div>
-        <Select
-          value={String(days)}
-          onValueChange={(value) => {
-            setDays(Number(value) as 7 | 30);
+        <PerformanceDateRangeSelector
+          value={range}
+          onChange={(nextRange) => {
+            setRange(nextRange);
             setPage(1);
           }}
-        >
-          <SelectTrigger className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7">Last 7 days</SelectItem>
-            <SelectItem value="30">Last 30 days</SelectItem>
-          </SelectContent>
-        </Select>
+        />
       </div>
       <KpiGrid metrics={metrics} className="xl:grid-cols-6" />
       <Card className="overflow-hidden shadow-none">

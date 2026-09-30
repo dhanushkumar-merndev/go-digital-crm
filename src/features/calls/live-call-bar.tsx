@@ -9,12 +9,16 @@ import {
 } from '@/components/providers/workspace-session-provider';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import { formatNationalPhone } from '@/lib/phone';
+import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
+import { retryRpcRead } from '@/lib/supabase/read-rpc';
 import {
   fetchActiveCall,
   isLiveCallStatus,
   liveCallQueryKeyRoot,
   type LiveCall,
 } from './live-call-api';
+
+const ENDED_CALL_VISIBLE_MS = 3_000;
 
 function elapsedLabel(seconds: number) {
   const safe = Math.max(0, Math.floor(seconds));
@@ -41,6 +45,16 @@ function present(call: LiveCall): Presentation {
         pulse: true,
       };
     case 'RINGING':
+      if (call.agent_answered_at)
+        return {
+          title: 'Calling customer',
+          // The employee is already on their leg; TeleCMI is now ringing the
+          // customer. Showing "Ringing you" here is what made the bar look stuck.
+          detail: 'You are on the line. Waiting for the customer to answer.',
+          tone: 'waiting',
+          icon: PhoneCall,
+          pulse: true,
+        };
       return {
         title: 'Ringing you',
         // Leg A is always the employee: the dealership line calls them first
@@ -75,12 +89,35 @@ function present(call: LiveCall): Presentation {
         pulse: false,
       };
     default:
+      if (call.outcome === 'NO_ANSWER')
+        return {
+          title: 'No answer',
+          detail: 'The customer did not pick up.',
+          tone: 'failed',
+          icon: PhoneOff,
+          pulse: false,
+        };
+      if (call.outcome === 'BUSY')
+        return {
+          title: 'Line busy',
+          detail: 'The customer was on another call.',
+          tone: 'failed',
+          icon: PhoneOff,
+          pulse: false,
+        };
+      if (!call.agent_answered_at && !call.answered_at)
+        return {
+          title: 'Missed on your line',
+          // TeleCMI only dials the customer after the employee answers, so an
+          // unanswered leg A means the customer's phone never rang.
+          detail: 'You did not answer, so the customer was not dialled.',
+          tone: 'failed',
+          icon: PhoneOff,
+          pulse: false,
+        };
       return {
-        title: call.outcome === 'NO_ANSWER' ? 'No answer' : 'Call failed',
-        detail:
-          call.outcome === 'NO_ANSWER'
-            ? 'The customer did not pick up.'
-            : 'The dealership line could not complete the call.',
+        title: 'Call failed',
+        detail: 'The dealership line could not complete the call.',
         tone: 'failed',
         icon: PhoneOff,
         pulse: false,
@@ -115,6 +152,7 @@ export function LiveCallBar() {
     queryKey,
     queryFn: ({ signal }) => fetchActiveCall(signal),
     enabled: Boolean(organizationId),
+    retry: retryRpcRead,
     // The broadcast is the trigger; this only bounds how stale the bar can get
     // if one is ever dropped, and it is a single indexed row.
     refetchInterval: (query) =>
@@ -137,7 +175,31 @@ export function LiveCallBar() {
     return () => clearInterval(timer);
   }, [live]);
 
+  // An ended call is shown just long enough to read the outcome, then cleared.
+  // Keyed on call and status so a later call, or a status correction on the
+  // same call (a late CDR turning FAILED into COMPLETED), shows again.
+  const endedKey = call && !live ? `${call.call_id}:${call.status}:${call.outcome ?? ''}` : null;
+  const [dismissedKey, setDismissedKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!endedKey) return;
+    const timer = setTimeout(() => setDismissedKey(endedKey), ENDED_CALL_VISIBLE_MS);
+    return () => clearTimeout(timer);
+  }, [endedKey]);
+
+  if (activeCall.isError)
+    return (
+      <div className="pointer-events-none fixed inset-x-0 top-[4.5rem] z-50 flex justify-center px-4 lg:pl-[252px]">
+        <RefreshFailedNotice
+          show
+          className="pointer-events-auto max-w-md bg-background"
+          description="Live call status is unavailable. Retry to see the latest status."
+          onRetry={() => void activeCall.refetch()}
+          retrying={activeCall.isFetching}
+        />
+      </div>
+    );
   if (!call) return null;
+  if (endedKey && dismissedKey === endedKey) return null;
 
   const view = present(call);
   const tone = toneStyles[view.tone];

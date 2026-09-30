@@ -35,6 +35,7 @@ import {
   AppointmentsSkeleton,
 } from '@/components/skeletons/sales-consultant-skeletons';
 import { SummaryToggle } from '@/components/domain/summary-toggle';
+import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import {
@@ -1505,7 +1506,7 @@ export function WorkWorkspace({
     return kind === 'appointments' ? <AppointmentsSkeleton /> : <FollowupsSkeleton />;
   if (
     (!useWorkspaceBootstrap && legacyPermissions.isError) ||
-    workspace.isError ||
+    // A failed background refresh keeps the rows on screen with a notice.
     !permissions ||
     !workspace.data
   )
@@ -1557,6 +1558,12 @@ export function WorkWorkspace({
 
   return (
     <div className="mx-auto max-w-[1800px]">
+      <RefreshFailedNotice
+        className="mb-4"
+        show={workspace.isError}
+        retrying={workspace.isFetching}
+        onRetry={() => void workspace.refetch()}
+      />
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         {kind === 'followups' ? (
           <div>

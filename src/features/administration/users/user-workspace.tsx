@@ -56,7 +56,9 @@ import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-inval
 import {
   fetchUserAdministrationOptions,
   fetchUserWorkspace,
+  describeInviteTelecmiOutcome,
   inviteTenantUser,
+  type InviteTelecmiOutcome,
   updateTenantUser,
   UserAdministrationError,
   type UserAdministrationMode,
@@ -262,8 +264,17 @@ function UserEditorDialog({
           })
         : inviteTenantUser({ ...common, email: form.email });
     },
-    onSuccess: () => {
-      onSaved(record ? 'User access updated' : 'Secure invitation sent');
+    onSuccess: (result) => {
+      const telecmi = !record
+        ? describeInviteTelecmiOutcome((result as { telecmi?: InviteTelecmiOutcome }).telecmi)
+        : null;
+      onSaved(
+        record
+          ? 'User access updated'
+          : telecmi
+            ? `Secure invitation sent. ${telecmi}`
+            : 'Secure invitation sent',
+      );
       onClose();
     },
   });

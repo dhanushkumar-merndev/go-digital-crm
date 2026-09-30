@@ -4,8 +4,10 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   Cable,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   Eye,
   Link2,
   RefreshCw,
@@ -64,6 +66,7 @@ import {
   TelecmiAgentEditor,
   type TelecmiAgentRow,
 } from './telecmi-agent-editor';
+import { TelecmiPlanCard } from './telecmi-plan-card';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
@@ -71,6 +74,10 @@ import {
 } from '@/components/providers/workspace-session-provider';
 import {
   connectAiProvider,
+  connectCarDekho,
+  connectCarWale,
+  connectIndiaMart,
+  connectJustdial,
   connectTelecmi,
   connectWhatsApp,
   IntegrationRequestError,
@@ -102,6 +109,10 @@ const providerOptions: Array<{ value: AdminIntegrationProviderKey; label: string
   { value: 'google_ads', label: 'Google Ads' },
   { value: 'google_business_profile', label: 'Google Business Profile' },
   { value: 'whatsapp_cloud', label: 'WhatsApp Business Platform' },
+  { value: 'indiamart', label: 'IndiaMART Seller Leads' },
+  { value: 'carwale', label: 'CarWale Dealer Leads' },
+  { value: 'cardekho', label: 'CarDekho Dealer Leads' },
+  { value: 'justdial', label: 'Justdial Seller Leads' },
   { value: 'openrouter', label: 'OpenRouter text, image & analysis models' },
   { value: 'groq', label: 'Groq transcription & AI analysis' },
   { value: 'telecmi', label: 'TeleCMI IVR calling & recordings' },
@@ -122,6 +133,10 @@ const scopeLabels: Record<IntegrationScopeMode, string> = {
 
 function providerLabel(value: string) {
   if (value === 'whatsapp_personal_baileys') return 'Personal WhatsApp (pilot)';
+  if (value === 'indiamart') return 'IndiaMART Seller Leads';
+  if (value === 'carwale') return 'CarWale Dealer Leads';
+  if (value === 'cardekho') return 'CarDekho Dealer Leads';
+  if (value === 'justdial') return 'Justdial Seller Leads';
   return providerOptions.find((provider) => provider.value === value)?.label ?? value;
 }
 
@@ -243,7 +258,13 @@ type ConnectRequest =
       kind: 'oauth';
       providerKey: Exclude<
         IntegrationProviderKey,
-        'whatsapp_cloud' | 'telecmi' | 'whatsapp_personal_baileys'
+        | 'whatsapp_cloud'
+        | 'telecmi'
+        | 'whatsapp_personal_baileys'
+        | 'indiamart'
+        | 'carwale'
+        | 'cardekho'
+        | 'justdial'
       >;
       displayName: string;
     }
@@ -253,6 +274,34 @@ type ConnectRequest =
       phoneNumberId: string;
       whatsappBusinessAccountId: string;
       accessToken: string;
+    }
+  | {
+      kind: 'indiamart';
+      displayName: string;
+      mobile: string;
+      crmKey: string;
+      defaultTeamId?: string;
+    }
+  | {
+      kind: 'carwale';
+      displayName: string;
+      dealerId: string;
+      apiKey: string;
+      defaultTeamId?: string;
+    }
+  | {
+      kind: 'cardekho';
+      displayName: string;
+      dealerId: string;
+      apiKey: string;
+      defaultTeamId?: string;
+    }
+  | {
+      kind: 'justdial';
+      displayName: string;
+      vendorMobile: string;
+      apiKey: string;
+      defaultTeamId?: string;
     }
   | {
       kind: 'ai';
@@ -300,12 +349,24 @@ function ProviderConnectionDialog({
     queryFn: fetchIntegrationOptions,
   });
   const [providerKey, setProviderKey] = useState<AdminIntegrationProviderKey>(
-    ['whatsapp_cloud', 'openrouter', 'groq', 'telecmi'].includes(existing?.provider_key ?? '')
+    [
+      'whatsapp_cloud',
+      'openrouter',
+      'groq',
+      'telecmi',
+      'indiamart',
+      'carwale',
+      'cardekho',
+      'justdial',
+    ].includes(existing?.provider_key ?? '')
       ? (existing?.provider_key as AdminIntegrationProviderKey)
       : 'meta',
   );
+  const [displayName, setDisplayName] = useState(
+    existing?.display_name ?? (existing ? '' : providerLabel(providerKey)),
+  );
   const [scopeMode, setScopeMode] = useState<IntegrationScopeMode>(
-    existing?.scope_mode ?? 'ONE_BRANCH',
+    existing?.scope_mode ?? (canUseAllBranches ? 'ALL_BRANCHES' : 'ONE_BRANCH'),
   );
   const [selectedBranchIds, setSelectedBranchIds] = useState(existing?.mapped_branch_ids ?? []);
   const [defaultInboundBranchId, setDefaultInboundBranchId] = useState(
@@ -321,6 +382,12 @@ function ProviderConnectionDialog({
   const [telecmiSetup, setTelecmiSetup] = useState<{
     webhook_url: string;
     call_flow_url: string;
+  } | null>(null);
+  const [portalSetup, setPortalSetup] = useState<{
+    provider_name: string;
+    webhook_url: string;
+    account_label: string;
+    instructions: string;
   } | null>(null);
   // App ID and secret are controlled because provisioning a TeleCMI agent needs
   // their current values before the connection form is submitted.
@@ -341,9 +408,17 @@ function ProviderConnectionDialog({
     existing?.connection_config.ai_stream_ws_url ?? '',
   );
   const existingModels = existing?.connection_config?.models;
+  const effectiveBranchIds =
+    scopeMode === 'ALL_BRANCHES'
+      ? []
+      : selectedBranchIds.length > 0
+        ? selectedBranchIds
+        : options.data?.branches[0]
+          ? [options.data.branches[0].id]
+          : [];
   const inboundBranches =
     options.data?.branches.filter(
-      (branch) => scopeMode === 'ALL_BRANCHES' || selectedBranchIds.includes(branch.id),
+      (branch) => scopeMode === 'ALL_BRANCHES' || effectiveBranchIds.includes(branch.id),
     ) ?? [];
   const selectedInboundBranch =
     inboundBranches.find((branch) => branch.id === defaultInboundBranchId)?.id ??
@@ -357,7 +432,7 @@ function ProviderConnectionDialog({
           providerKey: request.providerKey,
           displayName: request.displayName,
           scopeMode,
-          branchIds: selectedBranchIds,
+          branchIds: effectiveBranchIds,
           redirectPath: `/${role}/integrations`,
         });
         if (!isTrustedProviderAuthorizationUrl(result.authorization_url))
@@ -371,7 +446,7 @@ function ProviderConnectionDialog({
           providerKey: request.providerKey,
           displayName: request.displayName,
           scopeMode,
-          branchIds: selectedBranchIds,
+          branchIds: effectiveBranchIds,
           textModel: request.textModel,
           imageModel: request.imageModel,
           transcriptionModel: request.transcriptionModel,
@@ -387,7 +462,7 @@ function ProviderConnectionDialog({
           connectionId: existing?.id,
           displayName: request.displayName,
           scopeMode,
-          branchIds: selectedBranchIds,
+          branchIds: effectiveBranchIds,
           appId: request.appId,
           appSecret: request.appSecret,
           defaultUserId: request.defaultUserId,
@@ -402,21 +477,126 @@ function ProviderConnectionDialog({
         });
         return { authorizationUrl: null, telecmiSetup: result };
       }
+      if (request.kind === 'indiamart') {
+        const result = await connectIndiaMart({
+          organizationId,
+          connectionId: existing?.id,
+          displayName: request.displayName,
+          scopeMode,
+          branchIds: effectiveBranchIds,
+          defaultTeamId: request.defaultTeamId,
+          mobile: request.mobile,
+          crmKey: request.crmKey,
+        });
+        return {
+          authorizationUrl: null,
+          telecmiSetup: null,
+          portalSetup: {
+            provider_name: 'IndiaMART',
+            account_label: result.account_label,
+            webhook_url: result.webhook_url,
+            instructions:
+              'Paste this URL in your IndiaMART Lead Manager Push API settings to receive instant push alerts.',
+          },
+        };
+      }
+      if (request.kind === 'carwale') {
+        const result = await connectCarWale({
+          organizationId,
+          connectionId: existing?.id,
+          displayName: request.displayName,
+          scopeMode,
+          branchIds: effectiveBranchIds,
+          defaultTeamId: request.defaultTeamId,
+          dealerId: request.dealerId,
+          apiKey: request.apiKey,
+        });
+        return {
+          authorizationUrl: null,
+          telecmiSetup: null,
+          portalSetup: {
+            provider_name: 'CarWale',
+            account_label: result.account_label,
+            webhook_url: result.webhook_url,
+            instructions:
+              'Paste this URL in your CarWale DealerPlus Lead Push Webhook settings to receive instant push alerts.',
+          },
+        };
+      }
+      if (request.kind === 'cardekho') {
+        const result = await connectCarDekho({
+          organizationId,
+          connectionId: existing?.id,
+          displayName: request.displayName,
+          scopeMode,
+          branchIds: effectiveBranchIds,
+          defaultTeamId: request.defaultTeamId,
+          dealerId: request.dealerId,
+          apiKey: request.apiKey,
+        });
+        return {
+          authorizationUrl: null,
+          telecmiSetup: null,
+          portalSetup: {
+            provider_name: 'CarDekho',
+            account_label: result.account_label,
+            webhook_url: result.webhook_url,
+            instructions:
+              'Paste this URL in your CarDekho Dealer Central Lead Push settings to receive instant push alerts.',
+          },
+        };
+      }
+      if (request.kind === 'justdial') {
+        const result = await connectJustdial({
+          organizationId,
+          connectionId: existing?.id,
+          displayName: request.displayName,
+          scopeMode,
+          branchIds: effectiveBranchIds,
+          defaultTeamId: request.defaultTeamId,
+          vendorMobile: request.vendorMobile,
+          apiKey: request.apiKey,
+        });
+        return {
+          authorizationUrl: null,
+          telecmiSetup: null,
+          portalSetup: {
+            provider_name: 'Justdial',
+            account_label: result.account_label,
+            webhook_url: result.webhook_url,
+            instructions:
+              'Paste this URL in your Justdial Vendor Lead Capture Webhook settings to receive instant push alerts.',
+          },
+        };
+      }
       await connectWhatsApp({
         organizationId,
         connectionId: existing?.id,
         displayName: request.displayName,
         scopeMode,
-        branchIds: selectedBranchIds,
+        branchIds: effectiveBranchIds,
         defaultInboundBranchId: selectedInboundBranch,
         defaultTeamId: defaultTeamId === 'none' ? undefined : defaultTeamId,
         phoneNumberId: request.phoneNumberId,
         whatsappBusinessAccountId: request.whatsappBusinessAccountId,
         accessToken: request.accessToken,
       });
-      return { authorizationUrl: null, telecmiSetup: null };
+      return { authorizationUrl: null, telecmiSetup: null, portalSetup: null };
     },
-    onSuccess: ({ authorizationUrl, telecmiSetup: setup }) => {
+    onSuccess: ({
+      authorizationUrl,
+      telecmiSetup: setup,
+      portalSetup: pSetup,
+    }: {
+      authorizationUrl: string | null;
+      telecmiSetup?: { webhook_url: string; call_flow_url: string } | null;
+      portalSetup?: {
+        provider_name: string;
+        account_label: string;
+        webhook_url: string;
+        instructions: string;
+      } | null;
+    }) => {
       if (authorizationUrl) {
         window.location.assign(authorizationUrl);
         return;
@@ -426,6 +606,10 @@ function ProviderConnectionDialog({
         setTelecmiSetup(setup);
         return;
       }
+      if (pSetup) {
+        setPortalSetup(pSetup);
+        return;
+      }
       onClose();
     },
   });
@@ -433,8 +617,8 @@ function ProviderConnectionDialog({
     options.data?.teams.filter((team) => team.branch_id === selectedInboundBranch) ?? [];
   const validScope =
     scopeMode === 'ALL_BRANCHES' ||
-    (scopeMode === 'ONE_BRANCH' && selectedBranchIds.length === 1) ||
-    (scopeMode === 'SELECTED_BRANCHES' && selectedBranchIds.length > 0);
+    (scopeMode === 'ONE_BRANCH' && effectiveBranchIds.length === 1) ||
+    (scopeMode === 'SELECTED_BRANCHES' && effectiveBranchIds.length > 0);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -498,6 +682,46 @@ function ProviderConnectionDialog({
                 });
                 return;
               }
+              if (providerKey === 'indiamart') {
+                mutation.mutate({
+                  kind: 'indiamart',
+                  displayName,
+                  mobile: String(form.get('indiamartMobile') ?? '').trim(),
+                  crmKey: String(form.get('indiamartCrmKey') ?? '').trim(),
+                  defaultTeamId: defaultTeamId === 'none' ? undefined : defaultTeamId,
+                });
+                return;
+              }
+              if (providerKey === 'carwale') {
+                mutation.mutate({
+                  kind: 'carwale',
+                  displayName,
+                  dealerId: String(form.get('carwaleDealerId') ?? '').trim(),
+                  apiKey: String(form.get('carwaleApiKey') ?? '').trim(),
+                  defaultTeamId: defaultTeamId === 'none' ? undefined : defaultTeamId,
+                });
+                return;
+              }
+              if (providerKey === 'cardekho') {
+                mutation.mutate({
+                  kind: 'cardekho',
+                  displayName,
+                  dealerId: String(form.get('cardekhoDealerId') ?? '').trim(),
+                  apiKey: String(form.get('cardekhoApiKey') ?? '').trim(),
+                  defaultTeamId: defaultTeamId === 'none' ? undefined : defaultTeamId,
+                });
+                return;
+              }
+              if (providerKey === 'justdial') {
+                mutation.mutate({
+                  kind: 'justdial',
+                  displayName,
+                  vendorMobile: String(form.get('justdialMobile') ?? '').trim(),
+                  apiKey: String(form.get('justdialApiKey') ?? '').trim(),
+                  defaultTeamId: defaultTeamId === 'none' ? undefined : defaultTeamId,
+                });
+                return;
+              }
               if (providerKey === 'openrouter' || providerKey === 'groq') {
                 mutation.mutate({
                   kind: 'ai',
@@ -520,7 +744,13 @@ function ProviderConnectionDialog({
               <Select
                 value={providerKey}
                 disabled={Boolean(existing)}
-                onValueChange={(value) => setProviderKey(value as AdminIntegrationProviderKey)}
+                onValueChange={(value) => {
+                  const next = value as AdminIntegrationProviderKey;
+                  setProviderKey(next);
+                  if (!existing) {
+                    setDisplayName(providerLabel(next));
+                  }
+                }}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -543,7 +773,8 @@ function ProviderConnectionDialog({
                 required
                 minLength={2}
                 maxLength={120}
-                defaultValue={existing?.display_name}
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
                 placeholder="Marketing account"
               />
             </label>
@@ -551,7 +782,7 @@ function ProviderConnectionDialog({
               <BranchScopeFields
                 options={options.data}
                 scopeMode={scopeMode}
-                selectedBranchIds={selectedBranchIds}
+                selectedBranchIds={effectiveBranchIds}
                 canUseAllBranches={canUseAllBranches}
                 onScopeModeChange={setScopeMode}
                 onSelectedBranchIdsChange={setSelectedBranchIds}
@@ -627,6 +858,345 @@ function ProviderConnectionDialog({
                     maxLength={4096}
                     autoComplete="new-password"
                   />
+                </label>
+              </div>
+            )}
+            {providerKey === 'indiamart' && options.data && (
+              <div className="grid gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4 sm:grid-cols-2">
+                <div className="space-y-2 sm:col-span-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                    <Cable className="size-4" />
+                    <span>Automatic IndiaMART Seller Sync & Telecaller Routing</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Connect your IndiaMART seller account. All buyer enquiries and RFQs generated on
+                    IndiaMART will be captured automatically into the CRM and round-robined directly
+                    to active Telecallers without manual entry.
+                  </p>
+                  <div className="flex items-center justify-between gap-2 rounded-md border bg-background p-3 text-xs">
+                    <span className="text-muted-foreground">
+                      Need your IndiaMART CRM Key? Log in to your IndiaMART Seller Portal (Lead
+                      Manager → CRM Integration).
+                    </span>
+                    <a
+                      href="https://seller.indiamart.com/leadmanager/crmapi/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex shrink-0 items-center gap-1 font-medium text-primary hover:underline"
+                    >
+                      Open IndiaMART Portal <ExternalLink className="size-3" />
+                    </a>
+                  </div>
+                </div>
+
+                <label className="grid gap-1.5 text-sm font-medium">
+                  IndiaMART Registered Mobile
+                  <Input
+                    name="indiamartMobile"
+                    required
+                    pattern="[0-9]{10,12}"
+                    minLength={10}
+                    maxLength={15}
+                    defaultValue={existing?.external_account_id ?? ''}
+                    placeholder="e.g. 9876543210"
+                    autoComplete="off"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Primary mobile number used to log in to IndiaMART seller account.
+                  </span>
+                </label>
+
+                <label className="grid gap-1.5 text-sm font-medium">
+                  IndiaMART CRM Key
+                  <Input
+                    name="indiamartCrmKey"
+                    type="password"
+                    required
+                    minLength={6}
+                    maxLength={256}
+                    placeholder="Paste GLUSR_MOBILE_KEY"
+                    autoComplete="new-password"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    From IndiaMART Seller CRM API settings.
+                  </span>
+                </label>
+
+                <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                  Assign to Telecaller Team
+                  <Select value={defaultTeamId} onValueChange={setDefaultTeamId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Auto-round robin across all active telecallers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">
+                        Auto-round robin across all active telecallers
+                      </SelectItem>
+                      {options.data.teams.map((team) => (
+                        <SelectItem key={team.id} value={team.id}>
+                          {team.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className="text-[11px] text-muted-foreground">
+                    Incoming IndiaMART leads are automatically round-robined among active
+                    telecallers in this team.
+                  </span>
+                </label>
+              </div>
+            )}
+            {providerKey === 'carwale' && options.data && (
+              <div className="grid gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4 sm:grid-cols-2">
+                <div className="space-y-2 sm:col-span-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                    <Cable className="size-4" />
+                    <span>Automatic CarWale Dealer Sync & Telecaller Routing</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Connect your CarWale dealership account. All buyer inquiries and model test
+                    drive requests generated on CarWale DealerPlus will be captured automatically
+                    into the CRM and round-robined directly to active Telecallers without manual
+                    entry.
+                  </p>
+                  <div className="flex items-center justify-between gap-2 rounded-md border bg-background p-3 text-xs">
+                    <span className="text-muted-foreground">
+                      Need your CarWale Dealer API credentials? Check your CarWale DealerPlus
+                      settings (Dealer Plus → CRM Integration).
+                    </span>
+                    <a
+                      href="https://dealerplus.carwale.com/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex shrink-0 items-center gap-1 font-medium text-primary hover:underline"
+                    >
+                      Open CarWale DealerPlus <ExternalLink className="size-3" />
+                    </a>
+                  </div>
+                </div>
+
+                <label className="grid gap-1.5 text-sm font-medium">
+                  CarWale Dealer / Showroom ID
+                  <Input
+                    name="carwaleDealerId"
+                    required
+                    minLength={2}
+                    maxLength={64}
+                    defaultValue={existing?.external_account_id ?? ''}
+                    placeholder="e.g. CW-DL-1049"
+                    autoComplete="off"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Your unique Dealer or Showroom ID assigned by CarWale.
+                  </span>
+                </label>
+
+                <label className="grid gap-1.5 text-sm font-medium">
+                  CarWale API Key / Secret Token
+                  <Input
+                    name="carwaleApiKey"
+                    type="password"
+                    required
+                    minLength={6}
+                    maxLength={256}
+                    placeholder="Paste CarWale Dealer API Key"
+                    autoComplete="new-password"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Secret API key from CarWale CRM settings.
+                  </span>
+                </label>
+
+                <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                  Assign to Telecaller Team
+                  <Select value={defaultTeamId} onValueChange={setDefaultTeamId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Auto-round robin across all active telecallers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">
+                        Auto-round robin across all active telecallers
+                      </SelectItem>
+                      {options.data.teams.map((team) => (
+                        <SelectItem key={team.id} value={team.id}>
+                          {team.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className="text-[11px] text-muted-foreground">
+                    Incoming CarWale leads are automatically round-robined among active telecallers
+                    in this team.
+                  </span>
+                </label>
+              </div>
+            )}
+            {providerKey === 'cardekho' && options.data && (
+              <div className="grid gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4 sm:grid-cols-2">
+                <div className="space-y-2 sm:col-span-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                    <Cable className="size-4" />
+                    <span>Automatic CarDekho Dealer Sync & Telecaller Routing</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Connect your CarDekho dealership account. All buyer leads and vehicle inquiries
+                    from CarDekho Dealer Central will be captured automatically into the CRM and
+                    round-robined directly to active Telecallers without manual entry.
+                  </p>
+                  <div className="flex items-center justify-between gap-2 rounded-md border bg-background p-3 text-xs">
+                    <span className="text-muted-foreground">
+                      Need your CarDekho Dealer API credentials? Check your CarDekho Dealer Central
+                      portal.
+                    </span>
+                    <a
+                      href="https://dealer.cardekho.com/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex shrink-0 items-center gap-1 font-medium text-primary hover:underline"
+                    >
+                      Open CarDekho Portal <ExternalLink className="size-3" />
+                    </a>
+                  </div>
+                </div>
+
+                <label className="grid gap-1.5 text-sm font-medium">
+                  CarDekho Dealer ID / Showroom ID
+                  <Input
+                    name="cardekhoDealerId"
+                    required
+                    minLength={2}
+                    maxLength={64}
+                    defaultValue={existing?.external_account_id ?? ''}
+                    placeholder="e.g. CD-SHOWROOM-823"
+                    autoComplete="off"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Your unique Dealer or Showroom ID assigned by CarDekho.
+                  </span>
+                </label>
+
+                <label className="grid gap-1.5 text-sm font-medium">
+                  CarDekho API Key / Auth Token
+                  <Input
+                    name="cardekhoApiKey"
+                    type="password"
+                    required
+                    minLength={6}
+                    maxLength={256}
+                    placeholder="Paste CarDekho API Token"
+                    autoComplete="new-password"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    From CarDekho Dealer API configuration.
+                  </span>
+                </label>
+
+                <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                  Assign to Telecaller Team
+                  <Select value={defaultTeamId} onValueChange={setDefaultTeamId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Auto-round robin across all active telecallers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">
+                        Auto-round robin across all active telecallers
+                      </SelectItem>
+                      {options.data.teams.map((team) => (
+                        <SelectItem key={team.id} value={team.id}>
+                          {team.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className="text-[11px] text-muted-foreground">
+                    Incoming CarDekho leads are automatically round-robined among active telecallers
+                    in this team.
+                  </span>
+                </label>
+              </div>
+            )}
+            {providerKey === 'justdial' && options.data && (
+              <div className="grid gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4 sm:grid-cols-2">
+                <div className="space-y-2 sm:col-span-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                    <Cable className="size-4" />
+                    <span>Automatic Justdial Seller Sync & Telecaller Routing</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Connect your Justdial vendor account. All customer phone queries and online
+                    leads from Justdial will be captured automatically into the CRM and
+                    round-robined directly to active Telecallers without manual entry.
+                  </p>
+                  <div className="flex items-center justify-between gap-2 rounded-md border bg-background p-3 text-xs">
+                    <span className="text-muted-foreground">
+                      Need your Justdial API Key? Check your Justdial Vendor / Lead Capture
+                      dashboard.
+                    </span>
+                    <a
+                      href="https://www.justdial.com/cms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex shrink-0 items-center gap-1 font-medium text-primary hover:underline"
+                    >
+                      Open Justdial Portal <ExternalLink className="size-3" />
+                    </a>
+                  </div>
+                </div>
+
+                <label className="grid gap-1.5 text-sm font-medium">
+                  Justdial Registered Mobile
+                  <Input
+                    name="justdialMobile"
+                    required
+                    pattern="[0-9]{10,12}"
+                    minLength={10}
+                    maxLength={15}
+                    defaultValue={existing?.external_account_id ?? ''}
+                    placeholder="e.g. 9876543210"
+                    autoComplete="off"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Primary mobile number registered with Justdial vendor account.
+                  </span>
+                </label>
+
+                <label className="grid gap-1.5 text-sm font-medium">
+                  Justdial Lead API Key / Token
+                  <Input
+                    name="justdialApiKey"
+                    type="password"
+                    required
+                    minLength={6}
+                    maxLength={256}
+                    placeholder="Paste Justdial API Token"
+                    autoComplete="new-password"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    From Justdial Lead Capture Webhook / API settings.
+                  </span>
+                </label>
+
+                <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                  Assign to Telecaller Team
+                  <Select value={defaultTeamId} onValueChange={setDefaultTeamId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Auto-round robin across all active telecallers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">
+                        Auto-round robin across all active telecallers
+                      </SelectItem>
+                      {options.data.teams.map((team) => (
+                        <SelectItem key={team.id} value={team.id}>
+                          {team.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className="text-[11px] text-muted-foreground">
+                    Incoming Justdial leads are automatically round-robined among active telecallers
+                    in this team.
+                  </span>
                 </label>
               </div>
             )}
@@ -834,6 +1404,33 @@ function ProviderConnectionDialog({
                 </AlertDescription>
               </Alert>
             ) : null}
+            {portalSetup ? (
+              <Alert className="border-emerald-500/30 bg-emerald-50 text-emerald-900">
+                <CheckCircle2 className="size-5 text-emerald-600" />
+                <AlertTitle className="font-semibold text-emerald-800">
+                  {portalSetup.provider_name} Account Connected & Synced
+                </AlertTitle>
+                <AlertDescription className="mt-1 grid gap-2 text-xs text-emerald-700">
+                  <p>
+                    Account <strong>{portalSetup.account_label}</strong> is connected. All new buyer
+                    enquiries from {portalSetup.provider_name} are now synced in real time and
+                    automatically round-robined to your telecallers.
+                  </p>
+                  <div>
+                    <span className="font-medium text-emerald-800">
+                      Your Live {portalSetup.provider_name} Webhook Endpoint:
+                    </span>
+                    <Input
+                      readOnly
+                      aria-label={`${portalSetup.provider_name} Push Webhook URL`}
+                      className="mt-1 bg-white font-mono text-[11px] text-foreground"
+                      value={portalSetup.webhook_url}
+                    />
+                    <span className="text-[11px] text-emerald-700">{portalSetup.instructions}</span>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            ) : null}
             {(providerKey === 'openrouter' || providerKey === 'groq') && (
               <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
@@ -920,9 +1517,9 @@ function ProviderConnectionDialog({
             )}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={onClose}>
-                {telecmiSetup ? 'Done' : 'Cancel'}
+                {telecmiSetup || portalSetup ? 'Done' : 'Cancel'}
               </Button>
-              {!telecmiSetup ? (
+              {!telecmiSetup && !portalSetup ? (
                 <Button
                   type="submit"
                   disabled={
@@ -940,13 +1537,15 @@ function ProviderConnectionDialog({
                   <Link2 className="size-4" />
                   {mutation.isPending
                     ? 'Connecting…'
-                    : providerKey === 'whatsapp_cloud'
-                      ? 'Test and save'
-                      : providerKey === 'openrouter' ||
-                          providerKey === 'groq' ||
-                          providerKey === 'telecmi'
-                        ? 'Verify and save'
-                        : 'Continue with provider'}
+                    : ['indiamart', 'carwale', 'cardekho', 'justdial'].includes(providerKey)
+                      ? 'Connect & Auto-Configure'
+                      : providerKey === 'whatsapp_cloud'
+                        ? 'Test and save'
+                        : providerKey === 'openrouter' ||
+                            providerKey === 'groq' ||
+                            providerKey === 'telecmi'
+                          ? 'Verify and save'
+                          : 'Continue with provider'}
                 </Button>
               ) : null}
             </div>
@@ -1263,6 +1862,14 @@ function ConnectionDetailSheet({
               ))}
             </dl>
           </section>
+          {connection.provider_key === 'telecmi' &&
+            canManageTelecmi &&
+            connection.status === 'CONNECTED' && (
+              <TelecmiPlanCard
+                organizationId={connection.organization_id}
+                connectionId={connection.id}
+              />
+            )}
           {(capabilities.length > 0 || models) && (
             <section className="rounded-lg border p-4">
               <h3 className="font-medium">Enabled configuration</h3>
@@ -1303,12 +1910,17 @@ function ConnectionDetailSheet({
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
-          {canManage && (isOAuth || isAi) && (
-            <Button variant="outline" onClick={onTest} disabled={testing}>
-              <RefreshCw className="size-4" />
-              {testing ? 'Testing…' : 'Test connection'}
-            </Button>
-          )}
+          {canManage &&
+            (isOAuth ||
+              isAi ||
+              ['indiamart', 'carwale', 'cardekho', 'justdial'].includes(
+                connection.provider_key,
+              )) && (
+              <Button variant="outline" onClick={onTest} disabled={testing}>
+                <RefreshCw className="size-4" />
+                {testing ? 'Testing…' : 'Test connection'}
+              </Button>
+            )}
           {canManage && isOAuth && connection.status === 'CONNECTED' && (
             <Button variant="outline" onClick={onMap}>
               <Settings2 className="size-4" />
@@ -1317,9 +1929,18 @@ function ConnectionDetailSheet({
           )}
           {canManage &&
             (connection.provider_key !== 'telecmi' || canManageTelecmi) &&
-            ['whatsapp_cloud', 'telecmi', 'openrouter', 'groq'].includes(
-              connection.provider_key,
-            ) && <Button onClick={onReplace}>Replace credential</Button>}
+            [
+              'whatsapp_cloud',
+              'telecmi',
+              'openrouter',
+              'groq',
+              'indiamart',
+              'carwale',
+              'cardekho',
+              'justdial',
+            ].includes(connection.provider_key) && (
+              <Button onClick={onReplace}>Replace credential</Button>
+            )}
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -1447,6 +2068,22 @@ function IntegrationTable({
                 <Button size="sm" variant="outline" onClick={() => onReplace(record)}>
                   Replace credential
                 </Button>
+              )}
+              {['indiamart', 'carwale', 'cardekho', 'justdial'].includes(record.provider_key) && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={testingId === record.id}
+                    onClick={() => onTest(record)}
+                  >
+                    <RefreshCw className="size-3.5" />
+                    Test
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => onReplace(record)}>
+                    Replace credential
+                  </Button>
+                </>
               )}
               {aiProvider && (
                 <>

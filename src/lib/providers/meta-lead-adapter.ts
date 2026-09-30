@@ -1,4 +1,5 @@
 import type { CanonicalLeadInput } from './contracts';
+import { mappedLeadValues, type LeadFieldMappingRule } from './lead-field-mapping';
 
 export type MetaLeadEvent = {
   eventId: string;
@@ -56,7 +57,7 @@ export function extractMetaLeadEvents(payload: unknown): MetaLeadEvent[] {
 
 export function normalizeMetaLead(
   payload: unknown,
-  input: { externalLeadId: string; sourceDetail?: string },
+  input: { externalLeadId: string; sourceDetail?: string; fieldMappings?: LeadFieldMappingRule[] },
 ): CanonicalLeadInput {
   const lead = record(payload);
   if (!lead || !Array.isArray(lead.field_data)) throw new Error('META_LEAD_FIELDS_MISSING');
@@ -66,13 +67,22 @@ export function normalizeMetaLead(
     const value = Array.isArray(rawField.values) ? text(rawField.values[0]) : undefined;
     if (name && value) fields.set(name, value);
   }
+  // Ad-level attributes are mappable too, e.g. ad_name onto campaign.
+  const columns = new Map(fields);
+  for (const key of ['campaign_name', 'campaign_id', 'ad_name', 'ad_id', 'form_id']) {
+    const value = text(lead[key]);
+    if (value && !columns.has(key)) columns.set(key, value);
+  }
+  const mapped = mappedLeadValues(columns, input.fieldMappings);
   const firstName = fields.get('first_name');
   const lastName = fields.get('last_name');
   const customerName =
+    mapped.customerName ??
     fields.get('full_name') ??
     fields.get('name') ??
     [firstName, lastName].filter(Boolean).join(' ').trim();
   const phone =
+    mapped.phone ??
     fields.get('phone_number') ??
     fields.get('phone') ??
     fields.get('mobile_number') ??
@@ -80,18 +90,24 @@ export function normalizeMetaLead(
   if (!customerName || !phone) throw new Error('META_LEAD_MINIMUM_FIELDS_MISSING');
   const city = fields.get('city');
   const state = fields.get('state');
-  const campaign = text(lead.campaign_name) ?? fields.get('campaign');
+  const campaign = mapped.campaign ?? text(lead.campaign_name) ?? fields.get('campaign');
   const platform = text(lead.platform)?.toLocaleLowerCase();
   return {
     source: platform === 'instagram' ? 'Instagram' : 'Facebook',
     customerName,
     phone: normalizeProviderPhone(phone),
-    email: fields.get('email'),
-    location: fields.get('location') ?? ([city, state].filter(Boolean).join(', ') || undefined),
+    email: mapped.email ?? fields.get('email'),
+    location:
+      mapped.location ??
+      fields.get('location') ??
+      ([city, state].filter(Boolean).join(', ') || undefined),
     campaign,
     interestedModel:
-      fields.get('interested_model') ?? fields.get('car_model') ?? fields.get('model'),
-    sourceDetail: input.sourceDetail ?? 'Meta Lead Ads',
+      mapped.interestedModel ??
+      fields.get('interested_model') ??
+      fields.get('car_model') ??
+      fields.get('model'),
+    sourceDetail: mapped.sourceDetail ?? input.sourceDetail ?? 'Meta Lead Ads',
     externalLeadId: input.externalLeadId,
   };
 }

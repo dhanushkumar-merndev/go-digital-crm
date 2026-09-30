@@ -168,6 +168,7 @@ Deno.serve(async (request) => {
     let previousCredential: TelecmiCredential | null = null;
     let previousStreamEnabled = false;
     let previousStreamUrl: string | undefined;
+    let previousSeatLimit: number | null = null;
     if (input.connection_id) {
       const { data: existingConnection, error: connectionError } = await admin
         .from('connected_accounts')
@@ -202,6 +203,9 @@ Deno.serve(async (request) => {
           ? (existingConnection.connection_config as Record<string, unknown>)
           : {};
       previousStreamEnabled = previousConfig.ai_stream_enabled === true;
+      // Set from the TeleCMI plan card, not this form, so a re-save keeps it.
+      previousSeatLimit =
+        typeof previousConfig.seat_limit === 'number' ? previousConfig.seat_limit : null;
       previousStreamUrl =
         typeof previousConfig.ai_stream_ws_url === 'string'
           ? previousConfig.ai_stream_ws_url
@@ -246,6 +250,7 @@ Deno.serve(async (request) => {
       team_name: input.team_name || null,
       ai_stream_enabled: input.ai_stream_enabled,
       ai_stream_ws_url: input.ai_stream_ws_url || null,
+      ...(previousSeatLimit === null ? {} : { seat_limit: previousSeatLimit }),
     };
 
     let providerStreamChanged = false;

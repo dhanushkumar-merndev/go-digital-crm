@@ -75,9 +75,9 @@ describe('TeleCMI provider calling boundary', () => {
   it('authenticates TeleCMI callbacks and durably stores a bounded receipt', () => {
     expect(webhook).toContain('constantTimeEqual(suppliedToken, credential.webhook_secret)');
     expect(webhook).toContain('credential.app_id');
-    expect(webhook).toContain(".from('provider_events').insert(");
+    expect(webhook).toContain(".from('provider_events')\n      .insert(");
     expect(webhook).toContain("receiptError.code !== '23505'");
-    expect(webhook).toContain(".select('payload_hash')");
+    expect(webhook).toContain(".select('id,received_at,payload_hash')");
     expect(webhook).toContain('constantTimeEqual(existing.payload_hash, payloadHash)');
     expect(webhook).toContain('return response(409)');
     expect(webhook).toContain("event_type: 'TELECMI_CALL_EVENT'");
@@ -92,12 +92,14 @@ describe('TeleCMI provider calling boundary', () => {
     expect(dispatch).toContain("event.event_type === 'TELECMI_CALL_EVENT'");
     expect(dispatch).toContain('dispatchTelecmiCall');
     expect(dispatch).toContain("connection.provider_key !== 'telecmi'");
-    expect(dispatch).toContain(".from('calls')");
+    // The call is moved by the same database function the webhook runs, so the
+    // dispatcher and the webhook can never disagree about a transition.
+    expect(dispatch).toContain("supabase.rpc('apply_telecmi_call_event'");
+    expect(dispatch).not.toContain(".from('calls')");
     expect(dispatch).toContain('providerRecordingIngest');
     expect(dispatch).toContain('tasks.trigger');
     expect(dispatch).toContain("provider: 'telecmi'");
-    expect(dispatch).toContain("if (receipt.leg !== 'b') return null");
-    expect(dispatch).toContain("rpc('record_telecmi_connected_call'");
+    expect(dispatch).toContain("if (receipt.leg !== 'b') return false");
     expect(ingest).toContain("payload.provider === 'telecmi'");
     expect(ingest).toContain('integration_credentials');
     expect(ingest).toContain("new URL('https://rest.telecmi.com/v2/play')");

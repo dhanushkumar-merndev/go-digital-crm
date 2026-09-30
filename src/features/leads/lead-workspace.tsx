@@ -51,6 +51,8 @@ import { SummaryToggle } from '@/components/domain/summary-toggle';
 import { LeadWorkspaceSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
+import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
+import { retryRpcRead } from '@/lib/supabase/read-rpc';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
@@ -1537,6 +1539,7 @@ function SalesHandoffDialog({
     queryFn: ({ signal }) => fetchSalesHandoffCandidates(lead?.id ?? '', debouncedSearch, signal),
     enabled: open && Boolean(lead),
     placeholderData: keepPreviousData,
+    retry: retryRpcRead,
   });
   const consultants: SalesHandoffCandidate[] = candidates.data ?? [];
   const recommended = consultants.find((consultant) => consultant.recommended) ?? null;
@@ -1581,7 +1584,8 @@ function SalesHandoffDialog({
           className="mt-4 grid gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!lead) return;
+            if (!lead || candidates.isPending || candidates.isError || candidates.isPlaceholderData)
+              return;
             mutation.mutate({
               leadId: lead.id,
               userId: selection === AUTO_SALES_HANDOFF ? null : selection,
@@ -1621,9 +1625,11 @@ function SalesHandoffDialog({
             <p className="text-xs font-normal text-muted-foreground">
               {candidates.isPending
                 ? 'Loading the team’s Sales Consultants…'
-                : consultants.length
-                  ? 'Auto-assign picks the consultant carrying the fewest open leads in this team.'
-                  : 'No eligible Sales Consultant is available in this team.'}
+                : candidates.isError
+                  ? 'The Sales Consultant list is currently unavailable.'
+                  : consultants.length
+                    ? 'Auto-assign picks the consultant carrying the fewest open leads in this team.'
+                    : 'No eligible Sales Consultant is available in this team.'}
             </p>
           </div>
           <label className="grid gap-1.5 text-sm font-medium">
@@ -1639,11 +1645,12 @@ function SalesHandoffDialog({
               placeholder="Why this lead is ready for Sales"
             />
           </label>
-          {candidates.isError && (
-            <p className="text-sm text-destructive">
-              The Sales Consultant list could not be loaded for this lead.
-            </p>
-          )}
+          <RefreshFailedNotice
+            show={candidates.isError}
+            description="The Sales Consultant list could not be loaded. Retry before transferring this lead."
+            onRetry={() => void candidates.refetch()}
+            retrying={candidates.isFetching}
+          />
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
@@ -1652,6 +1659,9 @@ function SalesHandoffDialog({
               type="submit"
               disabled={
                 mutation.isPending ||
+                candidates.isPending ||
+                candidates.isError ||
+                candidates.isPlaceholderData ||
                 !reason.trim() ||
                 (selection === AUTO_SALES_HANDOFF && !candidates.isPending && !consultants.length)
               }
@@ -4182,7 +4192,12 @@ export function LeadWorkspace({
   });
 
   if (workspace.isPending) return <LeadWorkspaceSkeleton />;
-  if (workspace.isError || (!useWorkspaceBootstrap && legacyPermissions.isError))
+  // A failed background refresh keeps the rows on screen with a notice; the
+  // full error state is only for a page that never loaded.
+  if (
+    (workspace.isError && !workspace.data) ||
+    (!useWorkspaceBootstrap && legacyPermissions.isError)
+  )
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
@@ -4212,6 +4227,11 @@ export function LeadWorkspace({
 
   return (
     <div className="mx-auto max-w-[1800px] space-y-6">
+      <RefreshFailedNotice
+        show={workspace.isError}
+        retrying={workspace.isFetching}
+        onRetry={() => void workspace.refetch()}
+      />
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
           <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">

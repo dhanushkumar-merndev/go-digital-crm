@@ -8,12 +8,15 @@ function source(relativePath: string) {
 
 const baseMigration = source('supabase/migrations/202608220014_gm_sales_analytics_workspace.sql');
 const migration = source('supabase/migrations/202608240011_optimize_gm_sales_analytics.sql');
+const customRangeMigration = source(
+  'supabase/migrations/20260929130000_performance_custom_date_ranges.sql',
+);
 const api = source('src/features/dashboards/gm-sales-analytics-api.ts');
 const workspace = source('src/features/dashboards/gm-sales-analytics-workspace.tsx');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
 
 describe('GM sales analytics backend contract', () => {
-  it('allows only bounded time periods and a GM Sales Executive CRM context', () => {
+  it('uses a GM Sales Executive CRM context and enables exact custom ranges', () => {
     expect(migration).toContain(
       'create or replace function public.get_gm_sales_analytics_workspace(',
     );
@@ -22,6 +25,9 @@ describe('GM sales analytics backend contract', () => {
     expect(migration).toContain("access_context->>'role_key' <> 'gm-sales'");
     expect(migration).toContain("message = 'GM_SALES_ACCESS_REQUIRED'");
     expect(migration).toContain("'lead.view'");
+    expect(customRangeMigration).toContain('get_gm_sales_analytics_workspace(integer,text)');
+    expect(customRangeMigration).toContain('target_days < 1 or target_days > 9999');
+    expect(customRangeMigration).toContain('split_part(target_timezone');
   });
 
   it('computes aggregate-only analytics from the caller-authorized scope', () => {
@@ -63,7 +69,7 @@ describe('GM sales analytics web contract', () => {
   it('validates the small RPC response before rendering charts or tables', () => {
     expect(api).toContain('const analyticsSchema = z.object({');
     expect(api).toContain("rpc('get_gm_sales_analytics_workspace'");
-    expect(api).toContain("target_timezone: 'Asia/Kolkata'");
+    expect(api).toContain('performanceRpcTimezone(range)');
     expect(api).toContain('return analyticsSchema.parse(data)');
   });
 
@@ -75,8 +81,10 @@ describe('GM sales analytics web contract', () => {
     expect(workspace).toContain('kind="funnel"');
     expect(workspace).toContain('kind="bar"');
     expect(workspace).not.toMatch(/recharts|chart\.js|apexcharts/i);
-    expect(workspace).toContain("['gm-sales-analytics', ...workspaceQueryScope(session), days]");
-    expect(workspace).not.toContain("['gm-sales-analytics', view, days]");
+    expect(workspace).toContain(
+      "['gm-sales-analytics', ...workspaceQueryScope(session), range.from, range.to]",
+    );
+    expect(workspace).not.toContain("['gm-sales-analytics', view, range.from, range.to]");
   });
 
   it('routes each GM view before the fail-closed unavailable fallback', () => {

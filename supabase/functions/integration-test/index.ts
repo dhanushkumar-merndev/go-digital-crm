@@ -56,7 +56,10 @@ Deno.serve(async (request) => {
     const isOAuthProvider = ['meta', 'google_ads', 'google_business_profile'].includes(
       connection.provider_key,
     );
-    if (!isOAuthProvider && connection.provider_key !== 'telecmi')
+    const isPortalProvider = ['indiamart', 'carwale', 'cardekho', 'justdial'].includes(
+      connection.provider_key,
+    );
+    if (!isOAuthProvider && connection.provider_key !== 'telecmi' && !isPortalProvider)
       return failure(
         'UNSUPPORTED_PROVIDER',
         'This provider does not use this connection test.',
@@ -81,6 +84,53 @@ Deno.serve(async (request) => {
       const credential = await decryptJson<TelecmiCredential>(secret.encrypted_payload);
       await testTelecmiCredential(credential);
       accountLabel = `TeleCMI App ${credential.app_id}`;
+    } else if (connection.provider_key === 'indiamart') {
+      const credential = await decryptJson<{ mobile: string; crm_key: string }>(
+        secret.encrypted_payload,
+      );
+      accountLabel = `IndiaMART (+91 ${credential.mobile})`;
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 6000);
+        const res = await fetch(
+          `https://mapi.indiamart.com/wservce/enquiry/listing/GLUSR_MOBILE/${encodeURIComponent(credential.mobile)}/GLUSR_MOBILE_KEY/${encodeURIComponent(credential.crm_key)}/`,
+          { signal: controller.signal },
+        );
+        clearTimeout(timeout);
+        const json = await res.json().catch(() => null);
+        if (
+          json &&
+          (json.CODE === 401 || json.CODE === 403 || json.MESSAGE?.includes('Key does not match'))
+        ) {
+          throw new Error('INVALID_INDIAMART_CREDENTIALS');
+        }
+      } catch (err: unknown) {
+        if ((err as Error)?.message === 'INVALID_INDIAMART_CREDENTIALS') throw err;
+      }
+    } else if (connection.provider_key === 'carwale') {
+      const credential = await decryptJson<{ dealer_id: string; api_key: string }>(
+        secret.encrypted_payload,
+      );
+      if (!credential.dealer_id || !credential.api_key) {
+        throw new Error('INVALID_CARWALE_CREDENTIALS');
+      }
+      accountLabel = `CarWale Dealer (${credential.dealer_id})`;
+    } else if (connection.provider_key === 'cardekho') {
+      const credential = await decryptJson<{ dealer_id: string; api_key: string }>(
+        secret.encrypted_payload,
+      );
+      if (!credential.dealer_id || !credential.api_key) {
+        throw new Error('INVALID_CARDEKHO_CREDENTIALS');
+      }
+      accountLabel = `CarDekho Dealer (${credential.dealer_id})`;
+    } else if (connection.provider_key === 'justdial') {
+      const credential = await decryptJson<{ vendor_mobile: string; api_key: string }>(
+        secret.encrypted_payload,
+      );
+      if (!credential.vendor_mobile || !credential.api_key) {
+        throw new Error('INVALID_JUSTDIAL_CREDENTIALS');
+      }
+      accountLabel = `Justdial (+91 ${credential.vendor_mobile})`;
     } else {
       const credential = await decryptJson<StoredOAuthCredential>(secret.encrypted_payload);
       const tested = await testOAuthCredential(

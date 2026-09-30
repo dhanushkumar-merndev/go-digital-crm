@@ -27,6 +27,30 @@ verify_jwt = false
 [functions.mobile-link-exchange]
 verify_jwt = false
 
+[functions.provider-webhook-indiamart]
+verify_jwt = false
+
+[functions.provider-webhook-carwale]
+verify_jwt = false
+
+[functions.provider-webhook-cardekho]
+verify_jwt = false
+
+[functions.provider-webhook-justdial]
+verify_jwt = false
+
+[functions.integration-connect-indiamart]
+verify_jwt = true
+
+[functions.integration-connect-carwale]
+verify_jwt = true
+
+[functions.integration-connect-cardekho]
+verify_jwt = true
+
+[functions.integration-connect-justdial]
+verify_jwt = true
+
 # User-initiated functions stay behind gateway JWT verification in addition to
 # their internal user, permission, scope and payload checks.
 [functions.credit-consume]
@@ -57,6 +81,9 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.integration-telecmi-provision-agent]
+verify_jwt = true
+
+[functions.integration-telecmi-agents]
 verify_jwt = true
 
 [functions.integration-assets-list]

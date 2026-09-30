@@ -1,8 +1,10 @@
 import { z } from 'zod';
+import type { PerformanceDateRange } from '@/lib/performance-date-range';
+import { performanceRangeDays, performanceRpcTimezone } from '@/lib/performance-date-range';
 import { createClient } from '@/lib/supabase/client';
 
 const showroomSalesTeamSchema = z.object({
-  days: z.union([z.literal(7), z.literal(30)]),
+  days: z.coerce.number().int().positive().max(9999),
   branch: z.object({ id: z.uuid(), name: z.string() }),
   total: z.coerce.number().int().nonnegative(),
   kpis: z.object({
@@ -42,14 +44,14 @@ const showroomSalesTeamSchema = z.object({
 export type ShowroomSalesTeamResult = z.infer<typeof showroomSalesTeamSchema>;
 
 export async function fetchShowroomSalesTeam(
-  input: { days: 7 | 30; page: number; pageSize: 25 | 50 | 100 },
+  input: { range: PerformanceDateRange; page: number; pageSize: 25 | 50 | 100 },
   signal?: AbortSignal,
 ): Promise<ShowroomSalesTeamResult> {
   const request = createClient().rpc('get_showroom_sales_team_workspace', {
-    target_days: input.days,
+    target_days: performanceRangeDays(input.range),
     target_page: input.page,
     target_page_size: input.pageSize,
-    target_timezone: 'Asia/Kolkata',
+    target_timezone: performanceRpcTimezone(input.range),
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;

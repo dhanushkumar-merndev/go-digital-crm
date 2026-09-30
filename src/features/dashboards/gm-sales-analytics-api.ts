@@ -1,8 +1,10 @@
 import { z } from 'zod';
+import type { PerformanceDateRange } from '@/lib/performance-date-range';
+import { performanceRangeDays, performanceRpcTimezone } from '@/lib/performance-date-range';
 import { createClient } from '@/lib/supabase/client';
 
 const analyticsSchema = z.object({
-  days: z.union([z.literal(7), z.literal(14), z.literal(30)]),
+  days: z.coerce.number().int().positive().max(9999),
   generated_at: z.string(),
   kpis: z.object({
     leads: z.coerce.number().int().nonnegative(),
@@ -49,10 +51,10 @@ const analyticsSchema = z.object({
 
 export type GmSalesAnalytics = z.infer<typeof analyticsSchema>;
 
-export async function fetchGmSalesAnalytics(days: 7 | 14 | 30, signal?: AbortSignal) {
+export async function fetchGmSalesAnalytics(range: PerformanceDateRange, signal?: AbortSignal) {
   const request = createClient().rpc('get_gm_sales_analytics_workspace', {
-    target_days: days,
-    target_timezone: 'Asia/Kolkata',
+    target_days: performanceRangeDays(range),
+    target_timezone: performanceRpcTimezone(range),
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;

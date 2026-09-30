@@ -1,5 +1,5 @@
 type SupabaseErrorLike = {
-  code?: string | null;
+  code?: string | number | null;
   message?: string | null;
   status?: number | null;
 };
@@ -17,7 +17,8 @@ export function isTransientSupabaseError(error: SupabaseErrorLike | null | undef
   if (!error) return false;
   if (typeof error.status === 'number' && transientHttpStatuses.has(error.status)) return true;
 
-  const code = error.code?.toUpperCase() ?? '';
+  // DOMException (including AbortError) exposes a numeric legacy code.
+  const code = typeof error.code === 'string' ? error.code.toUpperCase() : '';
   if (code.startsWith('08')) return true;
   if (transientPostgrestCodes.has(code) || transientDatabaseCodes.has(code)) return true;
 

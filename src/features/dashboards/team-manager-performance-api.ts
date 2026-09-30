@@ -1,8 +1,10 @@
 import { z } from 'zod';
+import type { PerformanceDateRange } from '@/lib/performance-date-range';
+import { performanceRangeDays, performanceRpcTimezone } from '@/lib/performance-date-range';
 import { createClient } from '@/lib/supabase/client';
 
 const teamPerformanceSchema = z.object({
-  days: z.union([z.literal(7), z.literal(14), z.literal(30)]),
+  days: z.coerce.number().int().positive().max(9999),
   generated_at: z.string(),
   team_ids: z.array(z.uuid()),
   kpis: z.object({
@@ -45,12 +47,12 @@ const teamPerformanceSchema = z.object({
 export type TeamManagerPerformance = z.infer<typeof teamPerformanceSchema>;
 
 export async function fetchTeamManagerPerformance(
-  days: 7 | 14 | 30,
+  range: PerformanceDateRange,
   signal?: AbortSignal,
 ): Promise<TeamManagerPerformance> {
   const request = createClient().rpc('get_team_manager_performance', {
-    target_days: days,
-    target_timezone: 'Asia/Kolkata',
+    target_days: performanceRangeDays(range),
+    target_timezone: performanceRpcTimezone(range),
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;

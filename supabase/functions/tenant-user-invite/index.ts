@@ -1,6 +1,11 @@
 import { z } from 'npm:zod@4';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
+import { describeTelecmiFailure, TelecmiError } from '../_shared/telecmi.ts';
+import {
+  provisionTelecmiAgentForUser,
+  TelecmiAgentProvisionError,
+} from '../_shared/telecmi-agents.ts';
 
 const dataScopeSchema = z.enum([
   'OWN_RECORDS',
@@ -39,6 +44,54 @@ function authorizedForMode(context: AccessContext | null, mode: z.infer<typeof s
   if (!context || context.destination !== 'CRM' || context.mfa_satisfied !== true) return false;
   if (mode === 'CLIENT_ADMIN_BOOTSTRAP') return context.role_key === 'business-owner';
   return ['client-admin', 'system-administrator'].includes(context.role_key ?? '');
+}
+
+// Codes that mean "this user simply does not get an agent", as opposed to an
+// attempt that failed and needs the admin's attention.
+const telecmiSkipCodes = new Set([
+  'TELECMI_AGENT_ROLE_NOT_ELIGIBLE',
+  'TELECMI_AGENT_PHONE_MISSING',
+  'TELECMI_LINE_NOT_AVAILABLE',
+]);
+
+/**
+ * Creates the new user's TeleCMI agent when a Client Admin invites a
+ * telecaller or sales consultant with a mobile. It never fails the invitation:
+ * the user already exists, and the Client Admin can retry from the TeleCMI
+ * plan card, so the outcome is reported instead.
+ */
+async function autoProvisionTelecmiAgent(input: {
+  organizationId: string;
+  userId: string;
+  actorId: string;
+  actorRoleKey: string | undefined;
+  requestId: string;
+}) {
+  if (input.actorRoleKey !== 'client-admin')
+    return { status: 'SKIPPED', code: 'CLIENT_ADMIN_REQUIRED' } as const;
+  try {
+    const result = await provisionTelecmiAgentForUser(serviceClient(), {
+      organizationId: input.organizationId,
+      userId: input.userId,
+      actorId: input.actorId,
+      requestId: input.requestId,
+    });
+    return { ...result };
+  } catch (error) {
+    if (error instanceof TelecmiAgentProvisionError)
+      return telecmiSkipCodes.has(error.code)
+        ? ({ status: 'SKIPPED', code: error.code } as const)
+        : ({ status: 'FAILED', code: error.code, message: error.userMessage } as const);
+    if (error instanceof TelecmiError) {
+      const described = describeTelecmiFailure(error);
+      return { status: 'FAILED', code: described.code, message: described.message } as const;
+    }
+    return {
+      status: 'FAILED',
+      code: 'TELECMI_AGENT_REQUEST_FAILED',
+      message: 'The TeleCMI agent could not be created. Retry from the TeleCMI plan card.',
+    } as const;
+  }
 }
 
 function validAppBase(value: string | undefined) {
@@ -134,7 +187,18 @@ Deno.serve(async (request) => {
     });
     if (provisionError) throw provisionError;
     invitedUserId = undefined;
-    return success(result, requestId, 201);
+    const provisioned = result as { user_id?: string; organization_id?: string } | null;
+    const telecmi =
+      provisioned?.organization_id && provisioned.user_id
+        ? await autoProvisionTelecmiAgent({
+            organizationId: provisioned.organization_id,
+            userId: provisioned.user_id,
+            actorId: auth.user.id,
+            actorRoleKey: (context as AccessContext | null)?.role_key,
+            requestId: crypto.randomUUID(),
+          })
+        : ({ status: 'SKIPPED', code: 'TELECMI_LINE_NOT_AVAILABLE' } as const);
+    return success({ ...(result as Record<string, unknown>), telecmi }, requestId, 201);
   } catch {
     if (invitedUserId && actorId) {
       const admin = serviceClient();

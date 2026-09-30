@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { CalendarDays, CarFront, CheckCircle2, Target, TriangleAlert, Trophy } from 'lucide-react';
+import { CarFront, CheckCircle2, Target, TriangleAlert, Trophy } from 'lucide-react';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import {
@@ -9,16 +9,11 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import { PerformanceDateRangeSelector } from '@/components/shared/performance-date-range-selector';
 import { TeamManagerPerformanceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { performanceRangeForLastDays } from '@/lib/performance-date-range';
 import {
   Table,
   TableBody,
@@ -49,10 +44,10 @@ function initials(name: string) {
 export function TeamManagerPerformance({ heading = 'Team Performance' }: { heading?: string }) {
   const session = useWorkspaceSession();
   const queryScope = workspaceQueryScope(session);
-  const [days, setDays] = useState<7 | 14 | 30>(7);
+  const [range, setRange] = useState(() => performanceRangeForLastDays(7));
   const query = useQuery({
-    queryKey: ['team-manager-performance', ...queryScope, days],
-    queryFn: ({ signal }) => fetchTeamManagerPerformance(days, signal),
+    queryKey: ['team-manager-performance', ...queryScope, range.from, range.to],
+    queryFn: ({ signal }) => fetchTeamManagerPerformance(range, signal),
     staleTime: 60_000,
   });
   useTenantRealtimeInvalidation(
@@ -123,20 +118,7 @@ export function TeamManagerPerformance({ heading = 'Team Performance' }: { headi
             Compare your managed consultants using their actual, authorized activity.
           </p>
         </div>
-        <Select
-          value={String(days)}
-          onValueChange={(value) => setDays(Number(value) as 7 | 14 | 30)}
-        >
-          <SelectTrigger className="w-48">
-            <CalendarDays className="size-4" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7">Last 7 days</SelectItem>
-            <SelectItem value="14">Last 14 days</SelectItem>
-            <SelectItem value="30">Last 30 days</SelectItem>
-          </SelectContent>
-        </Select>
+        <PerformanceDateRangeSelector value={range} onChange={setRange} />
       </div>
       <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
       <div className="grid gap-4 xl:grid-cols-[1.05fr_1.35fr]">

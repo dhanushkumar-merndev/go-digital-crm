@@ -1,11 +1,19 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, Search, TriangleAlert } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  IndianRupee,
+  MoreHorizontal,
+  Pencil,
+  Search,
+  TriangleAlert,
+} from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
@@ -13,6 +21,12 @@ import { MarketingWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -33,7 +47,19 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
-import { fetchMarketingWorkspace, type MarketingWorkspaceResult } from './marketing-api';
+import {
+  fetchMarketingWorkspace,
+  type MarketingCampaignRecord,
+  type MarketingPostRecord,
+  type MarketingSourceRecord,
+  type MarketingWorkspaceResult,
+} from './marketing-api';
+import { MarketingAdFieldMapping } from './marketing-ad-field-mapping';
+import {
+  CampaignFormDialog,
+  CampaignSpendDialog,
+  NewCampaignButton,
+} from './marketing-campaign-dialogs';
 import { SocialContentCalendar } from './social-content-calendar';
 import { SocialPostDraftAction } from './social-post-draft-dialog';
 import {
@@ -49,14 +75,7 @@ import {
 
 const workspaceKey = ['marketing-workspace'] as const;
 
-type MarketingTableRow = {
-  id: string;
-  name: string;
-  platform: string;
-  status: string;
-  outcome: string;
-  updatedAt: string;
-};
+type MarketingRecord = MarketingWorkspaceResult['records'][number];
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -65,43 +84,86 @@ function formatDate(value: string) {
     : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
 
-function marketingRows(result: MarketingWorkspaceResult): MarketingTableRow[] {
-  return result.records.map((record) => {
-    if ('source' in record)
-      return {
-        id: record.source,
-        name: marketingLabel(record.source),
-        platform: record.source,
-        status: 'Measured',
-        outcome: `${record.leads} leads · ${record.bookings} bookings`,
-        updatedAt: '',
-      };
-    if ('name' in record)
-      return {
-        id: record.id,
-        name: record.name,
-        platform: `${record.platform} · ${record.canonical_source}`,
-        status: record.status,
-        outcome:
-          record.budget_amount === null
-            ? 'No CRM budget recorded'
-            : `${record.currency_code} ${record.budget_amount}`,
-        updatedAt: record.updated_at,
-      };
-    return {
-      id: record.id,
-      name: record.content || 'Social post',
-      platform: record.platform,
-      status: record.status,
-      outcome: record.published_at
-        ? `Published ${formatDate(record.published_at)}`
-        : 'Not published',
-      updatedAt: record.updated_at,
-    };
-  });
+/** Money is shown only when it was recorded; a missing figure reads "—", never ₹0. */
+function formatMoney(value: number | null | undefined, currency = 'INR') {
+  if (value === null || value === undefined) return '—';
+  if (!/^[A-Z]{3}$/.test(currency))
+    return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: value < 100 ? 2 : 0,
+  }).format(value);
+}
+
+function formatPercent(value: number | null | undefined) {
+  return value === null || value === undefined ? '—' : `${value}%`;
+}
+
+function isSource(record: MarketingRecord): record is MarketingSourceRecord {
+  return 'source' in record;
+}
+
+function recordId(record: MarketingRecord) {
+  return isSource(record) ? record.source : record.id;
+}
+
+type SpendKpis = {
+  ad_spend: number | null;
+  cost_per_lead: number | null;
+  cost_per_booking: number | null;
+  click_through_percent: number | null;
+  spend_currency: string;
+};
+
+function spendMetrics(kpis: SpendKpis, noSpendHelper: string) {
+  const recorded = kpis.ad_spend !== null;
+  return [
+    {
+      label: 'Ad spend',
+      value: formatMoney(kpis.ad_spend, kpis.spend_currency),
+      helper: recorded ? 'Recorded campaign spend' : noSpendHelper,
+    },
+    {
+      label: 'Cost per lead',
+      value: formatMoney(kpis.cost_per_lead, kpis.spend_currency),
+      helper: recorded ? 'Spend / campaign leads' : noSpendHelper,
+    },
+    {
+      label: 'Cost per booking',
+      value: formatMoney(kpis.cost_per_booking, kpis.spend_currency),
+      helper: recorded ? 'Spend / campaign bookings' : noSpendHelper,
+    },
+    {
+      label: 'Click-through rate',
+      value: formatPercent(kpis.click_through_percent),
+      helper: 'Clicks / impressions',
+    },
+  ];
 }
 
 function workspaceMetrics(result: MarketingWorkspaceResult) {
+  if (result.campaign_kpis) {
+    const kpis = result.campaign_kpis;
+    return [
+      {
+        label: 'Active campaigns',
+        value: String(kpis.active_campaigns),
+        helper: 'CRM campaign records',
+      },
+      {
+        label: 'Campaign leads',
+        value: String(kpis.campaign_leads),
+        helper: 'Matched by campaign',
+      },
+      {
+        label: 'Campaign bookings',
+        value: String(kpis.campaign_bookings),
+        helper: 'From those leads',
+      },
+      ...spendMetrics(kpis, 'Record spend on a campaign'),
+    ];
+  }
   if (!result.kpis) return [];
   const kpis = result.kpis;
   return [
@@ -109,6 +171,7 @@ function workspaceMetrics(result: MarketingWorkspaceResult) {
     { label: 'Qualified leads', value: String(kpis.qualified_leads), helper: 'Lead lifecycle' },
     { label: 'Bookings', value: String(kpis.bookings), helper: 'Attributed source leads' },
     { label: 'Conversion', value: `${kpis.conversion_percent}%`, helper: 'Booking / lead' },
+    ...spendMetrics(kpis, 'Record spend under Campaigns'),
     {
       label: 'Active campaigns',
       value: String(kpis.active_campaigns),
@@ -127,48 +190,224 @@ function workspaceMetrics(result: MarketingWorkspaceResult) {
   ];
 }
 
+type CampaignAction = { kind: 'edit' | 'spend'; campaign: MarketingCampaignRecord };
+
+function sourceColumns(): ColumnDef<MarketingRecord>[] {
+  const source = (record: MarketingRecord) => record as MarketingSourceRecord;
+  return [
+    {
+      id: 'source',
+      header: 'Source',
+      cell: ({ row }) => <span className="font-medium">{source(row.original).source}</span>,
+    },
+    { id: 'leads', header: 'Leads', cell: ({ row }) => source(row.original).leads },
+    { id: 'qualified', header: 'Qualified', cell: ({ row }) => source(row.original).qualified },
+    {
+      id: 'test_drives',
+      header: 'Test drives',
+      cell: ({ row }) => source(row.original).test_drives,
+    },
+    { id: 'quotations', header: 'Quotations', cell: ({ row }) => source(row.original).quotations },
+    { id: 'bookings', header: 'Bookings', cell: ({ row }) => source(row.original).bookings },
+    {
+      id: 'conversion',
+      header: 'Conversion',
+      cell: ({ row }) => `${source(row.original).conversion}%`,
+    },
+    { id: 'spend', header: 'Spend', cell: ({ row }) => formatMoney(source(row.original).spend) },
+    {
+      id: 'cpl',
+      header: 'Cost / lead',
+      cell: ({ row }) => formatMoney(source(row.original).cost_per_lead),
+    },
+  ];
+}
+
+function campaignColumns(
+  canManage: boolean,
+  onAction: (action: CampaignAction) => void,
+): ColumnDef<MarketingRecord>[] {
+  const campaign = (record: MarketingRecord) => record as MarketingCampaignRecord;
+  const columns: ColumnDef<MarketingRecord>[] = [
+    {
+      id: 'name',
+      header: 'Campaign',
+      cell: ({ row }) => (
+        <span className="block max-w-64 truncate font-medium">{campaign(row.original).name}</span>
+      ),
+    },
+    {
+      id: 'platform',
+      header: 'Platform',
+      cell: ({ row }) =>
+        `${marketingLabel(campaign(row.original).platform)} · ${campaign(row.original).canonical_source}`,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      cell: ({ row }) => <StatusBadge value={campaign(row.original).status} />,
+    },
+    {
+      id: 'budget',
+      header: 'Budget',
+      cell: ({ row }) =>
+        formatMoney(campaign(row.original).budget_amount, campaign(row.original).currency_code),
+    },
+    {
+      id: 'spend',
+      header: 'Spend',
+      cell: ({ row }) => {
+        const record = campaign(row.original);
+        return (
+          <span>
+            {formatMoney(record.spend, record.currency_code)}
+            {record.budget_used_percent !== null ? (
+              <span className="ml-1 text-xs text-muted-foreground">
+                ({record.budget_used_percent}%)
+              </span>
+            ) : null}
+          </span>
+        );
+      },
+    },
+    { id: 'leads', header: 'Leads', cell: ({ row }) => campaign(row.original).leads },
+    {
+      id: 'cpl',
+      header: 'Cost / lead',
+      cell: ({ row }) =>
+        formatMoney(campaign(row.original).cost_per_lead, campaign(row.original).currency_code),
+    },
+    { id: 'bookings', header: 'Bookings', cell: ({ row }) => campaign(row.original).bookings },
+    {
+      id: 'cpb',
+      header: 'Cost / booking',
+      cell: ({ row }) =>
+        formatMoney(campaign(row.original).cost_per_booking, campaign(row.original).currency_code),
+    },
+    {
+      id: 'ctr',
+      header: 'CTR',
+      cell: ({ row }) => formatPercent(campaign(row.original).click_through_percent),
+    },
+    {
+      id: 'spend_source',
+      header: 'Spend data',
+      cell: ({ row }) => {
+        const record = campaign(row.original);
+        if (!record.spend_source) return <span className="text-muted-foreground">None yet</span>;
+        return (
+          <span className="text-xs">
+            {record.spend_source === 'PROVIDER_SYNC' ? 'Ads account sync' : 'Entered manually'}
+            {record.last_metric_date ? ` · to ${record.last_metric_date}` : ''}
+          </span>
+        );
+      },
+    },
+  ];
+  if (canManage)
+    columns.push({
+      id: 'actions',
+      header: '',
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              aria-label={`Actions for ${campaign(row.original).name}`}
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onSelect={() => onAction({ kind: 'spend', campaign: campaign(row.original) })}
+            >
+              <IndianRupee className="size-4" /> Record spend
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => onAction({ kind: 'edit', campaign: campaign(row.original) })}
+            >
+              <Pencil className="size-4" /> Edit campaign
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    });
+  return columns;
+}
+
+function postColumns(): ColumnDef<MarketingRecord>[] {
+  const post = (record: MarketingRecord) => record as MarketingPostRecord;
+  return [
+    {
+      id: 'content',
+      header: 'Post',
+      cell: ({ row }) => (
+        <span className="block max-w-96 truncate font-medium">
+          {post(row.original).content || 'Social post'}
+        </span>
+      ),
+    },
+    {
+      id: 'platform',
+      header: 'Platform',
+      cell: ({ row }) => marketingLabel(post(row.original).platform),
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      cell: ({ row }) => <StatusBadge value={post(row.original).status} />,
+    },
+    {
+      id: 'outcome',
+      header: 'Outcome',
+      cell: ({ row }) => {
+        const record = post(row.original);
+        return record.published_at
+          ? `Published ${formatDate(record.published_at)}`
+          : 'Not published';
+      },
+    },
+    {
+      id: 'updated',
+      header: 'Updated',
+      cell: ({ row }) => formatDate(post(row.original).updated_at),
+    },
+  ];
+}
+
 function MarketingTable({
   result,
   query,
   fetching,
   onQueryChange,
+  onCampaignAction,
 }: {
   result: MarketingWorkspaceResult;
   query: MarketingQuery;
   fetching: boolean;
   onQueryChange: (next: Partial<MarketingQuery>) => void;
+  onCampaignAction: (action: CampaignAction) => void;
 }) {
-  const rows = useMemo(() => marketingRows(result), [result]);
-  const columns = useMemo<ColumnDef<MarketingTableRow>[]>(
-    () => [
-      {
-        accessorKey: 'name',
-        header: 'Record',
-        cell: ({ getValue }) => <span className="font-medium">{String(getValue())}</span>,
-      },
-      { accessorKey: 'platform', header: 'Source / platform' },
-      {
-        accessorKey: 'status',
-        header: 'Status',
-        cell: ({ getValue }) => <StatusBadge value={String(getValue())} />,
-      },
-      { accessorKey: 'outcome', header: 'Outcome' },
-      {
-        accessorKey: 'updatedAt',
-        header: 'Updated',
-        cell: ({ getValue }) => {
-          const value = String(getValue());
-          return value ? formatDate(value) : 'Current aggregate';
-        },
-      },
-    ],
-    [],
+  const rows = result.records;
+  // Keyed on the view only, so a refetch does not remount cells and close row menus.
+  const columns = useMemo(
+    () =>
+      result.view === 'CAMPAIGNS'
+        ? campaignColumns(result.can_manage, onCampaignAction)
+        : result.view === 'SOURCES'
+          ? sourceColumns()
+          : postColumns(),
+    [result.view, result.can_manage, onCampaignAction],
   );
   // TanStack Table exposes an imperative row model; React Compiler intentionally skips it.
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: rows,
     columns,
+    getRowId: recordId,
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
     rowCount: result.total,
@@ -329,6 +568,7 @@ export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: strin
     },
     [initialView, pathname, routeQuery],
   );
+  const [campaignAction, setCampaignAction] = useState<CampaignAction | null>(null);
 
   if (workspace.isPending) return <MarketingWorkspaceSkeleton />;
   if (workspace.isError || !workspace.data)
@@ -353,6 +593,18 @@ export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: strin
     <div className="mx-auto max-w-[1600px] space-y-6">
       <PageHeader spec={{ ...spec, primaryAction: undefined }} />
       {metrics.length > 0 && <KpiGrid metrics={metrics} />}
+      {slug === 'lead-sources' ? <MarketingAdFieldMapping /> : null}
+      {data.view === 'CAMPAIGNS' && data.campaign_chart && data.campaign_chart.length > 0 ? (
+        <Card className="shadow-none">
+          <CardHeader>
+            <CardTitle className="text-base">Cost per lead by campaign</CardTitle>
+            <CardDescription>Campaigns with recorded spend, highest spend first</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <EChart kind="bar" data={data.campaign_chart} seriesNames={['Cost per lead', '']} />
+          </CardContent>
+        </Card>
+      ) : null}
       {data.source_chart && data.funnel_chart && (
         <div className="grid gap-6 xl:grid-cols-12">
           <Card className="shadow-none xl:col-span-7">
@@ -387,6 +639,11 @@ export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: strin
           ))}
         </TabsList>
       </Tabs>
+      {routeQuery.view === 'CAMPAIGNS' && data.can_manage ? (
+        <div className="flex justify-end">
+          <NewCampaignButton />
+        </div>
+      ) : null}
       {routeQuery.view === 'SOCIAL_POSTS' ? (
         <>
           <div className="flex justify-end">
@@ -400,6 +657,17 @@ export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: strin
         query={routeQuery}
         fetching={workspace.isFetching}
         onQueryChange={replaceQuery}
+        onCampaignAction={setCampaignAction}
+      />
+      <CampaignFormDialog
+        campaign={campaignAction?.kind === 'edit' ? campaignAction.campaign : null}
+        open={campaignAction?.kind === 'edit'}
+        onOpenChange={(open) => (open ? undefined : setCampaignAction(null))}
+      />
+      <CampaignSpendDialog
+        campaign={campaignAction?.kind === 'spend' ? campaignAction.campaign : null}
+        open={campaignAction?.kind === 'spend'}
+        onOpenChange={(open) => (open ? undefined : setCampaignAction(null))}
       />
     </div>
   );

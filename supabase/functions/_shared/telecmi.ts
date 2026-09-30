@@ -14,6 +14,7 @@ export type TelecmiFailureCode =
   | 'TELECMI_IP_NOT_ALLOWED'
   | 'TELECMI_INSUFFICIENT_BALANCE'
   | 'TELECMI_EXTENSION_TAKEN'
+  | 'TELECMI_USER_LIMIT_REACHED'
   | 'TELECMI_REQUEST_REJECTED';
 
 // TeleCMI answers every documented endpoint with HTTP 200 and an in-body `code`,
@@ -55,6 +56,7 @@ function classifyTelecmiFailure(
   if (/balance|insufficient|credit/.test(normalized)) return 'TELECMI_INSUFFICIENT_BALANCE';
   if (/extension .*(exist|taken|use)|already exist/.test(normalized))
     return 'TELECMI_EXTENSION_TAKEN';
+  if (/user limit/.test(normalized)) return 'TELECMI_USER_LIMIT_REACHED';
   if (httpStatus === 401 || httpStatus === 403 || providerCode === 401 || providerCode === 403)
     return 'TELECMI_AUTH_REJECTED';
   return 'TELECMI_REQUEST_REJECTED';
@@ -213,8 +215,10 @@ export function constantTimeEqual(left: string, right: string) {
 
 export function normalizeTelecmiExtension(value: string | number) {
   const digits = String(value).trim();
-  // TeleCMI issues extensions between 3 and 6 digits and derives the agent id from them.
-  if (!/^\d{3,6}$/.test(digits)) throw new Error('TELECMI_EXTENSION_INVALID');
+  // TeleCMI's /v2/user/add rejects any extension above 999 ("must be less than
+  // or equal to 999"), so the API path is limited to three digits even though
+  // agents made in the TeleCMI dashboard can carry longer ones.
+  if (!/^[1-9]\d{2}$/.test(digits)) throw new Error('TELECMI_EXTENSION_INVALID');
   return Number(digits);
 }
 
@@ -227,7 +231,11 @@ export async function addTelecmiUser(input: {
 }) {
   const extension = normalizeTelecmiExtension(input.extension);
   const phone = normalizeTelecmiPhone(input.phone);
-  const result = await telecmiJson<{ agent_id?: string; msg?: string }>('/v2/user/add', {
+  const result = await telecmiJson<{
+    agent_id?: string;
+    agent?: { agent_id?: string };
+    msg?: string;
+  }>('/v2/user/add', {
     appid: input.credential.app_id,
     secret: input.credential.app_secret,
     extension,
@@ -237,7 +245,11 @@ export async function addTelecmiUser(input: {
   });
   // TeleCMI composes the agent id as `extension_appid`; deriving it locally when
   // the response omits it keeps the saved mapping usable either way.
-  const agentId = result.agent_id?.trim() || `${extension}_${input.credential.app_id}`;
+  // The live API nests the id under `agent`; older responses put it at the top.
+  const agentId =
+    result.agent?.agent_id?.trim() ||
+    result.agent_id?.trim() ||
+    `${extension}_${input.credential.app_id}`;
   return { userId: normalizeTelecmiUserId(agentId), extension, phone };
 }
 
@@ -288,6 +300,13 @@ export function describeTelecmiFailure(error: unknown): {
         message: 'That extension is already in use in TeleCMI. Choose a different extension.',
         status: 409,
       };
+    case 'TELECMI_USER_LIMIT_REACHED':
+      return {
+        code: error.code,
+        message:
+          'Your TeleCMI plan has no free agent seats. Remove an agent in TeleCMI or upgrade the plan, then try again.',
+        status: 409,
+      };
     default:
       return {
         code: error.code,
@@ -297,4 +316,82 @@ export function describeTelecmiFailure(error: unknown): {
         status: 502,
       };
   }
+}
+
+export type TelecmiAgent = {
+  agentId: string;
+  name: string | null;
+  extension: number | null;
+  phone: string | null;
+};
+
+function optionalText(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function optionalNumber(value: unknown) {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+// /v2/user/list pages at most 10 agents and reports the total as `count`, so
+// the whole list is walked page by page. The page cap only stops a provider
+// that keeps reporting a larger count from looping forever.
+export async function listTelecmiAgents(
+  credential: Pick<TelecmiCredential, 'app_id' | 'app_secret'>,
+): Promise<TelecmiAgent[]> {
+  const agents: TelecmiAgent[] = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const result = await telecmiJson<{ count?: number; agents?: Array<Record<string, unknown>> }>(
+      '/v2/user/list',
+      { appid: credential.app_id, secret: credential.app_secret, page, limit: 10 },
+    );
+    const rows = Array.isArray(result.agents) ? result.agents : [];
+    for (const row of rows) {
+      const agentId = optionalText(row.agent_id);
+      if (!agentId) continue;
+      agents.push({
+        agentId,
+        name: optionalText(row.name),
+        extension: optionalNumber(row.extension),
+        phone: optionalText(typeof row.phone === 'number' ? String(row.phone) : row.phone),
+      });
+    }
+    const total = optionalNumber(result.count) ?? agents.length;
+    if (rows.length < 10 || agents.length >= total) break;
+  }
+  return agents;
+}
+
+// /v2/balance is the only account-level data TeleCMI exposes: call balance, SMS
+// balance and plan expiry. It does not report the plan's agent seat count.
+export async function getTelecmiAccountBalance(
+  credential: Pick<TelecmiCredential, 'app_id' | 'app_secret'>,
+) {
+  const result = await telecmiJson<{ balance?: unknown; sms?: unknown; expire?: unknown }>(
+    '/v2/balance',
+    { appid: credential.app_id, secret: credential.app_secret },
+  );
+  const expire = optionalNumber(result.expire);
+  return {
+    balance: optionalNumber(result.balance),
+    smsBalance: optionalNumber(result.sms),
+    // Documented as a timestamp without a unit; the live API returns
+    // milliseconds, but seconds are accepted too.
+    expiresAt:
+      expire && expire > 0
+        ? new Date(expire > 1_000_000_000_000 ? expire : expire * 1000).toISOString()
+        : null,
+  };
+}
+
+export async function removeTelecmiUser(input: {
+  credential: Pick<TelecmiCredential, 'app_id' | 'app_secret'>;
+  userId: string;
+}) {
+  await telecmiJson('/v2/user/remove', {
+    appid: input.credential.app_id,
+    secret: input.credential.app_secret,
+    id: normalizeTelecmiUserId(input.userId),
+  });
 }

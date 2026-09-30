@@ -18,7 +18,7 @@ const schema = z
     extension: z
       .string()
       .trim()
-      .regex(/^\d{3,6}$/),
+      .regex(/^[1-9]\d{2}$/),
     name: z.string().trim().min(2).max(80),
     phone: z.string().trim().min(8).max(20),
     // The Client Admin chooses the agent's softphone password so the CRM never
@@ -49,7 +49,7 @@ const schema = z
 const localFailures: Record<string, { code: string; message: string; status: number }> = {
   TELECMI_EXTENSION_INVALID: {
     code: 'TELECMI_EXTENSION_INVALID',
-    message: 'The extension must be 3 to 6 digits.',
+    message: 'The extension must be a 3-digit number from 100 to 999.',
     status: 422,
   },
   PHONE_NOT_INTERNATIONAL: {

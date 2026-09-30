@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { idempotencyKeys, tasks } from '@trigger.dev/sdk';
 import { normalizeGoogleLead } from '../src/lib/providers/google-lead-form-adapter';
+import type { LeadFieldMappingRule } from '../src/lib/providers/lead-field-mapping';
 import { normalizeMetaLead } from '../src/lib/providers/meta-lead-adapter';
 import {
   InvalidProviderReceiptError,
@@ -55,21 +56,14 @@ type TelecmiCallReceipt = {
   recordingFile: string | null;
 };
 
-type TelecmiCall = {
-  id: string;
-  organization_id: string;
+type AppliedTelecmiCall = {
+  call_id: string;
   branch_id: string;
   lead_id: string | null;
-  connection_id: string;
-  provider_request_id: string | null;
-  provider_call_id: string | null;
   status: string;
   outcome: string | null;
-  duration_seconds: number | null;
-  answered_at: string | null;
-  ended_at: string | null;
-  finalized_at: string | null;
-  version: number;
+  connected: boolean;
+  changed: boolean;
 };
 
 type TelecmiRecording = {
@@ -291,6 +285,21 @@ async function connectionScopeMapping(supabase: SupabaseClient, event: ProviderE
   return data as { branch_id: string; team_id: string | null } | null;
 }
 
+/** The ad-column rules saved for this connection by a marketing or integration manager. */
+async function leadFieldMappings(
+  supabase: SupabaseClient,
+  event: ProviderEvent,
+): Promise<LeadFieldMappingRule[]> {
+  const { data, error } = await supabase
+    .from('integration_field_mappings')
+    .select('external_field,canonical_field')
+    .eq('organization_id', event.organization_id)
+    .eq('connected_account_id', event.connected_account_id)
+    .limit(100);
+  if (error) throw error;
+  return (data ?? []) as LeadFieldMappingRule[];
+}
+
 async function ingestLead(
   supabase: SupabaseClient,
   event: ProviderEvent,
@@ -366,11 +375,13 @@ async function dispatchMetaLead(
   }
   if (!response.ok) throw providerHttpFailure('META', response);
   const providerPayload = await readBoundedJson(response, 512_000);
+  const fieldMappings = await leadFieldMappings(supabase, event);
   let normalized: ReturnType<typeof normalizeMetaLead>;
   try {
     normalized = normalizeMetaLead(providerPayload, {
       externalLeadId: receipt.leadId,
       sourceDetail: 'Meta Lead Ads',
+      fieldMappings,
     });
   } catch {
     throw new ProviderDispatchError('META_LEAD_MINIMUM_FIELDS_MISSING', true);
@@ -453,9 +464,10 @@ async function dispatchGoogleLead(
       status: 'UNMAPPED',
       safeErrorCode: 'GOOGLE_FORM_OR_CAMPAIGN_NOT_MAPPED',
     };
+  const fieldMappings = await leadFieldMappings(supabase, event);
   let normalized: ReturnType<typeof normalizeGoogleLead>;
   try {
-    normalized = normalizeGoogleLead(envelope);
+    normalized = normalizeGoogleLead(envelope, fieldMappings);
   } catch {
     throw new ProviderDispatchError('GOOGLE_LEAD_MINIMUM_FIELDS_MISSING', true);
   }
@@ -633,169 +645,34 @@ function readTelecmiCallReceipt(payload: unknown): TelecmiCallReceipt {
   };
 }
 
-const telecmiCallProjection = [
-  'id',
-  'organization_id',
-  'branch_id',
-  'lead_id',
-  'connection_id',
-  'provider_request_id',
-  'provider_call_id',
-  'status',
-  'outcome',
-  'duration_seconds',
-  'answered_at',
-  'ended_at',
-  'finalized_at',
-  'version',
-].join(',');
-
-async function telecmiCallByIdentity(
-  supabase: SupabaseClient,
-  event: ProviderEvent,
-  column: 'id' | 'provider_request_id' | 'provider_call_id',
-  value: string,
-) {
-  const { data, error } = await supabase
-    .from('calls')
-    .select(telecmiCallProjection)
-    .eq('organization_id', event.organization_id)
-    .eq('connection_id', event.connected_account_id)
-    .eq('call_source', 'PROVIDER')
-    .eq(column, value)
-    .limit(2);
-  if (error) throw error;
-  if ((data ?? []).length > 1)
-    throw new ProviderDispatchError('TELECMI_CALL_IDENTITY_AMBIGUOUS', true);
-  return ((data ?? [])[0] as unknown as TelecmiCall | undefined) ?? null;
+// Recording ingestion is the only work left here for a TeleCMI receipt. The
+// call itself is moved by apply_telecmi_call_event, which the webhook already
+// ran the moment the event arrived; replaying it is a no-op.
+function telecmiRecordingEligible(receipt: TelecmiCallReceipt, call: AppliedTelecmiCall) {
+  // Click-to-call leg A is the dealership employee. Only the customer leg's
+  // record carries the conversation recording.
+  if (receipt.eventType !== 'CDR') return false;
+  if (receipt.leg !== 'b') return false;
+  return call.connected && receipt.recorded;
 }
 
-async function resolveTelecmiCall(
-  supabase: SupabaseClient,
-  event: ProviderEvent,
-  receipt: TelecmiCallReceipt,
-) {
-  const candidates = await Promise.all([
-    receipt.crmCallId
-      ? telecmiCallByIdentity(supabase, event, 'id', receipt.crmCallId)
-      : Promise.resolve(null),
-    receipt.providerRequestId
-      ? telecmiCallByIdentity(supabase, event, 'provider_request_id', receipt.providerRequestId)
-      : Promise.resolve(null),
-    receipt.providerCallId
-      ? telecmiCallByIdentity(supabase, event, 'provider_call_id', receipt.providerCallId)
-      : Promise.resolve(null),
-  ]);
-  const matched = candidates.filter((candidate): candidate is TelecmiCall => Boolean(candidate));
-  if (new Set(matched.map((candidate) => candidate.id)).size > 1)
-    throw new ProviderDispatchError('TELECMI_CALL_IDENTITY_CONFLICT', true);
-  return matched[0] ?? null;
-}
-
-async function reloadTelecmiCall(supabase: SupabaseClient, event: ProviderEvent, callId: string) {
-  return telecmiCallByIdentity(supabase, event, 'id', callId);
-}
-
-function telecmiCompletion(receipt: TelecmiCallReceipt) {
-  if (receipt.eventType !== 'CDR') return null;
-  // Click-to-call leg A is the dealership employee. Only leg B proves the
-  // customer was reached; otherwise an answered employee leg followed by a
-  // missed customer leg would be recorded as connected.
-  if (receipt.leg !== 'b') return null;
-  const connected = receipt.status === 'ANSWERED' || (receipt.durationSeconds ?? 0) > 0;
-  const noAnswer = new Set([
-    'MISSED',
-    'NO_ANSWER',
-    'NO-ANSWER',
-    'UNANSWERED',
-    'BUSY',
-    'REJECTED',
-  ]).has(receipt.status);
-  return {
-    connected,
-    status: connected ? 'COMPLETED' : 'FAILED',
-    outcome: connected ? 'CONNECTED' : noAnswer ? 'NO_ANSWER' : 'OTHER',
-  } as const;
-}
-
-function nextLiveTelecmiStatus(currentStatus: string, receipt: TelecmiCallReceipt) {
-  if (receipt.eventType === 'CDR') return currentStatus;
-  if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(currentStatus)) return currentStatus;
-  if (receipt.status === 'ANSWERED') return 'IN_PROGRESS';
-  if (['RINGING', 'WAITING', 'BRIDGING'].includes(receipt.status))
-    return currentStatus === 'IN_PROGRESS' ? currentStatus : 'RINGING';
-  return currentStatus;
-}
-
-function telecmiCallChanges(call: TelecmiCall, receipt: TelecmiCallReceipt, at: string) {
-  const changes: Record<string, unknown> = {};
-  if (!call.provider_request_id && receipt.providerRequestId)
-    changes.provider_request_id = receipt.providerRequestId;
-  if (!call.provider_call_id && receipt.providerCallId)
-    changes.provider_call_id = receipt.providerCallId;
-
-  const completion = telecmiCompletion(receipt);
-  let nextStatus = nextLiveTelecmiStatus(call.status.toUpperCase(), receipt);
-  let nextOutcome = call.outcome;
-  if (completion) {
-    if (completion.connected && call.status.toUpperCase() !== 'CANCELLED') {
-      nextStatus = 'COMPLETED';
-      nextOutcome = 'CONNECTED';
-    } else if (!['COMPLETED', 'CANCELLED'].includes(call.status.toUpperCase())) {
-      nextStatus = 'FAILED';
-      if (call.outcome?.toUpperCase() !== 'CONNECTED') {
-        nextOutcome =
-          completion.outcome === 'NO_ANSWER' || !call.outcome ? completion.outcome : call.outcome;
-      }
-    }
+async function applyTelecmiCallReceipt(supabase: SupabaseClient, event: ProviderEvent) {
+  const { data, error } = await supabase.rpc('apply_telecmi_call_event', {
+    target_organization_id: event.organization_id,
+    target_connection_id: event.connected_account_id,
+    target_provider_event_id: event.id,
+    target_received_at: event.received_at,
+    target_receipt: event.payload,
+  });
+  if (error) {
+    if (error.code === '22023' && error.message)
+      throw new ProviderDispatchError(
+        /^TELECMI_[A-Z_]+$/.test(error.message) ? error.message : 'TELECMI_RECEIPT_INVALID',
+        true,
+      );
+    throw error;
   }
-  if (nextStatus !== call.status) changes.status = nextStatus;
-  if (nextOutcome !== call.outcome) changes.outcome = nextOutcome;
-  // Stamped once, the first time the customer leg answers. The live call bar
-  // counts the conversation from here rather than from the dial.
-  //
-  // `at` is when the webhook reached us, not when we processed it. TeleCMI
-  // sends no timestamp of its own, and the dispatcher runs on a one-minute
-  // cron, so stamping the processing time put answered_at up to a minute late
-  // -- and arbitrarily late when draining a backlog.
-  if (nextStatus === 'IN_PROGRESS' && !call.answered_at) changes.answered_at = at;
-  if (receipt.durationSeconds !== null && receipt.durationSeconds > (call.duration_seconds ?? -1))
-    changes.duration_seconds = receipt.durationSeconds;
-  if (completion && !call.ended_at) changes.ended_at = at;
-  if (completion && !call.finalized_at) changes.finalized_at = at;
-  return changes;
-}
-
-async function applyTelecmiCallReceipt(
-  supabase: SupabaseClient,
-  event: ProviderEvent,
-  initialCall: TelecmiCall,
-  receipt: TelecmiCallReceipt,
-) {
-  let call = initialCall;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const changes = telecmiCallChanges(call, receipt, event.received_at);
-    if (Object.keys(changes).length === 0) return call;
-    const { data, error } = await supabase
-      .from('calls')
-      .update({ ...changes, version: call.version + 1, updated_at: new Date().toISOString() })
-      .eq('id', call.id)
-      .eq('organization_id', event.organization_id)
-      .eq('connection_id', event.connected_account_id)
-      .eq('version', call.version)
-      .select(telecmiCallProjection)
-      .maybeSingle();
-    if (error) {
-      if (error.code === '23505')
-        throw new ProviderDispatchError('TELECMI_CALL_IDENTITY_CONFLICT', true);
-      throw error;
-    }
-    if (data) return data as unknown as TelecmiCall;
-    const current = await reloadTelecmiCall(supabase, event, call.id);
-    if (!current) throw new ProviderDispatchError('TELECMI_CALL_NOT_FOUND', true);
-    call = current;
-  }
-  throw new ProviderDispatchError('TELECMI_CALL_UPDATE_CONTENTION', false, 5);
+  return (data as AppliedTelecmiCall | null) ?? null;
 }
 
 function telecmiRecordingMimeType(fileName: string) {
@@ -810,11 +687,10 @@ function telecmiRecordingMimeType(fileName: string) {
 async function telecmiRecording(
   supabase: SupabaseClient,
   event: ProviderEvent,
-  call: TelecmiCall,
+  call: AppliedTelecmiCall,
   receipt: TelecmiCallReceipt,
 ) {
-  const completion = telecmiCompletion(receipt);
-  if (!completion?.connected || !receipt.recorded) return null;
+  if (!telecmiRecordingEligible(receipt, call)) return null;
   if (!receipt.recordingFile)
     throw new ProviderDispatchError('TELECMI_RECORDING_FILE_MISSING', true);
   const mimeType = telecmiRecordingMimeType(receipt.recordingFile);
@@ -822,7 +698,7 @@ async function telecmiRecording(
     .from('call_recordings')
     .select('id,status')
     .eq('organization_id', event.organization_id)
-    .eq('call_id', call.id)
+    .eq('call_id', call.call_id)
     .eq('provider_recording_id', receipt.recordingFile)
     .maybeSingle();
   if (recordingError) throw recordingError;
@@ -832,7 +708,7 @@ async function telecmiRecording(
       .from('call_recordings')
       .insert({
         organization_id: event.organization_id,
-        call_id: call.id,
+        call_id: call.call_id,
         provider_recording_id: receipt.recordingFile,
         source: 'PROVIDER_SYNC',
         status: 'PENDING',
@@ -846,7 +722,7 @@ async function telecmiRecording(
         .from('call_recordings')
         .select('id,status')
         .eq('organization_id', event.organization_id)
-        .eq('call_id', call.id)
+        .eq('call_id', call.call_id)
         .eq('provider_recording_id', receipt.recordingFile)
         .single();
       recording = existing.data;
@@ -868,7 +744,7 @@ async function telecmiRecording(
       {
         organizationId: event.organization_id,
         branchId: call.branch_id,
-        callId: call.id,
+        callId: call.call_id,
         recordingId: storedRecording.id,
         providerRecordingFile: receipt.recordingFile,
         mimeType,
@@ -889,25 +765,14 @@ async function dispatchTelecmiCall(
   const connection = await activeConnection(supabase, event);
   if (connection.provider_key !== 'telecmi')
     throw new ProviderDispatchError('PROVIDER_EVENT_CONNECTION_MISMATCH', true);
-  const initialCall = await resolveTelecmiCall(supabase, event, receipt);
-  if (!initialCall) return { status: 'UNMAPPED', safeErrorCode: 'TELECMI_CALL_NOT_MAPPED' };
-  const call = await applyTelecmiCallReceipt(supabase, event, initialCall, receipt);
-  const completion = telecmiCompletion(receipt);
-  if (completion?.connected && call.lead_id) {
-    const { error } = await supabase.rpc('record_telecmi_connected_call', {
-      target_organization_id: event.organization_id,
-      target_connection_id: event.connected_account_id,
-      target_call_id: call.id,
-      target_provider_event_id: event.id,
-    });
-    if (error) throw error;
-  }
+  const call = await applyTelecmiCallReceipt(supabase, event);
+  if (!call) return { status: 'UNMAPPED', safeErrorCode: 'TELECMI_CALL_NOT_MAPPED' };
   const recording = await telecmiRecording(supabase, event, call, receipt);
   return {
     status: 'PROCESSED',
     payloadPatch: {
-      call_id: call.id,
-      connected: completion?.connected ?? false,
+      call_id: call.call_id,
+      connected: call.connected,
       recording_id: recording?.id ?? null,
       duplicate_recording: recording?.duplicate ?? false,
     },
