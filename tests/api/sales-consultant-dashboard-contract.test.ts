@@ -70,8 +70,7 @@ describe('sales consultant dashboard contract', () => {
     expect(dashboardHandler).toContain('.max(5)');
     expect(dashboardHandler).toContain(".from('object_files')");
     expect(dashboardHandler).toContain('tigrisClient()');
-    expect(config).toContain('[functions.sales-consultant-dashboard]');
-    expect(config).toContain('verify_jwt = false');
+    expect(config).toContain('[functions.sales-consultant-dashboard]\nverify_jwt = true');
     expect(dashboardHandler).toContain('client.auth.getClaims(accessToken)');
     expect(dashboardHandler).toContain("failure('UNAUTHENTICATED'");
   });
