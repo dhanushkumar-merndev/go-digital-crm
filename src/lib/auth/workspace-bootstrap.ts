@@ -18,7 +18,7 @@ export const workspaceBootstrapSchema = z.object({
   organization_name: z.string().nullable().optional(),
   workspace_name: z.string().nullable().optional(),
   session_expires_at: z.string().datetime({ offset: true }).nullable().optional(),
-  session_policy: z.enum(['STANDARD_7_DAYS', 'SENSITIVE_5_HOURS']).nullable().optional(),
+  session_policy: z.enum(['STANDARD_7_DAYS', 'SENSITIVE_3_HOURS']).nullable().optional(),
 });
 
 export type WorkspaceBootstrap = z.infer<typeof workspaceBootstrapSchema>;
