@@ -15,7 +15,7 @@ import {
   UserRoundPlus,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { useTrackRecentLead } from './recent-leads';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -238,6 +238,7 @@ function Timeline({ items }: { items: LeadDetail['timeline'] }) {
 
 export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const returnToLeads = useReturnToList(roleLeadListHref(role));
   const queryClient = useQueryClient();
   const workspaceSession = useWorkspaceSession();
@@ -246,7 +247,13 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [appointmentOpen, setAppointmentOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
-  const [tab, setTab] = useState('overview');
+  const requestedChannel = searchParams.get('channel');
+  const initialMessageChannel =
+    requestedChannel === 'WHATSAPP_PERSONAL' || requestedChannel === 'WHATSAPP_BUSINESS'
+      ? requestedChannel
+      : 'all';
+  const requestedConversation = searchParams.get('conversation');
+  const [tab, setTab] = useState(searchParams.get('tab') === 'messages' ? 'messages' : 'overview');
   const [lostOpen, setLostOpen] = useState(false);
   const [customerMatchOpen, setCustomerMatchOpen] = useState(false);
   const [lostReason, setLostReason] = useState('');
@@ -455,7 +462,14 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
         )}
         {data.access.can_messages && (
           <TabsContent value="messages">
-            <InboxWorkspace role={role} leadId={leadId} embedded readOnly={data.access.read_only} />
+            <InboxWorkspace
+              role={role}
+              leadId={leadId}
+              embedded
+              readOnly={data.access.read_only}
+              initialChannel={initialMessageChannel}
+              initialConversationId={requestedConversation}
+            />
           </TabsContent>
         )}
         {data.access.can_followups && (

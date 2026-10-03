@@ -72,6 +72,9 @@ it('applies the pilot and phone matcher after the existing CRM migration history
         'utf8',
       ),
     );
+    await db.exec(
+      readFileSync(new URL('202610030001_lead_whatsapp_actions.sql', directory), 'utf8'),
+    );
     const tables = await db.query<{ tablename: string; rowsecurity: boolean }>(
       "select tablename,rowsecurity from pg_tables where schemaname='public' and tablename like 'personal_whatsapp_%'",
     );
@@ -229,6 +232,12 @@ it('applies the pilot and phone matcher after the existing CRM migration history
         )
       ).rows[0].allowed,
     ).toBe(false);
+    expect(await rpc('open_lead_whatsapp_conversation', [lead, 'WHATSAPP_PERSONAL'])).toMatchObject(
+      {
+        conversation_id: inbound.conversation_id,
+        channel: 'WHATSAPP_PERSONAL',
+      },
+    );
     expect(
       await rpc('get_inbox_conversation_page', ['', 'WHATSAPP_PERSONAL', 1, 25]),
     ).toMatchObject({ total: 1 });
@@ -361,7 +370,7 @@ it('applies the pilot and phone matcher after the existing CRM migration history
       [officialConnection, org],
     );
     await db.query(
-      "insert into public.conversations(id,organization_id,branch_id,lead_id,customer_id,connection_id,channel,assigned_user_id) values($1,$2,$3,$4,$5,$6,'WHATSAPP_BUSINESS',$7)",
+      "insert into public.conversations(id,organization_id,branch_id,lead_id,customer_id,connection_id,channel,assigned_user_id,external_thread_id,external_contact,normalized_contact) values($1,$2,$3,$4,$5,$6,'WHATSAPP_BUSINESS',$7,'919876543210','919876543210','919876543210')",
       [officialConversation, org, branch, lead, customer, officialConnection, actor],
     );
     await db.exec('set session_replication_role=origin');
@@ -371,6 +380,12 @@ it('applies the pilot and phone matcher after the existing CRM migration history
       [officialMessage, org, officialConversation, JSON.stringify({ expected_lead_id: lead })],
     );
     await db.exec('set role authenticated');
+    expect(await rpc('open_lead_whatsapp_conversation', [lead, 'WHATSAPP_BUSINESS'])).toMatchObject(
+      {
+        conversation_id: officialConversation,
+        channel: 'WHATSAPP_BUSINESS',
+      },
+    );
     await rpc('set_inbox_working_lead', [officialConversation, otherLead, lead]);
     expect(
       (await rpc('get_context_inbox_messages', [officialConversation, lead])).records,

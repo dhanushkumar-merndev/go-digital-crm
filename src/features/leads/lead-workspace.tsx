@@ -177,6 +177,11 @@ import {
 } from './saved-lead-filters';
 import { requestDuplicateLeadDeletion } from './duplicate-lead-deletion-api';
 import { LeadBulkImportDialog } from './lead-bulk-import-dialog';
+import {
+  leadWhatsAppErrorMessage,
+  openLeadWhatsAppConversation,
+  type LeadWhatsAppChannel,
+} from './lead-whatsapp-api';
 
 const leadSources = [
   'Facebook',
@@ -2092,6 +2097,9 @@ function LeadTable({
   onIntakeContact,
   canProviderCall,
   onProviderCall,
+  canProviderWhatsApp,
+  onProviderWhatsApp,
+  pendingWhatsAppLeadId,
   onTransferToSales,
   onCancelSalesHandoff,
   onRequestDuplicateDeletion,
@@ -2135,6 +2143,9 @@ function LeadTable({
   onIntakeContact: (lead: LeadRecord, channel: 'CALL' | 'WHATSAPP') => void;
   canProviderCall: boolean;
   onProviderCall: (lead: LeadRecord) => void;
+  canProviderWhatsApp: boolean;
+  onProviderWhatsApp: (lead: LeadRecord, channel: LeadWhatsAppChannel) => void;
+  pendingWhatsAppLeadId: string | null;
   onTransferToSales: (lead: LeadRecord) => void;
   onCancelSalesHandoff: (lead: LeadRecord) => void;
   onRequestDuplicateDeletion: (lead: LeadRecord) => void;
@@ -2705,24 +2716,77 @@ function LeadTable({
                   </a>
                 </Button>
               )}
-              <Button asChild variant="ghost" size="icon" className="size-7 text-emerald-600">
-                <a
-                  href={toWhatsAppClickToChatUrl(row.original.phone)}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={`WhatsApp ${row.original.customer_name}`}
-                  title={`WhatsApp ${row.original.customer_name}`}
-                  onClick={() => {
-                    if (role === 'telecaller') {
-                      onIntakeContact(row.original, 'WHATSAPP');
-                    } else {
-                      onSalesContact(row.original, 'WHATSAPP');
-                    }
-                  }}
-                >
-                  <WhatsAppIcon className="size-4" />
-                </a>
-              </Button>
+              {canProviderWhatsApp ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-emerald-600"
+                      aria-label={`WhatsApp ${row.original.customer_name}`}
+                      title={`WhatsApp ${row.original.customer_name}`}
+                      disabled={pendingWhatsAppLeadId === row.original.id}
+                    >
+                      <WhatsAppIcon className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-56">
+                    <DropdownMenuLabel className="text-xs">
+                      WhatsApp {row.original.customer_name}
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem
+                      onSelect={() => onProviderWhatsApp(row.original, 'WHATSAPP_PERSONAL')}
+                    >
+                      <WhatsAppIcon className="size-3.5" />
+                      My WhatsApp
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => onProviderWhatsApp(row.original, 'WHATSAPP_BUSINESS')}
+                    >
+                      <WhatsAppIcon className="size-3.5" />
+                      WhatsApp API
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <a
+                        href={toWhatsAppClickToChatUrl(row.original.phone)}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() => {
+                          if (role === 'telecaller') {
+                            onIntakeContact(row.original, 'WHATSAPP');
+                          } else {
+                            onSalesContact(row.original, 'WHATSAPP');
+                          }
+                        }}
+                      >
+                        <Smartphone className="size-3.5" />
+                        WhatsApp on my phone
+                      </a>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <Button asChild variant="ghost" size="icon" className="size-7 text-emerald-600">
+                  <a
+                    href={toWhatsAppClickToChatUrl(row.original.phone)}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`WhatsApp ${row.original.customer_name}`}
+                    title={`WhatsApp ${row.original.customer_name}`}
+                    onClick={() => {
+                      if (role === 'telecaller') {
+                        onIntakeContact(row.original, 'WHATSAPP');
+                      } else {
+                        onSalesContact(row.original, 'WHATSAPP');
+                      }
+                    }}
+                  >
+                    <WhatsAppIcon className="size-4" />
+                  </a>
+                </Button>
+              )}
               {canScheduleFollowups ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -3025,6 +3089,9 @@ function LeadTable({
       onIntakeContact,
       canProviderCall,
       onProviderCall,
+      canProviderWhatsApp,
+      onProviderWhatsApp,
+      pendingWhatsAppLeadId,
       onMatchCustomer,
       onTransferToSales,
       onCancelSalesHandoff,
@@ -4192,6 +4259,27 @@ export function LeadWorkspace({
     },
   });
 
+  const leadWhatsAppMutation = useMutation({
+    meta: { toast: false },
+    mutationFn: ({ lead, channel }: { lead: LeadRecord; channel: LeadWhatsAppChannel }) =>
+      openLeadWhatsAppConversation({ leadId: lead.id, channel }),
+    onSuccess: (conversation, { lead }) => {
+      const params = new URLSearchParams({
+        tab: 'messages',
+        channel: conversation.channel,
+        conversation: conversation.conversation_id,
+      });
+      router.push(`${leadDetailHref(role, lead.id)}?${params.toString()}`);
+    },
+    onError: (error) =>
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'WhatsApp is unavailable',
+        description: leadWhatsAppErrorMessage(error),
+      }),
+  });
+
   if (workspace.isPending) return <LeadWorkspaceSkeleton />;
   // A failed background refresh keeps the rows on screen with a notice; the
   // full error state is only for a page that never loaded.
@@ -4377,6 +4465,16 @@ export function LeadWorkspace({
           hasWorkspacePermission(workspaceSession, 'call.create')
         }
         onProviderCall={setProviderCallLead}
+        canProviderWhatsApp={
+          !spec.readOnly &&
+          Boolean(workspaceSession?.organizationId) &&
+          hasWorkspacePermission(workspaceSession, 'message.view') &&
+          hasWorkspacePermission(workspaceSession, 'message.send')
+        }
+        onProviderWhatsApp={(lead, channel) => leadWhatsAppMutation.mutate({ lead, channel })}
+        pendingWhatsAppLeadId={
+          leadWhatsAppMutation.isPending ? (leadWhatsAppMutation.variables?.lead.id ?? null) : null
+        }
         onTransferToSales={setHandoffLead}
         onCancelSalesHandoff={setHandoffCancellationLead}
         onRequestDuplicateDeletion={setDuplicateDeletionLead}

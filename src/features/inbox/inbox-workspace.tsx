@@ -208,19 +208,23 @@ export function InboxWorkspace({
   customerId,
   embedded = false,
   readOnly = false,
+  initialChannel = 'all',
+  initialConversationId = null,
 }: {
   role: string;
   leadId?: string;
   customerId?: string;
   embedded?: boolean;
   readOnly?: boolean;
+  initialChannel?: string;
+  initialConversationId?: string | null;
 }) {
   const session = useWorkspaceSession();
   const salesConsultantCache = useSalesConsultantCache();
   const queryScope = workspaceQueryScope(session);
   const [search, setSearch] = useState('');
-  const [channel, setChannel] = useState('all');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [channel, setChannel] = useState(initialChannel);
+  const [selectedId, setSelectedId] = useState<string | null>(initialConversationId);
   const [draft, setDraft] = useState('');
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [draftConversation, setDraftConversation] = useState<string | null>(null);
