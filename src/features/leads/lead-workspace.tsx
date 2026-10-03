@@ -926,12 +926,13 @@ function LeadCreateDialog({
   const [modelSearch, setModelSearch] = useState('');
   const debouncedModelSearch = useDebouncedValue(modelSearch, 250);
 
-  useEffect(() => {
-    if (!open) {
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
       setInterestedModel('');
       setModelSearch('');
     }
-  }, [open]);
+    onOpenChange(nextOpen);
+  };
 
   const mutation = useMutation({
     mutationFn: createLead,
@@ -1022,7 +1023,7 @@ function LeadCreateDialog({
   const showTeamPicker = teams.length > 0 && !derivesOwnTeam;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add lead</DialogTitle>

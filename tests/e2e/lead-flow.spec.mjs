@@ -1,4 +1,5 @@
-import { appendFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { test, expect as baseExpect } from '@playwright/test';
 
 // `next dev` compiles each route and its client chunks on first visit, which
@@ -30,6 +31,124 @@ const salesFlowLeadName = process.env.E2E_SALES_FLOW_LEAD ?? customerName;
 // every run after the first. The allocation step selects a currently AVAILABLE
 // unit and records it here for the delivery step of the same serial run.
 let allocationVin = process.env.E2E_ALLOCATION_VIN ?? null;
+
+function readLocalEnv() {
+  try {
+    return Object.fromEntries(
+      readFileSync(new URL('../../.env', import.meta.url), 'utf8')
+        .split(/\r?\n/)
+        .filter((line) => !line.trimStart().startsWith('#'))
+        .map((line) => line.match(/^([A-Z0-9_]+)=(.*)$/))
+        .filter(Boolean)
+        .map((match) => [match[1], match[2]]),
+    );
+  } catch {
+    return {};
+  }
+}
+
+const localEnv = readLocalEnv();
+const demoProjectUrl = (process.env.SUPABASE_URL ?? localEnv.SUPABASE_URL)?.replace(/\/$/, '');
+const demoAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? localEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const demoPassword = process.env.DEMO_TEST_PASSWORD ?? localEnv.DEMO_TEST_PASSWORD;
+
+async function demoJson(response) {
+  const body = await response.text();
+  const payload = body ? JSON.parse(body) : null;
+  if (!response.ok) throw new Error(`${response.status} ${JSON.stringify(payload)}`);
+  return payload;
+}
+
+async function demoSessionFor(roleKey) {
+  if (!demoProjectUrl || !demoAnonKey || !demoPassword) {
+    throw new Error(
+      'SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY and DEMO_TEST_PASSWORD are required.',
+    );
+  }
+  const email = `${roleKey.replaceAll('_', '-')}@demo.go-digital.invalid`;
+  const session = await demoJson(
+    await fetch(`${demoProjectUrl}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { apikey: demoAnonKey, 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password: demoPassword }),
+    }),
+  );
+  return session.access_token;
+}
+
+async function demoRows(accessToken, table, query) {
+  return demoJson(
+    await fetch(`${demoProjectUrl}/rest/v1/${table}?${new URLSearchParams(query)}`, {
+      headers: { apikey: demoAnonKey, authorization: `Bearer ${accessToken}` },
+    }),
+  );
+}
+
+async function demoRpc(accessToken, name, body) {
+  return demoJson(
+    await fetch(`${demoProjectUrl}/rest/v1/rpc/${name}`, {
+      method: 'POST',
+      headers: {
+        apikey: demoAnonKey,
+        authorization: `Bearer ${accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+async function provisionFlowStock(leadId) {
+  const [salesToken, inventoryToken] = await Promise.all([
+    demoSessionFor('sales_consultant'),
+    demoSessionFor('inventory_manager'),
+  ]);
+  const [lead] = await demoRows(salesToken, 'leads', {
+    select: 'organization_id,branch_id',
+    id: `eq.${leadId}`,
+    deleted_at: 'is.null',
+    limit: '1',
+  });
+  if (!lead?.organization_id || !lead?.branch_id) {
+    throw new Error('The browser-flow lead is missing its organization or branch.');
+  }
+  const [template] = await demoRows(inventoryToken, 'stock_units', {
+    select: 'variant_id',
+    organization_id: `eq.${lead.organization_id}`,
+    branch_id: `eq.${lead.branch_id}`,
+    deleted_at: 'is.null',
+    limit: '1',
+  });
+  if (!template?.variant_id) {
+    throw new Error('No demo vehicle variant is available for browser-flow stock.');
+  }
+
+  const createStock = async (purpose) => {
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 14).toUpperCase();
+    const vin = `E2E${suffix}`;
+    const created = await demoRpc(inventoryToken, 'create_stock_unit', {
+      target_organization_id: lead.organization_id,
+      target_branch_id: lead.branch_id,
+      target_variant_id: template.variant_id,
+      target_vin: vin,
+      target_chassis_number: `E2ECH${suffix}`,
+      target_engine_number: null,
+      target_color: purpose,
+      target_status: 'AVAILABLE',
+      target_received_at: new Date().toISOString(),
+      target_request_id: randomUUID(),
+    });
+    return { ...created, vin };
+  };
+
+  const [testDriveStock, bookingStock] = await Promise.all([
+    createStock('Browser test drive'),
+    createStock('Browser booking allocation'),
+  ]);
+  allocationVin = bookingStock.vin;
+  return testDriveStock;
+}
 
 // CI and ordinary local runs use Playwright's managed Chromium. This opt-in is
 // only for a workstation whose managed browser download is still in progress.
@@ -1202,6 +1321,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     test.skip(!salesFlowLeadName, 'Set E2E_SALES_FLOW_LEAD to continue an existing Sales lead.');
     await signInAs(page, 'sales-consultant');
     const leadId = await salesLeadId(page, salesFlowLeadName);
+    await provisionFlowStock(leadId);
     const testDriveRegistration = `KA QA ${runId.toUpperCase()}`;
 
     await page.goto(

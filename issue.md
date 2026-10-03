@@ -1,13 +1,13 @@
 # Headed lead-flow and integration QA
 
-Updated: 2026-09-29
+Updated: 2026-10-03
 
 ## Current verification status
 
-- API suite: **1,485 tests passed** (222 files).
+- API suite: **1,497 tests passed** (224 files).
 - TypeScript: **passed** (`pnpm typecheck`).
-- Headed lead flow: all **18 stages have passed**, but the latest single uninterrupted run reached 15/18 before a transient Supabase CORS/auth navigation cancellation stopped the runner. Stages 16–18 passed together in a focused rerun. A final uninterrupted 18/18 rerun is still required when Supabase is responsive.
-- Latest clean-run progress: test drive, quotation, finance, insurance, RTO, inventory allocation, delivery proof upload, and completed delivery all passed (15/18).
+- Browser lead flow: **18/18 stages passed in one uninterrupted run**, including lead creation, assignment/handoff, test drive, quotation, booking, finance, insurance, RTO, inventory allocation, delivery proof upload, completed delivery, and alternate booking paths.
+- Live lead receipt: deployed `lead-ingest` returned HTTP 201; the test lead was persisted with source traceability, assigned in `New`, and visible within the receiving Telecaller's scope.
 
 ## Findings
 
@@ -38,12 +38,12 @@ Status: **Fixed and verified**
 
 ### QA-004 — Demo test-drive inventory becomes exhausted across full runs
 
-Status: **Test-data issue; replenished without rewriting history**
+Status: **Fixed and verified**
 
 - The vehicle picker correctly showed “No test-drive vehicle is available” because every AVAILABLE unit was held by a scheduled appointment, while the fixed seed vehicles had already progressed to delivery states.
-- Fresh, unique QA stock rows were inserted only in `Go Digital Demo Motors (Test Only)` / `Bengaluru Demo Showroom`; no delivered vehicle or history was reset.
-- The test-drive stage passed after replenishment.
-- Durable follow-up: make the demo seed/top-up create fresh unique stock rather than upserting fixed VINs back to AVAILABLE.
+- The browser flow now provisions two fresh, unique, valid 17-character VINs in the lead's demo branch: one for the test drive and one for booking allocation.
+- Provisioning uses the Inventory Manager's normal `create_stock_unit` RPC; no delivered vehicle or history is reset.
+- The complete 18-stage browser flow passed after the change.
 
 ### QA-005 — Operational case Sheet plays its entrance animation twice
 
@@ -62,12 +62,12 @@ Status: **Fixed and verified**
 
 ### QA-007 — Role-switch navigation can be cancelled by transient Supabase auth/CORS failure
 
-Status: **Runner hardened; final uninterrupted rerun pending**
+Status: **Runner hardened and verified**
 
 - Chromium reported `net::ERR_ABORTED` while opening Telecaller My Leads after delivery.
 - Timing logs show a simultaneous Supabase CORS/network failure during auth/logout, while the same booking path passed in focused execution.
 - Added one narrow retry for `ERR_ABORTED`; other navigation failures still fail immediately.
-- Supabase subsequently stalled long enough for a guarded 15-second REST read to time out, so final rerun is waiting on backend recovery.
+- The final uninterrupted 18-stage rerun completed successfully on 2026-10-03.
 
 ## Next provider integration pass
 
