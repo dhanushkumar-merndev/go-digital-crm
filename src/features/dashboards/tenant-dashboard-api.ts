@@ -99,11 +99,21 @@ export async function fetchTenantDashboard(
   signal?: AbortSignal,
   options: { manualRefresh?: boolean } = {},
 ) {
+  if (!options.manualRefresh) {
+    const request = createClient().rpc('get_tenant_dashboard_page', {
+      target_days: 14,
+      target_timezone: 'Asia/Kolkata',
+    });
+    const { data, error } = await (signal ? request.abortSignal(signal) : request);
+    if (error) throw error;
+    return tenantDashboardSchema.parse({ ...data, refresh_budget: null });
+  }
+
   const [summary, liveItems] = await Promise.all([
     fetchCachedDashboard({
       resource: 'tenant-dashboard',
       schema: tenantDashboardSummarySchema,
-      manualRefresh: options.manualRefresh,
+      manualRefresh: true,
     }),
     (async () => {
       const request = createClient().rpc('get_tenant_dashboard_live_items', {

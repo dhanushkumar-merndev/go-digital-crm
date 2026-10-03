@@ -35,7 +35,10 @@ describe('dashboard read-through cache policy', () => {
     expect(dashboard).toContain('Available again at ${refreshAt}.');
     expect(dashboard).toContain('retryAfterMs');
     expect(workspaceCache).toContain('getManualRefreshStatus');
-    expect(dashboardHandler).toContain('await getManualRefreshStatus');
+    expect(dashboardHandler).toContain('getManualRefreshStatus(userId');
+    expect(dashboardHandler).toContain(
+      'const [resolvedRefreshBudget, contextResponse] = await Promise.all([',
+    );
     expect(dashboard).toContain('manualRefreshRemaining === 0');
   });
 

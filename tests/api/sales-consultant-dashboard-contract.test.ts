@@ -70,7 +70,10 @@ describe('sales consultant dashboard contract', () => {
     expect(dashboardHandler).toContain('.max(5)');
     expect(dashboardHandler).toContain(".from('object_files')");
     expect(dashboardHandler).toContain('tigrisClient()');
-    expect(config).toContain('[functions.sales-consultant-dashboard]\nverify_jwt = true');
+    expect(config).toContain('[functions.sales-consultant-dashboard]');
+    expect(config).toContain('verify_jwt = false');
+    expect(dashboardHandler).toContain('client.auth.getClaims(accessToken)');
+    expect(dashboardHandler).toContain("failure('UNAUTHENTICATED'");
   });
 
   it('shows existing local vehicle artwork when a stock image has not been uploaded', () => {
@@ -228,14 +231,19 @@ describe('sales consultant dashboard contract', () => {
     expect(dashboardHandler).toContain('response_version: z.literal');
     expect(dashboardHandler).toContain(': summary.alerts');
     expect(dashboardHandler).toContain(
-      "{ key: 'TASKS_DUE', value: await loadTaskDueCount(client) }",
+      'const taskDueCountPromise = useTaskAlerts ? loadTaskDueCount(client)',
     );
+    expect(dashboardHandler).toContain(
+      'const [cachedDashboard, taskDueCount] = await Promise.all([',
+    );
+    expect(dashboardHandler).toContain("{ key: 'TASKS_DUE', value: taskDueCount }");
     expect(dashboardHandler.indexOf('const cachedDashboard')).toBeLessThan(
       dashboardHandler.indexOf('const dashboardWithLiveTaskAlert'),
     );
     expect(dashboardHandler.indexOf('const dashboardWithLiveTaskAlert')).toBeLessThan(
       dashboardHandler.indexOf('const result = await attachInventoryImages'),
     );
+    expect(dashboardHandler).toContain("response.headers.set(\n      'Server-Timing'");
     expect(api).toContain("'TASKS_DUE'");
     expect(api).toContain('response_version: 2');
     expect(workspace).toContain("label: 'Tasks due today'");

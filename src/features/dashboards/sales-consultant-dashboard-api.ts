@@ -178,8 +178,28 @@ export async function fetchSalesConsultantDashboard(
   signal?: AbortSignal,
   options: { manualRefresh?: boolean } = {},
 ) {
+  if (!options.manualRefresh) {
+    const request = createClient().rpc('get_sales_consultant_dashboard_page', {
+      target_timezone: 'Asia/Kolkata',
+    });
+    const { data, error } = await (signal ? request.abortSignal(signal) : request);
+    if (error) throw error;
+    const result = dashboardSchema.parse(data);
+    return {
+      ...result,
+      cache: {
+        status: 'BYPASS',
+        resource: 'sales-consultant-dashboard',
+        version: 3,
+        age_seconds: 0,
+        synced_at: result.generated_at,
+      },
+      refresh_budget: null,
+    } satisfies SalesConsultantDashboardResult;
+  }
+
   const { data, error } = await createClient().functions.invoke('sales-consultant-dashboard', {
-    body: { manual_refresh: Boolean(options.manualRefresh), response_version: 2 },
+    body: { manual_refresh: true, response_version: 2 },
     signal,
   });
   if (error) {

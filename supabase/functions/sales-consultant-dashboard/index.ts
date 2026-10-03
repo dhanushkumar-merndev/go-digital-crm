@@ -184,6 +184,7 @@ async function attachInventoryImages(rawDashboard: unknown) {
 }
 
 Deno.serve(async (request) => {
+  const requestStartedAt = performance.now();
   const preflightResponse = preflight(request);
   if (preflightResponse) return preflightResponse;
   const requestId = getRequestId(request);
@@ -203,6 +204,7 @@ Deno.serve(async (request) => {
     if (claimsError || !subject.success)
       return failure('UNAUTHENTICATED', 'Authentication is required.', requestId, 401);
     const userId = subject.data;
+    const authenticationFinishedAt = performance.now();
 
     let manualRefreshBudget: {
       enabled: boolean;
@@ -210,8 +212,19 @@ Deno.serve(async (request) => {
       remaining: number | null;
       retry_after_ms: number | null;
     } | null = null;
+    // Refresh quota and workspace access live in different backends. Resolve
+    // them together so a normal dashboard visit does not pay those network
+    // round trips one after another.
+    const manualRefreshBudgetPromise = parsed.data.manual_refresh
+      ? enforceManualRefresh(userId, 'sales-consultant-dashboard')
+      : getManualRefreshStatus(userId, 'sales-consultant-dashboard');
+    const contextPromise = client.rpc('get_workspace_bootstrap');
+    const [resolvedRefreshBudget, contextResponse] = await Promise.all([
+      manualRefreshBudgetPromise,
+      contextPromise,
+    ]);
+    manualRefreshBudget = resolvedRefreshBudget;
     if (parsed.data.manual_refresh) {
-      manualRefreshBudget = await enforceManualRefresh(userId, 'sales-consultant-dashboard');
       if (!manualRefreshBudget.allowed)
         return failure(
           'MANUAL_REFRESH_LIMITED',
@@ -220,10 +233,9 @@ Deno.serve(async (request) => {
           429,
           { retry_after_ms: manualRefreshBudget.retry_after_ms },
         );
-    } else manualRefreshBudget = await getManualRefreshStatus(userId, 'sales-consultant-dashboard');
+    }
 
     const useTaskAlerts = parsed.data.response_version === SALES_DASHBOARD_RESPONSE_VERSION;
-    const contextResponse = await client.rpc('get_workspace_bootstrap');
     if (contextResponse.error)
       return failure('PERMISSION_DENIED', 'Dashboard access is not available.', requestId, 403);
 
@@ -235,12 +247,16 @@ Deno.serve(async (request) => {
     )
       return failure('PERMISSION_DENIED', 'Dashboard access is not available.', requestId, 403);
     const context = parsedContext.data;
+    const accessFinishedAt = performance.now();
 
     // The cache is isolated by authenticated user plus exact tenant/scope identity. It includes
     // only the bounded dashboard view, while presigned vehicle-image URLs are always generated
     // after the cache read and are never stored in Redis. Manual Refresh invalidates this entry
     // and always rebuilds the database bundle before storing its replacement.
-    const cachedDashboard = await readWorkspaceCache({
+    // The live task count is independent from the cached dashboard bundle.
+    // Start it beside the cache read/rebuild to remove another serial DB hop.
+    const taskDueCountPromise = useTaskAlerts ? loadTaskDueCount(client) : Promise.resolve(null);
+    const cachedDashboardPromise = readWorkspaceCache({
       resource: 'sales-consultant-dashboard',
       version: SALES_DASHBOARD_CACHE_SCHEMA_VERSION,
       ttlSeconds: SALES_DASHBOARD_CACHE_TTL_SECONDS,
@@ -275,18 +291,23 @@ Deno.serve(async (request) => {
         });
       },
     });
+    const [cachedDashboard, taskDueCount] = await Promise.all([
+      cachedDashboardPromise,
+      taskDueCountPromise,
+    ]);
+    const dashboardDataFinishedAt = performance.now();
 
     const dashboardWithLiveTaskAlert = useTaskAlerts
       ? dashboardShape.parse({
           ...cachedDashboard.value,
           alerts: [
-            { key: 'TASKS_DUE', value: await loadTaskDueCount(client) },
+            { key: 'TASKS_DUE', value: taskDueCount },
             ...cachedDashboard.value.alerts.filter((item) => item.key !== 'FOLLOWUPS_DUE'),
           ].slice(0, 5),
         })
       : cachedDashboard.value;
     const result = await attachInventoryImages(dashboardWithLiveTaskAlert);
-    return success(
+    const response = success(
       {
         result,
         cache: cachedDashboard.diagnostic,
@@ -298,6 +319,17 @@ Deno.serve(async (request) => {
       },
       requestId,
     );
+    const responseFinishedAt = performance.now();
+    response.headers.set(
+      'Server-Timing',
+      [
+        `auth;dur=${(authenticationFinishedAt - requestStartedAt).toFixed(1)}`,
+        `access;dur=${(accessFinishedAt - authenticationFinishedAt).toFixed(1)}`,
+        `data;dur=${(dashboardDataFinishedAt - accessFinishedAt).toFixed(1)}`,
+        `images;dur=${(responseFinishedAt - dashboardDataFinishedAt).toFixed(1)}`,
+      ].join(', '),
+    );
+    return response;
   } catch (error) {
     if (error instanceof SalesDashboardAccessError)
       return failure('PERMISSION_DENIED', 'Dashboard access is not available.', requestId, 403);

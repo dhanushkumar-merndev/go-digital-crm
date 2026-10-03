@@ -120,7 +120,10 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.sales-consultant-dashboard]
-verify_jwt = true
+# The handler verifies the bearer token with Auth getClaims() and all data
+# reads use that token under RLS. Disable the legacy gateway verifier to avoid
+# verifying the same JWT twice on the dashboard's critical path.
+verify_jwt = false
 
 [functions.sales-consultant-ai-summary]
 verify_jwt = true
