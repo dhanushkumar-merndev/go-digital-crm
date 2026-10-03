@@ -43,6 +43,7 @@ function QrCanvas({ value }: { value: string }) {
 export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] }) {
   const [open, setOpen] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [gatewayStarting, setGatewayStarting] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const queryClient = useQueryClient();
   const status = useQuery({
@@ -74,8 +75,10 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
   };
   const link = useMutation({ mutationFn: startPersonalWhatsApp, onSuccess: refresh });
   const availability = useMutation({
-    mutationFn: checkPersonalWhatsAppAvailability,
+    mutationFn: () => checkPersonalWhatsAppAvailability(() => setGatewayStarting(true)),
     retry: false,
+    meta: { toast: false },
+    onMutate: () => setGatewayStarting(false),
     onSuccess: (data) => {
       queryClient.setQueryData(['personal-whatsapp-link', ...scope], data);
       setNow(Date.now());
@@ -86,8 +89,9 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
       toast.add({
         type: 'error',
         title: 'WhatsApp is unavailable',
-        description: 'Connection service is offline or still starting. Try again shortly.',
+        description: 'Connection service did not become ready. Try again shortly.',
       }),
+    onSettled: () => setGatewayStarting(false),
   });
   const disconnect = useMutation({
     mutationFn: () => disconnectPersonalWhatsApp(status.data!.connection_id),
@@ -118,7 +122,11 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
         ) : (
           <Smartphone className="size-4" />
         )}
-        {availability.isPending ? 'Checking…' : 'Connect my WhatsApp'}
+        {gatewayStarting
+          ? 'Starting WhatsApp…'
+          : availability.isPending
+            ? 'Checking…'
+            : 'Connect my WhatsApp'}
       </Button>
       <Dialog
         open={open}

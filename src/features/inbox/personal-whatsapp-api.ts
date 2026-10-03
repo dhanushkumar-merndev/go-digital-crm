@@ -45,10 +45,32 @@ async function invoke(name: string, body: unknown, signal?: AbortSignal) {
 }
 export const startPersonalWhatsApp = () =>
   invoke('personal-whatsapp-link-start', { consent_version: 'pilot-v1' });
-export async function checkPersonalWhatsAppAvailability() {
-  const result = await invoke('personal-whatsapp-availability', {}, AbortSignal.timeout(7000));
-  if (result?.available !== true) throw new Error('PERSONAL_WHATSAPP_GATEWAY_UNAVAILABLE');
-  return statusSchema.nullable().parse(result.status);
+
+const gatewayStartupRetryDelays = [0, 1_500, 2_500, 3_500, 5_000, 5_000, 5_000, 5_000];
+
+function wait(delayMs: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
+
+export async function checkPersonalWhatsAppAvailability(onGatewayStarting?: () => void) {
+  let lastError: unknown;
+  for (const [attempt, delayMs] of gatewayStartupRetryDelays.entries()) {
+    if (delayMs) await wait(delayMs);
+    try {
+      const result = await invoke('personal-whatsapp-availability', {}, AbortSignal.timeout(7000));
+      if (result?.available !== true) throw new Error('PERSONAL_WHATSAPP_GATEWAY_UNAVAILABLE');
+      return statusSchema.nullable().parse(result.status);
+    } catch (error) {
+      lastError = error;
+      const code = error instanceof Error ? error.message : '';
+      const retryable =
+        code === 'PERSONAL_WHATSAPP_GATEWAY_UNAVAILABLE' ||
+        code === 'PERSONAL_WHATSAPP_REQUEST_FAILED';
+      if (!retryable || attempt === gatewayStartupRetryDelays.length - 1) throw error;
+      onGatewayStarting?.();
+    }
+  }
+  throw lastError;
 }
 export const disconnectPersonalWhatsApp = (connectionId: string) =>
   invoke('personal-whatsapp-disconnect', { connection_id: connectionId });
