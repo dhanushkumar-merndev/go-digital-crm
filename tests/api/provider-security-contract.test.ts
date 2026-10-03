@@ -9,6 +9,7 @@ function source(relativePath: string) {
 const migration = source('supabase/migrations/202608150002_provider_integrations.sql');
 const encryption = source('supabase/functions/_shared/crypto.ts');
 const metaWebhook = source('supabase/functions/provider-webhook-meta/index.ts');
+const metaConnect = source('supabase/functions/integration-connect-meta/index.ts');
 const googleWebhook = source('supabase/functions/provider-webhook-generic/index.ts');
 const whatsAppWebhook = source('supabase/functions/provider-webhook-whatsapp/index.ts');
 const supabaseConfig = source('supabase/config.toml');
@@ -41,6 +42,16 @@ describe('provider integration security and delivery contract', () => {
     );
     expect(whatsAppWebhook.indexOf('hmacSha256Hex(appSecret, rawBody)')).toBeLessThan(
       whatsAppWebhook.indexOf('JSON.parse(rawBody)'),
+    );
+  });
+
+  it('routes manual Meta callbacks with a hashed token and encrypted credential', () => {
+    expect(metaConnect).toContain('webhook_route_hash: await sha256Base64Url(routeToken)');
+    expect(metaConnect).toContain('encrypted_payload: await encryptJson(credential)');
+    expect(metaWebhook).toContain("url.searchParams.get('route_token')");
+    expect(metaWebhook).toContain('await sha256Base64Url(routeToken)');
+    expect(metaWebhook.indexOf('hmacSha256Hex(appSecret, rawBody)')).toBeLessThan(
+      metaWebhook.indexOf('JSON.parse(rawBody)'),
     );
   });
 

@@ -1,6 +1,7 @@
 import { z } from 'npm:zod@4';
-import { encryptJson } from '../_shared/crypto.ts';
+import { decryptJson, encryptJson } from '../_shared/crypto.ts';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
+import { resolveStoredProviderSecret } from '../_shared/stored-provider-secret.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
 
 const schema = z
@@ -14,9 +15,18 @@ const schema = z
     default_team_id: z.uuid().optional(),
     phone_number_id: z.string().trim().min(3).max(80),
     whatsapp_business_account_id: z.string().trim().min(3).max(80),
-    access_token: z.string().trim().min(20).max(4096),
+    access_token: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z.string().trim().min(20).max(4096).optional(),
+    ),
   })
   .superRefine((input, context) => {
+    if (!input.connection_id && !input.access_token)
+      context.addIssue({
+        code: 'custom',
+        path: ['access_token'],
+        message: 'An access token is required for a new connection.',
+      });
     if (new Set(input.branch_ids).size !== input.branch_ids.length)
       context.addIssue({ code: 'custom', path: ['branch_ids'], message: 'Duplicate branch.' });
     if (input.scope_mode === 'ONE_BRANCH' && input.branch_ids.length !== 1)
@@ -42,6 +52,11 @@ Deno.serve(async (request) => {
   const requestId = getRequestId(request);
   if (request.method !== 'POST')
     return failure('METHOD_NOT_ALLOWED', 'Only POST is supported.', requestId, 405);
+  let failureStage = 'REQUEST_VALIDATION';
+  let organizationId: string | undefined;
+  let connectionId: string | undefined;
+  let phoneNumberId: string | undefined;
+  let whatsappBusinessAccountId: string | undefined;
   try {
     const parsed = schema.safeParse(await request.json());
     if (!parsed.success)
@@ -52,6 +67,10 @@ Deno.serve(async (request) => {
         422,
       );
     const input = parsed.data;
+    organizationId = input.organization_id;
+    connectionId = input.connection_id;
+    phoneNumberId = input.phone_number_id;
+    whatsappBusinessAccountId = input.whatsapp_business_account_id;
     const functionBase = Deno.env.get('PUBLIC_EDGE_FUNCTION_BASE_URL')?.replace(/\/$/, '');
     if (!functionBase) throw new Error('PUBLIC_EDGE_FUNCTION_BASE_URL_MISSING');
     new URL(functionBase);
@@ -90,6 +109,27 @@ Deno.serve(async (request) => {
         );
     }
 
+    const admin = serviceClient();
+    let storedAccessToken: string | undefined;
+    if (connectionId) {
+      const { data: stored, error: storedError } = await admin
+        .from('integration_credentials')
+        .select('encrypted_payload')
+        .eq('organization_id', input.organization_id)
+        .eq('connected_account_id', connectionId)
+        .maybeSingle();
+      if (storedError) throw storedError;
+      if (stored?.encrypted_payload)
+        storedAccessToken = (await decryptJson<{ access_token?: string }>(stored.encrypted_payload))
+          .access_token;
+    }
+    const resolvedAccessToken = resolveStoredProviderSecret(
+      input.access_token,
+      storedAccessToken,
+      'WhatsApp access token',
+    );
+
+    failureStage = 'PROVIDER_TEST';
     const graphVersion = Deno.env.get('META_GRAPH_API_VERSION')?.trim();
     if (!graphVersion) throw new Error('META_GRAPH_API_VERSION_MISSING');
     const testUrl = new URL(
@@ -97,7 +137,7 @@ Deno.serve(async (request) => {
     );
     testUrl.searchParams.set('fields', 'id,display_phone_number,verified_name');
     const providerTest = await fetch(testUrl, {
-      headers: { authorization: `Bearer ${input.access_token}` },
+      headers: { authorization: `Bearer ${resolvedAccessToken}` },
     });
     const providerAccount = (await providerTest.json().catch(() => null)) as {
       id?: string;
@@ -112,8 +152,28 @@ Deno.serve(async (request) => {
         422,
       );
 
-    const admin = serviceClient();
-    let connectionId = input.connection_id;
+    failureStage = 'ROUTE_PREFLIGHT';
+    const { data: activePhoneRoute, error: activePhoneRouteError } = await admin
+      .from('integration_branch_mappings')
+      .select('connected_account_id')
+      .eq('external_resource_type', 'WHATSAPP_PHONE_NUMBER')
+      .eq('external_resource_id', input.phone_number_id)
+      .is('deleted_at', null)
+      .limit(1)
+      .maybeSingle();
+    if (activePhoneRouteError) throw activePhoneRouteError;
+    if (
+      activePhoneRoute &&
+      (!connectionId || activePhoneRoute.connected_account_id !== connectionId)
+    )
+      return failure(
+        'WHATSAPP_PHONE_ALREADY_MAPPED',
+        'This WhatsApp phone number is mapped to another connection. Replace that connection instead.',
+        requestId,
+        409,
+      );
+
+    failureStage = 'CONNECTION_SAVE';
     if (connectionId) {
       const { data: existing } = await admin
         .from('connected_accounts')
@@ -167,17 +227,19 @@ Deno.serve(async (request) => {
       connectionId = created.id;
     }
 
-    const { data: previousSecret } = await admin
+    failureStage = 'CREDENTIAL_SAVE';
+    const { data: previousSecret, error: previousSecretError } = await admin
       .from('integration_credentials')
       .select('key_version')
       .eq('connected_account_id', connectionId)
       .maybeSingle();
+    if (previousSecretError) throw previousSecretError;
     const { error: credentialError } = await admin.from('integration_credentials').upsert(
       {
         organization_id: input.organization_id,
         connected_account_id: connectionId,
         encrypted_payload: await encryptJson({
-          access_token: input.access_token,
+          access_token: resolvedAccessToken,
           phone_number_id: input.phone_number_id,
           whatsapp_business_account_id: input.whatsapp_business_account_id,
         }),
@@ -190,11 +252,13 @@ Deno.serve(async (request) => {
     );
     if (credentialError) throw credentialError;
 
-    await admin
+    failureStage = 'MAPPING_SAVE';
+    const { error: clearMappingsError } = await admin
       .from('integration_branch_mappings')
       .update({ deleted_at: new Date().toISOString() })
       .eq('connected_account_id', connectionId)
       .is('deleted_at', null);
+    if (clearMappingsError) throw clearMappingsError;
     const scopeBranches =
       input.scope_mode === 'ALL_BRANCHES' ? [] : Array.from(new Set(input.branch_ids));
     if (scopeBranches.length > 0) {
@@ -230,7 +294,8 @@ Deno.serve(async (request) => {
     );
     if (phoneMappingError) throw phoneMappingError;
 
-    await admin.from('audit_logs').insert({
+    failureStage = 'AUDIT_SAVE';
+    const { error: auditError } = await admin.from('audit_logs').insert({
       organization_id: input.organization_id,
       actor_id: auth.user.id,
       action: input.connection_id ? 'integration.credential_replaced' : 'integration.connected',
@@ -244,6 +309,7 @@ Deno.serve(async (request) => {
         credential_version: (previousSecret?.key_version ?? 0) + 1,
       },
     });
+    if (auditError) throw auditError;
     return success(
       {
         connection_id: connectionId,
@@ -257,12 +323,71 @@ Deno.serve(async (request) => {
       requestId,
       input.connection_id ? 200 : 201,
     );
-  } catch {
-    return failure(
-      'WHATSAPP_CONNECTION_FAILED',
-      'The WhatsApp Business connection could not be saved.',
-      requestId,
-      500,
+  } catch (error) {
+    const databaseCode =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code ?? '')
+        : '';
+    const safeFailure =
+      databaseCode === '23505'
+        ? {
+            code: 'WHATSAPP_CONNECTION_CONFLICT',
+            message: 'This WhatsApp account is already connected or mapped.',
+            status: 409,
+          }
+        : databaseCode === '23503'
+          ? {
+              code: 'WHATSAPP_SCOPE_REFERENCE_INVALID',
+              message:
+                'The selected branch or team is no longer valid. Refresh and select it again.',
+              status: 422,
+            }
+          : databaseCode === '42501'
+            ? {
+                code: 'WHATSAPP_CONNECTION_SECURITY_DENIED',
+                message: 'Your administrator account is not allowed to save this connection.',
+                status: 403,
+              }
+            : {
+                code: 'WHATSAPP_CONNECTION_FAILED',
+                message:
+                  failureStage === 'PROVIDER_TEST'
+                    ? 'WhatsApp could not be reached. Check the provider configuration and retry.'
+                    : `WhatsApp accepted the credential, but the CRM could not save it during ${failureStage.toLowerCase().replaceAll('_', ' ')}.`,
+                status: 500,
+              };
+
+    console.error(
+      JSON.stringify({
+        request_id: requestId,
+        service: 'integration-connect-whatsapp',
+        safe_code: safeFailure.code,
+        stage: failureStage,
+        database_code: databaseCode || null,
+      }),
     );
+    if (organizationId) {
+      const admin = serviceClient();
+      await admin.from('error_logs').insert({
+        organization_id: organizationId,
+        reference_id: requestId,
+        service: 'integration-connect-whatsapp',
+        safe_code: safeFailure.code,
+        safe_message: safeFailure.message,
+        sanitized_context: {
+          stage: failureStage,
+          database_code: databaseCode || null,
+          phone_number_id: phoneNumberId,
+          whatsapp_business_account_id: whatsappBusinessAccountId,
+        },
+      });
+      if (connectionId)
+        await admin
+          .from('connected_accounts')
+          .update({ status: 'ERROR', last_error_code: safeFailure.code })
+          .eq('id', connectionId)
+          .eq('organization_id', organizationId);
+    }
+    return failure(safeFailure.code, safeFailure.message, requestId, safeFailure.status);
   }
 });

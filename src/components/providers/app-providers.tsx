@@ -28,13 +28,18 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
               description: 'Your changes have been applied.',
             });
           },
-          onError: (_error, _variables, _context, mutation) => {
-            if ((mutation.options.meta as { toast?: boolean } | undefined)?.toast === false) return;
+          onError: (error, _variables, _context, mutation) => {
+            const meta = mutation.options.meta as
+              { toast?: boolean; errorToastDescription?: boolean } | undefined;
+            if (meta?.toast === false) return;
             toast.add({
               type: 'error',
               priority: 'high',
               title: 'Could not save changes',
-              description: 'Please review the details and try again.',
+              description:
+                meta?.errorToastDescription && error instanceof Error
+                  ? error.message
+                  : 'Please review the details and try again.',
             });
           },
         }),

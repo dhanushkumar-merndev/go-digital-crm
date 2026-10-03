@@ -3,7 +3,7 @@ import { defineConfig } from '@trigger.dev/sdk';
 export default defineConfig({
   // Keep the checked-in default aligned with the shared production project.
   // Local/staging environments can still override this through TRIGGER_PROJECT_REF.
-  project: process.env.TRIGGER_PROJECT_REF ?? 'proj_lbrobdruuorfdlhdxcgt',
+  project: process.env.TRIGGER_PROJECT_REF ?? 'proj_fzoptcxghjglrrhbqzql',
   runtime: 'node-24',
   dirs: ['./trigger'],
   maxDuration: 3600,

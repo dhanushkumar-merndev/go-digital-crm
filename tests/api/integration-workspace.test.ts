@@ -10,6 +10,7 @@ import {
 const api = readFileSync('src/features/integrations/integration-workspace-api.ts', 'utf8');
 const workspace = readFileSync('src/features/integrations/integration-workspace.tsx', 'utf8');
 const integrationTest = readFileSync('supabase/functions/integration-test/index.ts', 'utf8');
+const metaConnect = readFileSync('supabase/functions/integration-connect-meta/index.ts', 'utf8');
 const telecmiConnect = readFileSync(
   'supabase/functions/integration-connect-telecmi/index.ts',
   'utf8',
@@ -100,6 +101,7 @@ describe('tenant integration workspace contract', () => {
     for (const functionName of [
       'integration-oauth-start',
       'integration-connect-whatsapp',
+      'integration-connect-meta',
       'integration-connect-telecmi',
       'integration-test',
       'integration-assets-list',
@@ -115,6 +117,29 @@ describe('tenant integration workspace contract', () => {
     expect(api).not.toContain(".from('integration_credentials')");
     expect(integrationTest).toContain("connection.provider_key === 'telecmi'");
     expect(integrationTest).toContain('testTelecmiCredential(credential)');
+  });
+
+  it('supports a tenant-scoped Meta development connection without returning secrets', () => {
+    expect(workspace).toContain('Manual API — development/testing');
+    expect(workspace).toContain('Assign to Telecaller team');
+    expect(workspace).toContain('pattern="v[0-9]+\\.[0-9]+"');
+    expect(workspace).not.toContain('pattern="v[0-9]+\\\\.[0-9]+"');
+    expect(api).toContain("'integration-connect-meta'");
+    expect(metaConnect).toContain("rpc('authorize_integration_scope'");
+    expect(metaConnect).toContain("external_resource_type: 'META_PAGE'");
+    expect(metaConnect).toContain("'META_PAGE_ALREADY_MAPPED'");
+    expect(metaConnect).toContain(
+      "'This Facebook Page is mapped to another Meta connection. Unmap it there first.'",
+    );
+    expect(metaConnect).toContain("'META_PAGE_TOKEN_SCOPES_MISSING'");
+    expect(metaConnect).toContain("'pages_manage_ads'");
+    expect(metaConnect).toContain("subscribed_fields: 'leadgen'");
+    expect(metaConnect).toContain('await encryptJson(credential)');
+    expect(metaConnect).toContain('webhook_route_hash: await sha256Base64Url(routeToken)');
+    expect(metaConnect).not.toContain('app_secret: input.app_secret,\n        status:');
+    expect(metaConnect).not.toContain(
+      'page_access_token: input.page_access_token,\n        status:',
+    );
   });
 
   it('keeps connection detail contextual, actionable and secret-free', () => {
@@ -175,9 +200,7 @@ describe('tenant integration workspace contract', () => {
       '{ user_id: created.userId, extension: created.extension, phone: created.phone }',
     );
     expect(telecmiProvision).not.toContain('password: input.password,\n      requestId');
-    expect(telecmiShared).toContain(
-      "}>('/v2/user/add'",
-    );
+    expect(telecmiShared).toContain("}>('/v2/user/add'");
     expect(telecmiShared).toContain('`${extension}_${input.credential.app_id}`');
     expect(telecmiShared).toContain(
       "if (!/^[1-9]\\d{2}$/.test(digits)) throw new Error('TELECMI_EXTENSION_INVALID')",

@@ -78,6 +78,7 @@ import {
   connectCarWale,
   connectIndiaMart,
   connectJustdial,
+  connectMetaDirect,
   connectTelecmi,
   connectWhatsApp,
   IntegrationRequestError,
@@ -269,6 +270,18 @@ type ConnectRequest =
       displayName: string;
     }
   | {
+      kind: 'meta-direct';
+      displayName: string;
+      appId: string;
+      appSecret: string;
+      graphApiVersion: string;
+      pageId: string;
+      pageAccessToken: string;
+      webhookVerifyToken: string;
+      defaultBranchId: string;
+      defaultTeamId: string;
+    }
+  | {
       kind: 'whatsapp';
       displayName: string;
       phoneNumberId: string;
@@ -373,6 +386,12 @@ function ProviderConnectionDialog({
     existing?.default_inbound_branch_id ?? '',
   );
   const [defaultTeamId, setDefaultTeamId] = useState(existing?.default_team_id ?? 'none');
+  const [metaConnectionMode, setMetaConnectionMode] = useState<'MANUAL_API' | 'OAUTH'>(
+    existing?.provider_key === 'meta' &&
+      existing.connection_config.connection_type !== 'META_DIRECT'
+      ? 'OAUTH'
+      : 'MANUAL_API',
+  );
   const [inboundRoute, setInboundRoute] = useState<'PARALLEL_USERS' | 'IVR' | 'TEAM'>(
     existing?.connection_config.inbound_route ?? 'PARALLEL_USERS',
   );
@@ -388,6 +407,7 @@ function ProviderConnectionDialog({
     webhook_url: string;
     account_label: string;
     instructions: string;
+    ready?: boolean;
   } | null>(null);
   // App ID and secret are controlled because provisioning a TeleCMI agent needs
   // their current values before the connection form is submitted.
@@ -397,7 +417,10 @@ function ProviderConnectionDialog({
   const [telecmiAppSecret, setTelecmiAppSecret] = useState('');
   // The secret itself never leaves the server; this only records that one is
   // already held, so the field can be optional on a re-save.
-  const existingSecretStored = existing?.provider_key === 'telecmi';
+  const existingSecretStored = Boolean(existing);
+  const storedSecretPlaceholder = existingSecretStored
+    ? `${'•'.repeat(12)} (stored securely)`
+    : undefined;
   const [telecmiAgents, setTelecmiAgents] = useState<TelecmiAgentRow[]>(() =>
     (existing?.connection_config.parallel_agents ?? []).map((agent) => newTelecmiAgentRow(agent)),
   );
@@ -425,6 +448,7 @@ function ProviderConnectionDialog({
     inboundBranches[0]?.id ??
     '';
   const mutation = useMutation({
+    meta: { errorToastDescription: true },
     mutationFn: async (request: ConnectRequest) => {
       if (request.kind === 'oauth') {
         const result = await startOAuthConnection({
@@ -438,6 +462,37 @@ function ProviderConnectionDialog({
         if (!isTrustedProviderAuthorizationUrl(result.authorization_url))
           throw new Error('UNTRUSTED_PROVIDER_AUTHORIZATION_URL');
         return { authorizationUrl: result.authorization_url };
+      }
+      if (request.kind === 'meta-direct') {
+        const result = await connectMetaDirect({
+          organizationId,
+          connectionId: existing?.id,
+          displayName: request.displayName,
+          scopeMode,
+          branchIds: effectiveBranchIds,
+          defaultBranchId: request.defaultBranchId,
+          defaultTeamId: request.defaultTeamId,
+          appId: request.appId,
+          appSecret: request.appSecret,
+          graphApiVersion: request.graphApiVersion,
+          pageId: request.pageId,
+          pageAccessToken: request.pageAccessToken,
+          webhookVerifyToken: request.webhookVerifyToken,
+        });
+        return {
+          authorizationUrl: null,
+          telecmiSetup: null,
+          portalSetup: {
+            provider_name: 'Meta Lead Ads',
+            account_label: result.account_label,
+            webhook_url: result.webhook_url,
+            instructions:
+              result.subscription_status === 'SUBSCRIBED'
+                ? 'Use this callback URL and the verify token you entered in Meta Webhooks. The Page is subscribed to leadgen.'
+                : 'First add this callback URL and the verify token you entered under Meta Webhooks. Then replace this credential once more so the CRM can finish subscribing the Page to leadgen.',
+            ready: result.subscription_status === 'SUBSCRIBED',
+          },
+        };
       }
       if (request.kind === 'ai') {
         await connectAiProvider({
@@ -595,6 +650,7 @@ function ProviderConnectionDialog({
         account_label: string;
         webhook_url: string;
         instructions: string;
+        ready?: boolean;
       } | null;
     }) => {
       if (authorizationUrl) {
@@ -646,6 +702,21 @@ function ProviderConnectionDialog({
               event.preventDefault();
               const form = new FormData(event.currentTarget);
               const displayName = String(form.get('displayName') ?? '').trim();
+              if (providerKey === 'meta' && metaConnectionMode === 'MANUAL_API') {
+                mutation.mutate({
+                  kind: 'meta-direct',
+                  displayName,
+                  appId: String(form.get('metaAppId') ?? '').trim(),
+                  appSecret: String(form.get('metaAppSecret') ?? '').trim(),
+                  graphApiVersion: String(form.get('metaGraphApiVersion') ?? '').trim(),
+                  pageId: String(form.get('metaPageId') ?? '').trim(),
+                  pageAccessToken: String(form.get('metaPageAccessToken') ?? '').trim(),
+                  webhookVerifyToken: String(form.get('metaWebhookVerifyToken') ?? '').trim(),
+                  defaultBranchId: selectedInboundBranch,
+                  defaultTeamId,
+                });
+                return;
+              }
               if (providerKey === 'whatsapp_cloud') {
                 mutation.mutate({
                   kind: 'whatsapp',
@@ -750,6 +821,7 @@ function ProviderConnectionDialog({
                   if (!existing) {
                     setDisplayName(providerLabel(next));
                   }
+                  if (next === 'meta') setMetaConnectionMode('MANUAL_API');
                 }}
               >
                 <SelectTrigger>
@@ -787,6 +859,169 @@ function ProviderConnectionDialog({
                 onScopeModeChange={setScopeMode}
                 onSelectedBranchIdsChange={setSelectedBranchIds}
               />
+            )}
+            {providerKey === 'meta' && options.data && (
+              <div className="grid gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4 sm:grid-cols-2">
+                <div className="space-y-2 sm:col-span-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                    <Cable className="size-4" />
+                    <span>Meta Lead Ads connection</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Manual API mode is intended for a Meta app in Development mode. The Edge
+                    Function verifies the Page credential, encrypts all secrets, subscribes the Page
+                    to leadgen, and routes incoming leads to the selected Telecaller team.
+                  </p>
+                </div>
+
+                <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                  Connection method
+                  <Select
+                    value={metaConnectionMode}
+                    disabled={Boolean(existing)}
+                    onValueChange={(value) =>
+                      setMetaConnectionMode(value as 'MANUAL_API' | 'OAUTH')
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="MANUAL_API">Manual API — development/testing</SelectItem>
+                      <SelectItem value="OAUTH">Meta OAuth — standard approval</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+
+                {metaConnectionMode === 'MANUAL_API' ? (
+                  <>
+                    <label className="grid gap-1.5 text-sm font-medium">
+                      Meta App ID
+                      <Input
+                        name="metaAppId"
+                        required
+                        pattern="[0-9]+"
+                        minLength={5}
+                        maxLength={32}
+                        defaultValue={existing?.connection_config.app_id ?? ''}
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label className="grid gap-1.5 text-sm font-medium">
+                      Graph API version
+                      <Input
+                        name="metaGraphApiVersion"
+                        required
+                        pattern="v[0-9]+\.[0-9]+"
+                        placeholder="vXX.X"
+                        defaultValue={existing?.connection_config.graph_api_version ?? ''}
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                      Meta App Secret
+                      <PasswordInput
+                        name="metaAppSecret"
+                        required={!existingSecretStored}
+                        minLength={16}
+                        maxLength={512}
+                        autoComplete="new-password"
+                        placeholder={storedSecretPlaceholder}
+                      />
+                      <span className="text-xs font-normal text-muted-foreground">
+                        {existingSecretStored
+                          ? 'Leave blank to keep the encrypted App Secret, or enter a new one to rotate it.'
+                          : 'Sent only to the authenticated Edge Function, encrypted, and never returned.'}
+                      </span>
+                    </label>
+                    <label className="grid gap-1.5 text-sm font-medium">
+                      Facebook Page ID
+                      <Input
+                        name="metaPageId"
+                        required
+                        pattern="[0-9]+"
+                        minLength={5}
+                        maxLength={32}
+                        defaultValue={existing?.external_account_id ?? ''}
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label className="grid gap-1.5 text-sm font-medium">
+                      Webhook verify token
+                      <PasswordInput
+                        name="metaWebhookVerifyToken"
+                        required={!existingSecretStored}
+                        minLength={16}
+                        maxLength={256}
+                        autoComplete="new-password"
+                        placeholder={storedSecretPlaceholder}
+                      />
+                    </label>
+                    <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                      Page or authorized User access token
+                      <PasswordInput
+                        name="metaPageAccessToken"
+                        required={!existingSecretStored}
+                        minLength={20}
+                        maxLength={4096}
+                        autoComplete="new-password"
+                        placeholder={storedSecretPlaceholder}
+                      />
+                      <span className="text-xs font-normal text-muted-foreground">
+                        {existingSecretStored
+                          ? 'Leave blank to keep the encrypted token. Enter a new token only to rotate it.'
+                          : 'For development/testing, an authorized User token is accepted and the Page token is derived server-side. Required permissions: leads_retrieval, pages_manage_ads, pages_manage_metadata, pages_read_engagement and pages_show_list.'}
+                      </span>
+                    </label>
+                    <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                      Lead destination branch
+                      <Select
+                        value={selectedInboundBranch}
+                        onValueChange={(value) => {
+                          setDefaultInboundBranchId(value);
+                          setDefaultTeamId('none');
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select branch" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {inboundBranches.map((branch) => (
+                            <SelectItem key={branch.id} value={branch.id}>
+                              {branch.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </label>
+                    <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                      Assign to Telecaller team
+                      <Select value={defaultTeamId} onValueChange={setDefaultTeamId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select team" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Select a team</SelectItem>
+                          {teams.map((team) => (
+                            <SelectItem key={team.id} value={team.id}>
+                              {team.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <span className="text-xs font-normal text-muted-foreground">
+                        The team must use Round Robin and contain active, fresh-lead-eligible
+                        Telecallers.
+                      </span>
+                    </label>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground sm:col-span-2">
+                    OAuth uses the platform Meta app and redirects you to Facebook. Use this after
+                    the required Meta permissions have standard or advanced access.
+                  </p>
+                )}
+              </div>
             )}
             {providerKey === 'whatsapp_cloud' && options.data && (
               <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
@@ -853,11 +1088,17 @@ function ProviderConnectionDialog({
                   <Input
                     name="accessToken"
                     type="password"
-                    required
+                    required={!existingSecretStored}
                     minLength={20}
                     maxLength={4096}
                     autoComplete="new-password"
+                    placeholder={storedSecretPlaceholder}
                   />
+                  <span className="text-[11px] text-muted-foreground">
+                    {existingSecretStored
+                      ? 'Stored encrypted. Leave blank to keep it, or enter a new token to rotate it.'
+                      : 'Stored encrypted and never returned to the browser.'}
+                  </span>
                 </label>
               </div>
             )}
@@ -911,14 +1152,16 @@ function ProviderConnectionDialog({
                   <Input
                     name="indiamartCrmKey"
                     type="password"
-                    required
+                    required={!existingSecretStored}
                     minLength={6}
                     maxLength={256}
-                    placeholder="Paste GLUSR_MOBILE_KEY"
+                    placeholder={storedSecretPlaceholder ?? 'Paste GLUSR_MOBILE_KEY'}
                     autoComplete="new-password"
                   />
                   <span className="text-[11px] text-muted-foreground">
-                    From IndiaMART Seller CRM API settings.
+                    {existingSecretStored
+                      ? 'Stored encrypted. Leave blank to keep it, or enter a new key to rotate it.'
+                      : 'From IndiaMART Seller CRM API settings.'}
                   </span>
                 </label>
 
@@ -996,14 +1239,16 @@ function ProviderConnectionDialog({
                   <Input
                     name="carwaleApiKey"
                     type="password"
-                    required
+                    required={!existingSecretStored}
                     minLength={6}
                     maxLength={256}
-                    placeholder="Paste CarWale Dealer API Key"
+                    placeholder={storedSecretPlaceholder ?? 'Paste CarWale Dealer API Key'}
                     autoComplete="new-password"
                   />
                   <span className="text-[11px] text-muted-foreground">
-                    Secret API key from CarWale CRM settings.
+                    {existingSecretStored
+                      ? 'Stored encrypted. Leave blank to keep it, or enter a new key to rotate it.'
+                      : 'Secret API key from CarWale CRM settings.'}
                   </span>
                 </label>
 
@@ -1080,14 +1325,16 @@ function ProviderConnectionDialog({
                   <Input
                     name="cardekhoApiKey"
                     type="password"
-                    required
+                    required={!existingSecretStored}
                     minLength={6}
                     maxLength={256}
-                    placeholder="Paste CarDekho API Token"
+                    placeholder={storedSecretPlaceholder ?? 'Paste CarDekho API Token'}
                     autoComplete="new-password"
                   />
                   <span className="text-[11px] text-muted-foreground">
-                    From CarDekho Dealer API configuration.
+                    {existingSecretStored
+                      ? 'Stored encrypted. Leave blank to keep it, or enter a new token to rotate it.'
+                      : 'From CarDekho Dealer API configuration.'}
                   </span>
                 </label>
 
@@ -1165,14 +1412,16 @@ function ProviderConnectionDialog({
                   <Input
                     name="justdialApiKey"
                     type="password"
-                    required
+                    required={!existingSecretStored}
                     minLength={6}
                     maxLength={256}
-                    placeholder="Paste Justdial API Token"
+                    placeholder={storedSecretPlaceholder ?? 'Paste Justdial API Token'}
                     autoComplete="new-password"
                   />
                   <span className="text-[11px] text-muted-foreground">
-                    From Justdial Lead Capture Webhook / API settings.
+                    {existingSecretStored
+                      ? 'Stored encrypted. Leave blank to keep it, or enter a new token to rotate it.'
+                      : 'From Justdial Lead Capture Webhook / API settings.'}
                   </span>
                 </label>
 
@@ -1262,7 +1511,7 @@ function ProviderConnectionDialog({
                     minLength={8}
                     maxLength={512}
                     autoComplete="new-password"
-                    placeholder={existingSecretStored ? '•'.repeat(12) : undefined}
+                    placeholder={storedSecretPlaceholder}
                     value={telecmiAppSecret}
                     onChange={(event) => setTelecmiAppSecret(event.target.value)}
                   />
@@ -1405,19 +1654,37 @@ function ProviderConnectionDialog({
               </Alert>
             ) : null}
             {portalSetup ? (
-              <Alert className="border-emerald-500/30 bg-emerald-50 text-emerald-900">
-                <CheckCircle2 className="size-5 text-emerald-600" />
-                <AlertTitle className="font-semibold text-emerald-800">
-                  {portalSetup.provider_name} Account Connected & Synced
+              <Alert
+                className={
+                  portalSetup.ready === false
+                    ? 'border-amber-500/30 bg-amber-50 text-amber-900'
+                    : 'border-emerald-500/30 bg-emerald-50 text-emerald-900'
+                }
+              >
+                <CheckCircle2
+                  className={`size-5 ${portalSetup.ready === false ? 'text-amber-600' : 'text-emerald-600'}`}
+                />
+                <AlertTitle
+                  className={`font-semibold ${portalSetup.ready === false ? 'text-amber-800' : 'text-emerald-800'}`}
+                >
+                  {portalSetup.provider_name}{' '}
+                  {portalSetup.ready === false
+                    ? 'Callback configuration required'
+                    : 'Account Connected & Synced'}
                 </AlertTitle>
-                <AlertDescription className="mt-1 grid gap-2 text-xs text-emerald-700">
+                <AlertDescription
+                  className={`mt-1 grid gap-2 text-xs ${portalSetup.ready === false ? 'text-amber-700' : 'text-emerald-700'}`}
+                >
                   <p>
-                    Account <strong>{portalSetup.account_label}</strong> is connected. All new buyer
-                    enquiries from {portalSetup.provider_name} are now synced in real time and
-                    automatically round-robined to your telecallers.
+                    Account <strong>{portalSetup.account_label}</strong> is connected.
+                    {portalSetup.ready === false
+                      ? ' Complete the provider callback step below before sending a test lead.'
+                      : ` All new buyer enquiries from ${portalSetup.provider_name} are now synced in real time and automatically round-robined to your telecallers.`}
                   </p>
                   <div>
-                    <span className="font-medium text-emerald-800">
+                    <span
+                      className={`font-medium ${portalSetup.ready === false ? 'text-amber-800' : 'text-emerald-800'}`}
+                    >
                       Your Live {portalSetup.provider_name} Webhook Endpoint:
                     </span>
                     <Input
@@ -1426,7 +1693,11 @@ function ProviderConnectionDialog({
                       className="mt-1 bg-white font-mono text-[11px] text-foreground"
                       value={portalSetup.webhook_url}
                     />
-                    <span className="text-[11px] text-emerald-700">{portalSetup.instructions}</span>
+                    <span
+                      className={`text-[11px] ${portalSetup.ready === false ? 'text-amber-700' : 'text-emerald-700'}`}
+                    >
+                      {portalSetup.instructions}
+                    </span>
                   </div>
                 </AlertDescription>
               </Alert>
@@ -1497,11 +1768,17 @@ function ProviderConnectionDialog({
                   <Input
                     name="apiKey"
                     type="password"
-                    required
+                    required={!existingSecretStored}
                     minLength={10}
                     maxLength={512}
                     autoComplete="new-password"
+                    placeholder={storedSecretPlaceholder}
                   />
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {existingSecretStored
+                      ? 'Stored encrypted. Leave blank to keep it, or enter a new key to rotate it.'
+                      : 'Stored encrypted and never returned to the browser.'}
+                  </span>
                 </label>
               </div>
             )}
@@ -1528,6 +1805,9 @@ function ProviderConnectionDialog({
                     !options.data ||
                     !validScope ||
                     (providerKey === 'whatsapp_cloud' && !selectedInboundBranch) ||
+                    (providerKey === 'meta' &&
+                      metaConnectionMode === 'MANUAL_API' &&
+                      (!selectedInboundBranch || defaultTeamId === 'none')) ||
                     // The Edge Function requires at least one mapping, so an
                     // empty editor is stopped here rather than server-side.
                     (providerKey === 'telecmi' &&
@@ -1537,15 +1817,17 @@ function ProviderConnectionDialog({
                   <Link2 className="size-4" />
                   {mutation.isPending
                     ? 'Connecting…'
-                    : ['indiamart', 'carwale', 'cardekho', 'justdial'].includes(providerKey)
-                      ? 'Connect & Auto-Configure'
-                      : providerKey === 'whatsapp_cloud'
-                        ? 'Test and save'
-                        : providerKey === 'openrouter' ||
-                            providerKey === 'groq' ||
-                            providerKey === 'telecmi'
-                          ? 'Verify and save'
-                          : 'Continue with provider'}
+                    : providerKey === 'meta' && metaConnectionMode === 'MANUAL_API'
+                      ? 'Verify and save'
+                      : ['indiamart', 'carwale', 'cardekho', 'justdial'].includes(providerKey)
+                        ? 'Connect & Auto-Configure'
+                        : providerKey === 'whatsapp_cloud'
+                          ? 'Test and save'
+                          : providerKey === 'openrouter' ||
+                              providerKey === 'groq' ||
+                              providerKey === 'telecmi'
+                            ? 'Verify and save'
+                            : 'Continue with provider'}
                 </Button>
               ) : null}
             </div>
@@ -1921,12 +2203,15 @@ function ConnectionDetailSheet({
                 {testing ? 'Testing…' : 'Test connection'}
               </Button>
             )}
-          {canManage && isOAuth && connection.status === 'CONNECTED' && (
-            <Button variant="outline" onClick={onMap}>
-              <Settings2 className="size-4" />
-              Map assets
-            </Button>
-          )}
+          {canManage &&
+            isOAuth &&
+            connection.connection_config.connection_type !== 'META_DIRECT' &&
+            connection.status === 'CONNECTED' && (
+              <Button variant="outline" onClick={onMap}>
+                <Settings2 className="size-4" />
+                Map assets
+              </Button>
+            )}
           {canManage &&
             (connection.provider_key !== 'telecmi' || canManageTelecmi) &&
             [
@@ -1938,6 +2223,7 @@ function ConnectionDetailSheet({
               'carwale',
               'cardekho',
               'justdial',
+              ...(connection.connection_config.connection_type === 'META_DIRECT' ? ['meta'] : []),
             ].includes(connection.provider_key) && (
               <Button onClick={onReplace}>Replace credential</Button>
             )}
@@ -2053,10 +2339,12 @@ function IntegrationTable({
                     <RefreshCw className="size-3.5" />
                     Test
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => onMap(record)}>
-                    <Settings2 className="size-3.5" />
-                    Map assets
-                  </Button>
+                  {record.connection_config.connection_type !== 'META_DIRECT' ? (
+                    <Button size="sm" variant="outline" onClick={() => onMap(record)}>
+                      <Settings2 className="size-3.5" />
+                      Map assets
+                    </Button>
+                  ) : null}
                 </>
               )}
               {record.provider_key === 'whatsapp_cloud' && (
@@ -2064,6 +2352,12 @@ function IntegrationTable({
                   Replace credential
                 </Button>
               )}
+              {record.provider_key === 'meta' &&
+                record.connection_config.connection_type === 'META_DIRECT' && (
+                  <Button size="sm" variant="outline" onClick={() => onReplace(record)}>
+                    Replace credential
+                  </Button>
+                )}
               {record.provider_key === 'telecmi' && canManageTelecmi && (
                 <Button size="sm" variant="outline" onClick={() => onReplace(record)}>
                   Replace credential

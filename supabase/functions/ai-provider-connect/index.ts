@@ -1,11 +1,12 @@
 import { z } from 'npm:zod@4';
-import { encryptJson } from '../_shared/crypto.ts';
+import { decryptJson, encryptJson } from '../_shared/crypto.ts';
 import {
   testAiProviderCredential,
   type AiProviderKey,
   type AiProviderModels,
 } from '../_shared/ai-provider.ts';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
+import { resolveStoredProviderSecret } from '../_shared/stored-provider-secret.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
 
 const modelSchema = z
@@ -26,9 +27,18 @@ const schema = z
     image_model: modelSchema.optional(),
     transcription_model: modelSchema.optional(),
     analysis_model: modelSchema.optional(),
-    api_key: z.string().trim().min(10).max(512),
+    api_key: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z.string().trim().min(10).max(512).optional(),
+    ),
   })
   .superRefine((input, context) => {
+    if (!input.connection_id && !input.api_key)
+      context.addIssue({
+        code: 'custom',
+        path: ['api_key'],
+        message: 'An API key is required for a new connection.',
+      });
     if (
       !input.text_model &&
       !input.image_model &&
@@ -96,6 +106,25 @@ Deno.serve(async (request) => {
         );
     }
 
+    const admin = serviceClient();
+    let storedApiKey: string | undefined;
+    if (input.connection_id) {
+      const { data: stored, error: storedError } = await admin
+        .from('integration_credentials')
+        .select('encrypted_payload')
+        .eq('organization_id', input.organization_id)
+        .eq('connected_account_id', input.connection_id)
+        .maybeSingle();
+      if (storedError) throw storedError;
+      if (stored?.encrypted_payload)
+        storedApiKey = (await decryptJson<{ api_key?: string }>(stored.encrypted_payload)).api_key;
+    }
+    const resolvedApiKey = resolveStoredProviderSecret(
+      input.api_key,
+      storedApiKey,
+      'AI provider API key',
+    );
+
     const models: AiProviderModels = {
       ...(input.text_model ? { text_model: input.text_model } : {}),
       ...(input.image_model ? { image_model: input.image_model } : {}),
@@ -104,11 +133,10 @@ Deno.serve(async (request) => {
     };
     const testedProvider = await testAiProviderCredential(
       input.provider_key as AiProviderKey,
-      { api_key: input.api_key },
+      { api_key: resolvedApiKey },
       models,
     );
     const now = new Date().toISOString();
-    const admin = serviceClient();
     let connectionId = input.connection_id;
     const connectionConfig = {
       connection_type: 'AI_PROVIDER',
@@ -181,7 +209,7 @@ Deno.serve(async (request) => {
       {
         organization_id: input.organization_id,
         connected_account_id: connectionId,
-        encrypted_payload: await encryptJson({ api_key: input.api_key }),
+        encrypted_payload: await encryptJson({ api_key: resolvedApiKey }),
         key_version: (previousSecret?.key_version ?? 0) + 1,
         cipher_version: 'AES-256-GCM-v1',
         replaced_by: auth.user.id,

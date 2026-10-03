@@ -36,6 +36,7 @@ type ConnectedAccount = {
 type StoredOAuthCredential = {
   access_token: string;
   asset_access_tokens?: Record<string, string>;
+  graph_api_version?: string;
 };
 
 type WhatsAppCredential = {
@@ -355,7 +356,8 @@ async function dispatchMetaLead(
   const credential = await credentialFor<StoredOAuthCredential>(supabase, connection);
   const pageAccessToken = credential.asset_access_tokens?.[receipt.pageId];
   if (!pageAccessToken) throw new ProviderDispatchError('META_PAGE_RECONNECT_REQUIRED', true);
-  const graphVersion = requiredEnvironment('META_GRAPH_API_VERSION');
+  const graphVersion =
+    credential.graph_api_version?.trim() || requiredEnvironment('META_GRAPH_API_VERSION');
   if (!/^v\d+\.\d+$/.test(graphVersion))
     throw new ProviderDispatchError('META_GRAPH_API_VERSION_INVALID', false);
   const leadUrl = new URL(

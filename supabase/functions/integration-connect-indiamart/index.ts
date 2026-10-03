@@ -1,6 +1,7 @@
 import { z } from 'npm:zod@4';
-import { encryptJson } from '../_shared/crypto.ts';
+import { decryptJson, encryptJson } from '../_shared/crypto.ts';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
+import { resolveStoredProviderSecret } from '../_shared/stored-provider-secret.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
 
 const schema = z
@@ -12,9 +13,18 @@ const schema = z
     branch_ids: z.array(z.uuid()).max(100).default([]),
     default_team_id: z.uuid().optional(),
     mobile: z.string().trim().min(10).max(20),
-    crm_key: z.string().trim().min(6).max(256),
+    crm_key: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z.string().trim().min(6).max(256).optional(),
+    ),
   })
   .superRefine((input, context) => {
+    if (!input.connection_id && !input.crm_key)
+      context.addIssue({
+        code: 'custom',
+        path: ['crm_key'],
+        message: 'A CRM key is required for a new connection.',
+      });
     if (new Set(input.branch_ids).size !== input.branch_ids.length)
       context.addIssue({ code: 'custom', path: ['branch_ids'], message: 'Duplicate branch.' });
     if (input.scope_mode === 'ONE_BRANCH' && input.branch_ids.length !== 1)
@@ -86,11 +96,30 @@ Deno.serve(async (request) => {
       }
     }
 
+    const admin = serviceClient();
+    let storedCrmKey: string | undefined;
+    if (input.connection_id) {
+      const { data: stored, error: storedError } = await admin
+        .from('integration_credentials')
+        .select('encrypted_payload')
+        .eq('organization_id', input.organization_id)
+        .eq('connected_account_id', input.connection_id)
+        .maybeSingle();
+      if (storedError) throw storedError;
+      if (stored?.encrypted_payload)
+        storedCrmKey = (await decryptJson<{ crm_key?: string }>(stored.encrypted_payload)).crm_key;
+    }
+    const resolvedCrmKey = resolveStoredProviderSecret(
+      input.crm_key,
+      storedCrmKey,
+      'IndiaMART CRM key',
+    );
+
     // Clean mobile number (keep digits only for IndiaMART query)
     const normalizedMobile = input.mobile.replace(/[^\d]/g, '').slice(-10);
 
     // Verify credentials against IndiaMART CRM API
-    const indiamartApiUrl = `https://mapi.indiamart.com/wservce/enquiry/listing/GLUSR_MOBILE/${encodeURIComponent(normalizedMobile)}/GLUSR_MOBILE_KEY/${encodeURIComponent(input.crm_key)}/`;
+    const indiamartApiUrl = `https://mapi.indiamart.com/wservce/enquiry/listing/GLUSR_MOBILE/${encodeURIComponent(normalizedMobile)}/GLUSR_MOBILE_KEY/${encodeURIComponent(resolvedCrmKey)}/`;
 
     let providerOk = false;
     let providerAccountLabel = `IndiaMART (+91 ${normalizedMobile})`;
@@ -116,7 +145,7 @@ Deno.serve(async (request) => {
       }
     } catch {
       // In offline / dev mode without live outbound to IndiaMART or mock keys, allow if format is valid
-      if (input.crm_key.startsWith('test_') || input.crm_key.length >= 10) {
+      if (resolvedCrmKey.startsWith('test_') || resolvedCrmKey.length >= 10) {
         providerOk = true;
       }
     }
@@ -126,7 +155,6 @@ Deno.serve(async (request) => {
       providerOk = true;
     }
 
-    const admin = serviceClient();
     let connectionId = input.connection_id;
 
     if (!connectionId) {
@@ -189,7 +217,7 @@ Deno.serve(async (request) => {
     // Encrypt and store credentials
     const encryptedPayload = await encryptJson({
       mobile: normalizedMobile,
-      crm_key: input.crm_key,
+      crm_key: resolvedCrmKey,
       connected_at: new Date().toISOString(),
     });
 

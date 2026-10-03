@@ -37,8 +37,9 @@ describe('tenant AI provider connection contract', () => {
 
   it('keeps keys encrypted and never puts them in connection configuration or response data', () => {
     expect(connectFunction).toContain(
-      'encrypted_payload: await encryptJson({ api_key: input.api_key })',
+      'encrypted_payload: await encryptJson({ api_key: resolvedApiKey })',
     );
+    expect(connectFunction).toContain('resolveStoredProviderSecret(');
     expect(connectFunction).toContain('connection_config: connectionConfig');
     expect(connectFunction).toContain("'TEXT_GENERATION'");
     expect(connectFunction).toContain("'IMAGE_GENERATION'");

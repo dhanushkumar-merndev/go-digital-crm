@@ -77,6 +77,9 @@ verify_jwt = true
 [functions.integration-connect-whatsapp]
 verify_jwt = true
 
+[functions.integration-connect-meta]
+verify_jwt = true
+
 [functions.integration-connect-telecmi]
 verify_jwt = true
 

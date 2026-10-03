@@ -9,6 +9,14 @@ export type StoredOAuthCredential = {
   external_account_id: string;
   external_account_label: string;
   asset_access_tokens?: Record<string, string>;
+  connection_type?: 'META_DIRECT';
+  app_id?: string;
+  app_secret?: string;
+  graph_api_version?: string;
+  page_id?: string;
+  page_access_token?: string;
+  webhook_verify_token?: string;
+  webhook_route_token?: string;
 };
 
 export type ProviderAsset = {
@@ -55,6 +63,16 @@ function configuration(provider: OAuthProviderKey) {
         ? 'openid email https://www.googleapis.com/auth/adwords'
         : 'openid email https://www.googleapis.com/auth/business.manage',
   };
+}
+
+export function metaGraphApiVersion(credential?: StoredOAuthCredential) {
+  const directVersion =
+    credential?.connection_type === 'META_DIRECT'
+      ? credential.graph_api_version?.trim()
+      : undefined;
+  const version = directVersion || requiredEnvironment('META_GRAPH_API_VERSION');
+  if (!/^v\d+\.\d+$/.test(version)) throw new Error('META_GRAPH_API_VERSION_INVALID');
+  return version;
 }
 
 async function responseJson<T>(response: Response, safeCode: string) {
@@ -198,9 +216,8 @@ export async function testOAuthCredential(
   provider: OAuthProviderKey,
   credential: StoredOAuthCredential,
 ) {
-  const config = configuration(provider);
   if (provider === 'meta') {
-    const url = new URL(`https://graph.facebook.com/${config.apiVersion}/me`);
+    const url = new URL(`https://graph.facebook.com/${metaGraphApiVersion(credential)}/me`);
     url.search = new URLSearchParams({
       fields: 'id,name',
       access_token: credential.access_token,
@@ -214,6 +231,7 @@ export async function testOAuthCredential(
       accountLabel: account.name ?? credential.external_account_label,
     };
   }
+  const config = configuration(provider);
   if (provider === 'google_ads') {
     const response = await providerFetch(
       `https://googleads.googleapis.com/${config.apiVersion}/customers:listAccessibleCustomers`,
@@ -294,6 +312,24 @@ export async function discoverProviderAssets(
   parentAssetId?: string,
 ): Promise<{ assets: ProviderAsset[]; assetAccessTokens: Record<string, string> }> {
   if (provider === 'meta') {
+    if (
+      credential.connection_type === 'META_DIRECT' &&
+      credential.page_id &&
+      credential.asset_access_tokens?.[credential.page_id]
+    ) {
+      return {
+        assets: [
+          {
+            id: credential.page_id,
+            type: 'META_PAGE',
+            label: credential.external_account_label || `Page ${credential.page_id}`,
+          },
+        ],
+        assetAccessTokens: {
+          [credential.page_id]: credential.asset_access_tokens[credential.page_id],
+        },
+      };
+    }
     const config = configuration(provider);
     const url = new URL(`https://graph.facebook.com/${config.apiVersion}/me/accounts`);
     url.search = new URLSearchParams({

@@ -1,6 +1,7 @@
 import { z } from 'npm:zod@4';
-import { encryptJson } from '../_shared/crypto.ts';
+import { decryptJson, encryptJson } from '../_shared/crypto.ts';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
+import { resolveStoredProviderSecret } from '../_shared/stored-provider-secret.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
 
 const schema = z
@@ -12,9 +13,18 @@ const schema = z
     branch_ids: z.array(z.uuid()).max(100).default([]),
     default_team_id: z.uuid().optional(),
     dealer_id: z.string().trim().min(2).max(64),
-    api_key: z.string().trim().min(6).max(256),
+    api_key: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z.string().trim().min(6).max(256).optional(),
+    ),
   })
   .superRefine((input, context) => {
+    if (!input.connection_id && !input.api_key)
+      context.addIssue({
+        code: 'custom',
+        path: ['api_key'],
+        message: 'An API key is required for a new connection.',
+      });
     if (new Set(input.branch_ids).size !== input.branch_ids.length)
       context.addIssue({ code: 'custom', path: ['branch_ids'], message: 'Duplicate branch.' });
     if (input.scope_mode === 'ONE_BRANCH' && input.branch_ids.length !== 1)
@@ -86,10 +96,28 @@ Deno.serve(async (request) => {
       }
     }
 
+    const admin = serviceClient();
+    let storedApiKey: string | undefined;
+    if (input.connection_id) {
+      const { data: stored, error: storedError } = await admin
+        .from('integration_credentials')
+        .select('encrypted_payload')
+        .eq('organization_id', input.organization_id)
+        .eq('connected_account_id', input.connection_id)
+        .maybeSingle();
+      if (storedError) throw storedError;
+      if (stored?.encrypted_payload)
+        storedApiKey = (await decryptJson<{ api_key?: string }>(stored.encrypted_payload)).api_key;
+    }
+    const resolvedApiKey = resolveStoredProviderSecret(
+      input.api_key,
+      storedApiKey,
+      'CarDekho API key',
+    );
+
     const normalizedDealerId = input.dealer_id.trim();
     const providerAccountLabel = `CarDekho Dealer (${normalizedDealerId})`;
 
-    const admin = serviceClient();
     let connectionId = input.connection_id;
 
     if (!connectionId) {
@@ -159,7 +187,7 @@ Deno.serve(async (request) => {
 
     const encryptedPayload = await encryptJson({
       dealer_id: normalizedDealerId,
-      api_key: input.api_key.trim(),
+      api_key: resolvedApiKey,
     });
 
     const { error: credentialError } = await admin.from('integration_credentials').upsert(

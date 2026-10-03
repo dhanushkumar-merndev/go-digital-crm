@@ -3,6 +3,7 @@ import { decryptJson, encryptJson } from '../_shared/crypto.ts';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
 import {
   discoverProviderAssets,
+  metaGraphApiVersion,
   refreshOAuthCredential,
   type OAuthProviderKey,
   type StoredOAuthCredential,
@@ -131,8 +132,7 @@ Deno.serve(async (request) => {
       ),
     );
     if (provider === 'meta') {
-      const graphVersion = Deno.env.get('META_GRAPH_API_VERSION')?.trim();
-      if (!graphVersion) throw new Error('META_GRAPH_API_VERSION_MISSING');
+      const graphVersion = metaGraphApiVersion(refreshed.credential);
       const selectedPages = Array.from(
         new Set(
           input.mappings

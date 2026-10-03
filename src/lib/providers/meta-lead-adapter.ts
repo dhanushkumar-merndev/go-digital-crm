@@ -1,5 +1,5 @@
-import type { CanonicalLeadInput } from './contracts';
-import { mappedLeadValues, type LeadFieldMappingRule } from './lead-field-mapping';
+import type { CanonicalLeadInput } from './contracts.ts';
+import { mappedLeadValues, type LeadFieldMappingRule } from './lead-field-mapping.ts';
 
 export type MetaLeadEvent = {
   eventId: string;

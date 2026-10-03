@@ -48,6 +48,10 @@ export type IntegrationRecord = {
     team_name?: string | null;
     ai_stream_enabled?: boolean;
     ai_stream_ws_url?: string | null;
+    app_id?: string;
+    graph_api_version?: string;
+    page_id?: string;
+    subscription_status?: string;
     models?: {
       text_model?: string;
       image_model?: string;
@@ -166,8 +170,8 @@ export async function fetchIntegrationWorkspace(query: IntegrationQuery) {
       const connectionMappings = mappings.filter(
         (mapping) => mapping.connected_account_id === record.id,
       );
-      const inbound = connectionMappings.find(
-        (mapping) => mapping.external_resource_type === 'WHATSAPP_PHONE_NUMBER',
+      const inbound = connectionMappings.find((mapping) =>
+        ['WHATSAPP_PHONE_NUMBER', 'META_PAGE'].includes(mapping.external_resource_type ?? ''),
       );
       return {
         ...record,
@@ -293,6 +297,44 @@ export function connectWhatsApp(input: {
       access_token: input.accessToken,
     },
   );
+}
+
+export function connectMetaDirect(input: {
+  organizationId: string;
+  connectionId?: string;
+  displayName: string;
+  scopeMode: IntegrationScopeMode;
+  branchIds: string[];
+  defaultBranchId: string;
+  defaultTeamId: string;
+  appId: string;
+  appSecret: string;
+  graphApiVersion: string;
+  pageId: string;
+  pageAccessToken: string;
+  webhookVerifyToken: string;
+}) {
+  return invokeIntegrationFunction<{
+    connection_id: string;
+    account_label: string;
+    status: string;
+    subscription_status: 'SUBSCRIBED' | 'PENDING';
+    webhook_url: string;
+  }>('integration-connect-meta', {
+    organization_id: input.organizationId,
+    connection_id: input.connectionId,
+    display_name: input.displayName,
+    scope_mode: input.scopeMode,
+    branch_ids: input.branchIds,
+    default_branch_id: input.defaultBranchId,
+    default_team_id: input.defaultTeamId,
+    app_id: input.appId,
+    app_secret: input.appSecret,
+    graph_api_version: input.graphApiVersion,
+    page_id: input.pageId,
+    page_access_token: input.pageAccessToken,
+    webhook_verify_token: input.webhookVerifyToken,
+  });
 }
 
 export function connectIndiaMart(input: {
