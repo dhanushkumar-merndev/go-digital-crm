@@ -453,6 +453,7 @@ function ProviderConnectionDialog({
       if (request.kind === 'oauth') {
         const result = await startOAuthConnection({
           organizationId,
+          connectionId: existing?.id,
           providerKey: request.providerKey,
           displayName: request.displayName,
           scopeMode,
@@ -878,7 +879,7 @@ function ProviderConnectionDialog({
                   Connection method
                   <Select
                     value={metaConnectionMode}
-                    disabled={Boolean(existing)}
+                    disabled={Boolean(existing && existing.provider_key !== 'meta')}
                     onValueChange={(value) =>
                       setMetaConnectionMode(value as 'MANUAL_API' | 'OAUTH')
                     }
@@ -1017,8 +1018,9 @@ function ProviderConnectionDialog({
                   </>
                 ) : (
                   <p className="text-xs text-muted-foreground sm:col-span-2">
-                    OAuth uses the platform Meta app and redirects you to Facebook. Use this after
-                    the required Meta permissions have standard or advanced access.
+                    OAuth uses the platform Meta app and redirects you to Facebook. Existing manual
+                    credentials remain active until Facebook authorization and Page access checks
+                    succeed.
                   </p>
                 )}
               </div>
@@ -1819,15 +1821,17 @@ function ProviderConnectionDialog({
                     ? 'Connecting…'
                     : providerKey === 'meta' && metaConnectionMode === 'MANUAL_API'
                       ? 'Verify and save'
-                      : ['indiamart', 'carwale', 'cardekho', 'justdial'].includes(providerKey)
-                        ? 'Connect & Auto-Configure'
-                        : providerKey === 'whatsapp_cloud'
-                          ? 'Test and save'
-                          : providerKey === 'openrouter' ||
-                              providerKey === 'groq' ||
-                              providerKey === 'telecmi'
-                            ? 'Verify and save'
-                            : 'Continue with provider'}
+                      : providerKey === 'meta' && existing
+                        ? 'Reconnect with Facebook'
+                        : ['indiamart', 'carwale', 'cardekho', 'justdial'].includes(providerKey)
+                          ? 'Connect & Auto-Configure'
+                          : providerKey === 'whatsapp_cloud'
+                            ? 'Test and save'
+                            : providerKey === 'openrouter' ||
+                                providerKey === 'groq' ||
+                                providerKey === 'telecmi'
+                              ? 'Verify and save'
+                              : 'Continue with provider'}
                 </Button>
               ) : null}
             </div>

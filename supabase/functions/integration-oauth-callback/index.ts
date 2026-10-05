@@ -1,7 +1,13 @@
 import { decryptJson, encryptJson, sha256Base64Url } from '../_shared/crypto.ts';
 import { failure, preflight, requestId as getRequestId } from '../_shared/http.ts';
 import {
+  oauthCallbackFailureUpdate,
+  prepareMetaOAuthReconnect,
+} from '../../../src/lib/providers/meta-oauth-reconnect.ts';
+import {
+  discoverProviderAssets,
   exchangeOAuthCode,
+  metaGraphApiVersion,
   type OAuthProviderKey,
   type StoredOAuthCredential,
 } from '../_shared/provider-oauth.ts';
@@ -15,6 +21,14 @@ type OAuthState = {
   provider_key: OAuthProviderKey;
   code_verifier_encrypted: string | Uint8Array | null;
   redirect_path: string;
+};
+
+type ConnectionSnapshot = {
+  id: string;
+  provider_key: string;
+  status: string;
+  external_account_id: string | null;
+  connection_config: Record<string, unknown>;
 };
 
 function appRedirect(path: string, parameters: Record<string, string>) {
@@ -43,6 +57,7 @@ Deno.serve(async (request) => {
 
   const admin = serviceClient();
   let claimedState: OAuthState | null = null;
+  let previousConnection: ConnectionSnapshot | null = null;
   try {
     const claimedAt = new Date().toISOString();
     const { data, error } = await admin
@@ -64,6 +79,21 @@ Deno.serve(async (request) => {
       );
     claimedState = data as OAuthState;
 
+    const { data: connection, error: connectionLookupError } = await admin
+      .from('connected_accounts')
+      .select('id,provider_key,status,external_account_id,connection_config')
+      .eq('id', claimedState.connected_account_id)
+      .eq('organization_id', claimedState.organization_id)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (
+      connectionLookupError ||
+      !connection ||
+      connection.provider_key !== claimedState.provider_key
+    )
+      throw new Error('OAUTH_CONNECTION_MISMATCH');
+    previousConnection = connection as ConnectionSnapshot;
+
     if (providerError || !code) throw new Error('PROVIDER_AUTHORIZATION_DENIED');
     const callbackUrl = Deno.env.get('INTEGRATION_OAUTH_CALLBACK_URL')?.trim();
     if (!callbackUrl) throw new Error('INTEGRATION_OAUTH_CALLBACK_URL_MISSING');
@@ -71,41 +101,61 @@ Deno.serve(async (request) => {
     const verifier = verifierEnvelope
       ? (await decryptJson<{ verifier: string }>(verifierEnvelope)).verifier
       : undefined;
-    const credential = await exchangeOAuthCode(claimedState.provider_key, {
+    const exchangedCredential = await exchangeOAuthCode(claimedState.provider_key, {
       code,
       redirectUri: callbackUrl,
       codeVerifier: verifier,
     });
 
-    const { error: credentialError } = await admin.from('integration_credentials').upsert(
-      {
-        organization_id: claimedState.organization_id,
-        connected_account_id: claimedState.connected_account_id,
-        encrypted_payload: await encryptJson(credential),
-        key_version: 1,
-        cipher_version: 'AES-256-GCM-v1',
-        expires_at: credential.expires_at ?? null,
-        replaced_by: claimedState.requested_by,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'connected_account_id' },
-    );
-    if (credentialError) throw credentialError;
+    let credential: StoredOAuthCredential = exchangedCredential;
+    let connectionUpdate: Record<string, unknown> = {
+      status: 'CONNECTED',
+      auth_type: 'OAUTH2',
+      external_account_id: exchangedCredential.external_account_id,
+      token_expires_at: exchangedCredential.expires_at ?? null,
+      last_error_code: null,
+    };
+    if (
+      claimedState.provider_key === 'meta' &&
+      ['META_DIRECT', 'META_OAUTH'].includes(
+        String(previousConnection.connection_config.connection_type),
+      )
+    ) {
+      const discovered = await discoverProviderAssets('meta', exchangedCredential);
+      const replacement = prepareMetaOAuthReconnect({
+        credential: exchangedCredential,
+        connection: previousConnection,
+        graphApiVersion: metaGraphApiVersion(exchangedCredential),
+        assets: discovered.assets,
+        assetAccessTokens: discovered.assetAccessTokens,
+      });
+      credential = replacement.credential;
+      connectionUpdate = replacement.connectionUpdate;
+    }
 
     const now = new Date().toISOString();
-    const { error: connectionError } = await admin
-      .from('connected_accounts')
-      .update({
-        status: 'CONNECTED',
-        external_account_id: credential.external_account_id,
-        connected_at: now,
-        token_expires_at: credential.expires_at ?? null,
-        last_tested_at: now,
-        last_error_code: null,
-      })
-      .eq('id', claimedState.connected_account_id)
-      .eq('organization_id', claimedState.organization_id);
-    if (connectionError) throw connectionError;
+    const { error: completionError } = await admin.rpc('complete_integration_oauth_connection', {
+      target_organization_id: claimedState.organization_id,
+      target_connection_id: claimedState.connected_account_id,
+      target_encrypted_payload: await encryptJson(credential),
+      target_cipher_version: 'AES-256-GCM-v1',
+      target_expires_at: credential.expires_at ?? null,
+      target_replaced_by: claimedState.requested_by,
+      target_external_account_id:
+        typeof connectionUpdate.external_account_id === 'string'
+          ? connectionUpdate.external_account_id
+          : null,
+      target_connection_config:
+        (connectionUpdate.connection_config as Record<string, unknown> | undefined) ??
+        previousConnection.connection_config,
+      target_token_expires_at:
+        typeof connectionUpdate.token_expires_at === 'string'
+          ? connectionUpdate.token_expires_at
+          : null,
+      target_connected_at: now,
+      target_last_tested_at: now,
+    });
+    if (completionError) throw completionError;
 
     await admin.from('audit_logs').insert({
       organization_id: claimedState.organization_id,
@@ -127,7 +177,7 @@ Deno.serve(async (request) => {
     if (claimedState) {
       await admin
         .from('connected_accounts')
-        .update({ status: 'ERROR', last_error_code: 'OAUTH_CALLBACK_FAILED' })
+        .update(oauthCallbackFailureUpdate(previousConnection?.status ?? 'AUTHORIZING'))
         .eq('id', claimedState.connected_account_id);
       await admin.from('audit_logs').insert({
         organization_id: claimedState.organization_id,

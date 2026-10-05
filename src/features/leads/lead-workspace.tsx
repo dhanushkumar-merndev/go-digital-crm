@@ -285,9 +285,12 @@ function formatCompactDate(value: string | null) {
 }
 
 function formatLeadAge(createdAt: string) {
-  const hours = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 3_600_000));
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 60_000));
+  const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
-  return days ? `${days}d ${hours % 24}h` : `${hours}h`;
+  if (days) return `${days}d ${hours % 24}h`;
+  if (hours) return `${hours}h ${minutes % 60}m`;
+  return `${minutes}m`;
 }
 
 const preFollowupStages = new Set([

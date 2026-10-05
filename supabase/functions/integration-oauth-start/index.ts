@@ -1,4 +1,5 @@
 import { z } from 'npm:zod@4';
+import { oauthStartAuthorization } from '../../../src/lib/providers/integration-oauth-authorization.ts';
 import { encryptJson, randomBase64Url, sha256Base64Url } from '../_shared/crypto.ts';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
 import { authorizationUrl, type OAuthProviderKey } from '../_shared/provider-oauth.ts';
@@ -7,6 +8,7 @@ import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
 const schema = z
   .object({
     organization_id: z.uuid(),
+    connection_id: z.uuid().optional(),
     provider_key: z.enum(['meta', 'google_ads', 'google_business_profile']),
     display_name: z.string().trim().min(2).max(120),
     scope_mode: z.enum(['ONE_BRANCH', 'SELECTED_BRANCHES', 'ALL_BRANCHES']),
@@ -45,12 +47,16 @@ Deno.serve(async (request) => {
     if (!parsed.success)
       return failure('INVALID_PAYLOAD', 'Connection settings are invalid.', requestId, 422);
     const input = parsed.data;
-    const { data: permitted } = await client.rpc('authorize_integration_scope', {
-      target_organization_id: input.organization_id,
-      target_permission: 'integration.manage',
-      target_scope_mode: input.scope_mode,
-      target_branch_ids: input.branch_ids,
+    const authorization = oauthStartAuthorization({
+      connectionId: input.connection_id,
+      organizationId: input.organization_id,
+      scopeMode: input.scope_mode,
+      branchIds: input.branch_ids,
     });
+    const { data: permitted } =
+      authorization.rpc === 'authorize_integration_connection_action'
+        ? await client.rpc(authorization.rpc, authorization.args)
+        : await client.rpc(authorization.rpc, authorization.args);
     if (!permitted)
       return failure(
         'PERMISSION_DENIED',
@@ -63,23 +69,46 @@ Deno.serve(async (request) => {
     new URL(callbackUrl);
 
     const admin = serviceClient();
-    const { data: connection, error: connectionError } = await admin
-      .from('connected_accounts')
-      .insert({
-        organization_id: input.organization_id,
-        provider_key: input.provider_key,
-        display_name: input.display_name,
-        scope_mode: input.scope_mode,
-        status: 'AUTHORIZING',
-        auth_type: 'OAUTH2',
-        created_by: auth.user.id,
-      })
-      .select('id')
-      .single();
-    if (connectionError) throw connectionError;
-    pendingConnectionId = connection.id;
+    let connection: { id: string };
+    if (input.connection_id) {
+      const { data: existing, error: existingError } = await admin
+        .from('connected_accounts')
+        .select('id,provider_key')
+        .eq('id', input.connection_id)
+        .eq('organization_id', input.organization_id)
+        .is('deleted_at', null)
+        .maybeSingle();
+      if (existingError) throw existingError;
+      if (!existing)
+        return failure('CONNECTION_NOT_FOUND', 'The connection was not found.', requestId, 404);
+      if (existing.provider_key !== input.provider_key)
+        return failure(
+          'PROVIDER_CONNECTION_MISMATCH',
+          'The selected provider does not match this connection.',
+          requestId,
+          409,
+        );
+      connection = { id: existing.id };
+    } else {
+      const { data: created, error: connectionError } = await admin
+        .from('connected_accounts')
+        .insert({
+          organization_id: input.organization_id,
+          provider_key: input.provider_key,
+          display_name: input.display_name,
+          scope_mode: input.scope_mode,
+          status: 'AUTHORIZING',
+          auth_type: 'OAUTH2',
+          created_by: auth.user.id,
+        })
+        .select('id')
+        .single();
+      if (connectionError) throw connectionError;
+      connection = created;
+      pendingConnectionId = connection.id;
+    }
 
-    if (input.branch_ids.length > 0) {
+    if (!input.connection_id && input.branch_ids.length > 0) {
       const { error: mappingError } = await admin.from('integration_branch_mappings').insert(
         input.branch_ids.map((branchId) => ({
           organization_id: input.organization_id,
@@ -111,11 +140,17 @@ Deno.serve(async (request) => {
     await admin.from('audit_logs').insert({
       organization_id: input.organization_id,
       actor_id: auth.user.id,
-      action: 'integration.oauth_started',
+      action: input.connection_id
+        ? 'integration.oauth_reconnect_started'
+        : 'integration.oauth_started',
       resource_type: 'connected_account',
       resource_id: connection.id,
       request_id: requestId,
-      metadata: { provider_key: input.provider_key, scope_mode: input.scope_mode },
+      metadata: {
+        provider_key: input.provider_key,
+        scope_mode: input.scope_mode,
+        reconnect: Boolean(input.connection_id),
+      },
     });
 
     return success(

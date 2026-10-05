@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
+import { buildOAuthStartPayload, type OAuthStartInput } from './integration-oauth-connection';
 import {
   integrationSortOptions,
   toIntegrationSearchTerm,
@@ -246,27 +247,10 @@ export async function invokeIntegrationFunction<T>(name: string, body: Record<st
   return data.data;
 }
 
-export function startOAuthConnection(input: {
-  organizationId: string;
-  providerKey: Exclude<
-    IntegrationProviderKey,
-    'whatsapp_cloud' | 'telecmi' | 'whatsapp_personal_baileys' | 'indiamart'
-  >;
-  displayName: string;
-  scopeMode: IntegrationScopeMode;
-  branchIds: string[];
-  redirectPath: string;
-}) {
+export function startOAuthConnection(input: OAuthStartInput) {
   return invokeIntegrationFunction<{ authorization_url: string; connection_id: string }>(
     'integration-oauth-start',
-    {
-      organization_id: input.organizationId,
-      provider_key: input.providerKey,
-      display_name: input.displayName,
-      scope_mode: input.scopeMode,
-      branch_ids: input.branchIds,
-      redirect_path: input.redirectPath,
-    },
+    buildOAuthStartPayload(input),
   );
 }
 
