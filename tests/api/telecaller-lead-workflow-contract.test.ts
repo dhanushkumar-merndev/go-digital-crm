@@ -137,7 +137,10 @@ describe('Telecaller to Sales handoff', () => {
   it('lets the Telecaller pick a consultant or take the auto recommendation', () => {
     expect(workspace).toContain('function SalesHandoffDialog');
     expect(workspace).toContain("const AUTO_SALES_HANDOFF = 'auto'");
-    expect(workspace).toContain('Auto-assign · fewest open leads');
+    // The automatic rule follows the team's qualified-lead mode.
+    expect(workspace).toContain(
+      "Auto-assign · {autoRotates ? 'next in rotation' : 'fewest open leads'}",
+    );
     expect(workspace).toContain('{consultant.open_leads} open');
     expect(workspace).toContain('userId: selection === AUTO_SALES_HANDOFF ? null : selection');
     expect(workspace).toContain('function canHandOffToSales');

@@ -101,6 +101,7 @@ function FieldMappingEditor({
   const [rows, setRows] = useState<Row[]>(initialRows);
 
   const save = useMutation({
+    meta: { toast: false },
     mutationFn: saveIntegrationFieldMappings,
     onSuccess: (result) => {
       toast.add({

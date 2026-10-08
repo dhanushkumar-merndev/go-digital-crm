@@ -50,6 +50,7 @@ function PromptSettingsCard() {
     staleTime: 300_000,
   });
   const save = useMutation({
+    meta: { toast: false },
     mutationFn: saveAiImagePromptSettings,
     onSuccess: () => {
       toast.add({
@@ -139,6 +140,7 @@ function PromptSettingsCard() {
  */
 function SaveAssetDialog({ objectFileId, onClose }: { objectFileId: string; onClose: () => void }) {
   const save = useMutation({
+    meta: { toast: false },
     mutationFn: saveAiImageAsAsset,
     onSuccess: (result) => {
       toast.add({
@@ -225,6 +227,7 @@ export function AiImageCreationWorkspace({ spec }: { spec: PageSpec }) {
   const [count, setCount] = useState('1');
   const selected = connectionId || workspace.data?.connections[0]?.id || '';
   const queue = useMutation({
+    meta: { toast: false },
     mutationFn: (form: FormData) =>
       queueAiImage({
         organization_id: workspace.data?.organization_id,
@@ -252,6 +255,7 @@ export function AiImageCreationWorkspace({ spec }: { spec: PageSpec }) {
       }),
   });
   const image = useMutation({
+    meta: { toast: false },
     mutationFn: getAiImageUrl,
     onError: () =>
       toast.add({

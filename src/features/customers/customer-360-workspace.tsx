@@ -21,6 +21,7 @@ import { leadDetailHref } from '@/lib/navigation/record-links';
 import { useMemo, useState, type ReactNode } from 'react';
 import { CustomerDripPanel } from './customer-drip-panel';
 import { CustomerAdditionalFields } from './customer-additional-fields';
+import { CustomerPhoneEnquiries } from './customer-phone-enquiries';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
@@ -490,6 +491,7 @@ function Customer360Content({
   onTabChange,
   onCreateForTab,
   lazyState,
+  queryScope,
 }: {
   data: Customer360;
   role: string;
@@ -497,6 +499,7 @@ function Customer360Content({
   onTabChange?: (tab: Customer360Tab) => void;
   onCreateForTab?: (tab: Customer360Tab) => void;
   lazyState?: Customer360LazyState;
+  queryScope: readonly unknown[];
 }) {
   const [localActiveTab, setLocalActiveTab] = useState<Customer360Tab>('overview');
   const activeTab = controlledActiveTab ?? localActiveTab;
@@ -583,15 +586,11 @@ function Customer360Content({
                   'Last activity',
                 ]}
                 emptyLabel="Leads"
-                rowHref={(rowIndex) => `/${role}/leads/${data.leads[rowIndex]?.id ?? ''}`}
+                rowHref={(rowIndex) => leadDetailHref(role, data.leads[rowIndex]?.id ?? '')}
+                // DetailTable already wraps the first cell in the row's link, so
+                // passing a Link here would nest one <a> inside another.
                 rows={data.leads.map((lead) => [
-                  <Link
-                    key="id"
-                    href={leadDetailHref(role, lead.id)}
-                    className="font-medium hover:text-primary hover:underline"
-                  >
-                    {shortId(lead.id)}
-                  </Link>,
+                  shortId(lead.id),
                   lead.source,
                   lead.interested_model ?? '—',
                   <StatusBadge key="status" value={lead.lifecycle_status} />,
@@ -599,6 +598,12 @@ function Customer360Content({
                   lead.assigned_user_name ?? 'Unassigned',
                   formatDate(lead.updated_at),
                 ])}
+              />
+              <CustomerPhoneEnquiries
+                role={role}
+                customerId={data.customer.id}
+                customerName={data.customer.full_name}
+                queryScope={queryScope}
               />
             </TabsContent>
           )}
@@ -1089,6 +1094,7 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
         onTabChange={selectCustomerTab}
         onCreateForTab={createCustomerTabData}
         lazyState={lazyState}
+        queryScope={queryScope}
       />
       {permissions.canUpdate && editOpen ? (
         <CustomerEditDialog

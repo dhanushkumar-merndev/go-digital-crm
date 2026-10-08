@@ -7,6 +7,7 @@ import {
   type BranchWorkspacePreset,
 } from './branch-team-query';
 import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
+import { assignmentModes, type AssignmentMode } from '../leads/assignment-mode';
 
 const nullableText = z.string().nullable();
 const jsonObject = z.record(z.string(), z.unknown());
@@ -48,8 +49,8 @@ export const teamAdministrationRecordSchema = z.object({
   name: z.string(),
   manager_id: z.uuid().nullable(),
   manager_name: nullableText,
-  fresh_assignment_mode: z.enum(['ROUND_ROBIN', 'MANUAL_ASSIGNMENT']),
-  qualified_assignment_mode: z.enum(['ROUND_ROBIN', 'MANUAL_ASSIGNMENT']),
+  fresh_assignment_mode: z.enum(assignmentModes),
+  qualified_assignment_mode: z.enum(assignmentModes),
   active: z.boolean(),
   created_at: z.string(),
   updated_at: z.string(),
@@ -311,8 +312,8 @@ export type TeamMutationInput = {
   branchId: string;
   name: string;
   managerId: string | null;
-  freshMode: 'ROUND_ROBIN' | 'MANUAL_ASSIGNMENT';
-  qualifiedMode: 'ROUND_ROBIN' | 'MANUAL_ASSIGNMENT';
+  freshMode: AssignmentMode;
+  qualifiedMode: AssignmentMode;
   active: boolean;
   requestId: string;
 };

@@ -1,20 +1,22 @@
 import { z } from 'npm:zod@4';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
 import { authenticatedClient } from '../_shared/supabase.ts';
+import { enforceManualRefresh, readWorkspaceCache } from '../_shared/workspace-cache.ts';
 import {
-  enforceManualRefresh,
-  readWorkspaceCache,
-  type WorkspaceCacheResource,
-} from '../_shared/workspace-cache.ts';
+  DASHBOARD_CACHE_RESOURCES,
+  isDashboardCacheResource,
+  type DashboardCacheResource,
+} from './registry.ts';
 
 const schema = z.object({
-  resource: z.enum(['tenant-dashboard', 'inventory-dashboard', 'platform-dashboard']),
+  resource: z.string(),
+  params: z.record(z.string(), z.unknown()).optional().default({}),
   manual_refresh: z.boolean().optional().default(false),
 });
 
-// Rebuilt by an explicit manual refresh rather than by expiry, so a reopened
-// browser paints from Redis instead of replaying the aggregation.
-const DASHBOARD_CACHE_TTL_SECONDS = 24 * 60 * 60;
+// A ceiling for idle keys only. Freshness comes from the database data version:
+// an out-of-date entry is rebuilt on the next read, at most once per minute.
+const DASHBOARD_CACHE_TTL_SECONDS = 30 * 60;
 
 const cacheContextSchema = z.object({
   resource: z.enum(['tenant-dashboard', 'inventory-dashboard', 'platform-dashboard']),
@@ -27,22 +29,10 @@ const cacheContextSchema = z.object({
 
 async function loadResource(
   client: ReturnType<typeof authenticatedClient>,
-  resource: WorkspaceCacheResource,
+  resource: DashboardCacheResource,
+  args: Record<string, unknown>,
 ) {
-  if (resource === 'tenant-dashboard') {
-    const { data, error } = await client.rpc('get_tenant_dashboard_summary', {
-      target_days: 14,
-      target_timezone: 'Asia/Kolkata',
-    });
-    if (error) throw error;
-    return data;
-  }
-  if (resource === 'inventory-dashboard') {
-    const { data, error } = await client.rpc('get_inventory_dashboard');
-    if (error) throw error;
-    return data;
-  }
-  const { data, error } = await client.rpc('get_platform_dashboard');
+  const { data, error } = await client.rpc(DASHBOARD_CACHE_RESOURCES[resource].rpc, args);
   if (error) throw error;
   return data;
 }
@@ -55,8 +45,14 @@ Deno.serve(async (request) => {
     return failure('METHOD_NOT_ALLOWED', 'Only POST is supported.', requestId, 405);
   try {
     const parsed = schema.safeParse(await request.json());
-    if (!parsed.success)
+    if (!parsed.success || !isDashboardCacheResource(parsed.data.resource))
       return failure('INVALID_PAYLOAD', 'The dashboard cache request is invalid.', requestId, 422);
+    const resource = parsed.data.resource;
+    const definition = DASHBOARD_CACHE_RESOURCES[resource];
+    const params = definition.params.safeParse(parsed.data.params);
+    if (!params.success)
+      return failure('INVALID_PAYLOAD', 'The dashboard cache request is invalid.', requestId, 422);
+    const rpcArgs = params.data as Record<string, unknown>;
 
     const client = authenticatedClient(request);
     const accessToken = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
@@ -73,7 +69,7 @@ Deno.serve(async (request) => {
 
     let manualRefreshBudget: Awaited<ReturnType<typeof enforceManualRefresh>> | null = null;
     if (parsed.data.manual_refresh) {
-      manualRefreshBudget = await enforceManualRefresh(userId, parsed.data.resource);
+      manualRefreshBudget = await enforceManualRefresh(userId, resource);
       if (!manualRefreshBudget.allowed)
         return failure(
           'MANUAL_REFRESH_LIMITED',
@@ -85,28 +81,34 @@ Deno.serve(async (request) => {
 
     const { data: rawContext, error: contextError } = await client.rpc(
       'get_workspace_cache_context',
-      {
-        target_resource_key: parsed.data.resource,
-      },
+      { target_resource_key: definition.versionKey },
     );
     if (contextError)
       return failure('PERMISSION_DENIED', 'Dashboard access is not available.', requestId, 403);
     const context = cacheContextSchema.parse(rawContext);
     const result = await readWorkspaceCache({
-      resource: parsed.data.resource,
+      resource,
+      // Read before the rebuild and stored with the entry: a write committed
+      // during the load leaves the new entry already out of date.
       version: context.version,
       ttlSeconds: DASHBOARD_CACHE_TTL_SECONDS,
+      // Every aggregate here filters on auth.uid() somewhere (own records next
+      // to branch scope, managed teams, performance rows), so two users with an
+      // identical scope can still see different numbers. Entries are per user.
+      // The data version is deliberately not part of the identity, so an
+      // out-of-date entry can still be served while one request rebuilds it.
       fingerprintInput: {
-        resource: context.resource,
+        resource,
+        user_id: userId,
         scope_key: context.scope_key,
         scope_subject: context.scope_subject,
         role_key: context.role_key,
         permissions_fingerprint: context.permissions_fingerprint,
-        version: context.version,
-        query: { days: 14, timezone: 'Asia/Kolkata', schema: 1 },
+        params: rpcArgs,
+        schema: definition.schema,
       },
       forceRefresh: parsed.data.manual_refresh,
-      load: () => loadResource(client, parsed.data.resource),
+      load: () => loadResource(client, resource, rpcArgs),
     });
     return success(
       {

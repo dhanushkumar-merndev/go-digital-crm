@@ -14,17 +14,20 @@ const dashboardApi = readFileSync(
 );
 
 describe('dashboard read-through cache policy', () => {
-  it('keeps an in-session dashboard result in memory', () => {
+  it('keeps a dashboard result browser-side for thirty minutes', () => {
     expect(cachePolicy).toContain('DASHBOARD_QUERY_STALE_TIME_MS = 30 * 60_000');
     expect(cachePolicy).toContain('DASHBOARD_QUERY_GC_TIME_MS = 24 * 60 * 60_000');
     expect(dashboard).toContain('staleTime: DASHBOARD_QUERY_STALE_TIME_MS');
     expect(dashboard).toContain('gcTime: DASHBOARD_QUERY_GC_TIME_MS');
   });
 
-  it('holds the Redis entry for a day and explicitly invalidates it before refresh', () => {
-    expect(dashboardHandler).toContain('const SALES_DASHBOARD_CACHE_TTL_SECONDS = 24 * 60 * 60');
+  it('rebuilds a Redis entry once its data version moves, at most once a minute', () => {
+    expect(dashboardHandler).toContain('const SALES_DASHBOARD_CACHE_TTL_SECONDS = 30 * 60');
     expect(dashboardHandler).toContain('ttlSeconds: SALES_DASHBOARD_CACHE_TTL_SECONDS');
-    // The entry rebuilds on an explicit refresh, never on a passing read.
+    expect(dashboardHandler).toContain('version: dataVersion.data.version');
+    expect(workspaceCache).toContain('const DEFAULT_MIN_REBUILD_INTERVAL_MS = 60_000;');
+    expect(workspaceCache).toContain('data_version: input.version');
+    // An explicit refresh still drops the entry and rebuilds from PostgreSQL.
     expect(dashboardHandler).toContain('forceRefresh: parsed.data.manual_refresh');
     expect(workspaceCache).toContain('await redis.delete(key);');
   });
@@ -37,14 +40,14 @@ describe('dashboard read-through cache policy', () => {
     expect(workspaceCache).toContain('getManualRefreshStatus');
     expect(dashboardHandler).toContain('getManualRefreshStatus(userId');
     expect(dashboardHandler).toContain(
-      'const [resolvedRefreshBudget, contextResponse] = await Promise.all([',
+      'const [resolvedRefreshBudget, contextResponse, cacheContextResponse] = await Promise.all([',
     );
     expect(dashboard).toContain('manualRefreshRemaining === 0');
   });
 
   it('reports the moment the cached payload was built so staleness stays visible', () => {
     expect(workspaceCache).toContain('synced_at: string | null;');
-    expect(workspaceCache).toContain('synced_at: existing.created_at');
+    expect(workspaceCache).toContain('synced_at: entry.created_at');
     expect(workspaceCache).toContain('synced_at: rebuilt.created_at');
     expect(dashboardApi).toContain('synced_at: z.string().nullish()');
     expect(dashboard).toContain('Last synced {formatTime(data.cache.synced_at');

@@ -68,6 +68,7 @@ function SocialPostDraftDialog({
   const [requestId, setRequestId] = useState(newRequestId);
   const effectiveScope = scopeValue || defaultScope;
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: () =>
       createSocialPostDraft({
         platform,

@@ -80,6 +80,7 @@ function CreateCampaignDialog({ onClose }: { onClose: () => void }) {
     staleTime: 300_000,
   });
   const create = useMutation({
+    meta: { toast: false },
     mutationFn: createBulkCampaign,
     onSuccess: (result) => {
       toast.add({
@@ -267,6 +268,7 @@ export function BulkCampaignWorkspace({ spec }: { spec: PageSpec }) {
     refetchInterval: 15_000,
   });
   const cancel = useMutation({
+    meta: { toast: false },
     mutationFn: cancelBulkCampaign,
     onSuccess: (cancelled) => {
       toast.add({

@@ -105,6 +105,7 @@ export function NotificationCenterSheet({
     staleTime: 60_000,
   });
   const markRead = useMutation({
+    meta: { toast: false },
     mutationFn: markHeaderNotificationRead,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: notificationWorkspaceKey });

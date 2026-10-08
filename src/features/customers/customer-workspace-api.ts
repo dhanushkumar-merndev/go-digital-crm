@@ -537,6 +537,9 @@ const possibleMatchSchema = z.object({
   masked_phone: nullableString,
   masked_email: nullableString,
   match_reason: z.enum(['PHONE', 'EMAIL', 'PHONE_AND_EMAIL']),
+  lead_count: z.coerce.number().int().nonnegative(),
+  latest_interested_model: nullableString,
+  latest_enquiry_at: nullableString,
 });
 
 export type PossibleCustomerMatch = z.infer<typeof possibleMatchSchema>;
@@ -548,6 +551,37 @@ export async function fetchPossibleCustomerMatches(leadId: string, signal?: Abor
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   return z.array(possibleMatchSchema).parse(data ?? []);
+}
+
+const phoneEnquirySchema = z.object({
+  lead_id: z.uuid(),
+  customer_name: z.string(),
+  source: z.string(),
+  interested_model: nullableString,
+  lifecycle_status: z.string(),
+  branch_name: nullableString,
+  assigned_user_name: nullableString,
+  created_at: z.string(),
+  updated_at: z.string(),
+  linked_customer_id: z.uuid().nullable(),
+  linked_customer_name: nullableString,
+  can_link: z.boolean(),
+});
+
+export type CustomerPhoneEnquiry = z.infer<typeof phoneEnquirySchema>;
+
+/**
+ * Leads on this customer's phone numbers that are not linked to this customer,
+ * within the caller's lead scope. Listing them never links them: that stays an
+ * explicit resolve_lead_customer decision (AGENTS.md rule 11).
+ */
+export async function fetchCustomerPhoneEnquiries(customerId: string, signal?: AbortSignal) {
+  const request = createClient().rpc('get_customer_phone_enquiries', {
+    target_customer_id: customerId,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return z.array(phoneEnquirySchema).parse(data ?? []);
 }
 
 const resolutionSchema = z.object({

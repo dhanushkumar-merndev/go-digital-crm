@@ -3,6 +3,7 @@ import { decryptJson, encryptJson } from '../_shared/crypto.ts';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
 import { resolveStoredProviderSecret } from '../_shared/stored-provider-secret.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
+import { classifyWhatsAppGraphError } from '../../../src/lib/providers/whatsapp-cloud-adapter.ts';
 
 const schema = z
   .object({
@@ -139,18 +140,44 @@ Deno.serve(async (request) => {
     const providerTest = await fetch(testUrl, {
       headers: { authorization: `Bearer ${resolvedAccessToken}` },
     });
-    const providerAccount = (await providerTest.json().catch(() => null)) as {
+    const providerBody = (await providerTest.json().catch(() => null)) as unknown;
+    const providerAccount = providerBody as {
       id?: string;
       display_phone_number?: string;
       verified_name?: string;
     } | null;
-    if (!providerTest.ok || providerAccount?.id !== input.phone_number_id)
-      return failure(
-        'WHATSAPP_CONNECTION_TEST_FAILED',
-        'WhatsApp rejected the phone-number credential.',
-        requestId,
-        422,
-      );
+    if (!providerTest.ok || providerAccount?.id !== input.phone_number_id) {
+      const rejection = providerTest.ok
+        ? {
+            code: 'WHATSAPP_PHONE_NUMBER_ID_INVALID',
+            message:
+              'Meta returned a different object for that ID. Copy the phone number ID from WhatsApp Manager > API Setup.',
+            status: 422 as const,
+            providerCode: null,
+            providerSubcode: null,
+            providerType: null,
+            fbtraceId: null,
+          }
+        : classifyWhatsAppGraphError(providerTest.status, providerBody);
+      await admin.from('error_logs').insert({
+        organization_id: input.organization_id,
+        reference_id: requestId,
+        service: 'integration-connect-whatsapp',
+        safe_code: rejection.code,
+        safe_message: rejection.message,
+        sanitized_context: {
+          stage: failureStage,
+          http_status: providerTest.status,
+          provider_code: rejection.providerCode,
+          provider_subcode: rejection.providerSubcode,
+          provider_type: rejection.providerType,
+          fbtrace_id: rejection.fbtraceId,
+          phone_number_id: input.phone_number_id,
+          whatsapp_business_account_id: input.whatsapp_business_account_id,
+        },
+      });
+      return failure(rejection.code, rejection.message, requestId, rejection.status);
+    }
 
     failureStage = 'ROUTE_PREFLIGHT';
     const { data: activePhoneRoute, error: activePhoneRouteError } = await admin

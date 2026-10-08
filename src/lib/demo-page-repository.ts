@@ -89,7 +89,7 @@ function valueFor(key: string, index: number): string | number {
     lastCheck: 'Just now',
     name: `Configuration ${index + 1}`,
     value: index % 2 ? 'Enabled' : 'Configured',
-    approver: 'Showroom Manager',
+    approver: 'Sales Manager',
     purpose: 'Investigate provider synchronization',
     expires: '48 min',
   };

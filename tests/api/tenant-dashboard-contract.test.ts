@@ -15,6 +15,8 @@ const cacheMigration = source('supabase/migrations/202608150041_workspace_redis_
 const workspace = source('src/features/dashboards/tenant-dashboard.tsx');
 const api = source('src/features/dashboards/tenant-dashboard-api.ts');
 const edge = source('supabase/functions/dashboard-cache/index.ts');
+const registry = source('supabase/functions/dashboard-cache/registry.ts');
+const dashboardHook = source('src/features/dashboards/use-tenant-dashboard.ts');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
 
 describe('tenant performance dashboard backend contract', () => {
@@ -108,7 +110,8 @@ describe('tenant performance dashboard backend contract', () => {
 
 describe('tenant dashboard web contract', () => {
   it('uses TanStack Query, shadcn cards and Apache ECharts only', () => {
-    expect(workspace).toContain("from '@tanstack/react-query'");
+    expect(workspace).toContain('useTenantDashboard(dashboardKey, manualRefreshRequest)');
+    expect(dashboardHook).toContain("from '@tanstack/react-query'");
     expect(workspace).toContain("from '@/components/ui/card'");
     expect(workspace).toContain("from '@/components/charts/e-chart'");
     expect(workspace).toContain('kind="line"');
@@ -138,7 +141,7 @@ describe('tenant dashboard web contract', () => {
     expect(api).toContain("resource: 'tenant-dashboard'");
     expect(api).toContain("rpc('get_tenant_dashboard_live_items'");
     expect(api).toContain('lead_preview: z.array(leadPreviewSchema)');
-    expect(edge).toContain("rpc('get_tenant_dashboard_summary'");
+    expect(registry).toContain("rpc: 'get_tenant_dashboard_summary'");
     expect(edge).toContain("'get_workspace_cache_context'");
   });
 

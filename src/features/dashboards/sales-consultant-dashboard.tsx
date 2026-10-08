@@ -58,6 +58,7 @@ import type { PageSpec } from '@/lib/domain';
 import { ManualDashboardRefreshLimitError } from '@/lib/query/cached-dashboard-api';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import {
+  AGGREGATE_REALTIME_MIN_INTERVAL_MS,
   DASHBOARD_QUERY_GC_TIME_MS,
   DASHBOARD_QUERY_STALE_TIME_MS,
 } from '@/lib/query/cache-policy';
@@ -824,10 +825,14 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
     queryKey: dashboardQueryKey,
     queryFn: ({ signal }) =>
       fetchSalesConsultantDashboard(signal, { manualRefresh: manualRefreshRequest.current }),
-    // Keep the dashboard in memory while navigating. The Refresh control below
-    // explicitly replaces its Redis entry with a fresh database bundle.
+    // Memory for 30 minutes, then Redis, which rebuilds from PostgreSQL only
+    // when its data version moved. Refresh forces a rebuild. Not persisted to
+    // IndexedDB: this payload carries customer rows and signed image URLs.
     staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
     gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+    // Another request is rebuilding the entry; check back once it has.
+    refetchInterval: (query) =>
+      query.state.data?.cache.status === 'STALE' ? AGGREGATE_REALTIME_MIN_INTERVAL_MS : false,
   });
   const [refreshMessage, setRefreshMessage] = useState<string>();
   const [manualRefreshRemaining, setManualRefreshRemaining] = useState(3);
@@ -859,6 +864,7 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
         ? (['leads', 'work', 'communications', 'sales', 'inventory'] as const).map((resource) => ({
             resource,
             queryKeys: [dashboardQueryKey],
+            minIntervalMs: AGGREGATE_REALTIME_MIN_INTERVAL_MS,
           }))
         : [],
     [dashboardQueryKey, data],
@@ -956,8 +962,8 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
             Last synced {formatTime(data.cache.synced_at ?? data.generated_at, data.timezone)}
           </Button>
           <span>{manualRefreshRemaining}/3 manual refreshes left</span>
-          {data.cache.status === 'HIT' && (
-            <span className="text-muted-foreground">Cached &middot; refresh for the latest</span>
+          {data.cache.status === 'STALE' && (
+            <span className="text-muted-foreground">Updating&hellip;</span>
           )}
           {refreshMessage && <span className="text-rose-600">{refreshMessage}</span>}
         </div>

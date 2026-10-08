@@ -3,17 +3,20 @@ export const QUERY_STALE_TIME_MS = 60_000;
 export const QUERY_GC_TIME_MS = 30 * 60_000;
 
 /**
- * Dashboards are expensive multi-query aggregates behind a Redis entry. An
- * in-session revisit stays in memory; the user can explicitly rebuild Redis
- * from the database with the Refresh control.
+ * Dashboards and analytics are aggregates read browser-first: memory, then the
+ * IndexedDB copy (usePersistedQuery, so a reload inside this window makes no
+ * network call), then Redis through the dashboard-cache Edge function, then
+ * PostgreSQL only when the Redis entry is missing or its data version moved.
+ * While a page is open, Realtime refetches it at most once a minute
+ * (AGGREGATE_REALTIME_MIN_INTERVAL_MS) so other users' changes still arrive.
  */
 export const DASHBOARD_QUERY_STALE_TIME_MS = 30 * 60_000;
 
-/**
- * Retained for the Redis lifetime so a tab left open overnight keeps using the
- * same aggregate until the user asks for a fresh server rebuild.
- */
+/** Kept in memory well past staleTime; a stale copy still paints while the refetch runs. */
 export const DASHBOARD_QUERY_GC_TIME_MS = 24 * 60 * 60_000;
+
+/** Realtime refetch ceiling for aggregate queries; matches the Redis rebuild interval. */
+export const AGGREGATE_REALTIME_MIN_INTERVAL_MS = 60_000;
 
 /**
  * Pick-list data behind a form control (leads, vehicles, quotations, bookings).

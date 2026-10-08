@@ -391,10 +391,9 @@ The following catalog lists every configured navigation page and its simple purp
 
 - **Dashboard:** Executive KPIs, risks and business attention items.
 - **Sales Overview:** Organization sales funnel, conversion and revenue indicators.
-- **Showroom Performance:** Compare branch performance and target attainment.
+- **Showroom Performance:** Compare every showroom's funnel, conversion, lead sources, demand, calls, deliveries and month-to-date target attainment (this replaces the former Targets & Performance page).
 - **Operations Overview:** Review finance, insurance, RTO, exchange and delivery health.
 - **Bookings & Delivery:** Track confirmed business through expected delivery.
-- **Targets & Performance:** Review organization targets and outcomes.
 - **AI Business Summary:** Read an AI-assisted summary when the feature is enabled.
 - **Reports:** Executive aggregate reports and controlled exports.
 - **Client Admins:** Create or manage authorized Client Admin accounts.

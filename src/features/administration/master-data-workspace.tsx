@@ -140,6 +140,7 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
   });
 
   const toggle = useMutation({
+    meta: { toast: false },
     mutationFn: ({ id, active }: { id: string; active: boolean }) =>
       setMasterDataActive(category, id, active),
     onSuccess: () => {
@@ -161,6 +162,7 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
   });
 
   const createMutation = useMutation({
+    meta: { toast: false },
     mutationFn: async () => {
       if (category === 'LEAD_SOURCES') throw new Error('Select a vehicle category.');
       if (category === 'VARIANTS') vehicleSpecificationsSchema.parse(specifications);

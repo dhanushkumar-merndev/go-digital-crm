@@ -53,6 +53,7 @@ import {
 } from '@/components/ui/table';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { Metric, PageSpec } from '@/lib/domain';
+import { assignmentModeLabel } from '@/features/leads/assignment-mode';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import {
   fetchBranchAdministrationWorkspace,
@@ -83,10 +84,6 @@ import {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium' }).format(new Date(value));
-}
-
-function assignmentLabel(value: string) {
-  return value === 'ROUND_ROBIN' ? 'Round Robin' : 'Manual Assignment';
 }
 
 function branchMetrics(result: BranchAdministrationWorkspace): Metric[] {
@@ -520,9 +517,9 @@ function TeamTable({
         header: 'Assignment modes',
         cell: ({ row }) => (
           <div className="min-w-44">
-            <p>Fresh: {assignmentLabel(row.original.fresh_assignment_mode)}</p>
+            <p>Fresh: {assignmentModeLabel(row.original.fresh_assignment_mode)}</p>
             <p className="text-xs text-muted-foreground">
-              Qualified: {assignmentLabel(row.original.qualified_assignment_mode)}
+              Qualified: {assignmentModeLabel(row.original.qualified_assignment_mode)}
             </p>
           </div>
         ),

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
 import { readRpc } from '@/lib/supabase/read-rpc';
+import type { AssignmentMode } from './assignment-mode';
 import type { LeadQuery } from './lead-workspace-query';
 import { isLeadVersionConflict, LeadVersionConflictError } from './lead-workspace-query';
 
@@ -366,6 +367,8 @@ export type SalesHandoffCandidate = {
   open_leads: number;
   hot_leads: number;
   recommended: boolean;
+  /** The team's qualified-lead mode; the same on every row. */
+  assignment_mode: AssignmentMode;
 };
 
 export async function fetchSalesHandoffCandidates(
@@ -381,7 +384,10 @@ export async function fetchSalesHandoffCandidates(
   return (data ?? []) as SalesHandoffCandidate[];
 }
 
-/** `userId: null` lets the database pick the consultant with the lightest open book. */
+/**
+ * `userId: null` lets the database pick: the next consultant in rotation for a
+ * ROUND_ROBIN team, otherwise the one with the lightest open book.
+ */
 export async function transferLeadToSales(input: {
   leadId: string;
   userId: string | null;
@@ -389,7 +395,7 @@ export async function transferLeadToSales(input: {
 }): Promise<{
   lead_id: string;
   assigned_user_id: string;
-  method: 'ROUND_ROBIN' | 'MANUAL_ASSIGNMENT';
+  method: AssignmentMode;
   lifecycle_status: string;
 }> {
   const { data, error } = await createClient().rpc('transfer_lead_to_sales', {
@@ -401,7 +407,7 @@ export async function transferLeadToSales(input: {
   return data as {
     lead_id: string;
     assigned_user_id: string;
-    method: 'ROUND_ROBIN' | 'MANUAL_ASSIGNMENT';
+    method: AssignmentMode;
     lifecycle_status: string;
   };
 }

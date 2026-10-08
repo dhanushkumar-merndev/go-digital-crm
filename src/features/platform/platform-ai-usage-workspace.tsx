@@ -103,6 +103,7 @@ function CreditAllocationDialog({
   }
   const queryClient = useQueryClient();
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: grantPlatformAiCredits,
     onSuccess: async (result) => {
       toast.add({

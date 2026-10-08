@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { PerformanceDateRange } from '@/lib/performance-date-range';
 import { performanceRangeDays, performanceRpcTimezone } from '@/lib/performance-date-range';
+import { fetchCachedAggregate } from '@/lib/query/cached-dashboard-api';
 import { createClient } from '@/lib/supabase/client';
 
 const analyticsSchema = z.object({
@@ -52,11 +53,23 @@ const analyticsSchema = z.object({
 export type GmSalesAnalytics = z.infer<typeof analyticsSchema>;
 
 export async function fetchGmSalesAnalytics(range: PerformanceDateRange, signal?: AbortSignal) {
-  const request = createClient().rpc('get_gm_sales_analytics_workspace', {
+  const params = {
     target_days: performanceRangeDays(range),
     target_timezone: performanceRpcTimezone(range),
+  };
+  return fetchCachedAggregate({
+    resource: 'gm-sales-analytics',
+    schema: analyticsSchema,
+    params,
+    signal,
+    direct: async () => {
+      const request = createClient().rpc('get_gm_sales_analytics_workspace', params);
+      const { data, error } = await (signal ? request.abortSignal(signal) : request);
+      if (error) throw error;
+      return analyticsSchema.parse(data);
+    },
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
-  return analyticsSchema.parse(data);
 }
+
+/** Exported for the IndexedDB copy, which is re-validated before it is shown. */
+export { analyticsSchema as gmSalesAnalyticsSchema };

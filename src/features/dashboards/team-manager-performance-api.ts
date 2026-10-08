@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { PerformanceDateRange } from '@/lib/performance-date-range';
 import { performanceRangeDays, performanceRpcTimezone } from '@/lib/performance-date-range';
+import { fetchCachedAggregate } from '@/lib/query/cached-dashboard-api';
 import { createClient } from '@/lib/supabase/client';
 
 const teamPerformanceSchema = z.object({
@@ -50,11 +51,23 @@ export async function fetchTeamManagerPerformance(
   range: PerformanceDateRange,
   signal?: AbortSignal,
 ): Promise<TeamManagerPerformance> {
-  const request = createClient().rpc('get_team_manager_performance', {
+  const params = {
     target_days: performanceRangeDays(range),
     target_timezone: performanceRpcTimezone(range),
+  };
+  return fetchCachedAggregate({
+    resource: 'team-manager-performance',
+    schema: teamPerformanceSchema,
+    params,
+    signal,
+    direct: async () => {
+      const request = createClient().rpc('get_team_manager_performance', params);
+      const { data, error } = await (signal ? request.abortSignal(signal) : request);
+      if (error) throw error;
+      return teamPerformanceSchema.parse(data);
+    },
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
-  return teamPerformanceSchema.parse(data);
 }
+
+/** Exported for the IndexedDB copy, which is re-validated before it is shown. */
+export { teamPerformanceSchema };

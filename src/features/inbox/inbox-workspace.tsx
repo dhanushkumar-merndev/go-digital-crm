@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  keepPreviousData,
   onlineManager,
   useInfiniteQuery,
   useMutation,
@@ -59,6 +60,13 @@ import {
   sendInboxWhatsAppMessage,
   type InboxConversation,
 } from './inbox-api';
+import {
+  leadWhatsAppErrorMessage,
+  openLeadWhatsAppConversation,
+  type LeadWhatsAppChannel,
+} from '@/features/leads/lead-whatsapp-api';
+import { fetchLeadWorkspaceRecords } from '@/features/leads/lead-workspace-api';
+import { defaultLeadQuery } from '@/features/leads/lead-workspace-query';
 
 // WhatsApp-style ticks, kept to three states: Sending, Sent, Seen. An
 // unconfirmed (UNKNOWN) send is still waiting for WhatsApp's receipt, which
@@ -256,25 +264,83 @@ export function InboxWorkspace({
         ? lastPageParam + 1
         : undefined,
     staleTime: 60_000,
+    // Each search or channel change is a new key. Keeping the previous result
+    // keeps the page mounted instead of dropping back to the full skeleton on
+    // every keystroke; the stale rows themselves are hidden below.
+    placeholderData: keepPreviousData,
     // Realtime is primary; recover missed events while viewing the first page.
     refetchInterval: (query) => (query.state.data?.pages.length === 1 ? 15_000 : false),
     retry: 1,
   });
+  const searchingConversations = conversations.isPlaceholderData;
   const conversationRows = useMemo(
-    () => [
-      ...new Map(
-        (conversations.data?.pages.flatMap((page) => page.records) ?? []).map((row) => [
-          row.id,
-          row,
-        ]),
-      ).values(),
-    ],
-    [conversations.data?.pages],
+    () =>
+      searchingConversations
+        ? []
+        : [
+            ...new Map(
+              (conversations.data?.pages.flatMap((page) => page.records) ?? []).map((row) => [
+                row.id,
+                row,
+              ]),
+            ).values(),
+          ],
+    [conversations.data?.pages, searchingConversations],
   );
   const activeConversation = useMemo(() => {
     const rows = conversationRows;
     return rows.find((item) => item.id === selectedId) ?? rows[0] ?? null;
   }, [conversationRows, selectedId]);
+  // The list only holds conversations that already exist, so a lead nobody has
+  // messaged yet could never be found here. Searching also offers the user's own
+  // leads (same scope as My Leads) with a Chat button that opens the thread.
+  const startChannels: LeadWhatsAppChannel[] =
+    channel === 'WHATSAPP_BUSINESS' || channel === 'WHATSAPP_PERSONAL'
+      ? [channel]
+      : channel === 'all'
+        ? ['WHATSAPP_BUSINESS', 'WHATSAPP_PERSONAL']
+        : [];
+  const canStartChat =
+    !leadId &&
+    !customerId &&
+    !readOnly &&
+    startChannels.length > 0 &&
+    hasWorkspacePermission(session, 'message.send');
+  const leadSearch = debouncedSearch.trim();
+  const leadMatches = useQuery({
+    queryKey: ['inbox-lead-matches', ...queryScope, leadSearch],
+    queryFn: ({ signal }) =>
+      fetchLeadWorkspaceRecords({ ...defaultLeadQuery, search: leadSearch }, signal),
+    enabled: canStartChat && leadSearch.length >= 2,
+    staleTime: 60_000,
+    retry: 1,
+  });
+  const openedThreads = useMemo(
+    () => new Set(conversationRows.map((row) => `${row.lead_id}:${row.channel}`)),
+    [conversationRows],
+  );
+  const startableLeads = (leadMatches.data?.records ?? [])
+    .map((lead) => ({
+      lead,
+      channels: startChannels.filter((option) => !openedThreads.has(`${lead.id}:${option}`)),
+    }))
+    .filter((match) => match.channels.length > 0);
+  const startChat = useMutation({
+    meta: { toast: false },
+    mutationFn: (input: { leadId: string; channel: LeadWhatsAppChannel }) =>
+      openLeadWhatsAppConversation(input),
+    onSuccess: async (conversation) => {
+      await queryClient.invalidateQueries({ queryKey: ['shared-inbox', ...queryScope] });
+      setSelectedId(conversation.conversation_id);
+    },
+    onError: (error) =>
+      toast.add({
+        type: 'error',
+        priority: 'high',
+        title: 'WhatsApp is unavailable',
+        description: leadWhatsAppErrorMessage(error),
+      }),
+  });
   const [historySelection, setHistorySelection] = useState<{
     conversationId: string;
     leadId: string | null;
@@ -346,15 +412,9 @@ export function InboxWorkspace({
     },
   ]);
   const syncHistory = useMutation({
+    meta: { toast: false },
     mutationFn: (conversation: { id: string; customerName: string }) =>
       syncPersonalWhatsApp(conversation.id),
-    onSuccess: (_result, conversation) =>
-      toast.add({
-        type: 'success',
-        title: `History requested for ${conversation.customerName}`,
-        description:
-          'Only this chat is being synced. Keep your phone online. Available text from the last 30 days will appear in timeline order under All enquiries; media is skipped.',
-      }),
     onError: (error) =>
       toast.add({
         type: 'error',
@@ -390,6 +450,9 @@ export function InboxWorkspace({
         personalReason === 'PERSONAL_WHATSAPP_DISCONNECTED') &&
       activeConversation.status === 'OPEN');
   const send = useMutation({
+    // The outbox retries a send several times and toasts only the final
+    // failure; the generic toast would fire on every attempt.
+    meta: { toast: false },
     mutationFn: (item: OutboxItem) =>
       sendInboxWhatsAppMessage({
         organizationId: item.organizationId,
@@ -537,6 +600,7 @@ export function InboxWorkspace({
   });
   const queuedHere = visibleOutbox.filter((item) => item.state === 'queued').length;
   const acknowledge = useMutation({
+    meta: { toast: false },
     mutationFn: acknowledgeUnknownWhatsAppMessage,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['shared-inbox-messages', ...queryScope] });
@@ -666,8 +730,10 @@ export function InboxWorkspace({
                   void conversations.fetchNextPage();
               }}
             >
-              {conversations.isPending ? (
-                <div className="p-5 text-sm text-muted-foreground">Loading conversations…</div>
+              {conversations.isPending || searchingConversations ? (
+                <div className="p-5 text-sm text-muted-foreground">
+                  {searchingConversations ? 'Searching conversations…' : 'Loading conversations…'}
+                </div>
               ) : conversations.isError ? (
                 <p role="alert" className="p-4 text-sm text-destructive">
                   Conversations could not be loaded. Try Refresh.
@@ -681,13 +747,60 @@ export function InboxWorkspace({
                     onClick={() => setSelectedId(conversation.id)}
                   />
                 ))
+              ) : canStartChat && leadSearch.length >= 2 ? (
+                <p className="px-4 py-3 text-xs text-muted-foreground">
+                  No conversations match “{leadSearch}”.
+                </p>
               ) : (
                 <InboxEmpty label="No conversations found" />
+              )}
+              {canStartChat && leadSearch.length >= 2 && !conversations.isPending && (
+                <section className="border-t bg-white">
+                  <p className="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Start a chat with a lead
+                  </p>
+                  {leadMatches.isPending ? (
+                    <p className="px-4 py-3 text-xs text-muted-foreground">Searching leads…</p>
+                  ) : leadMatches.isError ? (
+                    <p role="alert" className="px-4 py-3 text-xs text-destructive">
+                      Leads could not be searched. Try again.
+                    </p>
+                  ) : startableLeads.length ? (
+                    startableLeads.map(({ lead, channels }) => (
+                      <div key={lead.id} className="border-b px-4 py-3 last:border-b-0">
+                        <p className="truncate text-sm font-semibold">{lead.customer_name}</p>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {[lead.phone, lead.interested_model].filter(Boolean).join(' · ')}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {channels.map((option) => (
+                            <Button
+                              key={option}
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              disabled={startChat.isPending}
+                              onClick={() => startChat.mutate({ leadId: lead.id, channel: option })}
+                            >
+                              <MessageCircleMore className="size-3.5" />
+                              {channels.length > 1 ? channelLabel(option) : 'Chat'}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="px-4 py-3 text-xs text-muted-foreground">
+                      No other leads match “{leadSearch}”.
+                    </p>
+                  )}
+                </section>
               )}
             </div>
             <div className="flex shrink-0 items-center justify-between border-t bg-white p-3 text-xs text-muted-foreground">
               <span>
-                {conversationRows.length} of {conversations.data?.pages[0]?.total ?? 0}{' '}
+                {conversationRows.length} of{' '}
+                {searchingConversations ? 0 : (conversations.data?.pages[0]?.total ?? 0)}{' '}
                 conversations
               </span>
               {conversations.hasNextPage && (
@@ -724,11 +837,48 @@ export function InboxWorkspace({
                       {channelLabel(activeConversation.channel)}
                     </p>
                   </div>
-                  <span
-                    className={`shrink-0 rounded px-2 py-1 text-xs font-medium ${channelTone(activeConversation.channel)}`}
-                  >
-                    {activeConversation.status}
-                  </span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {/* In the header rather than above the oldest message: there
+                        it was only reachable after scrolling the whole history. */}
+                    {personalConversation && !readOnly && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={
+                          syncHistory.isPending || personalStatus.data?.status !== 'CONNECTED'
+                        }
+                        onClick={() =>
+                          syncHistory.mutate({
+                            id: activeConversation.id,
+                            customerName: activeConversation.customer_name,
+                          })
+                        }
+                        title={
+                          personalStatus.data?.status === 'CONNECTED'
+                            ? `Request older text messages only for ${activeConversation.customer_name}. Keep your phone online.`
+                            : 'Connect My WhatsApp to sync this chat’s history.'
+                        }
+                      >
+                        <RefreshCw
+                          className={`size-3.5 ${
+                            syncHistory.isPending &&
+                            syncHistory.variables?.id === activeConversation.id
+                              ? 'animate-spin'
+                              : ''
+                          }`}
+                        />
+                        {syncHistory.isPending &&
+                        syncHistory.variables?.id === activeConversation.id
+                          ? 'Requesting…'
+                          : 'Sync chat'}
+                      </Button>
+                    )}
+                    <span
+                      className={`rounded px-2 py-1 text-xs font-medium ${channelTone(activeConversation.channel)}`}
+                    >
+                      {activeConversation.status}
+                    </span>
+                  </div>
                 </div>
                 <div className="shrink-0 max-h-48 overflow-y-auto px-4 pb-3 lg:hidden">
                   <InboxLeadContext
@@ -748,30 +898,10 @@ export function InboxWorkspace({
                   fetching={messages.isFetching}
                   loadMore={() => messages.fetchNextPage()}
                 >
-                  {personalConversation && !readOnly && (
-                    <div className="flex flex-wrap items-center justify-center gap-2 rounded-md border border-dashed bg-white px-3 py-2 text-xs text-muted-foreground">
-                      <span>Older text history · {activeConversation.customer_name}</span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={
-                          syncHistory.isPending || personalStatus.data?.status !== 'CONNECTED'
-                        }
-                        onClick={() =>
-                          syncHistory.mutate({
-                            id: activeConversation.id,
-                            customerName: activeConversation.customer_name,
-                          })
-                        }
-                        title={`Request older text messages only for ${activeConversation.customer_name}. Keep your phone online.`}
-                      >
-                        {syncHistory.isPending &&
-                        syncHistory.variables?.id === activeConversation.id
-                          ? 'Requesting…'
-                          : 'Sync this chat’s history'}
-                      </Button>
-                      {historyLeadId && <span>Synced history is shown under All enquiries.</span>}
-                    </div>
+                  {personalConversation && !readOnly && historyLeadId && (
+                    <p className="text-center text-xs text-muted-foreground">
+                      Synced history is shown under All enquiries.
+                    </p>
                   )}
                   {messages.isPending ? (
                     <p className="text-sm text-muted-foreground">Loading messages…</p>

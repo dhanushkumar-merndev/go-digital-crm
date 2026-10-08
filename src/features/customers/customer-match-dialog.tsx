@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Link2, Plus, TriangleAlert, UserRoundSearch } from 'lucide-react';
+import { Link2, Plus, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -24,6 +25,32 @@ import { fetchPossibleCustomerMatches, resolveLeadCustomer } from './customer-wo
 // resolve_lead_customer requires a 3-500 character reason on every decision, so
 // the no-candidate path states the fact instead of dropping the audit value.
 const NO_MATCH_REASON = 'No exact phone or email match was found for this lead.';
+// Linking is the common case for a repeat enquiry, so its reason starts filled
+// in. It is still an editable, audited statement, never a silent default.
+const LINK_REASON = 'Same phone number; confirmed this is the same customer.';
+const CREATE_NEW_CHOICE = 'CREATE_NEW';
+
+function formatEnquiryDate(value: string | null) {
+  if (!value) return null;
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(value));
+}
+
+function ChoiceIndicator({ selected }: { selected: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border ${
+        selected ? 'border-blue-600' : 'border-slate-300'
+      }`}
+    >
+      {selected ? <span className="size-2 rounded-full bg-blue-600" /> : null}
+    </span>
+  );
+}
 
 export type MatchableLead = {
   id: string;
@@ -48,19 +75,29 @@ export function CustomerMatchDialog({
 }) {
   const workspaceSession = useWorkspaceSession();
   const queryScope = workspaceQueryScope(workspaceSession);
-  const [resolution, setResolution] = useState<'LINK_EXISTING' | 'CREATE_NEW'>('CREATE_NEW');
-  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  // Null until the user picks. Defaulting to "create" is how one phone number
+  // ended up as four customers: the candidates were shown but never chosen.
+  const [choice, setChoice] = useState<string | null>(null);
   const [requestId] = useState(createUuid);
   const matches = useQuery({
     queryKey: ['possible-customer-matches', ...queryScope, lead?.id],
     queryFn: ({ signal }) => fetchPossibleCustomerMatches(lead!.id, signal),
     enabled: open && Boolean(lead),
   });
-  const effectiveResolution = matches.data?.length ? resolution : 'CREATE_NEW';
   // With no candidate there is nothing to review and nothing that could be
   // merged, so the screen stops asking the telecaller to justify a choice they
   // were never offered. AGENTS.md 11 governs the case where a match exists.
   const nothingToReview = matches.data?.length === 0;
+  const effectiveChoice = nothingToReview ? CREATE_NEW_CHOICE : choice;
+  const effectiveResolution: 'LINK_EXISTING' | 'CREATE_NEW' | null =
+    effectiveChoice === null
+      ? null
+      : effectiveChoice === CREATE_NEW_CHOICE
+        ? 'CREATE_NEW'
+        : 'LINK_EXISTING';
+  const selectedCustomerId =
+    effectiveResolution === 'LINK_EXISTING' ? (effectiveChoice as string) : '';
+  const selectedMatch = matches.data?.find((match) => match.customer_id === selectedCustomerId);
   const mutation = useMutation({
     mutationFn: resolveLeadCustomer,
     onSuccess: (result) => {
@@ -87,6 +124,7 @@ export function CustomerMatchDialog({
             className="mt-4 grid gap-5"
             onSubmit={(event) => {
               event.preventDefault();
+              if (!effectiveResolution) return;
               if (effectiveResolution === 'LINK_EXISTING' && !selectedCustomerId) return;
               if (effectiveResolution === 'CREATE_NEW' && !canCreate) return;
               const form = new FormData(event.currentTarget);
@@ -119,9 +157,22 @@ export function CustomerMatchDialog({
                   <p className="text-xs text-muted-foreground">Phone</p>
                   <p className="font-semibold">{lead.phone}</p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs text-muted-foreground">Email</p>
-                  <p className="font-semibold">{lead.email ?? '—'}</p>
+                  {lead.email ? (
+                    // Long addresses overflowed the card; cap at 15ch and show
+                    // the full address on hover or keyboard focus.
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p tabIndex={0} className="max-w-[15ch] truncate font-semibold">
+                          {lead.email}
+                        </p>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">{lead.email}</TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <p className="font-semibold">—</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -129,9 +180,10 @@ export function CustomerMatchDialog({
             <section className={`grid gap-3 ${nothingToReview ? 'hidden' : ''}`}>
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-semibold">Possible existing customers</h3>
+                  <h3 className="text-sm font-semibold">Is this one of these customers?</h3>
                   <p className="text-xs text-muted-foreground">
-                    Only exact normalized phone or email matches are shown.
+                    They share this lead&apos;s phone or email. Link the enquiry to the right one so
+                    all their leads stay in one Customer 360.
                   </p>
                 </div>
                 {matches.data && (
@@ -151,45 +203,69 @@ export function CustomerMatchDialog({
                   Possible matches could not be loaded. No customer decision has been saved.
                 </div>
               )}
-              {matches.data?.map((match) => (
-                <button
-                  key={match.customer_id}
-                  type="button"
-                  aria-pressed={
-                    resolution === 'LINK_EXISTING' && selectedCustomerId === match.customer_id
-                  }
-                  onClick={() => {
-                    if (
-                      resolution === 'LINK_EXISTING' &&
-                      selectedCustomerId === match.customer_id
-                    ) {
-                      setResolution('CREATE_NEW');
-                      setSelectedCustomerId('');
-                    } else {
-                      setResolution('LINK_EXISTING');
-                      setSelectedCustomerId(match.customer_id);
-                    }
-                  }}
-                  className={`flex w-full items-start justify-between gap-4 rounded-lg border p-4 text-left transition-colors ${
-                    resolution === 'LINK_EXISTING' && selectedCustomerId === match.customer_id
-                      ? 'border-blue-500 bg-blue-50/70'
-                      : 'hover:bg-muted/40'
-                  }`}
-                >
-                  <span className="flex gap-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-700">
-                      <UserRoundSearch className="size-4" />
-                    </span>
+              <div role="radiogroup" aria-label="Customer decision" className="grid gap-2">
+                {matches.data?.map((match) => {
+                  const selected = choice === match.customer_id;
+                  const latestDate = formatEnquiryDate(match.latest_enquiry_at);
+                  return (
+                    <button
+                      key={match.customer_id}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setChoice(match.customer_id)}
+                      className={`flex w-full items-start justify-between gap-4 rounded-lg border p-4 text-left transition-colors ${
+                        selected ? 'border-blue-500 bg-blue-50/70' : 'hover:bg-muted/40'
+                      }`}
+                    >
+                      <span className="flex min-w-0 gap-3">
+                        <ChoiceIndicator selected={selected} />
+                        <span className="min-w-0">
+                          <span className="block text-xs font-medium text-blue-700">
+                            Link to this customer
+                          </span>
+                          <span className="block truncate font-semibold">{match.full_name}</span>
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            {match.masked_phone ?? 'No phone'} · {match.masked_email ?? 'No email'}
+                          </span>
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            {match.lead_count} {match.lead_count === 1 ? 'lead' : 'leads'}
+                            {match.latest_interested_model
+                              ? ` · latest: ${match.latest_interested_model}`
+                              : ''}
+                            {latestDate ? ` · ${latestDate}` : ''}
+                          </span>
+                        </span>
+                      </span>
+                      <Badge variant="outline" className="shrink-0">
+                        {match.match_reason.replaceAll('_', ' ')}
+                      </Badge>
+                    </button>
+                  );
+                })}
+                {canCreate && matches.data && matches.data.length > 0 ? (
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={choice === CREATE_NEW_CHOICE}
+                    onClick={() => setChoice(CREATE_NEW_CHOICE)}
+                    className={`flex w-full items-start gap-3 rounded-lg border border-dashed p-4 text-left transition-colors ${
+                      choice === CREATE_NEW_CHOICE
+                        ? 'border-blue-500 bg-blue-50/70'
+                        : 'hover:bg-muted/40'
+                    }`}
+                  >
+                    <ChoiceIndicator selected={choice === CREATE_NEW_CHOICE} />
                     <span>
-                      <span className="block font-semibold">{match.full_name}</span>
+                      <span className="block font-semibold">Create a separate customer</span>
                       <span className="mt-1 block text-xs text-muted-foreground">
-                        {match.masked_phone ?? 'No phone'} · {match.masked_email ?? 'No email'}
+                        Only when this is a different person who shares the number, such as a family
+                        member or an office line.
                       </span>
                     </span>
-                  </span>
-                  <Badge variant="outline">{match.match_reason.replaceAll('_', ' ')}</Badge>
-                </button>
-              ))}
+                  </button>
+                ) : null}
+              </div>
               {matches.data?.length === 0 && (
                 <div className="rounded-lg border border-dashed p-5 text-sm text-muted-foreground">
                   No exact phone or email match was found. Create a new customer after confirming
@@ -241,10 +317,16 @@ export function CustomerMatchDialog({
                 </p>
               </>
             ) : (
-              <label className="grid gap-1.5 text-sm font-medium">
+              <label
+                className={`grid gap-1.5 text-sm font-medium ${effectiveResolution ? '' : 'hidden'}`}
+              >
                 Decision reason <span className="text-destructive">(required)</span>
                 <Input
+                  // Remount on a change of decision so the prefilled link
+                  // reason never carries over into a create-new decision.
+                  key={effectiveResolution ?? 'none'}
                   name="reason"
+                  defaultValue={effectiveResolution === 'LINK_EXISTING' ? LINK_REASON : ''}
                   minLength={3}
                   maxLength={500}
                   required
@@ -273,15 +355,18 @@ export function CustomerMatchDialog({
                   matches.isPending ||
                   matches.isError ||
                   mutation.isPending ||
+                  !effectiveResolution ||
                   (effectiveResolution === 'LINK_EXISTING' && !selectedCustomerId) ||
                   (effectiveResolution === 'CREATE_NEW' && !canCreate)
                 }
               >
                 {mutation.isPending ? (
                   'Saving…'
+                ) : !effectiveResolution ? (
+                  'Choose a customer above'
                 ) : effectiveResolution === 'LINK_EXISTING' ? (
                   <>
-                    <Link2 className="size-4" /> Link existing customer
+                    <Link2 className="size-4" /> Link to {selectedMatch?.full_name ?? 'customer'}
                   </>
                 ) : (
                   <>

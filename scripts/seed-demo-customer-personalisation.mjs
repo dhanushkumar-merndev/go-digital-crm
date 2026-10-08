@@ -565,6 +565,9 @@ async function ensureLiveEnrollment(target, campaigns, customers) {
       message_body: dripTemplates[0].steps[1].message_body,
       scheduled_for: new Date(now + 4 * hour).toISOString(),
       status: 'QUEUED',
+      // PostgREST bulk inserts need the same keys on every row.
+      sent_at: null,
+      attempts: 0,
     },
     {
       organization_id: target.organizationId,
@@ -574,6 +577,9 @@ async function ensureLiveEnrollment(target, campaigns, customers) {
       message_body: dripTemplates[0].steps[2].message_body,
       scheduled_for: new Date(now + 94 * hour).toISOString(),
       status: 'QUEUED',
+      // PostgREST bulk inserts need the same keys on every row.
+      sent_at: null,
+      attempts: 0,
     },
   ]);
   return { created: true, customerName: customer.full_name };

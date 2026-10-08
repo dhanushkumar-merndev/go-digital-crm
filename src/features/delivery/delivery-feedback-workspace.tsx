@@ -110,6 +110,7 @@ export function DeliveryFeedbackWorkspace({ spec }: { spec: PageSpec }) {
     await queryClient.invalidateQueries({ queryKey: ['delivery-feedback'] });
   };
   const requestMutation = useMutation({
+    meta: { toast: false },
     mutationFn: (record: DeliveryFeedbackRecord) =>
       requestDeliveryFeedback({
         deliveryCaseId: record.delivery_case_id,
@@ -132,6 +133,7 @@ export function DeliveryFeedbackWorkspace({ spec }: { spec: PageSpec }) {
       }),
   });
   const linkMutation = useMutation({
+    meta: { toast: false },
     mutationFn: issueFeedbackFormLink,
     onSuccess: async (result) => {
       // Copying is best-effort: clipboard access is denied in some browsers and
@@ -159,6 +161,7 @@ export function DeliveryFeedbackWorkspace({ spec }: { spec: PageSpec }) {
       }),
   });
   const captureMutation = useMutation({
+    meta: { toast: false },
     mutationFn: () => {
       if (!captureTarget) throw new Error('DELIVERY_FEEDBACK_REQUEST_REQUIRED');
       return captureDeliveryFeedback({

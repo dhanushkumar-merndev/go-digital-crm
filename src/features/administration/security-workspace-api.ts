@@ -29,11 +29,8 @@ const auditSchema = z.object({
 export async function fetchSecurityPosture(signal?: AbortSignal) {
   const supabase = createClient();
   const contextRequest = supabase.rpc('get_access_context');
-  const auditRequest = supabase
-    .from('audit_logs')
-    .select('id,action,resource_type,created_at')
-    .order('created_at', { ascending: false })
-    .limit(8);
+  // The RPC applies audit_logs' RLS rules once per scope instead of per row.
+  const auditRequest = supabase.rpc('get_audit_log_page', { page_limit: 8 });
   const [contextResponse, auditResponse, assuranceResponse] = await Promise.all([
     signal ? contextRequest.abortSignal(signal) : contextRequest,
     signal ? auditRequest.abortSignal(signal) : auditRequest,

@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
   CalendarCheck2,
@@ -26,10 +25,7 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
-import {
-  DASHBOARD_QUERY_GC_TIME_MS,
-  DASHBOARD_QUERY_STALE_TIME_MS,
-} from '@/lib/query/cache-policy';
+import { AGGREGATE_REALTIME_MIN_INTERVAL_MS } from '@/lib/query/cache-policy';
 import { TenantDashboardSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -52,11 +48,11 @@ import {
   type TenantRealtimeResource,
 } from '@/lib/realtime/use-realtime-invalidation';
 import {
-  fetchTenantDashboard,
   tenantDashboardKey,
   type TenantDashboardLeadPreview,
   type TenantDashboardResult,
 } from './tenant-dashboard-api';
+import { useTenantDashboard } from './use-tenant-dashboard';
 
 type KpiCard = {
   label: string;
@@ -209,6 +205,7 @@ function subscriptions(data: TenantDashboardResult | undefined) {
   return resources.map((resource) => ({
     resource,
     queryKeys: [tenantDashboardKey],
+    minIntervalMs: AGGREGATE_REALTIME_MIN_INTERVAL_MS,
   }));
 }
 
@@ -496,22 +493,22 @@ export function TenantDashboard({
   spec,
   role,
   heading,
+  children,
 }: {
   spec: PageSpec;
   role: RoleKey;
   heading?: string;
+  /** Extra sections a host page appends below the dashboard. */
+  children?: React.ReactNode;
 }) {
   const session = useWorkspaceSession();
   const manualRefreshRequest = useRef(false);
-  const dashboard = useQuery({
-    queryKey: [...tenantDashboardKey, ...workspaceQueryScope(session)],
-    queryFn: ({ signal }) =>
-      fetchTenantDashboard(signal, { manualRefresh: manualRefreshRequest.current }),
-    // Matches the consultant dashboard: an in-session revisit is served from
-    // memory, a cold start reads Redis, and only Refresh rebuilds from Postgres.
-    staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
-    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
-  });
+  const dashboardKey = useMemo(
+    () => [...tenantDashboardKey, ...workspaceQueryScope(session)] as const,
+    [session],
+  );
+  // Browser first: memory, then the IndexedDB copy, then Redis, then PostgreSQL.
+  const dashboard = useTenantDashboard(dashboardKey, manualRefreshRequest);
   const realtimeSubscriptions = useMemo(() => subscriptions(dashboard.data), [dashboard.data]);
   useTenantRealtimeInvalidation(dashboard.data?.organization_id, realtimeSubscriptions);
   const [manualRefreshRemaining, setManualRefreshRemaining] = useState(3);
@@ -878,6 +875,7 @@ export function TenantDashboard({
           </CardContent>
         </Card>
       </div>
+      {children}
     </div>
   );
 }

@@ -591,7 +591,7 @@ function TaskTable({
                     key={row.id}
                     className={
                       isOverdueTask(row.original)
-                        ? 'bg-red-50/65 hover:bg-red-50'
+                        ? 'bg-red-50/60 hover:bg-red-100/70 dark:bg-red-950/20 dark:hover:bg-red-950/40'
                         : 'hover:bg-slate-50/70'
                     }
                   >

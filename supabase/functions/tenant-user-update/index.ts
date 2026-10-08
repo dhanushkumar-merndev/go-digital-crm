@@ -37,7 +37,18 @@ function authorizedForMode(context: AccessContext | null, mode: z.infer<typeof s
   return ['client-admin', 'system-administrator'].includes(context.role_key ?? '');
 }
 
-function mappedFailure(message: string | undefined, requestId: string) {
+function mappedFailure(
+  message: string | undefined,
+  details: string | null | undefined,
+  requestId: string,
+) {
+  if (message?.includes('ROLE_SEAT_LIMIT_REACHED'))
+    return failure(
+      'ROLE_SEAT_LIMIT_REACHED',
+      `${details ?? 'This role has no free seats.'} Ask Go Digital Marketing to raise the limit.`,
+      requestId,
+      409,
+    );
   if (message?.includes('STALE_USER_VERSION'))
     return failure(
       'STALE_USER_VERSION',
@@ -129,7 +140,7 @@ Deno.serve(async (request) => {
       const recovered = replayed as { action?: string; result?: unknown } | null;
       if (recovered?.action === 'tenant_user.updated' && recovered.result)
         return success(recovered.result, requestId);
-      return mappedFailure(error.message, requestId);
+      return mappedFailure(error.message, error.details, requestId);
     }
     return success(result, requestId);
   } catch {

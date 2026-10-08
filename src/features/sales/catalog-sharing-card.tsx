@@ -30,6 +30,7 @@ export function CatalogSharingCard() {
     staleTime: 60_000,
   });
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: () => setCatalogSharing(!query.data!.enabled, query.data!.version),
     onSuccess: async () => {
       setConfirm(false);
@@ -65,12 +66,13 @@ export function CatalogSharingCard() {
       <Card className="shadow-none">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
           <div className="space-y-1">
-            <p className="text-sm font-semibold">
-              Vehicle catalog sharing{' '}
+            {/* A div, not a p: Badge renders a div, which a p cannot contain. */}
+            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+              Vehicle catalog sharing
               <Badge variant={enabled ? 'success' : 'secondary'}>
                 {enabled ? 'Shared with dealerships' : 'Private'}
               </Badge>
-            </p>
+            </div>
             <p className="text-sm text-muted-foreground">
               {enabled
                 ? 'All current and future active models are shared. Compare with other participating dealerships.'

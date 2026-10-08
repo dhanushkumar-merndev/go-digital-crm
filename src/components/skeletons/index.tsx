@@ -186,7 +186,7 @@ export function getRoleSkeleton(role: string, slug: string = 'dashboard') {
     }
   }
 
-  // 3. Showroom Manager
+  // 3. Showroom Manager (shown as Sales Manager)
   if (role === 'showroom-manager') {
     switch (slug) {
       case 'dashboard':
@@ -289,6 +289,8 @@ export function getRoleSkeleton(role: string, slug: string = 'dashboard') {
         return <CompanyComplianceSkeleton />;
       case 'audit-logs':
         return <AuditLogWorkspaceSkeleton />;
+      case 'branch-performance':
+        return <TeamManagerPerformanceSkeleton />;
       case 'reports':
         return <ReportExportWorkspaceSkeleton />;
       default:
@@ -343,8 +345,6 @@ export function getRoleSkeleton(role: string, slug: string = 'dashboard') {
         return <TenantDashboardSkeleton role="business-owner" />;
       case 'bookings-delivery':
         return <BookingsSkeleton />;
-      case 'targets-performance':
-        return <TenantTargetConfigurationSkeleton />;
       case 'ai-business-summary':
       case 'credits-usage':
         return <OwnerAiBusinessSummarySkeleton />;

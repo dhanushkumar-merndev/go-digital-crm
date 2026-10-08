@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { BarChart3, CarFront, FileText, PhoneCall, Trophy, UsersRound } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import {
@@ -23,8 +22,14 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { Metric } from '@/lib/domain';
+import {
+  AGGREGATE_REALTIME_MIN_INTERVAL_MS,
+  DASHBOARD_QUERY_GC_TIME_MS,
+  DASHBOARD_QUERY_STALE_TIME_MS,
+} from '@/lib/query/cache-policy';
+import { usePersistedQuery } from '@/lib/query/persisted-query';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
-import { fetchGmSalesAnalytics } from './gm-sales-analytics-api';
+import { fetchGmSalesAnalytics, gmSalesAnalyticsSchema } from './gm-sales-analytics-api';
 
 export type GmSalesAnalyticsView =
   'sales-performance' | 'showroom-comparison' | 'consultant-ranking' | 'model-performance';
@@ -60,18 +65,21 @@ function initials(name: string) {
 export function GmSalesAnalyticsWorkspace({ view }: { view: GmSalesAnalyticsView }) {
   const session = useWorkspaceSession();
   const [range, setRange] = useState(() => performanceRangeForLastDays(30));
-  const query = useQuery({
+  const query = usePersistedQuery({
     // Every GM analytics route consumes the same bounded aggregate payload.
     // Keep one scope-aware cache entry so changing views does not repeat the RPC.
     queryKey: ['gm-sales-analytics', ...workspaceQueryScope(session), range.from, range.to],
     queryFn: ({ signal }) => fetchGmSalesAnalytics(range, signal),
-    staleTime: 60_000,
+    staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
+    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+    persist: { version: 1, schema: gmSalesAnalyticsSchema },
   });
   useTenantRealtimeInvalidation(
     session?.organizationId,
     (['leads', 'communications', 'work', 'sales'] as const).map((resource) => ({
       resource,
       queryKeys: [['gm-sales-analytics', ...workspaceQueryScope(session)]],
+      minIntervalMs: AGGREGATE_REALTIME_MIN_INTERVAL_MS,
     })),
   );
   const heading = copy[view];

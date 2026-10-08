@@ -54,6 +54,7 @@ export function AiCallFieldReviewWorkspace({ callId, role }: { callId: string; r
     staleTime: 30_000,
   });
   const review = useMutation({
+    meta: { toast: false },
     mutationFn: () => {
       if (!workspace.data?.extraction) throw new Error('AI_EXTRACTION_NOT_AVAILABLE');
       return reviewAiCallFields({

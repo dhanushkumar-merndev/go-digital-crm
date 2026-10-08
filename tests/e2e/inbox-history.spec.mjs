@@ -50,9 +50,7 @@ test('refreshes inbox messages and syncs history only for the selected chat', as
       .filter({ hasText: chat.customer_name })
       .filter({ hasText: 'My WhatsApp' })
       .click();
-    await expect(
-      page.getByText(`Older text history · ${chat.customer_name}`, { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sync chat', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sync text history', exact: true })).toHaveCount(
       0,
     );
@@ -72,9 +70,8 @@ test('refreshes inbox messages and syncs history only for the selected chat', as
       .filter({ hasText: chat.customer_name })
       .filter({ hasText: 'My WhatsApp' })
       .click();
-    const label = page.getByText(`Older text history · ${chat.customer_name}`, { exact: true });
-    await expect(label).toBeVisible();
-    const sync = page.getByRole('button', { name: 'Sync this chat’s history', exact: true });
+    await expect(page.locator('main').getByText(chat.customer_name, { exact: true })).toBeVisible();
+    const sync = page.getByRole('button', { name: 'Sync chat', exact: true });
     await expect(sync).toBeEnabled();
     const response = page.waitForResponse(
       (result) =>
@@ -85,10 +82,6 @@ test('refreshes inbox messages and syncs history only for the selected chat', as
     const result = await response;
     expect(historyRequests).toEqual([{ conversation_id: chat.id }]);
     expect(result.status(), 'Selected-chat history request should be accepted').toBe(202);
-    await expect(
-      page.getByText(`History requested for ${chat.customer_name}`, { exact: true }),
-    ).toBeVisible();
-    await label.scrollIntoViewIfNeeded();
     await page.screenshot({
       path: testInfo.outputPath('selected-chat-history.png'),
       fullPage: true,

@@ -1,4 +1,10 @@
+import { classifyCacheEntry } from './cache-freshness.ts';
+
 const DEFAULT_CACHE_TTL_SECONDS = 60 * 60;
+// An entry whose data version has moved on is still served for this long after
+// it was built. However many writes or viewers arrive, one scope key is rebuilt
+// from PostgreSQL at most once per interval.
+const DEFAULT_MIN_REBUILD_INTERVAL_MS = 60_000;
 const LOCK_TTL_MS = 15_000;
 const COALESCED_WAIT_MS = 500;
 const COALESCED_POLL_MS = 100;
@@ -12,14 +18,27 @@ export const MANUAL_REFRESH_POLICY = {
   window_ms: MANUAL_REFRESH_WINDOW_MS,
 } as const;
 
+// Resources served by the dashboard-cache Edge function (see its registry.ts).
 export type WorkspaceCacheResource =
-  'tenant-dashboard' | 'inventory-dashboard' | 'platform-dashboard';
+  | 'tenant-dashboard'
+  | 'inventory-dashboard'
+  | 'platform-dashboard'
+  | 'telecaller-performance'
+  | 'sales-consultant-performance'
+  | 'team-manager-performance'
+  | 'gm-sales-analytics'
+  | 'business-sales-overview'
+  | 'business-showroom-performance'
+  | 'business-showroom-analytics'
+  | 'business-operations-overview';
 export type EdgeCacheResource =
   WorkspaceCacheResource | 'sales-consultant-dashboard' | 'sales-consultant-ai-summary';
 export type ManualRefreshResource = EdgeCacheResource;
 
 export type CacheDiagnostic = {
-  status: 'HIT' | 'MISS' | 'COALESCED' | 'BYPASS' | 'FALLBACK';
+  // STALE: served an entry whose data has since changed, because it was built
+  // inside the minimum rebuild interval or another request is rebuilding it.
+  status: 'HIT' | 'STALE' | 'MISS' | 'COALESCED' | 'BYPASS' | 'FALLBACK';
   resource: EdgeCacheResource;
   version: number;
   age_seconds: number | null;
@@ -28,7 +47,9 @@ export type CacheDiagnostic = {
   synced_at: string | null;
 };
 
-type CacheEntry<T> = { value: T; created_at: string };
+// data_version is absent on entries written before stale-while-revalidate.
+// Those keys embedded the version in their fingerprint, so they match by construction.
+type CacheEntry<T> = { value: T; created_at: string; data_version?: number };
 type RedisResponse = { result?: unknown; error?: string };
 
 function configuration() {
@@ -189,6 +210,7 @@ export async function readWorkspaceCache<T>(input: {
   fingerprintInput: unknown;
   version: number;
   ttlSeconds?: number;
+  minRebuildIntervalMs?: number;
   forceRefresh?: boolean;
   load: () => Promise<T>;
 }): Promise<{ value: T; diagnostic: CacheDiagnostic }> {
@@ -223,17 +245,25 @@ export async function readWorkspaceCache<T>(input: {
   } catch {
     return loadWithoutCache('FALLBACK');
   }
+  const serveExisting = (entry: CacheEntry<T>, status: 'HIT' | 'STALE') => ({
+    value: entry.value,
+    diagnostic: {
+      status,
+      resource: input.resource,
+      version: input.version,
+      age_seconds: entryAgeSeconds(entry),
+      synced_at: entry.created_at,
+    } satisfies CacheDiagnostic,
+  });
   if (existing && !input.forceRefresh) {
-    return {
-      value: existing.value,
-      diagnostic: {
-        status: 'HIT',
-        resource: input.resource,
-        version: input.version,
-        age_seconds: entryAgeSeconds(existing),
-        synced_at: existing.created_at,
-      },
-    };
+    const decision = classifyCacheEntry(
+      existing,
+      input.version,
+      refreshStartedAt,
+      input.minRebuildIntervalMs ?? DEFAULT_MIN_REBUILD_INTERVAL_MS,
+    );
+    if (decision === 'HIT') return serveExisting(existing, 'HIT');
+    if (decision === 'STALE_SERVE') return serveExisting(existing, 'STALE');
   }
 
   // A user-triggered Refresh is intentionally stronger than a cache bypass:
@@ -254,8 +284,12 @@ export async function readWorkspaceCache<T>(input: {
   try {
     lockAcquired = await redis.setNx(lockKey, lockToken, LOCK_TTL_MS);
   } catch {
+    if (existing && !input.forceRefresh) return serveExisting(existing, 'STALE');
     return loadWithoutCache('FALLBACK');
   }
+  // Someone else is already rebuilding an out-of-date entry. Serve what exists
+  // rather than queueing more readers behind the same database aggregate.
+  if (!lockAcquired && existing && !input.forceRefresh) return serveExisting(existing, 'STALE');
   if (lockAcquired) {
     let value: T;
     try {
@@ -266,13 +300,21 @@ export async function readWorkspaceCache<T>(input: {
       } catch {
         // The bounded lock naturally expires; cache correctness never relies on release.
       }
+      // A failed rebuild of an out-of-date entry keeps the last good aggregate on screen.
+      if (existing && !input.forceRefresh) return serveExisting(existing, 'STALE');
       throw error;
     }
 
     let cacheStored = true;
     const createdAt = new Date().toISOString();
     try {
-      await redis.set(key, { value, created_at: createdAt }, ttlSeconds);
+      // input.version was read before load(), so a write that commits during the
+      // rebuild leaves this entry already out of date and the next read rebuilds.
+      await redis.set(
+        key,
+        { value, created_at: createdAt, data_version: input.version } satisfies CacheEntry<T>,
+        ttlSeconds,
+      );
     } catch {
       // Do not repeat an expensive successful load just because Redis could not store it.
       cacheStored = false;

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
+import { assignmentModes } from './assignment-mode';
 
 const workspaceSchema = z.object({
   total: z.coerce.number().int().nonnegative(),
@@ -17,7 +18,7 @@ const workspaceSchema = z.object({
       temperature: z.string().nullable(),
       created_at: z.string(),
       assignment_kind: z.enum(['FRESH', 'QUALIFIED']),
-      assignment_mode: z.enum(['ROUND_ROBIN', 'MANUAL_ASSIGNMENT']),
+      assignment_mode: z.enum(assignmentModes),
     }),
   ),
   consultants: z.array(

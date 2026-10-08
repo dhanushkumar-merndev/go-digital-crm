@@ -6,6 +6,7 @@ const migration = readFileSync(
   'utf8',
 );
 const api = readFileSync('src/features/administration/audit-log-api.ts', 'utf8');
+const rpc = readFileSync('supabase/migrations/202610050004_audit_log_page_rpc.sql', 'utf8');
 const securityApi = readFileSync('src/features/administration/security-workspace-api.ts', 'utf8');
 
 describe('audit log scale contract', () => {
@@ -23,13 +24,14 @@ describe('audit log scale contract', () => {
   });
 
   it('uses stable keyset pagination instead of OFFSET', () => {
-    expect(api).toContain(".order('created_at', { ascending: false })");
-    expect(api).toContain(".order('id', { ascending: false })");
-    expect(api).toContain('id.lt.${input.cursor.id}');
+    // Paging, ordering and LIKE escaping run inside get_audit_log_page.
+    expect(rpc).toContain('order by log_row.created_at desc, log_row.id desc');
+    expect(rpc).toContain('or (log_row.created_at = cursor_created_at and log_row.id < cursor_id)');
+    expect(rpc).not.toMatch(/\boffset\b/i);
     expect(api).not.toContain('.range(');
-    expect(api).toContain(".replaceAll('%', '\\\\%')");
-    expect(api).toContain(".replaceAll('_', '\\\\_')");
-    expect(api).not.toContain(".replace(/[,.()]/g, '')");
+    expect(api).toContain('cursor_id: input.cursor ? Number(input.cursor.id) : null');
+    expect(rpc).toContain("'%', '\\%'");
+    expect(rpc).toContain("'_', '\\_'");
   });
 
   it('keeps BIGINT audit identities as strings in both audit consumers', () => {

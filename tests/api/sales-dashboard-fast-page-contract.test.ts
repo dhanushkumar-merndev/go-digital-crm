@@ -7,7 +7,7 @@ const migration = readFileSync(
 );
 const api = readFileSync('src/features/dashboards/sales-consultant-dashboard-api.ts', 'utf8');
 
-describe('Sales Consultant dashboard fast read', () => {
+describe('Sales Consultant dashboard read path', () => {
   it('bundles the scoped summary, live rows and task count in one authenticated RPC', () => {
     expect(migration).toContain('get_sales_consultant_dashboard_summary(target_timezone)');
     expect(migration).toContain('get_sales_consultant_dashboard_live(target_timezone)');
@@ -17,10 +17,11 @@ describe('Sales Consultant dashboard fast read', () => {
     expect(migration).toContain('to authenticated');
   });
 
-  it('uses PostgREST for ordinary reads and reserves Edge for explicit refresh', () => {
-    expect(api).toContain("rpc('get_sales_consultant_dashboard_page'");
-    expect(api).toContain('if (!options.manualRefresh)');
+  it('reads through the Redis Edge path and falls back to PostgREST when it is unreachable', () => {
     expect(api).toContain("functions.invoke('sales-consultant-dashboard'");
-    expect(api).toContain('body: { manual_refresh: true, response_version: 2 }');
+    expect(api).toContain('body: { manual_refresh: manualRefreshRequested, response_version: 2 }');
+    expect(api).toContain("rpc('get_sales_consultant_dashboard_page'");
+    expect(api).toContain('if (!manualRefreshRequested && !signal?.aborted)');
+    expect(api).toContain("if (details.code === 'MANUAL_REFRESH_LIMITED')");
   });
 });

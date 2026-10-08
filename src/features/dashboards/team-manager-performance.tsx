@@ -1,6 +1,5 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
 import { CarFront, CheckCircle2, Target, TriangleAlert, Trophy } from 'lucide-react';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
@@ -10,6 +9,12 @@ import {
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PerformanceDateRangeSelector } from '@/components/shared/performance-date-range-selector';
+import {
+  AGGREGATE_REALTIME_MIN_INTERVAL_MS,
+  DASHBOARD_QUERY_GC_TIME_MS,
+  DASHBOARD_QUERY_STALE_TIME_MS,
+} from '@/lib/query/cache-policy';
+import { usePersistedQuery } from '@/lib/query/persisted-query';
 import { TeamManagerPerformanceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,7 +29,8 @@ import {
 } from '@/components/ui/table';
 import type { Metric } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
-import { fetchTeamManagerPerformance } from './team-manager-performance-api';
+import { SalesHandoffReport } from './sales-handoff-report';
+import { fetchTeamManagerPerformance, teamPerformanceSchema } from './team-manager-performance-api';
 
 function formatDuration(seconds: number) {
   return `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(
@@ -41,20 +47,30 @@ function initials(name: string) {
     .join('');
 }
 
-export function TeamManagerPerformance({ heading = 'Team Performance' }: { heading?: string }) {
+export function TeamManagerPerformance({
+  heading = 'Team Performance',
+  showHandoffs = false,
+}: {
+  heading?: string;
+  /** The Team Performance page adds the telecaller-to-sales handoff report. */
+  showHandoffs?: boolean;
+}) {
   const session = useWorkspaceSession();
   const queryScope = workspaceQueryScope(session);
   const [range, setRange] = useState(() => performanceRangeForLastDays(7));
-  const query = useQuery({
+  const query = usePersistedQuery({
     queryKey: ['team-manager-performance', ...queryScope, range.from, range.to],
     queryFn: ({ signal }) => fetchTeamManagerPerformance(range, signal),
-    staleTime: 60_000,
+    staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
+    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+    persist: { version: 1, schema: teamPerformanceSchema },
   });
   useTenantRealtimeInvalidation(
     session?.organizationId,
     (['leads', 'communications', 'work', 'sales'] as const).map((resource) => ({
       resource,
       queryKeys: [['team-manager-performance', ...queryScope]],
+      minIntervalMs: AGGREGATE_REALTIME_MIN_INTERVAL_MS,
     })),
   );
   if (query.isPending) return <TeamManagerPerformanceSkeleton />;
@@ -240,6 +256,9 @@ export function TeamManagerPerformance({ heading = 'Team Performance' }: { headi
           </Table>
         </CardContent>
       </Card>
+      {showHandoffs ? (
+        <SalesHandoffReport preset="TEAM" range={range} leadBasePath="/team-manager/leads" />
+      ) : null}
       <p className="text-center text-xs text-muted-foreground">
         Results include only records assigned to your active managed team. Talk time:{' '}
         {formatDuration(data.kpis.talk_seconds)}.

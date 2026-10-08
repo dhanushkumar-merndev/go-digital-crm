@@ -331,9 +331,14 @@ async function main() {
   const today = todayInIndia();
   const readableDate = dateKey(today);
   const compactDate = compactDateKey(today);
+  // Blueprints address leads by index, and the indexes are not contiguous.
   const leads = await resolveFixtureLeads(
     target,
-    genericAppointmentBlueprints.length + dedicatedTestDriveBlueprints.length,
+    Math.max(
+      ...[...genericAppointmentBlueprints, ...dedicatedTestDriveBlueprints].map(
+        (blueprint) => blueprint.leadIndex,
+      ),
+    ) + 1,
   );
   const genericFixtures = genericAppointmentBlueprints.map((blueprint) => ({
     ...blueprint,

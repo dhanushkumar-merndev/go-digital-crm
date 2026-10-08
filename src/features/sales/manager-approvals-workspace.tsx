@@ -74,6 +74,7 @@ export function ManagerApprovalsWorkspace() {
   );
   const canDecide = hasWorkspacePermission(session, 'approval.decide');
   const decide = useMutation({
+    meta: { toast: false },
     mutationFn: (decision: 'APPROVED' | 'REJECTED') => {
       if (!selected) throw new Error('APPROVAL_NOT_READY');
       requestId.current ??= crypto.randomUUID();

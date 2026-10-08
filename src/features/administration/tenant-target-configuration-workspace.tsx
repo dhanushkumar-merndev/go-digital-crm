@@ -107,6 +107,7 @@ export function TenantTargetConfigurationWorkspace({
     staleTime: 60000,
   });
   const save = useMutation({
+    meta: { toast: false },
     mutationFn: () => {
       if (!selected) throw new Error('TARGET_REQUIRED');
       return saveBranchTargetConfiguration({

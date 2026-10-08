@@ -81,12 +81,12 @@ async function patch(table, query, row) {
 }
 
 const demoSpecifications = {
-  'Battery capacity': '55 kWh',
-  Range: '430 km (claimed)',
-  Power: '150 PS',
-  Torque: '310 Nm',
-  'Fast charging': '10–80% in 45 min',
-  Warranty: '8 years / 160,000 km battery',
+  battery_capacity: '55 kWh',
+  range: '430 km (claimed)',
+  power: '150 PS',
+  torque: '310 Nm',
+  fast_charging: '10–80% in 45 min',
+  warranty: '8 years / 160,000 km battery',
 };
 
 const competitors = [
@@ -97,12 +97,12 @@ const competitors = [
     fuel_type: 'Electric',
     ex_showroom_price: 1799000,
     specifications: {
-      'Battery capacity': '39.4 kWh',
-      Range: '456 km (claimed)',
-      Power: '150 PS',
-      Torque: '310 Nm',
-      'Fast charging': '0–80% in 50 min',
-      Warranty: '8 years / 160,000 km battery',
+      battery_capacity: '39.4 kWh',
+      range: '456 km (claimed)',
+      power: '150 PS',
+      torque: '310 Nm',
+      fast_charging: '0–80% in 50 min',
+      warranty: '8 years / 160,000 km battery',
     },
     advantages: ['Long claimed range', 'Strong torque for city driving', 'Five-star safety focus'],
   },
@@ -113,12 +113,12 @@ const competitors = [
     fuel_type: 'Electric',
     ex_showroom_price: 1898000,
     specifications: {
-      'Battery capacity': '50.3 kWh',
-      Range: '461 km (claimed)',
-      Power: '177 PS',
-      Torque: '280 Nm',
-      'Fast charging': '0–80% in 60 min',
-      Warranty: '8 years / 150,000 km battery',
+      battery_capacity: '50.3 kWh',
+      range: '461 km (claimed)',
+      power: '177 PS',
+      torque: '280 Nm',
+      fast_charging: '0–80% in 60 min',
+      warranty: '8 years / 150,000 km battery',
     },
     advantages: [
       'Higher power output',

@@ -106,7 +106,7 @@ const refreshBudgetSchema = z.object({
 });
 
 const cacheDiagnosticSchema = z.object({
-  status: z.enum(['HIT', 'MISS', 'COALESCED', 'BYPASS', 'FALLBACK']),
+  status: z.enum(['HIT', 'STALE', 'MISS', 'COALESCED', 'BYPASS', 'FALLBACK']),
   resource: z.literal('sales-consultant-dashboard'),
   version: z.coerce.number().int().positive(),
   age_seconds: z.coerce.number().int().nonnegative().nullable(),
@@ -174,38 +174,48 @@ async function edgeErrorDetails(error: unknown) {
   }
 }
 
+/** Direct PostgreSQL read, used only when the Edge cache path is unreachable. */
+async function fetchSalesConsultantDashboardDirect(signal?: AbortSignal) {
+  const request = createClient().rpc('get_sales_consultant_dashboard_page', {
+    target_timezone: 'Asia/Kolkata',
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  const result = dashboardSchema.parse(data);
+  return {
+    ...result,
+    cache: {
+      status: 'BYPASS',
+      resource: 'sales-consultant-dashboard',
+      version: 3,
+      age_seconds: 0,
+      synced_at: result.generated_at,
+    },
+    refresh_budget: null,
+  } satisfies SalesConsultantDashboardResult;
+}
+
+/**
+ * Ordinary reads go through Redis (rebuilt from PostgreSQL only when the entry
+ * is missing or its data version moved); Refresh forces a rebuild under the
+ * 3-per-30-minute quota. If the Edge function is unreachable an ordinary read
+ * falls back to the direct RPC so the dashboard never blanks.
+ */
 export async function fetchSalesConsultantDashboard(
   signal?: AbortSignal,
   options: { manualRefresh?: boolean } = {},
 ) {
-  if (!options.manualRefresh) {
-    const request = createClient().rpc('get_sales_consultant_dashboard_page', {
-      target_timezone: 'Asia/Kolkata',
-    });
-    const { data, error } = await (signal ? request.abortSignal(signal) : request);
-    if (error) throw error;
-    const result = dashboardSchema.parse(data);
-    return {
-      ...result,
-      cache: {
-        status: 'BYPASS',
-        resource: 'sales-consultant-dashboard',
-        version: 3,
-        age_seconds: 0,
-        synced_at: result.generated_at,
-      },
-      refresh_budget: null,
-    } satisfies SalesConsultantDashboardResult;
-  }
-
+  const manualRefreshRequested = Boolean(options.manualRefresh);
   const { data, error } = await createClient().functions.invoke('sales-consultant-dashboard', {
-    body: { manual_refresh: true, response_version: 2 },
+    body: { manual_refresh: manualRefreshRequested, response_version: 2 },
     signal,
   });
   if (error) {
     const details = await edgeErrorDetails(error);
     if (details.code === 'MANUAL_REFRESH_LIMITED')
       throw new ManualDashboardRefreshLimitError(details.retryAfterMs);
+    if (!manualRefreshRequested && !signal?.aborted)
+      return fetchSalesConsultantDashboardDirect(signal);
     throw error;
   }
   const envelope = envelopeSchema.parse(data);

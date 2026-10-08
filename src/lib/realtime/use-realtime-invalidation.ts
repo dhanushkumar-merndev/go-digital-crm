@@ -17,7 +17,15 @@ type TenantSubscription = {
   resource: TenantRealtimeResource;
   queryKeys: QueryKey[];
   tableQueryKeys?: Record<string, QueryKey[]>;
+  /**
+   * Aggregates (dashboards, analytics) refetch at most once per this interval,
+   * with jitter so every open dashboard in an organization does not hit the
+   * server in the same instant. Work lists leave it unset and stay near-instant.
+   */
+  minIntervalMs?: number;
 };
+
+const AGGREGATE_REFETCH_JITTER_MS = 3_000;
 
 type PlatformSubscription = {
   resource: PlatformRealtimeResource;
@@ -42,27 +50,48 @@ export function useTenantRealtimeInvalidation(
     if (!organizationId) return;
     const supabase = createClient();
     const timers = new Map<string, ReturnType<typeof setTimeout>>();
+    const lastRuns = new Map<string, number>();
     const channels = stableItems.map((subscription, index) => {
       const invalidate = (event?: { payload?: { table?: string } }) => {
         const table = event?.payload?.table;
         const queryKeys = !event
           ? [...subscription.queryKeys, ...Object.values(subscription.tableQueryKeys ?? {}).flat()]
           : (table && subscription.tableQueryKeys?.[table]) || subscription.queryKeys;
+        const schedule = (timerKey: string, keys: QueryKey[], delay: number) => {
+          timers.set(
+            timerKey,
+            setTimeout(() => {
+              timers.delete(timerKey);
+              lastRuns.set(timerKey, Date.now());
+              for (const queryKey of keys)
+                void queryClient.invalidateQueries(
+                  { queryKey, refetchType: 'active' },
+                  { cancelRefetch: false },
+                );
+            }, delay),
+          );
+        };
+        const minIntervalMs = subscription.minIntervalMs ?? 0;
+        if (minIntervalMs > 0) {
+          // Throttled per query key, not per channel: several channels often
+          // feed one dashboard, and it should still refetch once per interval.
+          for (const queryKey of queryKeys) {
+            const timerKey = `aggregate:${JSON.stringify(queryKey)}`;
+            if (timers.has(timerKey)) continue;
+            const sinceLastRun = Date.now() - (lastRuns.get(timerKey) ?? 0);
+            schedule(
+              timerKey,
+              [queryKey],
+              Math.max(REALTIME_INVALIDATION_DEBOUNCE_MS, minIntervalMs - sinceLastRun) +
+                Math.random() * AGGREGATE_REFETCH_JITTER_MS,
+            );
+          }
+          return;
+        }
         const timerKey = `${subscription.resource}:${index}:${table ?? ''}`;
-        const pending = timers.get(timerKey);
         // Coalesce bursts without postponing updates indefinitely during history sync.
-        if (pending) return;
-        timers.set(
-          timerKey,
-          setTimeout(() => {
-            timers.delete(timerKey);
-            for (const queryKey of queryKeys)
-              void queryClient.invalidateQueries(
-                { queryKey, refetchType: 'active' },
-                { cancelRefetch: false },
-              );
-          }, REALTIME_INVALIDATION_DEBOUNCE_MS),
-        );
+        if (timers.has(timerKey)) return;
+        schedule(timerKey, queryKeys, REALTIME_INVALIDATION_DEBOUNCE_MS);
       };
       const channel = supabase
         .channel(tenantRealtimeTopic(organizationId, subscription.resource), {
@@ -75,12 +104,17 @@ export function useTenantRealtimeInvalidation(
     let cancelled = false;
     void supabase.realtime.setAuth().then(() => {
       if (!cancelled)
-        channels.forEach(({ channel, invalidate }) =>
+        channels.forEach(({ channel, invalidate }) => {
+          let joined = false;
           channel.subscribe((status) => {
-            // Catch changes missed before subscribing or during a reconnect.
-            if (status === 'SUBSCRIBED') invalidate();
-          }),
-        );
+            if (status !== 'SUBSCRIBED') return;
+            // Catch changes missed while the socket was down. The first join is
+            // skipped: the page has just fetched, and each channel confirming
+            // a moment apart used to chain one reload per channel on open.
+            if (joined) invalidate();
+            joined = true;
+          });
+        });
     });
     return () => {
       cancelled = true;

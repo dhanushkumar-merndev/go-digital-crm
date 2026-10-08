@@ -48,8 +48,11 @@ describe('explicit lead customer resolution', () => {
 
   it('shows customer details directly instead of a duplicate create button', () => {
     expect(customerMatchDialog).not.toContain('Create a separate customer UUID');
-    expect(customerMatchDialog).toContain("useState<'LINK_EXISTING' | 'CREATE_NEW'>('CREATE_NEW')");
-    expect(customerMatchDialog).toContain("setResolution('CREATE_NEW')");
+    // No default decision: create-new used to be pre-selected, which turned one
+    // phone number into several customers. The user now picks a candidate or
+    // the explicit "Create a separate customer" option.
+    expect(customerMatchDialog).toContain('useState<string | null>(null)');
+    expect(customerMatchDialog).toContain('setChoice(CREATE_NEW_CHOICE)');
   });
 });
 

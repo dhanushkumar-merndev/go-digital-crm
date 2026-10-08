@@ -30,6 +30,11 @@ import {
 } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import {
+  assignmentModeDescription,
+  assignmentModeLabel,
+  isAutomaticAssignmentMode,
+} from './assignment-mode';
 import { assignLead } from './lead-workspace-api';
 import {
   fetchLeadAssignmentWorkspace,
@@ -114,7 +119,7 @@ function AssignmentQueue({
             <div className="mt-2 flex items-center justify-between text-xs">
               <span className="font-medium text-slate-700">{lead.team_name}</span>
               <span className="text-muted-foreground">
-                {lead.assignment_mode === 'ROUND_ROBIN' ? 'Round robin' : 'Manual'}
+                {assignmentModeLabel(lead.assignment_mode)}
               </span>
             </div>
           </button>
@@ -168,6 +173,7 @@ export function LeadAssignmentWorkspace({
     eligibleConsultants[0] ??
     null;
   const assign = useMutation({
+    meta: { toast: false },
     mutationFn: () => {
       if (!selectedLead) throw new Error('ASSIGNMENT_LEAD_REQUIRED');
       if (!selectedConsultant) throw new Error('ASSIGNMENT_CONSULTANT_REQUIRED');
@@ -175,10 +181,9 @@ export function LeadAssignmentWorkspace({
         leadId: selectedLead.id,
         userId: selectedConsultant.user_id,
         assignmentKind: selectedLead.assignment_kind,
-        reason:
-          selectedLead.assignment_mode === 'ROUND_ROBIN'
-            ? 'Assigned through configured round robin queue.'
-            : `Assigned by ${audience === 'SHOWROOM_MANAGER' ? 'Showroom Manager' : 'Team Manager'} from assignment queue.`,
+        reason: isAutomaticAssignmentMode(selectedLead.assignment_mode)
+          ? `Assigned through the configured ${assignmentModeLabel(selectedLead.assignment_mode)} rule.`
+          : `Assigned by ${audience === 'SHOWROOM_MANAGER' ? 'Sales Manager' : 'Team Manager'} from assignment queue.`,
       });
     },
     onSuccess: async () => {
@@ -189,8 +194,8 @@ export function LeadAssignmentWorkspace({
         type: 'success',
         title: 'Lead assigned',
         description:
-          selectedLead?.assignment_mode === 'ROUND_ROBIN'
-            ? 'The configured round-robin rule selected an eligible consultant.'
+          selectedLead && isAutomaticAssignmentMode(selectedLead.assignment_mode)
+            ? `The ${assignmentModeLabel(selectedLead.assignment_mode)} rule selected an eligible consultant.`
             : 'The selected consultant now owns this lead.',
       });
     },
@@ -309,9 +314,9 @@ export function LeadAssignmentWorkspace({
                     <div>
                       <p className="font-semibold">{selectedLead.customer_name}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {selectedLead.assignment_mode === 'ROUND_ROBIN'
-                          ? 'Round robin assignment'
-                          : 'Manual assignment'}
+                        {assignmentModeLabel(selectedLead.assignment_mode)}
+                        {isAutomaticAssignmentMode(selectedLead.assignment_mode) &&
+                          ` · ${assignmentModeDescription(selectedLead.assignment_mode)}`}
                       </p>
                     </div>
                     {selectedLead.assignment_mode === 'MANUAL_ASSIGNMENT' && (
@@ -338,8 +343,8 @@ export function LeadAssignmentWorkspace({
                     >
                       {assign.isPending
                         ? 'Assigning…'
-                        : selectedLead.assignment_mode === 'ROUND_ROBIN'
-                          ? 'Assign via round robin'
+                        : isAutomaticAssignmentMode(selectedLead.assignment_mode)
+                          ? `Assign via ${assignmentModeLabel(selectedLead.assignment_mode).toLowerCase()}`
                           : 'Assign selected lead'}
                       <ArrowRight className="size-4" />
                     </Button>
@@ -378,7 +383,12 @@ export function LeadAssignmentWorkspace({
                     <button
                       key={consultant.user_id}
                       type="button"
-                      disabled={!eligible || selectedLead?.assignment_mode === 'ROUND_ROBIN'}
+                      disabled={
+                        !eligible ||
+                        (selectedLead
+                          ? isAutomaticAssignmentMode(selectedLead.assignment_mode)
+                          : false)
+                      }
                       onClick={() => setSelectedConsultantId(consultant.user_id)}
                       className={`w-full rounded-lg border p-3 text-left ${selectedConsultant?.user_id === consultant.user_id ? 'border-blue-500 bg-blue-50' : ''} ${eligible ? 'hover:bg-slate-50' : 'opacity-55'}`}
                     >
@@ -458,9 +468,7 @@ export function LeadAssignmentWorkspace({
                       <td className="px-5 py-3 font-medium">{row.customer_name}</td>
                       <td className="px-5 py-3">{row.assigned_to_name}</td>
                       <td className="px-5 py-3">
-                        <Badge variant="outline">
-                          {row.method === 'ROUND_ROBIN' ? 'Round robin' : 'Manual'}
-                        </Badge>
+                        <Badge variant="outline">{assignmentModeLabel(row.method)}</Badge>
                       </td>
                       <td className="max-w-80 truncate px-5 py-3 text-muted-foreground">
                         {row.reason ?? '—'}

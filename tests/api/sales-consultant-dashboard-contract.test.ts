@@ -124,7 +124,9 @@ describe('sales consultant dashboard contract', () => {
     expect(dashboardHandler).toContain('user_id: userId');
     expect(dashboardHandler).toContain('organization_id: context.organization_id');
     expect(dashboardHandler).toContain('scope_key: context.scope_key');
-    expect(dashboardHandler).not.toContain("target_resource_key: 'tenant-dashboard'");
+    // The tenant data version is what marks this entry out of date after a write.
+    expect(dashboardHandler).toContain("target_resource_key: 'tenant-dashboard'");
+    expect(dashboardHandler).toContain('version: dataVersion.data.version');
     expect(summaryShape).not.toContain('schedule');
     expect(summaryShape).not.toContain('recent_leads');
     expect(summaryFunction).not.toContain("'schedule'");
@@ -134,7 +136,7 @@ describe('sales consultant dashboard contract', () => {
     expect(dashboardHandler.indexOf('const cachedDashboard')).toBeLessThan(
       dashboardHandler.indexOf('const result = await attachInventoryImages'),
     );
-    expect(dashboardHandler).toContain('const SALES_DASHBOARD_CACHE_TTL_SECONDS = 24 * 60 * 60');
+    expect(dashboardHandler).toContain('const SALES_DASHBOARD_CACHE_TTL_SECONDS = 30 * 60');
     expect(dashboardHandler).toContain('forceRefresh: parsed.data.manual_refresh');
   });
 

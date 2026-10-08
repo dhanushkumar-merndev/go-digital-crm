@@ -166,6 +166,10 @@ if (process.env.E2E_CHROMIUM_EXECUTABLE) {
       ...(visibleBrowser
         ? {
             headless: false,
+            // Optional pause (ms) before every action so a watched run can be followed.
+            ...(Number(process.env.E2E_SLOW_MO) > 0
+              ? { slowMo: Number(process.env.E2E_SLOW_MO) }
+              : {}),
             args: [
               '--start-fullscreen',
               `--window-position=${windowPosition ?? '0,0'}`,
@@ -332,6 +336,14 @@ async function openManualLeadDialog(page) {
   return page.getByRole('dialog', { name: 'Add lead' });
 }
 
+// Interested model is required on a hand-entered lead; any catalogue model will do.
+async function chooseInterestedModel(createDialog) {
+  await createDialog.getByRole('combobox', { name: 'Interested model' }).click();
+  const option = createDialog.page().getByRole('option').first();
+  await expect(option).toBeVisible({ timeout: 30_000 });
+  await option.click();
+}
+
 function futureDateTimeInput(hours = 24) {
   return new Date(Date.now() + hours * 60 * 60_000).toISOString().slice(0, 16);
 }
@@ -370,7 +382,17 @@ async function expectLeadOutsideQuickView(page, leadName, label, status) {
   await expect(matchingRows(page, leadName)).toHaveCount(0, { timeout: 30_000 });
 }
 
-async function clickWhatsAppWithoutLeavingCrm(page, whatsapp) {
+// With a WhatsApp provider connected, the row control opens a channel menu and
+// the click-to-chat link moves to its "WhatsApp on my phone" item. Without one,
+// the control is that link itself.
+async function whatsAppPhoneLink(page, control) {
+  if ((await control.evaluate((element) => element.tagName)) !== 'BUTTON') return control;
+  await control.click();
+  return page.getByRole('menuitem', { name: 'WhatsApp on my phone' });
+}
+
+async function clickWhatsAppWithoutLeavingCrm(page, control) {
+  const whatsapp = await whatsAppPhoneLink(page, control);
   // The CRM first-contact mutation is attached to this anchor's click handler.
   // Cancel only the browser's default external navigation; React still receives
   // the same click and persists the real contact event in this CRM session.
@@ -407,6 +429,7 @@ async function handOverNewSalesLead(page, customerName, phone) {
   const createDialog = await openManualLeadDialog(page);
   await createDialog.getByLabel('Customer name').fill(customerName);
   await createDialog.getByLabel('Phone').fill(phone);
+  await chooseInterestedModel(createDialog);
   await createDialog.getByRole('button', { name: 'Create lead' }).click();
   await expect(createDialog).toBeHidden({ timeout: 25_000 });
   await page.getByPlaceholder('Search by name or mobile…').fill(customerName);
@@ -903,6 +926,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await expect(createDialog).toBeVisible();
     await createDialog.getByLabel('Customer name').fill(customerName);
     await createDialog.getByLabel('Phone').fill('+91 85939 39234');
+    await chooseInterestedModel(createDialog);
     await createDialog.getByRole('button', { name: 'Create lead' }).click();
     await expect(createDialog).toBeHidden({ timeout: 25_000 });
 
@@ -938,7 +962,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await expect(row.getByLabel(`Call ${customerName}`)).toBeVisible();
     // WhatsApp is an equally valid first-contact channel and updates the same
     // Contacted workflow. Suppress its external tab so the test stays in CRM.
-    const whatsapp = row.getByLabel(`WhatsApp ${customerName}`);
+    const whatsapp = await whatsAppPhoneLink(page, row.getByLabel(`WhatsApp ${customerName}`));
     await expect(whatsapp).toHaveAttribute('href', /wa\.me\/918593939234/);
     // The CRM handler records the contact, while the link opens WhatsApp in a
     // separate tab. Close that external tab immediately so observed browser
@@ -1030,6 +1054,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
       (response) => response.url().includes('/rpc/create_lead'),
       { timeout: 30_000 },
     );
+    await chooseInterestedModel(createDialog);
     await createDialog.getByRole('button', { name: 'Create lead' }).click();
     const response = await createResponse;
     if (!response.ok()) {
@@ -1072,6 +1097,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     const createDialog = await openManualLeadDialog(page);
     await createDialog.getByLabel('Customer name').fill(followupCustomerName);
     await createDialog.getByLabel('Phone').fill(edgePhone(2));
+    await chooseInterestedModel(createDialog);
     await createDialog.getByRole('button', { name: 'Create lead' }).click();
     await expect(createDialog).toBeHidden({ timeout: 25_000 });
 
@@ -1115,6 +1141,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
       (response) => response.url().includes('/rpc/create_lead'),
       { timeout: 30_000 },
     );
+    await chooseInterestedModel(createDialog);
     await createDialog.getByRole('button', { name: 'Create lead' }).click();
     const response = await createResponse;
     if (!response.ok()) {
@@ -1191,6 +1218,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     const createDialog = await openManualLeadDialog(page);
     await createDialog.getByLabel('Customer name').fill(handoffCancellationCustomerName);
     await createDialog.getByLabel('Phone').fill(edgePhone(4));
+    await chooseInterestedModel(createDialog);
     await createDialog.getByRole('button', { name: 'Create lead' }).click();
     await expect(createDialog).toBeHidden({ timeout: 25_000 });
     await page.getByPlaceholder('Search by name or mobile…').fill(handoffCancellationCustomerName);

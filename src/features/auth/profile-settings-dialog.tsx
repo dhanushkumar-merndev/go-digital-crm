@@ -17,11 +17,14 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  completeProfileAvatarUpload,
   getProfileSettingsErrorMessage,
+  isPresignReusable,
+  prepareProfileAvatar,
+  presignProfileAvatar,
   ProfileSettingsError,
   saveMyProfile,
-  uploadProfileAvatar,
-  validateProfileAvatar,
+  type PresignedProfileAvatar,
   type ProfileAvatarAction,
   type SavedProfile,
 } from './profile-settings-api';
@@ -66,6 +69,10 @@ export function ProfileSettingsDialog({
   const [previewUrl, setPreviewUrl] = useState<string>();
   const [avatarAction, setAvatarAction] = useState<ProfileAvatarAction>('KEEP');
   const [error, setError] = useState<string>();
+  const [preparingPhoto, setPreparingPhoto] = useState(false);
+  // Started when a photo is chosen so Save skips the presign round trip. Its
+  // failure is not shown here: Save simply presigns again.
+  const presignRef = useRef<Promise<PresignedProfileAvatar> | null>(null);
 
   useEffect(
     () => () => {
@@ -84,11 +91,12 @@ export function ProfileSettingsDialog({
       if (avatarAction === 'REPLACE') {
         if (!organizationId || !selectedFile)
           throw new ProfileSettingsError('PROFILE_AVATAR_INVALID');
-        nextAvatarObjectFileId = await uploadProfileAvatar({
-          organizationId,
-          userId,
-          file: selectedFile,
-        });
+        const early = await presignRef.current?.catch(() => null);
+        const presigned =
+          early && isPresignReusable(early, selectedFile)
+            ? early
+            : await presignProfileAvatar({ organizationId, userId, file: selectedFile });
+        nextAvatarObjectFileId = await completeProfileAvatarUpload(presigned);
       }
       return saveMyProfile({
         fullName: normalizedName,
@@ -104,21 +112,31 @@ export function ProfileSettingsDialog({
     onError: (nextError) => setError(getProfileSettingsErrorMessage(nextError)),
   });
 
-  function choosePhoto(file: File | undefined) {
+  async function choosePhoto(file: File | undefined) {
     setError(undefined);
     if (!file) return;
+    // Resized here rather than on Save, so Save only sends a small image.
+    setPreparingPhoto(true);
     try {
-      validateProfileAvatar(file);
-      setSelectedFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
+      const prepared = await prepareProfileAvatar(file);
+      if (organizationId) {
+        const presign = presignProfileAvatar({ organizationId, userId, file: prepared });
+        presign.catch(() => undefined);
+        presignRef.current = presign;
+      }
+      setSelectedFile(prepared);
+      setPreviewUrl(URL.createObjectURL(prepared));
       setAvatarAction('REPLACE');
     } catch (nextError) {
       setError(getProfileSettingsErrorMessage(nextError));
+    } finally {
+      setPreparingPhoto(false);
     }
   }
 
   function clearPhoto() {
     if (inputRef.current) inputRef.current.value = '';
+    presignRef.current = null;
     setSelectedFile(undefined);
     setPreviewUrl(undefined);
     setAvatarAction(profile.avatarObjectFileId ? 'REMOVE' : 'KEEP');
@@ -165,22 +183,28 @@ export function ProfileSettingsDialog({
               </p>
               {canUploadAvatar ? (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Input
+                  {/* A plain hidden input: the shared Input adds w-full and padding,
+                      which outweighed sr-only and widened the dialog sideways. */}
+                  <input
                     ref={inputRef}
                     id="profile-photo"
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
-                    className="sr-only"
-                    onChange={(event) => choosePhoto(event.target.files?.[0])}
+                    className="hidden"
+                    onChange={(event) => void choosePhoto(event.target.files?.[0])}
                   />
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={mutation.isPending}
+                    disabled={mutation.isPending || preparingPhoto}
                     onClick={() => inputRef.current?.click()}
                   >
-                    <ImagePlus className="size-4" />
+                    {preparingPhoto ? (
+                      <LoaderCircle className="size-4 animate-spin" />
+                    ) : (
+                      <ImagePlus className="size-4" />
+                    )}
                     {profile.avatarObjectFileId || selectedFile ? 'Change photo' : 'Add photo'}
                   </Button>
                   {canRemoveAvatar ? (
@@ -233,7 +257,7 @@ export function ProfileSettingsDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={mutation.isPending}>
+            <Button type="submit" disabled={mutation.isPending || preparingPhoto}>
               {mutation.isPending ? <LoaderCircle className="size-4 animate-spin" /> : null}
               {mutation.isPending ? 'Saving…' : 'Save profile'}
             </Button>

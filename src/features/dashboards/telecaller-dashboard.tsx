@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   BadgeCheck,
@@ -53,18 +52,20 @@ import { focusRowHref } from '@/lib/navigation/focus-row';
 import { leadDetailHref } from '@/lib/navigation/record-links';
 import { ManualDashboardRefreshLimitError } from '@/lib/query/cached-dashboard-api';
 import {
+  AGGREGATE_REALTIME_MIN_INTERVAL_MS,
   DASHBOARD_QUERY_GC_TIME_MS,
   DASHBOARD_QUERY_STALE_TIME_MS,
 } from '@/lib/query/cache-policy';
+import { countRecordSchema, usePersistedQuery } from '@/lib/query/persisted-query';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import { cn } from '@/lib/utils';
 import { toneStyles, type Tone } from './dashboard-tone';
 import {
-  fetchTenantDashboard,
   tenantDashboardKey,
   type TenantDashboardLeadPreview,
   type TenantDashboardResult,
 } from './tenant-dashboard-api';
+import { useTenantDashboard } from './use-tenant-dashboard';
 
 /** Every link on this page is scoped to the telecaller workspace. */
 const DASHBOARD_ROLE = 'telecaller';
@@ -697,27 +698,24 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
     [workspaceSession],
   );
   const manualRefreshRequest = useRef(false);
-  const dashboard = useQuery({
-    queryKey: dashboardQueryKey,
-    queryFn: ({ signal }) =>
-      fetchTenantDashboard(signal, { manualRefresh: manualRefreshRequest.current }),
-    // Matches the consultant dashboard: an in-session revisit is served from
-    // memory, a cold start reads Redis, and only Refresh rebuilds from Postgres.
-    staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
-    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
-  });
+  // Browser first: memory, then the IndexedDB copy (a reload inside 30 minutes
+  // makes no request for these counts), then Redis, then PostgreSQL.
+  const dashboard = useTenantDashboard(dashboardQueryKey, manualRefreshRequest);
   // The shared workspace RPC owns the Telecaller tab definitions (including
   // “Contacted” excluding leads already in Follow-up). Reusing it here keeps
-  // dashboard cards and their destinations mathematically identical.
-  const leadMetrics = useQuery({
+  // dashboard cards and their destinations mathematically identical. Only the
+  // counts are kept, so the persisted copy holds no filter lists or rows.
+  const leadMetrics = usePersistedQuery({
     queryKey: leadMetricsQueryKey,
-    queryFn: ({ signal }) => fetchLeadWorkspaceMeta(toLeadMetaQuery(defaultLeadQuery), signal),
+    queryFn: async ({ signal }) =>
+      (await fetchLeadWorkspaceMeta(toLeadMetaQuery(defaultLeadQuery), signal)).kpis,
     staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
     gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+    persist: { version: 1, schema: countRecordSchema<LeadWorkspaceResult['kpis']>() },
   });
   // The Follow-ups workspace owns its overdue definition. Its KPI is used in
   // preference to the cached cross-module aggregate, avoiding a card/tab drift.
-  const followupMetrics = useQuery({
+  const followupMetrics = usePersistedQuery({
     queryKey: followupMetricsQueryKey,
     queryFn: async ({ signal }) => {
       const result = await fetchWorkWorkspace(
@@ -731,10 +729,12 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
     },
     staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
     gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+    persist: { version: 1, schema: countRecordSchema<FollowupDashboardKpis>() },
   });
   const [refreshMessage, setRefreshMessage] = useState<string>();
   const [manualRefreshRemaining, setManualRefreshRemaining] = useState(3);
   const data = dashboard.data;
+  const refreshing = dashboard.isFetching || leadMetrics.isFetching || followupMetrics.isFetching;
 
   // The server's refresh budget is mirrored into local state as a render-phase
   // adjustment rather than an effect: `refresh()` below also writes both values
@@ -759,6 +759,7 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
                 : resource === 'work'
                   ? [dashboardQueryKey, followupMetricsQueryKey]
                   : [dashboardQueryKey],
+            minIntervalMs: AGGREGATE_REALTIME_MIN_INTERVAL_MS,
           }))
         : [],
     [dashboardQueryKey, data, followupMetricsQueryKey, leadMetricsQueryKey],
@@ -768,7 +769,15 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
   async function refresh(manual = true) {
     setRefreshMessage(undefined);
     manualRefreshRequest.current = manual;
-    const result = await dashboard.refetch();
+    // Refresh means every number on the page: the lead and follow-up counts are
+    // separate queries persisted in IndexedDB, and refetching only the summary
+    // left them showing their old copy for up to 30 minutes. Both read the
+    // database directly; the summary skips Redis on a manual refresh.
+    const [result] = await Promise.all([
+      dashboard.refetch(),
+      leadMetrics.refetch(),
+      followupMetrics.refetch(),
+    ]);
     manualRefreshRequest.current = false;
     if (manual && result.error instanceof ManualDashboardRefreshLimitError) {
       setManualRefreshRemaining(0);
@@ -810,9 +819,9 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
               className="mt-5"
               variant="outline"
               onClick={() => void refresh(false)}
-              disabled={dashboard.isFetching}
+              disabled={refreshing}
             >
-              <RefreshCw className={cn('size-4', dashboard.isFetching && 'animate-spin')} />
+              <RefreshCw className={cn('size-4', refreshing && 'animate-spin')} />
               Retry
             </Button>
           </CardContent>
@@ -820,9 +829,9 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
       </div>
     );
 
-  const metrics = metricCards(data, leadMetrics.data?.kpis, followupMetrics.data);
-  const attention = attentionTiles(data, leadMetrics.data?.kpis, followupMetrics.data);
-  const alerts = alertRows(data, leadMetrics.data?.kpis, followupMetrics.data);
+  const metrics = metricCards(data, leadMetrics.data, followupMetrics.data);
+  const attention = attentionTiles(data, leadMetrics.data, followupMetrics.data);
+  const alerts = alertRows(data, leadMetrics.data, followupMetrics.data);
   const conversionRate = pipelineConversionRate(data);
 
   return (
@@ -839,12 +848,13 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
             variant="ghost"
             size="sm"
             onClick={() => void refresh()}
-            disabled={dashboard.isFetching || manualRefreshRemaining === 0}
+            disabled={refreshing || manualRefreshRemaining === 0}
           >
-            <RefreshCw className={cn('size-3.5', dashboard.isFetching && 'animate-spin')} />
+            <RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />
             Last synced {formatTime(data.generated_at)}
           </Button>
           <span>{manualRefreshRemaining}/3 manual refreshes left</span>
+          {data.cache?.status === 'STALE' && <span>Updating&hellip;</span>}
           {refreshMessage && <span className="text-rose-600">{refreshMessage}</span>}
         </div>
       </div>

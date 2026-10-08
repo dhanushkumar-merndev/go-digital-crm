@@ -9,26 +9,53 @@ function source(relativePath: string) {
 const api = source('src/features/administration/audit-log-api.ts');
 const workspace = source('src/features/administration/audit-log-workspace.tsx');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
+const migration = source('supabase/migrations/202610050004_audit_log_page_rpc.sql');
 
 describe('audit log workspace data contract', () => {
-  it('reads a narrow, RLS-protected audit-log projection rather than an unbounded dataset', () => {
-    expect(api).toContain(".from('audit_logs')");
-    expect(api).toContain(
-      ".select('id,action,resource_type,resource_id,actor_id,branch_id,metadata,created_at')",
+  it('reads a narrow, scope-checked audit-log page rather than an unbounded dataset', () => {
+    // Direct table reads ran the RLS helpers once per row: 12 s for 8 rows.
+    expect(api).toContain("rpc('get_audit_log_page'");
+    expect(api).not.toContain(".from('audit_logs')");
+    expect(api).toContain('page_limit: pageSize + 1');
+    expect(migration).toContain(
+      'returns table (\n  id bigint,\n  action text,\n  resource_type text,\n  resource_id text,\n  actor_id uuid,\n  branch_id uuid,\n  metadata jsonb,\n  created_at timestamptz\n)',
     );
-    expect(api).toContain('.limit(pageSize + 1)');
-    expect(api).not.toContain(".select('*')");
+    expect(migration).toContain('least(greatest(coalesce(page_limit, 26), 1), 201)');
   });
 
   it('uses stable keyset pagination and sanitised page-local filters', () => {
     expect(api).toContain('function filterValue(value: string)');
     expect(api).toContain('.slice(0, 80)');
-    expect(api).toContain(".order('created_at', { ascending: false })");
-    expect(api).toContain(".order('id', { ascending: false })");
-    expect(api).toContain('created_at.lt.${input.cursor.created_at}');
-    expect(api).toContain('id.lt.${input.cursor.id}');
-    expect(api).toContain("request.ilike('action'");
-    expect(api).toContain("request.ilike('resource_type'");
+    expect(api).toContain('cursor_created_at: input.cursor?.created_at ?? null');
+    expect(migration).toContain('order by log_row.created_at desc, log_row.id desc');
+    expect(migration).toContain(
+      'or (log_row.created_at = cursor_created_at and log_row.id < cursor_id)',
+    );
+    expect(migration).toContain("'INVALID_AUDIT_CURSOR'");
+    // LIKE wildcards in the filter are literal text, escaped server-side.
+    expect(migration).toContain(
+      "replace(replace(replace(action_term, '\\', '\\\\'), '%', '\\%'), '_', '\\_')",
+    );
+  });
+
+  it('applies the same visibility as the audit_logs policies', () => {
+    expect(migration).toContain(
+      'app_private.is_platform_admin()\n    and app_private.mfa_policy_satisfied(null::uuid)',
+    );
+    expect(migration).toContain('app_private.mfa_policy_satisfied(candidate.organization_id)');
+    expect(migration).toContain(
+      "app_private.has_permission(candidate.organization_id, 'audit.view')",
+    );
+    expect(migration).toContain(
+      'app_private.has_organization_wide_scope(readable.organization_id)',
+    );
+    expect(migration).toContain(
+      'app_private.can_access_branch(branch_row.organization_id, branch_row.id)',
+    );
+    expect(migration).toContain('revoke all on function public.get_audit_log_page');
+    expect(migration).toMatch(
+      /grant execute on function public\.get_audit_log_page\([^)]*\)\s+to authenticated;/,
+    );
   });
 
   it('validates records before they enter the browser state', () => {

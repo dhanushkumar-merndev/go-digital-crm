@@ -26,7 +26,7 @@ describe('telecaller workspace parity', () => {
   it('gives the telecaller dashboard the same read-through policy', () => {
     expect(telecallerDashboard).toContain('staleTime: DASHBOARD_QUERY_STALE_TIME_MS');
     expect(telecallerDashboard).toContain('gcTime: DASHBOARD_QUERY_GC_TIME_MS');
-    expect(dashboardCache).toContain('const DASHBOARD_CACHE_TTL_SECONDS = 24 * 60 * 60;');
+    expect(dashboardCache).toContain('const DASHBOARD_CACHE_TTL_SECONDS = 30 * 60;');
     expect(dashboardCache).toContain('ttlSeconds: DASHBOARD_CACHE_TTL_SECONDS');
   });
 

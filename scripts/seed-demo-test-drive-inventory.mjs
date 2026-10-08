@@ -174,6 +174,15 @@ async function main() {
         model_id: model.id,
         name,
         active: true,
+        // Every standard comparison field must be present (value or NOT_AVAILABLE).
+        specifications: {
+          battery_capacity: 'NOT_AVAILABLE',
+          fast_charging: 'NOT_AVAILABLE',
+          power: 'NOT_AVAILABLE',
+          range: 'NOT_AVAILABLE',
+          torque: 'NOT_AVAILABLE',
+          warranty: '3 years / 1,00,000 km',
+        },
       })),
       'organization_id,model_id,name',
     );

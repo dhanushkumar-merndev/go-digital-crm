@@ -1,6 +1,11 @@
 import { z } from 'npm:zod@4';
 import { decryptJson, encryptJson } from '../_shared/crypto.ts';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
+import {
+  loadPortalWebhookKey,
+  newPortalWebhookKey,
+  withPortalWebhookKey,
+} from '../_shared/portal-webhook.ts';
 import { resolveStoredProviderSecret } from '../_shared/stored-provider-secret.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
 
@@ -192,7 +197,7 @@ Deno.serve(async (request) => {
         .single();
 
       if (createError) throw new Error('CREATE_CONNECTED_ACCOUNT: ' + JSON.stringify(createError));
-      connectionId = created.id;
+      connectionId = created.id as string;
     } else {
       const { error: updateError } = await admin
         .from('connected_accounts')
@@ -215,9 +220,13 @@ Deno.serve(async (request) => {
     }
 
     // Encrypt and store credentials
+    const webhookKey =
+      (await loadPortalWebhookKey(admin, input.organization_id, connectionId)) ??
+      newPortalWebhookKey();
     const encryptedPayload = await encryptJson({
       mobile: normalizedMobile,
       crm_key: resolvedCrmKey,
+      webhook_key: webhookKey,
       connected_at: new Date().toISOString(),
     });
 
@@ -265,7 +274,10 @@ Deno.serve(async (request) => {
     const appBaseUrl = Deno.env.get('APP_BASE_URL') ?? 'http://localhost:3000';
     const functionBase =
       Deno.env.get('PUBLIC_EDGE_FUNCTION_BASE_URL')?.replace(/\/$/, '') || `${appBaseUrl}/api`;
-    const webhookUrl = `${functionBase}/provider-webhook-indiamart?connection_id=${connectionId}`;
+    const webhookUrl = withPortalWebhookKey(
+      `${functionBase}/provider-webhook-indiamart?connection_id=${connectionId}`,
+      webhookKey,
+    );
 
     return success(
       {

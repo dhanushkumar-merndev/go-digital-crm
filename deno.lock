@@ -353,6 +353,7 @@
         "npm:@tailwindcss/postcss@4",
         "npm:@tanstack/react-query@latest",
         "npm:@tanstack/react-table@^8.21.3",
+        "npm:@tanstack/react-virtual@^3.14.13",
         "npm:@trigger.dev/sdk@4.5.11",
         "npm:@types/geojson@^7946.0.16",
         "npm:@types/node@20",

@@ -165,6 +165,7 @@ import {
   type LeadTemperatureFilter,
 } from './lead-workspace-query';
 import { leadStageVariant } from './lead-stage-variant';
+import { assignmentModeDescription, isAutomaticAssignmentMode } from './assignment-mode';
 import { customerDetailHref, leadDetailHref } from '@/lib/navigation/record-links';
 import {
   emptySavedLeadFilterValues,
@@ -196,6 +197,18 @@ const leadSources = [
   'Manual',
   'Other',
 ] as const;
+
+// Facebook, Instagram, Google Ads, Website and WhatsApp Business leads arrive
+// through their integrations, so they are hidden from the hand-entry dialog for
+// now. The filter list still uses the full canonical set.
+const integrationOnlySources = new Set<(typeof leadSources)[number]>([
+  'Facebook',
+  'Instagram',
+  'Google Ads',
+  'Website',
+  'WhatsApp Business',
+]);
+const manualEntrySources = leadSources.filter((item) => !integrationOnlySources.has(item));
 
 const lifecycleOptions = [
   'New',
@@ -931,12 +944,14 @@ function LeadCreateDialog({
   const [teamId, setTeamId] = useState('none');
   const [source, setSource] = useState<(typeof leadSources)[number]>('Manual');
   const [interestedModel, setInterestedModel] = useState('');
+  const [modelMissing, setModelMissing] = useState(false);
   const [modelSearch, setModelSearch] = useState('');
   const debouncedModelSearch = useDebouncedValue(modelSearch, 250);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
       setInterestedModel('');
+      setModelMissing(false);
       setModelSearch('');
     }
     onOpenChange(nextOpen);
@@ -1015,7 +1030,7 @@ function LeadCreateDialog({
       list.push({
         value: '__CLEAR__',
         label: 'Clear selection',
-        description: 'Leave model unselected',
+        description: 'Choose a different model',
       });
     }
 
@@ -1044,6 +1059,10 @@ function LeadCreateDialog({
           className="mt-4 grid gap-4"
           onSubmit={(event) => {
             event.preventDefault();
+            if (!interestedModel.trim()) {
+              setModelMissing(true);
+              return;
+            }
             const form = new FormData(event.currentTarget);
             mutation.mutate({
               organizationId,
@@ -1096,7 +1115,7 @@ function LeadCreateDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {leadSources.map((item) => (
+                {manualEntrySources.map((item) => (
                   <SelectItem key={item} value={item}>
                     {item}
                   </SelectItem>
@@ -1154,7 +1173,7 @@ function LeadCreateDialog({
           ) : null}
           <div className="grid gap-1.5 text-sm font-medium">
             <span>
-              Interested model <span className="font-normal text-muted-foreground">(optional)</span>
+              Interested model <RequiredMark />
             </span>
             <SearchSelect
               value={interestedModel}
@@ -1167,6 +1186,7 @@ function LeadCreateDialog({
                 } else {
                   setInterestedModel(val);
                   setModelSearch('');
+                  setModelMissing(false);
                 }
               }}
               options={modelSelectOptions}
@@ -1179,6 +1199,11 @@ function LeadCreateDialog({
               aria-label="Interested model"
             />
             <input type="hidden" name="interestedModel" value={interestedModel} />
+            {modelMissing ? (
+              <p className="text-sm font-normal text-destructive">
+                Choose the model the customer is interested in.
+              </p>
+            ) : null}
           </div>
           <label className="grid gap-1.5 text-sm font-medium">
             <span>
@@ -1552,7 +1577,11 @@ function SalesHandoffDialog({
   });
   const consultants: SalesHandoffCandidate[] = candidates.data ?? [];
   const recommended = consultants.find((consultant) => consultant.recommended) ?? null;
+  // Only a ROUND_ROBIN team rotates; every other team's automatic pick balances
+  // the open book (see transfer_lead_to_sales).
+  const autoRotates = consultants[0]?.assignment_mode === 'ROUND_ROBIN';
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: transferLeadToSales,
     onSuccess: (result) => {
       const owner = consultants.find(
@@ -1563,7 +1592,7 @@ function SalesHandoffDialog({
         type: 'success',
         title: 'Lead transferred to Sales',
         description: owner
-          ? `${owner.full_name} now owns this lead${result.method === 'ROUND_ROBIN' ? ' (fewest open leads).' : '.'}`
+          ? `${owner.full_name} now owns this lead${isAutomaticAssignmentMode(result.method) ? ` (${assignmentModeDescription(result.method)}).` : '.'}`
           : 'The lead is now with Sales.',
       });
       onTransferred();
@@ -1620,7 +1649,7 @@ function SalesHandoffDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={AUTO_SALES_HANDOFF}>
-                  Auto-assign · fewest open leads
+                  Auto-assign · {autoRotates ? 'next in rotation' : 'fewest open leads'}
                   {recommended ? ` (${recommended.full_name})` : ''}
                 </SelectItem>
                 {consultants.map((consultant) => (
@@ -1637,7 +1666,9 @@ function SalesHandoffDialog({
                 : candidates.isError
                   ? 'The Sales Consultant list is currently unavailable.'
                   : consultants.length
-                    ? 'Auto-assign picks the consultant carrying the fewest open leads in this team.'
+                    ? autoRotates
+                      ? 'Auto-assign picks the next Sales Consultant in this team’s rotation.'
+                      : 'Auto-assign picks the consultant carrying the fewest open leads in this team.'
                     : 'No eligible Sales Consultant is available in this team.'}
             </p>
           </div>
@@ -1711,6 +1742,7 @@ function SalesHandoffCancellationDialog({
 }) {
   const [reason, setReason] = useState('');
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: cancelSalesHandoff,
     onSuccess: () => {
       onOpenChange(false);
@@ -1978,6 +2010,7 @@ function DuplicateLeadDeletionRequestDialog({
 }) {
   const [reason, setReason] = useState('Duplicate lead received for an existing mobile number');
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: () => {
       if (!lead) throw new Error('LEAD_NOT_READY');
       return requestDuplicateLeadDeletion({ leadId: lead.id, reason: reason.trim() });
@@ -2749,24 +2782,6 @@ function LeadTable({
                     >
                       <WhatsAppIcon className="size-3.5" />
                       WhatsApp API
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                      <a
-                        href={toWhatsAppClickToChatUrl(row.original.phone)}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={() => {
-                          if (role === 'telecaller') {
-                            onIntakeContact(row.original, 'WHATSAPP');
-                          } else {
-                            onSalesContact(row.original, 'WHATSAPP');
-                          }
-                        }}
-                      >
-                        <Smartphone className="size-3.5" />
-                        WhatsApp on my phone
-                      </a>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -3925,6 +3940,7 @@ export function LeadWorkspace({
   };
 
   const personalLeadFlagMutation = useMutation({
+    meta: { toast: false },
     mutationFn: ({
       leadId,
       flag,

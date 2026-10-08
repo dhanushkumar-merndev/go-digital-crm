@@ -37,8 +37,17 @@ const schema = z.object({
 type AccessContext = {
   destination?: string;
   role_key?: string;
+  organization_id?: string;
   mfa_satisfied?: boolean;
 };
+
+const seatLimitSuffix = 'Ask Go Digital Marketing to raise the limit.';
+
+/** The readable detail of a seat-limit refusal from the database, if that is what failed. */
+function seatLimitMessage(error: { message?: string; details?: string | null } | null) {
+  if (!error?.message?.includes('ROLE_SEAT_LIMIT_REACHED')) return null;
+  return `${error.details ?? 'This role has no free seats.'} ${seatLimitSuffix}`;
+}
 
 function authorizedForMode(context: AccessContext | null, mode: z.infer<typeof schema>['mode']) {
   if (!context || context.destination !== 'CRM' || context.mfa_satisfied !== true) return false;
@@ -111,6 +120,7 @@ Deno.serve(async (request) => {
 
   let invitedUserId: string | undefined;
   let actorId: string | undefined;
+  let seatLimitFailure: string | null = null;
   try {
     const parsed = schema.safeParse(await request.json());
     if (!parsed.success)
@@ -145,6 +155,28 @@ Deno.serve(async (request) => {
       );
 
     const admin = serviceClient();
+    // Refuse a full role before the invitation email goes out; the database
+    // trigger still guards the write itself.
+    const organizationId = (context as AccessContext | null)?.organization_id;
+    if (organizationId) {
+      const { data: seat, error: seatError } = await admin.rpc('check_role_seat_available', {
+        target_organization_id: organizationId,
+        target_role_id: parsed.data.role_id,
+        target_data_scope: parsed.data.data_scope,
+        target_scope_branch_id: parsed.data.scope_branch_id ?? null,
+        target_selected_branch_ids: parsed.data.selected_branch_ids,
+        target_team_ids: parsed.data.team_ids,
+      });
+      if (seatError) throw seatError;
+      const preview = seat as { available?: boolean; message?: string } | null;
+      if (preview?.available === false)
+        return failure(
+          'ROLE_SEAT_LIMIT_REACHED',
+          `${preview.message ?? 'This role has no free seats.'} ${seatLimitSuffix}`,
+          requestId,
+          409,
+        );
+    }
     const inviteRedirect = new URL(
       '/auth/invite',
       validAppBase(Deno.env.get('APP_BASE_URL')),
@@ -185,7 +217,10 @@ Deno.serve(async (request) => {
       target_request_id: requestId,
       target_mode: parsed.data.mode,
     });
-    if (provisionError) throw provisionError;
+    if (provisionError) {
+      seatLimitFailure = seatLimitMessage(provisionError);
+      throw provisionError;
+    }
     invitedUserId = undefined;
     const provisioned = result as { user_id?: string; organization_id?: string } | null;
     const telecmi =
@@ -230,6 +265,8 @@ Deno.serve(async (request) => {
         );
       }
     }
+    if (seatLimitFailure)
+      return failure('ROLE_SEAT_LIMIT_REACHED', seatLimitFailure, requestId, 409);
     return failure(
       'USER_PROVISION_FAILED',
       'The user could not be provisioned; no usable invitation was retained.',

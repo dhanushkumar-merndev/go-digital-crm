@@ -38,3 +38,68 @@ export const developmentDemoRoleEmails: Record<RoleKey, string> = {
   'customer-relationship-executive': 'customer-relationship-executive@demo.go-digital.invalid',
   'digital-marketing': 'digital-marketing-manager@demo.go-digital.invalid',
 };
+
+/**
+ * The seeded demo dealerships (scripts/seed-demo-organizations.mjs). Every one
+ * uses the same per-role address under its own domain; Super Admin is a single
+ * platform account, so it always signs in with the Demo-org address.
+ */
+export const developmentDemoOrganizations = [
+  {
+    key: 'demo',
+    label: 'Demo Motors',
+    domain: 'demo.go-digital.invalid',
+    state: 'Active · 4 showrooms',
+  },
+  {
+    key: 'sapphire',
+    label: 'Sapphire Hyundai',
+    domain: 'sapphire.demo.go-digital.invalid',
+    state: 'Active · 2 showrooms',
+  },
+  {
+    key: 'pioneer',
+    label: 'Pioneer Tata',
+    domain: 'pioneer.demo.go-digital.invalid',
+    state: 'Active · 1 showroom, small',
+  },
+  {
+    key: 'royal',
+    label: 'Royal Kia',
+    domain: 'royal.demo.go-digital.invalid',
+    state: 'Suspended',
+  },
+  {
+    key: 'metro',
+    label: 'Metro Mahindra',
+    domain: 'metro.demo.go-digital.invalid',
+    state: 'Onboarding under review',
+    // Only the owner exists until Super Admin approves the dealership.
+    roles: ['super-admin', 'business-owner'] as RoleKey[],
+  },
+] as const satisfies readonly {
+  key: string;
+  label: string;
+  domain: string;
+  state: string;
+  roles?: RoleKey[];
+}[];
+
+export type DevelopmentDemoOrganizationKey = (typeof developmentDemoOrganizations)[number]['key'];
+
+export const developmentDemoOrganizationKeys = developmentDemoOrganizations.map(
+  (organization) => organization.key,
+) as [DevelopmentDemoOrganizationKey, ...DevelopmentDemoOrganizationKey[]];
+
+export function developmentDemoRoleEmail(
+  role: RoleKey,
+  organizationKey: DevelopmentDemoOrganizationKey = 'demo',
+) {
+  const email = developmentDemoRoleEmails[role];
+  if (role === 'super-admin') return email;
+  const organization = developmentDemoOrganizations.find((row) => row.key === organizationKey);
+  return email.replace(
+    '@demo.go-digital.invalid',
+    `@${organization?.domain ?? 'demo.go-digital.invalid'}`,
+  );
+}

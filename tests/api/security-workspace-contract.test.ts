@@ -15,7 +15,8 @@ describe('security posture workspace contract', () => {
     expect(migration).toContain("'mfa_satisfied', aal = 'aal2'");
     expect(migration).toContain('create policy audit_logs_read on public.audit_logs');
     expect(api).toContain("rpc('get_access_context')");
-    expect(api).toContain(".from('audit_logs')");
+    expect(api).toContain("rpc('get_audit_log_page', { page_limit: 8 })");
+    expect(api).not.toContain(".from('audit_logs')");
     expect(api).toContain('getAuthenticatorAssuranceLevel()');
   });
   it('does not invent external security claims and routes System Administrator security', () => {

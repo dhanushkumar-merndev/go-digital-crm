@@ -74,6 +74,7 @@ export function CompetitorCatalogWorkspace({ spec }: { spec: PageSpec }) {
     );
   };
   const save = useMutation({
+    meta: { toast: false },
     mutationFn: () => {
       let specifications: Record<string, unknown>;
       try {

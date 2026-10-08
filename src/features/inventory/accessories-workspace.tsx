@@ -93,6 +93,7 @@ export function AccessoriesWorkspace({ spec }: { spec: PageSpec }) {
   });
 
   const saveMutation = useMutation({
+    meta: { toast: false },
     mutationFn: async () => {
       return upsertAccessory({
         id: editingItem?.id,

@@ -58,6 +58,7 @@ export function ModuleWorkspace({ spec }: { spec: PageSpec }) {
     placeholderData: keepPreviousData,
   });
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: setPlatformModuleActive,
     onSuccess: (result) => {
       toast.add({

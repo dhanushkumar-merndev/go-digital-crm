@@ -1,5 +1,6 @@
 import { z } from 'npm:zod@4';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
+import { rejectUnverifiedPortalWebhook } from '../_shared/portal-webhook.ts';
 import { serviceClient } from '../_shared/supabase.ts';
 import { parseCarWaleLead } from '../../../src/lib/providers/carwale-adapter.ts';
 
@@ -58,6 +59,9 @@ Deno.serve(async (request) => {
         404,
       );
     }
+
+    const rejected = await rejectUnverifiedPortalWebhook(admin, request, connection, requestId);
+    if (rejected) return rejected;
 
     const { data: branchMapping } = await admin
       .from('integration_branch_mappings')

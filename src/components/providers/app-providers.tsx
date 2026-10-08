@@ -4,6 +4,7 @@ import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react
 import { useEffect, useRef, useState } from 'react';
 import { toast, Toaster } from '@/components/ui/toast';
 import { QUERY_GC_TIME_MS, QUERY_STALE_TIME_MS } from '@/lib/query/cache-policy';
+import { clearPersistedQueries } from '@/lib/query/persisted-query';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
 import { installRandomUuidFallback } from '@/lib/uuid';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -15,19 +16,11 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
-        // Every user-triggered mutation gets the same concise feedback as the
-        // sign-in screen. Individual mutations can set `meta: { toast: false
-        // }` when a custom confirmation is genuinely needed, but silent
-        // mutation failures are never left as an inline red block on a form.
+        // Only failures are toasted globally. A success is visible in the page
+        // itself, and a generic "Saved successfully" on every send or save was
+        // noise. Individual mutations can set `meta: { toast: false }` to show
+        // their own error instead, but failures are never left silent.
         mutationCache: new MutationCache({
-          onSuccess: (_data, _variables, _context, mutation) => {
-            if ((mutation.options.meta as { toast?: boolean } | undefined)?.toast === false) return;
-            toast.add({
-              type: 'success',
-              title: 'Saved successfully',
-              description: 'Your changes have been applied.',
-            });
-          },
           onError: (error, _variables, _context, mutation) => {
             const meta = mutation.options.meta as
               { toast?: boolean; errorToastDescription?: boolean } | undefined;
@@ -82,7 +75,10 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       const nextUserId = session?.user.id ?? null;
       const userChanged = activeUserId.current !== undefined && activeUserId.current !== nextUserId;
 
-      if (event === 'SIGNED_OUT' || userChanged) queryClient.clear();
+      if (event === 'SIGNED_OUT' || userChanged) {
+        queryClient.clear();
+        void clearPersistedQueries();
+      }
       activeUserId.current = nextUserId;
     });
 

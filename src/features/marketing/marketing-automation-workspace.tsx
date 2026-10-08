@@ -93,6 +93,7 @@ function CreateDripCampaignDialog({ onComplete }: { onComplete: () => void }) {
     staleTime: 5 * 60_000,
   });
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: () =>
       createMarketingDripCampaign({
         name: name.trim(),
@@ -334,6 +335,7 @@ function CreateReviewRequestDialog({ onComplete }: { onComplete: () => void }) {
   });
   const selected = options.data?.find((option) => option.booking_id === bookingId);
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: () => {
       if (!selected) throw new Error('MARKETING_REVIEW_CUSTOMER_REQUIRED');
       return createMarketingReviewRequest({

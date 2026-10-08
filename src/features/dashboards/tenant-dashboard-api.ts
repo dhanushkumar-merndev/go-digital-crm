@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
-import { fetchCachedDashboard } from '@/lib/query/cached-dashboard-api';
+import { cacheDiagnosticSchema, fetchCachedDashboard } from '@/lib/query/cached-dashboard-api';
 
 const capabilitySchema = z.object({
   leads: z.boolean(),
@@ -81,52 +81,58 @@ const refreshBudgetSchema = z.object({
   retry_after_ms: z.coerce.number().int().nonnegative().nullable(),
 });
 
-export const tenantDashboardSchema = tenantDashboardSummarySchema.extend({
-  lead_preview: z.array(leadPreviewSchema),
-  attention: tenantDashboardLiveItemsSchema.shape.attention,
-  refresh_budget: refreshBudgetSchema.nullable().optional(),
+/**
+ * The cached, browser-persisted half of the dashboard: counts and series only.
+ * `cache` is null when the summary came from the direct RPC fallback.
+ */
+export const tenantDashboardSummaryResultSchema = tenantDashboardSummarySchema.extend({
+  cache: cacheDiagnosticSchema.nullable(),
+  refresh_budget: refreshBudgetSchema.nullable(),
 });
+export type TenantDashboardSummaryResult = z.infer<typeof tenantDashboardSummaryResultSchema>;
 
-export type TenantDashboardResult = z.infer<typeof tenantDashboardSchema>;
+/** Bounded live rows with customer names and phones: memory only, never Redis or IndexedDB. */
+export type TenantDashboardLiveItems = z.infer<typeof tenantDashboardLiveItemsSchema>;
+
+export type TenantDashboardResult = TenantDashboardSummaryResult & TenantDashboardLiveItems;
 
 export type TenantDashboardLeadPreview = z.infer<typeof leadPreviewSchema>;
 
-/** Shared React Query key so auth flows can warm this cache ahead of the
- * dashboard mounting (see the sign-in and MFA success handlers). */
+/** Prefix for every tenant dashboard query; Realtime invalidates by it. */
 export const tenantDashboardKey = ['tenant-performance-dashboard'] as const;
 
-export async function fetchTenantDashboard(
+export async function fetchTenantDashboardSummary(
   signal?: AbortSignal,
   options: { manualRefresh?: boolean } = {},
-) {
-  if (!options.manualRefresh) {
-    const request = createClient().rpc('get_tenant_dashboard_page', {
+): Promise<TenantDashboardSummaryResult> {
+  try {
+    const { result, cache, manualRefresh } = await fetchCachedDashboard({
+      resource: 'tenant-dashboard',
+      schema: tenantDashboardSummarySchema,
+      manualRefresh: options.manualRefresh,
+      signal,
+    });
+    return { ...result, cache, refresh_budget: manualRefresh };
+  } catch (error) {
+    // A manual refresh is answered by the Edge path or not at all, so its
+    // quota stays enforced. An ordinary read falls back to PostgreSQL rather
+    // than leave the dashboard blank while the Edge function is unreachable.
+    if (options.manualRefresh || signal?.aborted) throw error;
+    const request = createClient().rpc('get_tenant_dashboard_summary', {
       target_days: 14,
       target_timezone: 'Asia/Kolkata',
     });
-    const { data, error } = await (signal ? request.abortSignal(signal) : request);
-    if (error) throw error;
-    return tenantDashboardSchema.parse({ ...data, refresh_budget: null });
+    const { data, error: rpcError } = await (signal ? request.abortSignal(signal) : request);
+    if (rpcError) throw rpcError;
+    return { ...tenantDashboardSummarySchema.parse(data), cache: null, refresh_budget: null };
   }
+}
 
-  const [summary, liveItems] = await Promise.all([
-    fetchCachedDashboard({
-      resource: 'tenant-dashboard',
-      schema: tenantDashboardSummarySchema,
-      manualRefresh: true,
-    }),
-    (async () => {
-      const request = createClient().rpc('get_tenant_dashboard_live_items', {
-        target_timezone: 'Asia/Kolkata',
-      });
-      const { data, error } = await (signal ? request.abortSignal(signal) : request);
-      if (error) throw error;
-      return tenantDashboardLiveItemsSchema.parse(data);
-    })(),
-  ]);
-  return tenantDashboardSchema.parse({
-    ...summary.result,
-    ...liveItems,
-    refresh_budget: summary.manualRefresh,
+export async function fetchTenantDashboardLiveItems(signal?: AbortSignal) {
+  const request = createClient().rpc('get_tenant_dashboard_live_items', {
+    target_timezone: 'Asia/Kolkata',
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return tenantDashboardLiveItemsSchema.parse(data);
 }

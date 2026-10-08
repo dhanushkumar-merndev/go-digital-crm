@@ -17,8 +17,28 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
-import { DEVELOPMENT_DEMO_ROLE_LOGIN_PATH } from '@/lib/auth/development-demo-role-login';
+import {
+  DEVELOPMENT_DEMO_ROLE_LOGIN_PATH,
+  developmentDemoOrganizations,
+  type DevelopmentDemoOrganizationKey,
+} from '@/lib/auth/development-demo-role-login';
+
+// Which demo dealership the current session belongs to. Only a per-browser
+// convenience for the Active marker; the session itself is the source of truth.
+const demoOrganizationStorageKey = 'gdm-demo-organization';
+
+function readDemoOrganization(): DevelopmentDemoOrganizationKey {
+  try {
+    const stored = window.localStorage.getItem(demoOrganizationStorageKey);
+    return developmentDemoOrganizations.some((row) => row.key === stored)
+      ? (stored as DevelopmentDemoOrganizationKey)
+      : 'demo';
+  } catch {
+    return 'demo';
+  }
+}
 
 const roleGroupOrder: RoleNavigation['group'][] = [
   'Platform',
@@ -40,14 +60,31 @@ export function RoleSwitcher({
   const [open, setOpen] = useState(false);
   const [switchingTo, setSwitchingTo] = useState<RoleKey>();
   const [isPending, startTransition] = useTransition();
+  const [sessionOrganization, setSessionOrganization] =
+    useState<DevelopmentDemoOrganizationKey>('demo');
+  const [organizationKey, setOrganizationKey] = useState<DevelopmentDemoOrganizationKey>('demo');
+  // Read on open rather than on mount: storage is browser-only, and the sheet
+  // is the only place the value is shown.
+  function openSwitcher() {
+    const stored = readDemoOrganization();
+    setSessionOrganization(stored);
+    setOrganizationKey(stored);
+    setOpen(true);
+  }
+  const organization =
+    developmentDemoOrganizations.find((row) => row.key === organizationKey) ??
+    developmentDemoOrganizations[0];
   const pathnameRole = pathname.split('/')[1] ?? '';
   const currentRoleKey = role ?? (isRoleKey(pathnameRole) ? pathnameRole : undefined);
   const currentRole = currentRoleKey ? roleNavigation[currentRoleKey] : undefined;
   const realDemoLogin = mode === 'demo-login';
   const isSwitching = Boolean(switchingTo) || isPending;
+  const organizationRoles: readonly RoleKey[] | undefined =
+    realDemoLogin && 'roles' in organization ? organization.roles : undefined;
 
   async function switchRole(nextRole: RoleKey) {
-    if (nextRole === currentRoleKey) {
+    const sameOrganization = !realDemoLogin || organizationKey === sessionOrganization;
+    if (nextRole === currentRoleKey && sameOrganization) {
       setOpen(false);
       return;
     }
@@ -58,9 +95,14 @@ export function RoleSwitcher({
         const response = await fetch(DEVELOPMENT_DEMO_ROLE_LOGIN_PATH, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ role: nextRole }),
+          body: JSON.stringify({ role: nextRole, organization: organizationKey }),
         });
         if (!response.ok) throw new Error('DEMO_ROLE_LOGIN_FAILED');
+        try {
+          window.localStorage.setItem(demoOrganizationStorageKey, organizationKey);
+        } catch {
+          // Only the Active marker depends on this.
+        }
         queryClient.clear();
         setSwitchingTo(undefined);
         setOpen(false);
@@ -91,7 +133,7 @@ export function RoleSwitcher({
     <>
       <Button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openSwitcher}
         className="fixed bottom-5 right-5 z-[35] h-auto rounded-full border border-blue-300/30 bg-[#17233d] px-3 py-2.5 text-white shadow-xl hover:bg-[#223252] sm:px-4"
         aria-label={`Open development role switcher. ${currentRole ? `Viewing as ${currentRole.label}` : 'Choose a role preview'}`}
       >
@@ -125,10 +167,40 @@ export function RoleSwitcher({
             </SheetDescription>
           </SheetHeader>
 
+          {realDemoLogin ? (
+            <div className="space-y-2 border-b px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Organization
+              </p>
+              <Tabs
+                value={organizationKey}
+                onValueChange={(value) =>
+                  setOrganizationKey(value as DevelopmentDemoOrganizationKey)
+                }
+              >
+                <TabsList className="flex h-auto w-full flex-wrap justify-start">
+                  {developmentDemoOrganizations.map((row) => (
+                    <TabsTrigger key={row.key} value={row.key} className="text-xs">
+                      {row.label}
+                      {row.key === sessionOrganization ? (
+                        <span className="ml-1 size-1.5 rounded-full bg-blue-600" aria-hidden />
+                      ) : null}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+              <p className="text-xs text-muted-foreground">{organization.state}</p>
+            </div>
+          ) : null}
+
           <ScrollArea className="min-h-0 flex-1">
             <div className="space-y-6 p-4">
               {roleGroupOrder.map((group) => {
-                const roles = roleKeys.filter((key) => roleNavigation[key].group === group);
+                const roles = roleKeys.filter(
+                  (key) =>
+                    roleNavigation[key].group === group &&
+                    (!organizationRoles || organizationRoles.includes(key)),
+                );
                 if (!roles.length) return null;
 
                 return (
@@ -142,7 +214,11 @@ export function RoleSwitcher({
                     <div className="space-y-1">
                       {roles.map((key) => {
                         const candidate = roleNavigation[key];
-                        const active = key === currentRoleKey;
+                        const active =
+                          key === currentRoleKey &&
+                          (!realDemoLogin ||
+                            key === 'super-admin' ||
+                            organizationKey === sessionOrganization);
                         const loading = switchingTo === key;
 
                         return (

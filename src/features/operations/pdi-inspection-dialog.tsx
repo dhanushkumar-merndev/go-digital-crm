@@ -80,6 +80,7 @@ export function PdiInspectionDialog({
   };
 
   const saveMutation = useMutation({
+    meta: { toast: false },
     mutationFn: (complete: boolean) =>
       savePdiInspection({
         inspectionId: pdiQuery.data!.inspection.id,

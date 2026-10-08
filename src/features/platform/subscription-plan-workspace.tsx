@@ -52,6 +52,7 @@ function PlanDialog({
   }
   const queryClient = useQueryClient();
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: saveSubscriptionPlan,
     onSuccess: async () => {
       toast.add({
@@ -176,6 +177,7 @@ export function SubscriptionPlanWorkspace({ spec }: { spec: PageSpec }) {
   });
   const workspace = query.data;
   const toggle = useMutation({
+    meta: { toast: false },
     mutationFn: (plan: SubscriptionPlan) =>
       saveSubscriptionPlan({
         planId: plan.id,

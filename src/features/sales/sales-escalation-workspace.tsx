@@ -108,6 +108,7 @@ function ResolveEscalationDialog({
 }) {
   const [resolution, setResolution] = useState('');
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: () => {
       if (!record) throw new Error('ESCALATION_NOT_SELECTED');
       return resolveSalesEscalation({

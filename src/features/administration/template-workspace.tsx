@@ -89,6 +89,7 @@ function CreateTemplateDialog({
   const [channel, setChannel] = useState(template?.channel ?? 'EMAIL');
   const personal = channel === 'WHATSAPP_PERSONAL';
   const create = useMutation({
+    meta: { toast: false },
     mutationFn: (input: Parameters<typeof createDraftTemplate>[0]) =>
       template
         ? savePersonalWhatsAppTemplate({ ...input, templateId: template.id })
@@ -233,6 +234,7 @@ function RejectTemplateDialog({
 }) {
   const client = useQueryClient();
   const reject = useMutation({
+    meta: { toast: false },
     mutationFn: rejectTemplate,
     onSuccess: () => {
       toast.add({
@@ -306,6 +308,7 @@ function ApproveTemplateDialog({
   const client = useQueryClient();
   const rules = providerIdRules(template.channel.toUpperCase());
   const approve = useMutation({
+    meta: { toast: false },
     mutationFn: approveTemplate,
     onSuccess: (result) => {
       toast.add({
@@ -398,6 +401,7 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
     staleTime: 60_000,
   });
   const archive = useMutation({
+    meta: { toast: false },
     mutationFn: archiveTemplate,
     onSuccess: () => {
       toast.add({

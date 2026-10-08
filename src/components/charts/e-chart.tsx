@@ -8,6 +8,31 @@ import type { ChartKind } from '@/lib/domain';
 type Datum = { name: string; value: number; secondary?: number };
 type SeriesNames = [string, string];
 type FunnelMode = 'proportional' | 'staged';
+/** `inside`: names on the bands. `side`: funnel on the left, names and counts in a column on the right. */
+type FunnelLabels = 'inside' | 'side';
+/** Extra series for bar/line charts that compare more than two measures. */
+export type ChartSeries = { name: string; values: number[] };
+type ExtraOptions = {
+  series?: ChartSeries[];
+  stacked?: boolean;
+  funnelStages?: number;
+  funnelLabels?: FunnelLabels;
+  colors?: string[];
+};
+
+const palette = [
+  '#2563eb',
+  '#14b8a6',
+  '#f59e0b',
+  '#8b5cf6',
+  '#ef4444',
+  '#0ea5e9',
+  '#22c55e',
+  '#ec4899',
+  '#64748b',
+  '#a16207',
+  '#4f46e5',
+];
 
 /**
  * `scale` is the canvas zoom. The chart draws in physical pixels (see EChart
@@ -21,7 +46,9 @@ function optionFor(
   seriesNames?: SeriesNames,
   funnelMode: FunnelMode = 'proportional',
   scale = 1,
+  extra: ExtraOptions = {},
 ): echarts.EChartsCoreOption {
+  const funnelStages = extra.funnelStages ?? 5;
   const text = '#667085';
   const px = (value: number) => value * scale;
   const grid = { left: px(42), right: px(20), top: px(20), bottom: px(32) };
@@ -31,7 +58,7 @@ function optionFor(
       textStyle,
       tooltip: { trigger: 'item', textStyle },
       legend: { bottom: 0, textStyle: { color: text, ...textStyle } },
-      color: ['#2563eb', '#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444'],
+      color: data.length > 5 ? palette : ['#2563eb', '#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444'],
       series: [
         {
           type: 'pie',
@@ -43,23 +70,27 @@ function optionFor(
       ],
     };
   if (kind === 'funnel') {
+    const side = funnelMode === 'staged' && extra.funnelLabels === 'side';
     const funnelData =
       funnelMode === 'staged'
-        ? data.slice(0, 5).map((item, index, items) => ({
-            name: `${item.name}   ${item.value}`,
+        ? data.slice(0, funnelStages).map((item, index, items) => ({
+            name: side ? item.name : `${item.name}   ${item.value}`,
             value: items.length - index,
+            count: item.value,
           }))
-        : data.slice(0, 5);
+        : data.slice(0, funnelStages);
+    const stagedTooltip = (params: { name: string; data: { count?: number } }) =>
+      side ? `${params.name}: ${params.data.count ?? 0}` : params.name;
     return {
       textStyle,
       tooltip: {
         trigger: 'item',
         textStyle,
-        formatter: funnelMode === 'staged' ? '{b}' : undefined,
+        formatter: funnelMode === 'staged' ? stagedTooltip : undefined,
       },
       color:
         funnelMode === 'staged'
-          ? ['#1769e8', '#58a4e8', '#18b8bd', '#8b5de7', '#55c58a']
+          ? ['#1769e8', '#58a4e8', '#18b8bd', '#8b5de7', '#55c58a', '#f2a33a', '#e5679a']
           : ['#1d4ed8', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'],
       series: [
         {
@@ -67,7 +98,7 @@ function optionFor(
           top: px(4),
           bottom: px(4),
           left: '2%',
-          width: '96%',
+          width: side ? '66%' : '96%',
           min: funnelMode === 'staged' ? 1 : undefined,
           max: funnelMode === 'staged' ? Math.max(funnelData.length, 1) : undefined,
           minSize: funnelMode === 'staged' ? '34%' : '25%',
@@ -75,10 +106,22 @@ function optionFor(
           sort: funnelMode === 'staged' ? 'none' : 'descending',
           funnelAlign: 'center',
           gap: px(2),
-          label: { color: '#fff', fontSize: px(11), fontWeight: 500 },
+          label: side
+            ? {
+                position: 'right',
+                formatter: (params: { name: string; data: { count?: number } }) =>
+                  `{name|${params.name}}{count|${(params.data.count ?? 0).toLocaleString('en-IN')}}`,
+                rich: {
+                  name: { color: text, fontSize: px(12), width: px(110) },
+                  count: { color: '#101828', fontSize: px(13), fontWeight: 600 },
+                },
+              }
+            : { color: '#fff', fontSize: px(11), fontWeight: 500 },
+          // Every label starts at the same x, so the names and counts read as one column.
+          labelLayout: side ? { x: '71%', align: 'left' } : undefined,
           labelLine: { show: false },
           itemStyle: { borderColor: '#fff', borderWidth: px(1) },
-          emphasis: { label: { fontSize: px(11) } },
+          emphasis: { label: { fontSize: side ? undefined : px(11) } },
           data: funnelData,
         },
       ],
@@ -102,6 +145,22 @@ function optionFor(
       axisLabel: { color: text, ...textStyle },
     },
   };
+  if ((kind === 'bar' || kind === 'line') && extra.series?.length)
+    return {
+      ...common,
+      color: extra.colors ?? palette,
+      series: extra.series.map((series) => ({
+        name: series.name,
+        type: kind,
+        stack: extra.stacked ? 'total' : undefined,
+        smooth: kind === 'line' ? true : undefined,
+        symbolSize: kind === 'line' ? px(6) : undefined,
+        barMaxWidth: kind === 'bar' ? px(extra.stacked ? 34 : 18) : undefined,
+        itemStyle:
+          kind === 'bar' && !extra.stacked ? { borderRadius: [px(4), px(4), 0, 0] } : undefined,
+        data: series.values,
+      })),
+    };
   if (kind === 'bar')
     return {
       ...common,
@@ -156,12 +215,26 @@ export function EChart({
   className = 'h-72',
   seriesNames,
   funnelMode = 'proportional',
+  series,
+  stacked,
+  funnelStages,
+  funnelLabels,
+  colors,
 }: {
   kind: ChartKind;
   data: Datum[];
   className?: string;
   seriesNames?: SeriesNames;
   funnelMode?: FunnelMode;
+  /** Bar/line only: replaces value/secondary with any number of named series over `data` names. */
+  series?: ChartSeries[];
+  stacked?: boolean;
+  /** Funnel only: how many stages to draw (default 5). */
+  funnelStages?: number;
+  /** Staged funnel only: where the stage names and counts go (default inside the bands). */
+  funnelLabels?: FunnelLabels;
+  /** Bar/line with `series` only: one colour per series, in series order. */
+  colors?: string[];
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -193,7 +266,16 @@ export function EChart({
       canvas.style.height = `${Math.round(height * zoom)}px`;
       chart ??= echarts.init(canvas, undefined, { renderer: 'svg' });
       if (renderedScale !== zoom) {
-        chart.setOption(optionFor(kind, data, seriesNames, funnelMode, zoom), true);
+        chart.setOption(
+          optionFor(kind, data, seriesNames, funnelMode, zoom, {
+            series,
+            stacked,
+            funnelStages,
+            funnelLabels,
+            colors,
+          }),
+          true,
+        );
         renderedScale = zoom;
       }
       chart.resize();
@@ -209,7 +291,7 @@ export function EChart({
       window.removeEventListener(CANVAS_ZOOM_CHANGED_EVENT, render);
       chart?.dispose();
     };
-  }, [funnelMode, kind, data, seriesNames]);
+  }, [funnelMode, kind, data, seriesNames, series, stacked, funnelStages, funnelLabels, colors]);
   return (
     <div ref={frameRef} className={className} role="img" aria-label={`${kind} chart`}>
       <div ref={canvasRef} />

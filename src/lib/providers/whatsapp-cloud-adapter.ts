@@ -117,3 +117,93 @@ export function extractWhatsAppEvents(payload: unknown) {
   }
   return { messages, statuses };
 }
+
+export type WhatsAppGraphFailure = {
+  code: string;
+  message: string;
+  status: 422 | 429 | 502;
+  providerCode: number | null;
+  providerSubcode: number | null;
+  providerType: string | null;
+  fbtraceId: string | null;
+};
+
+const graphRateLimitCodes = new Set([4, 17, 32, 613, 80007, 130429]);
+
+// Turns a Graph API error response into a stable CRM code and an actionable message. Only the
+// numeric codes and trace ID are kept; Graph's own message text is dropped so nothing it echoes
+// back ends up in logs or the browser.
+export function classifyWhatsAppGraphError(
+  httpStatus: number,
+  body: unknown,
+): WhatsAppGraphFailure {
+  const error = record(record(body)?.error);
+  const providerCode = Number.isFinite(Number(error?.code)) ? Number(error?.code) : null;
+  const providerSubcode = Number.isFinite(Number(error?.error_subcode))
+    ? Number(error?.error_subcode)
+    : null;
+  const provider = {
+    providerCode,
+    providerSubcode,
+    providerType: text(error?.type) ?? null,
+    fbtraceId: text(error?.fbtrace_id) ?? null,
+  };
+
+  if (providerCode === 190)
+    return {
+      code: 'WHATSAPP_TOKEN_INVALID',
+      message:
+        providerSubcode === 463
+          ? 'Meta says this access token has expired. Generate a System User token set to never expire.'
+          : 'Meta did not accept this access token. Copy the full token again or generate a new one.',
+      status: 422,
+      ...provider,
+    };
+  if (providerCode === 100 && providerSubcode === 33)
+    return {
+      code: 'WHATSAPP_ASSET_NOT_ASSIGNED',
+      message:
+        'This token cannot see that phone number. Assign the WhatsApp account to the System User with full control, then generate a new token.',
+      status: 422,
+      ...provider,
+    };
+  if (providerCode === 100)
+    return {
+      code: 'WHATSAPP_PHONE_NUMBER_ID_INVALID',
+      message:
+        'Meta did not recognise the phone number ID. Copy it from WhatsApp Manager > API Setup; it is not the WhatsApp Business Account ID or the phone number itself.',
+      status: 422,
+      ...provider,
+    };
+  if (providerCode === 10 || (providerCode !== null && providerCode >= 200 && providerCode <= 299))
+    return {
+      code: 'WHATSAPP_PERMISSION_MISSING',
+      message:
+        'This token is missing WhatsApp permissions. Generate it again with whatsapp_business_messaging and whatsapp_business_management.',
+      status: 422,
+      ...provider,
+    };
+  if (providerCode !== null && graphRateLimitCodes.has(providerCode))
+    return {
+      code: 'WHATSAPP_RATE_LIMITED',
+      message: 'Meta is rate limiting this account. Wait a few minutes and try again.',
+      status: 429,
+      ...provider,
+    };
+  if (httpStatus >= 500 || providerCode === 1 || providerCode === 2)
+    return {
+      code: 'WHATSAPP_PROVIDER_UNAVAILABLE',
+      message: 'Meta could not process the check right now. Try again in a few minutes.',
+      status: 502,
+      ...provider,
+    };
+  return {
+    code: 'WHATSAPP_CONNECTION_TEST_FAILED',
+    message:
+      providerCode === null
+        ? 'WhatsApp rejected the phone-number credential.'
+        : `WhatsApp rejected the phone-number credential (Meta error ${providerCode}${providerSubcode === null ? '' : `/${providerSubcode}`}).`,
+    status: 422,
+    ...provider,
+  };
+}

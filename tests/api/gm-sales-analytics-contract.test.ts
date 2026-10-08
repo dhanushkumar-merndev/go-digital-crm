@@ -74,7 +74,9 @@ describe('GM sales analytics web contract', () => {
   });
 
   it('uses TanStack Query, shadcn, and the approved ECharts wrapper', () => {
-    expect(workspace).toContain("from '@tanstack/react-query'");
+    // usePersistedQuery wraps TanStack Query with the IndexedDB aggregate copy.
+    expect(workspace).toContain("from '@/lib/query/persisted-query'");
+    expect(workspace).toContain('persist: { version: 1, schema: gmSalesAnalyticsSchema }');
     expect(workspace).toContain("from '@/components/charts/e-chart'");
     expect(workspace).toContain("from '@/components/ui/table'");
     expect(workspace).toContain('kind="line"');

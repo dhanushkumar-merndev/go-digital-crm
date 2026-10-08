@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { PerformanceDateRange } from '@/lib/performance-date-range';
 import { performanceRangeDays, performanceRpcTimezone } from '@/lib/performance-date-range';
+import { fetchCachedAggregate } from '@/lib/query/cached-dashboard-api';
 import { createClient } from '@/lib/supabase/client';
 
 const schema = z.object({
@@ -30,13 +31,22 @@ const schema = z.object({
 });
 export type SalesPerformance = z.infer<typeof schema>;
 export async function fetchSalesPerformance(range: PerformanceDateRange, signal?: AbortSignal) {
-  const request = createClient().rpc('get_sales_consultant_performance', {
+  const params = {
     target_days: performanceRangeDays(range),
     target_timezone: performanceRpcTimezone(range),
+  };
+  return fetchCachedAggregate({
+    resource: 'sales-consultant-performance',
+    schema: schema,
+    params,
+    signal,
+    direct: async () => {
+      const request = createClient().rpc('get_sales_consultant_performance', params);
+      const { data, error } = await (signal ? request.abortSignal(signal) : request);
+      if (error) throw error;
+      return schema.parse(data);
+    },
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
-  return schema.parse(data);
 }
 
 const telecallerSchema = z.object({
@@ -63,16 +73,29 @@ const telecallerSchema = z.object({
   ),
   targets: schema.shape.targets,
 });
+export type TelecallerPerformance = z.infer<typeof telecallerSchema>;
 
 export async function fetchTelecallerPerformance(
   range: PerformanceDateRange,
   signal?: AbortSignal,
 ) {
-  const request = createClient().rpc('get_telecaller_performance', {
+  const params = {
     target_days: performanceRangeDays(range),
     target_timezone: performanceRpcTimezone(range),
+  };
+  return fetchCachedAggregate({
+    resource: 'telecaller-performance',
+    schema: telecallerSchema,
+    params,
+    signal,
+    direct: async () => {
+      const request = createClient().rpc('get_telecaller_performance', params);
+      const { data, error } = await (signal ? request.abortSignal(signal) : request);
+      if (error) throw error;
+      return telecallerSchema.parse(data);
+    },
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
-  return telecallerSchema.parse(data);
 }
+
+/** Exported for the IndexedDB copy, which is re-validated before it is shown. */
+export { schema as salesPerformanceSchema, telecallerSchema as telecallerPerformanceSchema };

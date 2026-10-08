@@ -82,6 +82,7 @@ function CreateFieldDialog({
     .map((value) => value.trim())
     .filter(Boolean);
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: () =>
       createCustomField({
         module,
@@ -246,6 +247,7 @@ function TemplateCard() {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<CustomerFieldTemplateKey | null>(null);
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: (templateKey: CustomerFieldTemplateKey) =>
       applyCustomerFieldTemplate({ templateKey, requestId: requestId() }),
     onSuccess: (result) => {
@@ -338,6 +340,7 @@ export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
     placeholderData: keepPreviousData,
   });
   const toggle = useMutation({
+    meta: { toast: false },
     mutationFn: (input: { id: string; active: boolean; version: number }) =>
       setCustomFieldActive({ ...input, requestId: requestId() }),
     onSuccess: () =>
@@ -350,6 +353,7 @@ export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
       }),
   });
   const reminder = useMutation({
+    meta: { toast: false },
     mutationFn: setCustomerDateReminder,
     onSuccess: () =>
       void queryClient.invalidateQueries({ queryKey: ['custom-field-administration'] }),

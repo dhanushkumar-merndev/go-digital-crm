@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/table';
 import type { Metric } from '@/lib/domain';
 import { fetchPlatformDealershipDetail } from './dealership-detail-api';
+import { SeatLimitsCard } from './seat-limits-card';
 
 function dateTime(value: string) {
   const date = new Date(value);
@@ -107,6 +108,8 @@ export function DealershipDetailWorkspace({ organizationId }: { organizationId: 
       </Card>
 
       <KpiGrid metrics={metrics} className="xl:grid-cols-5" />
+
+      <SeatLimitsCard organizationId={organization.id} organizationName={organization.name} />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
         <Card className="shadow-none">

@@ -1173,11 +1173,21 @@ function WorkTable({
                   {table.getRowModel().rows.length ? (
                     table.getRowModel().rows.map((row) => {
                       const focused = focusedRowIds.has(row.original.id);
+                      const isOverdue =
+                        kind === 'followups' &&
+                        ((row.original as FollowupRecord).display_status === 'OVERDUE' ||
+                          (row.original as FollowupRecord).status === 'OVERDUE');
                       return (
                         <TableRow
                           key={row.id}
                           id={focusRowElementId(kind, row.original.id)}
-                          className={focused ? focusedRowClassName : 'hover:bg-slate-50/70'}
+                          className={
+                            focused
+                              ? focusedRowClassName
+                              : isOverdue
+                                ? 'bg-red-50/60 hover:bg-red-100/70 dark:bg-red-950/20 dark:hover:bg-red-950/40'
+                                : 'hover:bg-slate-50/70'
+                          }
                         >
                           {row.getVisibleCells().map((cell) => (
                             <TableCell

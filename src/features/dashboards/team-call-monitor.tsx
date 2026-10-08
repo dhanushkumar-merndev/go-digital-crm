@@ -1,6 +1,5 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, Clock3, PhoneCall, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
@@ -15,6 +14,11 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { performanceRangeForLastDays, performanceRangeLabel } from '@/lib/performance-date-range';
 import {
+  DASHBOARD_QUERY_GC_TIME_MS,
+  DASHBOARD_QUERY_STALE_TIME_MS,
+} from '@/lib/query/cache-policy';
+import { usePersistedQuery } from '@/lib/query/persisted-query';
+import {
   Table,
   TableBody,
   TableCell,
@@ -23,7 +27,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { Metric } from '@/lib/domain';
-import { fetchTeamManagerPerformance } from './team-manager-performance-api';
+import { fetchTeamManagerPerformance, teamPerformanceSchema } from './team-manager-performance-api';
 
 function duration(seconds: number) {
   return `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(
@@ -44,10 +48,12 @@ export function TeamCallMonitor() {
   const session = useWorkspaceSession();
   const queryScope = workspaceQueryScope(session);
   const [range, setRange] = useState(() => performanceRangeForLastDays(7));
-  const query = useQuery({
+  const query = usePersistedQuery({
     queryKey: ['team-call-monitor', ...queryScope, range.from, range.to],
     queryFn: ({ signal }) => fetchTeamManagerPerformance(range, signal),
-    staleTime: 60_000,
+    staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
+    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+    persist: { version: 1, schema: teamPerformanceSchema },
   });
   if (query.isPending) return <TeamCallMonitorSkeleton />;
   if (query.isError || !query.data)

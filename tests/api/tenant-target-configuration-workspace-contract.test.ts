@@ -46,6 +46,7 @@ describe('tenant target configuration workspace contract', () => {
     expect(workspace).toContain('readOnly = false');
     expect(workspace).toContain('Business Owner › Targets & performance');
     expect(route).toContain("role === 'client-admin' && slug[0] === 'targets-approval-rules'");
-    expect(route).toContain("role === 'business-owner' && slug[0] === 'targets-performance'");
+    // The owner's read-only copy moved into Showroom Performance; old links redirect there.
+    expect(route).toContain("redirect('/business-owner/showroom-performance')");
   });
 });

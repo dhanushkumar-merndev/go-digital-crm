@@ -138,6 +138,7 @@ function CampaignForm({
     (budgetAmount === null || (Number.isFinite(budgetAmount) && budgetAmount >= 0));
 
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: () =>
       saveMarketingCampaign({
         campaignId: campaign?.id ?? null,
@@ -392,6 +393,7 @@ function CampaignSpendForm({
     (impressionCount === null || clickCount === null || clickCount <= impressionCount);
 
   const mutation = useMutation({
+    meta: { toast: false },
     mutationFn: () =>
       recordMarketingCampaignMetrics({
         campaignId: campaign.id,

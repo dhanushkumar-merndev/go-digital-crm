@@ -263,6 +263,7 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
     staleTime: 60_000,
   });
   const markLost = useMutation({
+    meta: { toast: false },
     mutationFn: () => {
       if (!detail.data) throw new Error('LEAD_NOT_READY');
       return updateLead({

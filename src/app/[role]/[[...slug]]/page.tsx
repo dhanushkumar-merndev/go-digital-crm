@@ -40,6 +40,8 @@ import { SalesConsultantActivityTimeline } from '@/features/dashboards/sales-con
 import { TeamManagerActivityTimeline } from '@/features/dashboards/team-manager-activity-timeline';
 import { SalesConsultantPerformance } from '@/features/dashboards/sales-consultant-performance';
 import { TeamManagerPerformance } from '@/features/dashboards/team-manager-performance';
+import { SalesHandoffReport } from '@/features/dashboards/sales-handoff-report';
+import { ClientAdminBranchPerformance } from '@/features/dashboards/client-admin-branch-performance';
 import { TeamCallMonitor } from '@/features/dashboards/team-call-monitor';
 import { ShowroomTargetWorkspace } from '@/features/dashboards/showroom-target-workspace';
 import { ShowroomSalesTeamWorkspace } from '@/features/dashboards/showroom-sales-team-workspace';
@@ -119,6 +121,9 @@ export default async function RolePage({ params }: Props) {
   )
     return <DealershipDetailWorkspace organizationId={slug[1]} />;
   if (slug.length !== 1) notFound();
+  // Targets & Performance merged into Showroom Performance; keep saved links working.
+  if (role === 'business-owner' && slug[0] === 'targets-performance')
+    redirect('/business-owner/showroom-performance');
   const spec = getPageSpec(role, slug[0] ?? 'dashboard');
   if (!spec) notFound();
   if (role === 'super-admin' && slug[0] === 'dashboard' && !isLocalPreviewMode())
@@ -185,6 +190,8 @@ export default async function RolePage({ params }: Props) {
     return <CompanyComplianceWorkspace spec={spec} />;
   if (role === 'client-admin' && slug[0] === 'targets-approval-rules' && !isLocalPreviewMode())
     return <TenantTargetConfigurationWorkspace spec={spec} />;
+  if (role === 'client-admin' && slug[0] === 'branch-performance' && !isLocalPreviewMode())
+    return <ClientAdminBranchPerformance />;
   if (role === 'system-administrator' && slug[0] === 'branches-access' && !isLocalPreviewMode())
     return <BranchTeamWorkspace kind="branches" preset="ACCESS" role={role} spec={spec} />;
   if (role === 'system-administrator' && slug[0] === 'master-data' && !isLocalPreviewMode())
@@ -333,7 +340,7 @@ export default async function RolePage({ params }: Props) {
   if ((role === 'sales-consultant' || role === 'telecaller') && slug[0] === 'performance')
     return <SalesConsultantPerformance role={role} />;
   if (role === 'team-manager' && slug[0] === 'team-performance' && !isLocalPreviewMode())
-    return <TeamManagerPerformance />;
+    return <TeamManagerPerformance showHandoffs />;
   if (role === 'team-manager' && slug[0] === 'dashboard' && !isLocalPreviewMode())
     return <TeamManagerPerformance heading="Team Manager Workspace" />;
   if (role === 'team-manager' && slug[0] === 'lead-assignment' && !isLocalPreviewMode())
@@ -351,7 +358,11 @@ export default async function RolePage({ params }: Props) {
   if (role === 'showroom-manager' && slug[0] === 'sales-teams' && !isLocalPreviewMode())
     return <ShowroomSalesTeamWorkspace />;
   if (role === 'showroom-manager' && slug[0] === 'performance' && !isLocalPreviewMode())
-    return <TenantDashboard spec={spec} role={role} heading="Showroom Performance" />;
+    return (
+      <TenantDashboard spec={spec} role={role} heading="Showroom Performance">
+        <SalesHandoffReport preset="SHOWROOM" leadBasePath="/showroom-manager/leads" />
+      </TenantDashboard>
+    );
   if (
     (role === 'showroom-manager' || role === 'gm-sales') &&
     slug[0] === 'approvals' &&
@@ -368,8 +379,6 @@ export default async function RolePage({ params }: Props) {
     return <SalesExchangeWorkspace role={role} />;
   if (role === 'business-owner' && slug[0] === 'sales-overview' && !isLocalPreviewMode())
     return <BusinessSalesOverview spec={spec} />;
-  if (role === 'business-owner' && slug[0] === 'targets-performance' && !isLocalPreviewMode())
-    return <TenantTargetConfigurationWorkspace spec={spec} readOnly />;
   if (role === 'business-owner' && slug[0] === 'bookings-delivery' && !isLocalPreviewMode())
     return <SalesDocumentWorkspace kind="bookings" spec={spec} role={role} />;
   // These three were one shared TenantDashboard behind three navigation entries,

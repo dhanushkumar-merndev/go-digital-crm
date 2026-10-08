@@ -117,11 +117,11 @@ describe('task mutation feedback and cache linkage', () => {
     expect(dialogs).toContain('enabled: open && !record && !initialLead');
   });
 
-  it('uses the shared toast feedback for successful and failed mutations', () => {
+  it('toasts failed mutations only, never a generic success', () => {
     expect(providers).toContain('new MutationCache');
-    expect(providers).toContain("type: 'success'");
+    expect(providers).not.toContain("type: 'success'");
     expect(providers).toContain("type: 'error'");
-    expect(providers).toContain("title: 'Saved successfully'");
+    expect(providers).not.toContain("title: 'Saved successfully'");
     expect(providers).toContain("title: 'Could not save changes'");
   });
 });

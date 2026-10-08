@@ -971,7 +971,7 @@ function ProviderConnectionDialog({
                       <span className="text-xs font-normal text-muted-foreground">
                         {existingSecretStored
                           ? 'Leave blank to keep the encrypted token. Enter a new token only to rotate it.'
-                          : 'For development/testing, an authorized User token is accepted and the Page token is derived server-side. Required permissions: leads_retrieval, pages_manage_ads, pages_manage_metadata, pages_read_engagement and pages_show_list.'}
+                          : 'For development/testing, an authorized User or System User token is accepted and the Page token is derived server-side. Required permissions: leads_retrieval, pages_manage_ads, pages_manage_metadata, pages_read_engagement and pages_show_list.'}
                       </span>
                     </label>
                     <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
@@ -1011,8 +1011,8 @@ function ProviderConnectionDialog({
                         </SelectContent>
                       </Select>
                       <span className="text-xs font-normal text-muted-foreground">
-                        The team must use Round Robin and contain active, fresh-lead-eligible
-                        Telecallers.
+                        The team must use Round Robin or Least Assigned and contain active,
+                        fresh-lead-eligible Telecallers.
                       </span>
                     </label>
                   </>

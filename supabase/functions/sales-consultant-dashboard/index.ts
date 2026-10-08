@@ -10,12 +10,14 @@ import {
 } from '../_shared/workspace-cache.ts';
 import { tigrisClient } from '../_shared/tigris.ts';
 
-// Held for 24 hours. Manual Refresh removes this entry and rebuilds it from
-// PostgreSQL before writing the replacement value back to Redis. The task-due
-// alert is attached after this cache read because it must agree with the live
-// Tasks workspace rather than with an older dashboard aggregate.
-const SALES_DASHBOARD_CACHE_TTL_SECONDS = 24 * 60 * 60;
-const SALES_DASHBOARD_CACHE_SCHEMA_VERSION = 2;
+// A ceiling for idle keys only. The entry is out of date as soon as the
+// tenant data version moves, and is then rebuilt on a read at most once per
+// minute. Manual Refresh still removes it and rebuilds from PostgreSQL. The
+// task-due alert is attached after this cache read because it must agree with
+// the live Tasks workspace rather than with an older dashboard aggregate.
+const SALES_DASHBOARD_CACHE_TTL_SECONDS = 30 * 60;
+// 3: entries carry a data version. Earlier entries had none and must not be read.
+const SALES_DASHBOARD_CACHE_SCHEMA_VERSION = 3;
 const SALES_DASHBOARD_RESPONSE_VERSION = 2;
 const SALES_DASHBOARD_TIMEZONE = 'Asia/Kolkata';
 
@@ -23,6 +25,7 @@ const schema = z.object({
   manual_refresh: z.boolean().optional().default(false),
   response_version: z.literal(SALES_DASHBOARD_RESPONSE_VERSION).optional(),
 });
+const cacheVersionShape = z.object({ version: z.coerce.number().int().positive() });
 const metricShape = z.object({
   value: z.coerce.number(),
   change: z.coerce.number(),
@@ -219,9 +222,13 @@ Deno.serve(async (request) => {
       ? enforceManualRefresh(userId, 'sales-consultant-dashboard')
       : getManualRefreshStatus(userId, 'sales-consultant-dashboard');
     const contextPromise = client.rpc('get_workspace_bootstrap');
-    const [resolvedRefreshBudget, contextResponse] = await Promise.all([
+    const cacheContextPromise = client.rpc('get_workspace_cache_context', {
+      target_resource_key: 'tenant-dashboard',
+    });
+    const [resolvedRefreshBudget, contextResponse, cacheContextResponse] = await Promise.all([
       manualRefreshBudgetPromise,
       contextPromise,
+      cacheContextPromise,
     ]);
     manualRefreshBudget = resolvedRefreshBudget;
     if (parsed.data.manual_refresh) {
@@ -247,6 +254,9 @@ Deno.serve(async (request) => {
     )
       return failure('PERMISSION_DENIED', 'Dashboard access is not available.', requestId, 403);
     const context = parsedContext.data;
+    const dataVersion = cacheVersionShape.safeParse(cacheContextResponse.data);
+    if (cacheContextResponse.error || !dataVersion.success)
+      return failure('PERMISSION_DENIED', 'Dashboard access is not available.', requestId, 403);
     const accessFinishedAt = performance.now();
 
     // The cache is isolated by authenticated user plus exact tenant/scope identity. It includes
@@ -258,7 +268,9 @@ Deno.serve(async (request) => {
     const taskDueCountPromise = useTaskAlerts ? loadTaskDueCount(client) : Promise.resolve(null);
     const cachedDashboardPromise = readWorkspaceCache({
       resource: 'sales-consultant-dashboard',
-      version: SALES_DASHBOARD_CACHE_SCHEMA_VERSION,
+      // Read before the rebuild and stored with the entry, so a write committed
+      // during the load leaves the new entry already out of date.
+      version: dataVersion.data.version,
       ttlSeconds: SALES_DASHBOARD_CACHE_TTL_SECONDS,
       fingerprintInput: {
         resource: 'sales-consultant-dashboard',

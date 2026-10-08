@@ -60,6 +60,7 @@ function formatDate(value: string | null) {
 function InviteDialog({ record, onClose }: { record: ReviewApprovalRecord; onClose: () => void }) {
   const client = useQueryClient();
   const approve = useMutation({
+    meta: { toast: false },
     mutationFn: approveReviewInvite,
     onSuccess: (result) => {
       toast.add({

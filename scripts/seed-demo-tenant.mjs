@@ -3,8 +3,79 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
-const DEMO_SLUG = 'go-digital-demo-test';
-const DEMO_DOMAIN = 'demo.go-digital.invalid';
+// One preset per demo organization. The first keeps the fixed addresses the
+// development role switcher signs in with (src/lib/auth/development-demo-role-login.ts).
+const organizationPresets = {
+  demo: {
+    slug: 'go-digital-demo-test',
+    domain: 'demo.go-digital.invalid',
+    name: 'Go Digital Demo Motors (Test Only)',
+    legalName: 'Go Digital Demo Motors Private Limited',
+    gst: '29ABCDE1234F1Z5',
+    branch: {
+      code: 'BLR-01',
+      name: 'Bengaluru Demo Showroom',
+      city: 'Bengaluru',
+      state: 'Karnataka',
+    },
+    label: 'Demo',
+  },
+  sapphire: {
+    slug: 'sapphire-hyundai-test',
+    domain: 'sapphire.demo.go-digital.invalid',
+    name: 'Sapphire Hyundai (Test Only)',
+    legalName: 'Sapphire Automobiles LLP',
+    gst: '27AAKFS1234L1ZQ',
+    branch: { code: 'PUN-01', name: 'Pune Baner Showroom', city: 'Pune', state: 'Maharashtra' },
+    label: 'Sapphire',
+  },
+  pioneer: {
+    slug: 'pioneer-tata-test',
+    domain: 'pioneer.demo.go-digital.invalid',
+    name: 'Pioneer Tata Motors (Test Only)',
+    legalName: 'Pioneer Wheels Private Limited',
+    gst: '33AACCP4321M1Z2',
+    branch: { code: 'CHN-01', name: 'Chennai OMR Showroom', city: 'Chennai', state: 'Tamil Nadu' },
+    label: 'Pioneer',
+  },
+  royal: {
+    slug: 'royal-kia-test',
+    domain: 'royal.demo.go-digital.invalid',
+    name: 'Royal Kia (Test Only)',
+    legalName: 'Royal Motor Ventures Private Limited',
+    gst: '36AAHCR9876K1ZB',
+    branch: {
+      code: 'HYD-01',
+      name: 'Hyderabad Gachibowli Showroom',
+      city: 'Hyderabad',
+      state: 'Telangana',
+    },
+    label: 'Royal',
+  },
+  metro: {
+    slug: 'metro-mahindra-test',
+    domain: 'metro.demo.go-digital.invalid',
+    name: 'Metro Mahindra (Test Only)',
+    legalName: 'Metro Mobility Private Limited',
+    gst: '07AAICM5555Q1Z9',
+    branch: { code: 'DEL-01', name: 'Delhi Dwarka Showroom', city: 'New Delhi', state: 'Delhi' },
+    label: 'Metro',
+  },
+};
+const orgArgument = process.argv.find((arg) => arg.startsWith('--org='))?.slice(6) ?? 'demo';
+const organizationPreset = organizationPresets[orgArgument];
+if (!organizationPreset) {
+  console.error(
+    `Unknown --org=${orgArgument}. Use one of: ${Object.keys(organizationPresets).join(', ')}`,
+  );
+  process.exit(1);
+}
+// --owner-only stops after the organization, its roles and the Business Owner:
+// the shape of a dealership still going through onboarding.
+const ownerOnly = process.argv.includes('--owner-only');
+const DEMO_SLUG = organizationPreset.slug;
+const DEMO_DOMAIN = organizationPreset.domain;
+const DEMO_LABEL = organizationPreset.label;
 
 const moduleCatalog = [
   ['customers', 'Customers'],
@@ -29,19 +100,26 @@ const moduleCatalog = [
 const roleAccounts = [
   ['system_administrator', 'System Administrator', 'ORGANIZATION'],
   ['gm_sales', 'GM Sales Executive', 'ALL_BRANCHES'],
-  ['showroom_manager', 'Showroom Manager', 'ALL_BRANCHES'],
+  ['showroom_manager', 'Sales Manager', 'ALL_BRANCHES'],
   ['team_manager', 'Team Manager', 'OWN_TEAM'],
   ['sales_consultant', 'Sales Consultant', 'OWN_RECORDS'],
   ['telecaller_bdc', 'Telecaller / BDC Executive', 'OWN_RECORDS'],
   ['inventory_manager', 'Inventory Manager', 'ONE_BRANCH'],
   ['inventory_executive', 'Inventory Executive', 'ONE_BRANCH'],
   ['finance_manager', 'Finance Manager', 'ONE_BRANCH'],
+  ['finance_executive', 'Finance Executive', 'ONE_BRANCH'],
+  ['insurance_executive', 'Insurance Executive', 'ONE_BRANCH'],
+  ['rto_executive', 'RTO Executive', 'ONE_BRANCH'],
+  ['exchange_executive', 'Used Car / Exchange Executive', 'ONE_BRANCH'],
+  ['delivery_executive', 'Delivery Executive', 'ONE_BRANCH'],
+  ['customer_relationship_executive', 'Customer Relationship Executive', 'ONE_BRANCH'],
   ['insurance_manager', 'Insurance Manager', 'ONE_BRANCH'],
   ['rto_manager', 'RTO Manager', 'ONE_BRANCH'],
   ['exchange_manager', 'Used Car / Exchange Manager', 'ONE_BRANCH'],
   ['delivery_manager', 'Delivery Manager', 'ONE_BRANCH'],
   ['customer_relationship_manager', 'Customer Relationship Manager', 'ONE_BRANCH'],
   ['digital_marketing_manager', 'Digital Marketing Manager', 'ONE_BRANCH'],
+  ['digital_marketing_executive', 'Digital Marketing Executive', 'ONE_BRANCH'],
 ];
 
 const rolePresets = [
@@ -49,7 +127,7 @@ const rolePresets = [
   ['client_admin', 'Client Admin', 850, true],
   ['system_administrator', 'System Administrator', 800, true],
   ['gm_sales', 'GM Sales Executive', 700, true],
-  ['showroom_manager', 'Showroom Manager', 600, false],
+  ['showroom_manager', 'Sales Manager', 600, false],
   ['team_manager', 'Team Manager', 500, false],
   ['inventory_manager', 'Inventory Manager', 450, false],
   ['inventory_executive', 'Inventory Executive', 400, false],
@@ -66,6 +144,7 @@ const rolePresets = [
   ['delivery_executive', 'Delivery Executive', 400, false],
   ['customer_relationship_executive', 'Customer Relationship Executive', 400, false],
   ['digital_marketing_manager', 'Digital Marketing Manager', 450, false],
+  ['digital_marketing_executive', 'Digital Marketing Executive', 400, false],
   ['sales_consultant', 'Sales Consultant', 300, false],
   ['telecaller_bdc', 'Telecaller / BDC Executive', 300, false],
 ];
@@ -385,6 +464,17 @@ async function ensureRecord(table, query, row) {
   return created;
 }
 
+// Variant specifications must carry every standard comparison field, either a
+// value or NOT_AVAILABLE (app_private.validate_comparison_specifications).
+function completeSpecifications(specifications) {
+  const standard = ['battery_capacity', 'fast_charging', 'power', 'range', 'torque', 'warranty'];
+  return {
+    ...Object.fromEntries(standard.map((key) => [key, 'NOT_AVAILABLE'])),
+    warranty: '3 years / 1,00,000 km',
+    ...specifications,
+  };
+}
+
 function demoPayloadHash(value) {
   return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
@@ -539,7 +629,15 @@ async function seedDemoRecords({ organizationId, branchId, teamId, users }) {
         organization_id: organizationId,
         model_id: model.id,
         name: 'Demo SUV Premium',
-        specifications: { fuel: 'EV', range_km: 420 },
+        specifications: completeSpecifications({
+          fuel: 'EV',
+          range_km: 420,
+          battery_capacity: '40.5 kWh',
+          fast_charging: '10-80% in 56 min',
+          power: '106 kW',
+          range: '420 km (MIDC)',
+          torque: '215 Nm',
+        }),
       })
     )[0];
   const stock =
@@ -818,12 +916,17 @@ async function seedSalesConsultantActionFixtures({ organizationId, branchId, use
       organization_id: organizationId,
       model_id: model.id,
       name: 'Empowered+ 45',
-      specifications: {
+      specifications: completeSpecifications({
         fuel: 'Electric',
         battery_kwh: 45,
         certified_range_km: 489,
         transmission: 'Automatic',
-      },
+        battery_capacity: '45 kWh',
+        fast_charging: '10-80% in 40 min',
+        power: '110 kW',
+        range: '489 km (MIDC)',
+        torque: '215 Nm',
+      }),
     },
   );
   const stockFixtures = [
@@ -1380,7 +1483,7 @@ async function seedDemoConnectedExperience({ organizationId, branchId, teamId, u
       authType: 'OAUTH2',
       assetType: 'GBP_LOCATION',
       assetId: 'demo-gbp-location-1001',
-      assetLabel: 'Bengaluru Demo Showroom',
+      assetLabel: organizationPreset.branch.name,
     },
     {
       providerKey: 'whatsapp_cloud',
@@ -1440,7 +1543,7 @@ async function seedDemoConnectedExperience({ organizationId, branchId, teamId, u
         team_id: teamId,
         external_resource_type: 'CONNECTION_SCOPE',
         external_resource_id: `scope-${branchId}`,
-        external_resource_label: 'Bengaluru Demo Showroom scope',
+        external_resource_label: `${organizationPreset.branch.name} scope`,
         mapping_metadata: { demo_fixture: true },
       },
     );
@@ -1701,7 +1804,8 @@ async function main() {
   await insert('modules', moduleCatalog, { onConflict: 'module_key' });
   await insert('permissions', corePermissionCatalog, { onConflict: 'permission_key' });
 
-  const superAdminEmail = emailFor('super_admin');
+  // One platform Super Admin, whichever organization is being seeded.
+  const superAdminEmail = 'super-admin@demo.go-digital.invalid';
   const superAdminAuth = await ensureAuthUser(superAdminEmail, 'Demo Platform Super Admin');
   await ensureProfile({
     userId: superAdminAuth.id,
@@ -1736,18 +1840,18 @@ async function main() {
   let ownerId;
   if (organization.length === 0) {
     const ownerEmail = emailFor('business_owner');
-    const ownerAuth = await ensureAuthUser(ownerEmail, 'Demo Business Owner');
+    const ownerAuth = await ensureAuthUser(ownerEmail, `${DEMO_LABEL} Business Owner`);
     const [createdOrganization] = await insert('organizations', {
-      name: 'Go Digital Demo Motors (Test Only)',
+      name: organizationPreset.name,
       slug: DEMO_SLUG,
-      legal_name: 'Go Digital Demo Motors Private Limited',
-      gst_number: '29ABCDE1234F1Z5',
+      legal_name: organizationPreset.legalName,
+      gst_number: organizationPreset.gst,
       status: 'ACTIVE',
     });
     await ensureProfile({
       userId: ownerAuth.id,
       organizationId: createdOrganization.id,
-      fullName: 'Demo Business Owner',
+      fullName: `${DEMO_LABEL} Business Owner`,
       email: ownerEmail,
       mfaRequired: true,
       employeeId: 'DEMO-BUSINESS-OWNER',
@@ -1901,6 +2005,13 @@ async function main() {
       'integration.view',
       'document.',
     ],
+    digital_marketing_executive: [
+      'marketing.',
+      'lead.',
+      'customer.',
+      'integration.view',
+      'document.',
+    ],
   };
   const rolePermissionRows = [];
   for (const tenantRole of tenantRoles) {
@@ -1950,14 +2061,28 @@ async function main() {
     })),
     { onConflict: 'organization_id,module_id' },
   );
+  if (ownerOnly) {
+    console.log(
+      JSON.stringify({
+        organization_slug: DEMO_SLUG,
+        organization_id: organizationId,
+        owner_only: true,
+      }),
+    );
+    return;
+  }
 
   const [branch] = await insert(
     'branches',
     {
       organization_id: organizationId,
-      code: 'BLR-01',
-      name: 'Bengaluru Demo Showroom',
-      address: { city: 'Bengaluru', state: 'Karnataka', country: 'India' },
+      code: organizationPreset.branch.code,
+      name: organizationPreset.branch.name,
+      address: {
+        city: organizationPreset.branch.city,
+        state: organizationPreset.branch.state,
+        country: 'India',
+      },
       contact_phone: '+918000000001',
       contact_email: `showroom@${DEMO_DOMAIN}`,
       timezone: 'Asia/Kolkata',
@@ -2007,7 +2132,7 @@ async function main() {
     actorId: ownerId,
     organizationId,
     role: 'client_admin',
-    fullName: 'Demo Client Admin',
+    fullName: `${DEMO_LABEL} Client Admin`,
     scope: 'ORGANIZATION',
   });
   const users = { clientAdmin: clientAdminId };
@@ -2017,7 +2142,7 @@ async function main() {
       actorId: clientAdminId,
       organizationId,
       role,
-      fullName: `Demo ${fullName}`,
+      fullName: `${DEMO_LABEL} ${fullName}`,
       scope,
       branchId: scope === 'ONE_BRANCH' ? branch.id : null,
       teamIds: isTeamRole ? [team.id] : [],
@@ -2028,7 +2153,7 @@ async function main() {
     organizationId,
     role: 'sales_consultant',
     emailKey: 'sales_consultant_2',
-    fullName: 'Demo Sales Consultant 2',
+    fullName: `${DEMO_LABEL} Sales Consultant 2`,
     scope: 'OWN_RECORDS',
     branchId: branch.id,
     teamIds: [team.id],
@@ -2038,7 +2163,7 @@ async function main() {
     organizationId,
     role: 'sales_consultant',
     emailKey: 'sales_consultant_3',
-    fullName: 'Demo Sales Consultant 3',
+    fullName: `${DEMO_LABEL} Sales Consultant 3`,
     scope: 'OWN_RECORDS',
     branchId: branch.id,
     teamIds: [team.id],
@@ -2048,7 +2173,7 @@ async function main() {
     organizationId,
     role: 'telecaller_bdc',
     emailKey: 'telecaller_bdc_2',
-    fullName: 'Demo Telecaller 2',
+    fullName: `${DEMO_LABEL} Telecaller 2`,
     scope: 'OWN_RECORDS',
     branchId: branch.id,
     teamIds: [team.id],
@@ -2058,7 +2183,7 @@ async function main() {
     organizationId,
     role: 'team_manager',
     emailKey: 'team_manager_2',
-    fullName: 'Demo Team Manager 2',
+    fullName: `${DEMO_LABEL} Team Manager 2`,
     scope: 'OWN_TEAM',
     branchId: branch.id,
     teamIds: [teamBravo.id],
@@ -2068,16 +2193,16 @@ async function main() {
     organizationId,
     role: 'team_manager',
     emailKey: 'team_manager_3',
-    fullName: 'Demo Team Manager 3',
+    fullName: `${DEMO_LABEL} Team Manager 3`,
     scope: 'OWN_TEAM',
     branchId: branch.id,
     teamIds: [teamCharlie.id],
   });
   for (const [key, fullName, teamId] of [
-    ['sales_consultant_4', 'Demo Sales Consultant 4', teamBravo.id],
-    ['sales_consultant_5', 'Demo Sales Consultant 5', teamBravo.id],
-    ['sales_consultant_6', 'Demo Sales Consultant 6', teamCharlie.id],
-    ['sales_consultant_7', 'Demo Sales Consultant 7', teamCharlie.id],
+    ['sales_consultant_4', `${DEMO_LABEL} Sales Consultant 4`, teamBravo.id],
+    ['sales_consultant_5', `${DEMO_LABEL} Sales Consultant 5`, teamBravo.id],
+    ['sales_consultant_6', `${DEMO_LABEL} Sales Consultant 6`, teamCharlie.id],
+    ['sales_consultant_7', `${DEMO_LABEL} Sales Consultant 7`, teamCharlie.id],
   ]) {
     users[key] = await ensureTenantUser({
       actorId: clientAdminId,
@@ -2091,8 +2216,8 @@ async function main() {
     });
   }
   for (const [key, fullName, teamId] of [
-    ['telecaller_bdc_3', 'Demo Telecaller 3', teamBravo.id],
-    ['telecaller_bdc_4', 'Demo Telecaller 4', teamCharlie.id],
+    ['telecaller_bdc_3', `${DEMO_LABEL} Telecaller 3`, teamBravo.id],
+    ['telecaller_bdc_4', `${DEMO_LABEL} Telecaller 4`, teamCharlie.id],
   ]) {
     users[key] = await ensureTenantUser({
       actorId: clientAdminId,
@@ -2131,19 +2256,23 @@ async function main() {
       salesConsultant: users.sales_consultant,
     },
   });
-  const connectedExperience = await seedDemoConnectedExperience({
-    organizationId,
-    branchId: branch.id,
-    teamId: team.id,
-    users: {
-      ...users,
-      salesConsultant: users.sales_consultant,
-      telecaller: users.telecaller_bdc,
-      customerRelationshipManager: users.customer_relationship_manager,
-      exchangeManager: users.exchange_manager,
-      digitalMarketingManager: users.digital_marketing_manager,
-    },
-  });
+  // Integrations are connected for real by the tenant, so the simulated
+  // "connected" provider fixtures only run when explicitly requested.
+  const connectedExperience = !process.argv.includes('--with-simulated-integrations')
+    ? {}
+    : await seedDemoConnectedExperience({
+        organizationId,
+        branchId: branch.id,
+        teamId: team.id,
+        users: {
+          ...users,
+          salesConsultant: users.sales_consultant,
+          telecaller: users.telecaller_bdc,
+          customerRelationshipManager: users.customer_relationship_manager,
+          exchangeManager: users.exchange_manager,
+          digitalMarketingManager: users.digital_marketing_manager,
+        },
+      });
   const teamExperience = await seedDemoTeamExperience({
     organizationId,
     branchId: branch.id,
@@ -2176,7 +2305,7 @@ async function main() {
       {
         organization_slug: DEMO_SLUG,
         organization_id: organizationId,
-        test_account_count: 29,
+        test_account_count: Object.keys(users).length + 2,
         seeded_records: {
           ...summary,
           ...actionFixtures,

@@ -113,11 +113,69 @@ export function validateProfileAvatar(file: File) {
   }
 }
 
-export async function uploadProfileAvatar(input: {
+/** Avatars render at 80 px at most; 512 px stays sharp on high-density screens. */
+const AVATAR_MAX_EDGE_PX = 512;
+
+function canvasBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
+  return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
+}
+
+/**
+ * Downscale a chosen photo before upload. A phone photo is 2–5 MB and took
+ * seconds to send for an image shown at 80 px; the resized WebP is usually
+ * under 100 KB. Any failure, or a result no smaller than the original, keeps
+ * the original file, so this can only make an upload smaller.
+ */
+export async function prepareProfileAvatar(file: File): Promise<File> {
+  validateProfileAvatar(file);
+  if (typeof createImageBitmap !== 'function' || typeof document === 'undefined') return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, AVATAR_MAX_EDGE_PX / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) {
+      bitmap.close();
+      return file;
+    }
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    // Browsers without a WebP encoder return PNG for this request; fall back to JPEG.
+    let blob = await canvasBlob(canvas, 'image/webp', 0.85);
+    if (!blob || blob.type !== 'image/webp') blob = await canvasBlob(canvas, 'image/jpeg', 0.85);
+    if (!blob || !avatarMimeTypes.has(blob.type) || blob.size >= file.size) return file;
+    const extension = blob.type === 'image/webp' ? 'webp' : 'jpg';
+    const baseName = file.name.replace(/\.[^.]+$/, '') || 'avatar';
+    return new File([blob], `${baseName}.${extension}`, { type: blob.type });
+  } catch {
+    return file;
+  }
+}
+
+export type PresignedProfileAvatar = {
+  file: File;
+  uploadIntentId: string;
+  uploadUrl: string;
+  requiredHeaders: Record<string, string>;
+  /** Client clock; the server-side intent and URL last ten minutes. */
+  presignedAt: number;
+};
+
+// Re-presign comfortably before the ten-minute intent and URL expire.
+const PRESIGN_REUSE_MS = 8 * 60_000;
+
+/**
+ * Reserve the upload for an already-prepared file. The dialog calls this as
+ * soon as a photo is chosen, so Save does not wait on it. An abandoned
+ * presign leaves only an expiring intent row: nothing is written to storage.
+ */
+export async function presignProfileAvatar(input: {
   organizationId: string;
   userId: string;
   file: File;
-}) {
+}): Promise<PresignedProfileAvatar> {
   if (!hasSupabaseConfig()) throw new ProfileSettingsError('SUPABASE_NOT_CONFIGURED');
   validateProfileAvatar(input.file);
 
@@ -141,11 +199,25 @@ export async function uploadProfileAvatar(input: {
       checksum_sha256: checksum,
     }),
   );
+  return {
+    file: input.file,
+    uploadIntentId: presign.upload_intent_id,
+    uploadUrl: presign.upload_url,
+    requiredHeaders: presign.required_headers,
+    presignedAt: Date.now(),
+  };
+}
 
-  const upload = await fetch(presign.upload_url, {
+export function isPresignReusable(presigned: PresignedProfileAvatar, file: File) {
+  return presigned.file === file && Date.now() - presigned.presignedAt < PRESIGN_REUSE_MS;
+}
+
+/** Send the prepared file to storage and record it; returns the object_files id. */
+export async function completeProfileAvatarUpload(presigned: PresignedProfileAvatar) {
+  const upload = await fetch(presigned.uploadUrl, {
     method: 'PUT',
-    headers: presign.required_headers,
-    body: input.file,
+    headers: presigned.requiredHeaders,
+    body: presigned.file,
   }).catch((cause: unknown) => {
     throw new ProfileSettingsError(
       'PROFILE_AVATAR_NETWORK_BLOCKED',
@@ -160,9 +232,9 @@ export async function uploadProfileAvatar(input: {
 
   const finalized = await throwEdgeError(
     await invokeAuthenticatedEdge<EdgeEnvelope<{ object_file_id: string }>>(
-      supabase,
+      createClient(),
       'object-upload-finalize',
-      { upload_intent_id: presign.upload_intent_id },
+      { upload_intent_id: presigned.uploadIntentId },
     ),
   );
   return z.uuid().parse(finalized.object_file_id);

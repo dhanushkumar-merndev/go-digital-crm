@@ -95,6 +95,10 @@ export function personalWhatsAppReason(code: string | null | undefined) {
     PERSONAL_WHATSAPP_RATE_LIMITED:
       'Your message limit has been reached. Wait until the next available send time.',
     PERSONAL_WHATSAPP_PAUSED: 'Sending is paused for 30 minutes after repeated failures.',
+    PERSONAL_WHATSAPP_SEND_DENIED:
+      'This chat cannot be sent to. If this number is on more than one customer or lead, link them to one customer, or check that sending is not paused.',
+    PERSONAL_WHATSAPP_SESSION_REVOKED:
+      'Your WhatsApp link has ended. Open My WhatsApp to reconnect.',
     PERSONAL_WHATSAPP_SEND_UNRESOLVED:
       'A previous send is pending or unconfirmed. Check its status before sending again.',
     PERSONAL_WHATSAPP_CAPACITY:

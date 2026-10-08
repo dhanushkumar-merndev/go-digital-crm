@@ -81,7 +81,7 @@ Before implementing a provider integration, read the **current official provider
 ### 2.3 Sales hierarchy
 
 - **GM Sales Executive**
-- **Showroom Manager**
+- **Showroom Manager** — shown in the product as **Sales Manager**; the role key `showroom_manager` and the `/showroom-manager` route are unchanged
 - **Team Manager**
 - **Sales Consultant**
 - **Telecaller / BDC Executive**
@@ -1697,16 +1697,19 @@ System Administrator actions are delegated by Client Admin and cannot exceed ass
 3. Showroom Performance
 4. Operations Overview
 5. Bookings & Delivery
-6. Targets & Performance
-7. AI Business Summary
-8. Reports
-9. Client Admins
-10. Company & Compliance
-11. Credits & Usage
-12. Support & Maintenance
-13. Security & Access
+6. AI Business Summary
+7. Reports
+8. Client Admins
+9. Company & Compliance
+10. Credits & Usage
+11. Support & Maintenance
+12. Security & Access
 
 Business Owner is executive/read-heavy and can create/manage Client Admins.
+
+Targets & Performance is no longer a separate page (product-owner decision, 2026-10-08).
+Showroom Performance carries every per-showroom analytic plus the current-month
+target attainment, and `/business-owner/targets-performance` redirects to it.
 
 ### 24.9 Super Admin — Web only
 
@@ -17328,14 +17331,13 @@ Business Owner is primarily **executive + administrative oversight**.
 3. **Showroom Performance**
 4. **Operations Overview**
 5. **Bookings & Delivery**
-6. **Targets & Performance**
-7. **AI Business Summary**
-8. **Reports**
-9. **Client Admins**
-10. **Company & Compliance**
-11. **Credits & Usage**
-12. **Support & Maintenance**
-13. **Security & Access**
+6. **AI Business Summary**
+7. **Reports**
+8. **Client Admins**
+9. **Company & Compliance**
+10. **Credits & Usage**
+11. **Support & Maintenance**
+12. **Security & Access**
 
 Contextual, not sidebar:
 
@@ -17956,6 +17958,11 @@ Business Owner immediately sees where the booking is stuck.
 ---
 
 #### 24. Targets & Performance
+
+> **Superseded (2026-10-08):** this is now the **Targets** tab of Showroom Performance
+> rather than its own sidebar page. Targets are the monthly model unit targets a Client
+> Admin sets per showroom (`branch_model_targets`); attainment is month-to-date bookings
+> against their sum.
 
 Business Owner primarily monitors targets.
 

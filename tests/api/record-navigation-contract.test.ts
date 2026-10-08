@@ -53,7 +53,9 @@ describe('record navigation', () => {
 
     const customer360 = source('src/features/customers/customer-360-workspace.tsx');
     expect(customer360).toContain('leadDetailHref(role, data.current_opportunity.id)');
-    expect(customer360).toContain('leadDetailHref(role, lead.id)');
+    // The Leads tab row (and its first-cell link) opens the lead page; the cell
+    // itself is plain text so the row link is not nested in another <a>.
+    expect(customer360).toContain("leadDetailHref(role, data.leads[rowIndex]?.id ?? '')");
   });
 
   it('opens a dashboard record by id rather than searching a filtered list', () => {

@@ -50,6 +50,7 @@ export function AutomationRuleDetailWorkspace({ ruleId, role }: { ruleId: string
     staleTime: 30_000,
   });
   const toggle = useMutation({
+    meta: { toast: false },
     mutationFn: (enabled: boolean) => setAutomationRuleEnabled(ruleId, enabled),
     onSuccess: (_, enabled) => {
       toast.add({

@@ -45,6 +45,7 @@ export function AssetLibraryWorkspace({ spec }: { spec: PageSpec }) {
   });
   // Stored objects are private; a preview URL is minted per request and expires.
   const preview = useMutation({
+    meta: { toast: false },
     mutationFn: getAiImageUrl,
     onError: () =>
       toast.add({
@@ -54,6 +55,7 @@ export function AssetLibraryWorkspace({ spec }: { spec: PageSpec }) {
       }),
   });
   const archive = useMutation({
+    meta: { toast: false },
     mutationFn: archiveMarketingAsset,
     onSuccess: () => {
       toast.add({

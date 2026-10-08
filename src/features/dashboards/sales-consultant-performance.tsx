@@ -1,5 +1,4 @@
 'use client';
-import { useQuery } from '@tanstack/react-query';
 import {
   CalendarDays,
   CarFront,
@@ -23,12 +22,24 @@ import { SalesConsultantPerformanceSkeleton } from '@/components/skeletons/sales
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { Metric } from '@/lib/domain';
 import { performanceRangeForLastDays } from '@/lib/performance-date-range';
+import {
+  AGGREGATE_REALTIME_MIN_INTERVAL_MS,
+  DASHBOARD_QUERY_GC_TIME_MS,
+  DASHBOARD_QUERY_STALE_TIME_MS,
+} from '@/lib/query/cache-policy';
+import { usePersistedQuery } from '@/lib/query/persisted-query';
+import type { z } from 'zod';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import {
   fetchTelecallerPerformance,
   fetchSalesPerformance,
+  salesPerformanceSchema,
+  telecallerPerformanceSchema,
+  type SalesPerformance,
+  type TelecallerPerformance,
 } from './sales-consultant-performance-api';
+import { SalesHandoffReport } from './sales-handoff-report';
 
 const duration = (seconds: number) =>
   `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
@@ -37,7 +48,7 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
   const workspaceSession = useWorkspaceSession();
   const queryScope = workspaceQueryScope(workspaceSession);
   const [range, setRange] = useState(() => performanceRangeForLastDays(7));
-  const query = useQuery({
+  const query = usePersistedQuery<SalesPerformance | TelecallerPerformance>({
     queryKey: [
       ...salesConsultantKeys.performance(queryScope),
       role,
@@ -49,7 +60,15 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
       role === 'telecaller'
         ? fetchTelecallerPerformance(range, signal)
         : fetchSalesPerformance(range, signal),
-    staleTime: 60_000,
+    staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
+    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+    persist: {
+      version: 1,
+      // The key carries the role, so each role's copy is checked by its own schema.
+      schema: (role === 'telecaller'
+        ? telecallerPerformanceSchema
+        : salesPerformanceSchema) as z.ZodType<SalesPerformance | TelecallerPerformance>,
+    },
   });
   useTenantRealtimeInvalidation(
     workspaceSession?.organizationId,
@@ -63,6 +82,7 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
     ).map((resource) => ({
       resource,
       queryKeys: [salesConsultantKeys.performance(queryScope)],
+      minIntervalMs: AGGREGATE_REALTIME_MIN_INTERVAL_MS,
     })),
   );
   if (query.isPending) return <SalesConsultantPerformanceSkeleton />;
@@ -154,6 +174,7 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
         value: String(telecallerKpis.qualified),
         icon: Target,
         tone: 'bg-teal-50 text-teal-600',
+        helper: `${d.kpis.leads ? Math.round((telecallerKpis.qualified / d.kpis.leads) * 100) : 0}% of leads assigned`,
       },
       {
         label: 'Follow-ups Completed',
@@ -166,6 +187,7 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
         value: String(telecallerKpis.transferred),
         icon: UserPlus,
         tone: 'bg-emerald-50 text-emerald-600',
+        helper: `${telecallerKpis.qualified ? Math.round((telecallerKpis.transferred / telecallerKpis.qualified) * 100) : 0}% of qualified leads`,
       },
     );
   }
@@ -194,26 +216,9 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
         ['test_drives', salesKpis?.test_drives ?? 0, 'Test Drives'],
         ['bookings', salesKpis?.bookings ?? 0, 'Bookings'],
       ] as const);
-  const telecallerQualityMetrics = telecallerKpis
-    ? [
-        ['Qualified leads', String(telecallerKpis.qualified), 'Leads ready for a Sales handoff'],
-        [
-          'Qualification rate',
-          `${d.kpis.leads ? Math.round((telecallerKpis.qualified / d.kpis.leads) * 100) : 0}%`,
-          'Qualified from leads assigned in this period',
-        ],
-        [
-          'Sales handoff rate',
-          `${telecallerKpis.qualified ? Math.round((telecallerKpis.transferred / telecallerKpis.qualified) * 100) : 0}%`,
-          'Qualified leads successfully transferred to Sales',
-        ],
-        [
-          'Completed follow-ups',
-          String(telecallerKpis.followups_completed),
-          'Follow-ups closed in this period',
-        ],
-      ]
-    : null;
+  // The KPI cards already show every count; this card only adds progress
+  // against a target, so a metric without one is left out.
+  const targeted = summary.filter(([key]) => d.targets[key]);
 
   return (
     <div className="mx-auto max-w-[1800px] space-y-4">
@@ -264,55 +269,37 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
           />
         </Chart>
       </div>
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle className="text-base">Performance Summary</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          {summary.map(([key, value, label]) => {
-            const target = d.targets[key];
-            const percent = target ? Math.round((value / target) * 100) : null;
-            return (
-              <div key={key} className="border-r pr-4 last:border-0">
-                <p className="text-xs text-muted-foreground">{label}</p>
-                <p className="mt-2 text-lg font-bold">
-                  {value}
-                  {target ? ` / ${target}` : ''}
-                </p>
-                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                  <div
-                    className="h-full bg-blue-600"
-                    style={{ width: `${Math.min(percent ?? 0, 100)}%` }}
-                  />
-                </div>
-                <p className="mt-2 text-xs font-medium text-muted-foreground">
-                  {percent === null
-                    ? telecaller
-                      ? 'No target for selected dates'
-                      : 'Target not set'
-                    : `${percent}% of target`}
-                </p>
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
-      {telecallerQualityMetrics ? (
+      {targeted.length > 0 ? (
         <Card className="shadow-none">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Lead Quality &amp; Conversion</CardTitle>
+          <CardHeader>
+            <CardTitle className="text-base">Target Progress</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {telecallerQualityMetrics.map(([label, value, helper]) => (
-              <div key={label} className="rounded-lg border bg-muted/20 px-4 py-3">
-                <p className="text-xs text-muted-foreground">{label}</p>
-                <p className="mt-1 text-xl font-bold tracking-tight">{value}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{helper}</p>
-              </div>
-            ))}
+          <CardContent className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            {targeted.map(([key, value, label]) => {
+              const target = d.targets[key];
+              const percent = Math.round((value / target) * 100);
+              return (
+                <div key={key} className="border-r pr-4 last:border-0">
+                  <p className="text-xs text-muted-foreground">{label}</p>
+                  <p className="mt-2 text-lg font-bold">
+                    {value} / {target}
+                  </p>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full bg-blue-600"
+                      style={{ width: `${Math.min(percent, 100)}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs font-medium text-muted-foreground">
+                    {percent}% of target
+                  </p>
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       ) : null}
+      {telecaller ? <SalesHandoffReport preset="TELECALLER" range={range} /> : null}
       <p className="text-center text-xs text-muted-foreground">
         {telecaller
           ? 'Activity is credited to the person who performed it, by activity date (IST). Leads contacted, qualified and transferred count distinct leads in the period. Targets are shown only for matching dates.'

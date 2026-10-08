@@ -42,6 +42,7 @@ export function InboxLeadContext({
   const selected = options.data?.find((lead) => lead.id === conversation.lead_id);
   useTrackRecentLead(options.data?.find((lead) => lead.id === leadId));
   const change = useMutation({
+    meta: { toast: false },
     mutationFn: (id: string) =>
       setInboxWorkingLead({
         conversationId: conversation.id,

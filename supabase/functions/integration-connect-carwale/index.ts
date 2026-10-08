@@ -1,6 +1,11 @@
 import { z } from 'npm:zod@4';
 import { decryptJson, encryptJson } from '../_shared/crypto.ts';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
+import {
+  loadPortalWebhookKey,
+  newPortalWebhookKey,
+  withPortalWebhookKey,
+} from '../_shared/portal-webhook.ts';
 import { resolveStoredProviderSecret } from '../_shared/stored-provider-secret.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
 
@@ -148,6 +153,7 @@ Deno.serve(async (request) => {
           status: 'CONNECTED',
           external_account_id: normalizedDealerId,
           connection_config: connectionConfig,
+          default_team_id: input.default_team_id ?? null,
           last_tested_at: new Date().toISOString(),
           last_error_code: null,
           deleted_at: null,
@@ -169,6 +175,7 @@ Deno.serve(async (request) => {
           status: 'CONNECTED',
           external_account_id: normalizedDealerId,
           connection_config: connectionConfig,
+          default_team_id: input.default_team_id ?? null,
           created_by: auth.user.id,
           last_tested_at: new Date().toISOString(),
           last_error_code: null,
@@ -180,9 +187,13 @@ Deno.serve(async (request) => {
       connection = inserted;
     }
 
+    const webhookKey =
+      (await loadPortalWebhookKey(admin, input.organization_id, connection.id)) ??
+      newPortalWebhookKey();
     const encryptedPayload = await encryptJson({
       dealer_id: normalizedDealerId,
       api_key: resolvedApiKey,
+      webhook_key: webhookKey,
     });
 
     const { error: credentialError } = await admin.from('integration_credentials').upsert(
@@ -234,7 +245,10 @@ Deno.serve(async (request) => {
     });
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? 'https://yzplfphnpoksvcetwhad.supabase.co';
-    const webhookUrl = `${supabaseUrl}/functions/v1/provider-webhook-carwale?connection_id=${connection.id}`;
+    const webhookUrl = withPortalWebhookKey(
+      `${supabaseUrl}/functions/v1/provider-webhook-carwale?connection_id=${connection.id}`,
+      webhookKey,
+    );
 
     return success(
       {

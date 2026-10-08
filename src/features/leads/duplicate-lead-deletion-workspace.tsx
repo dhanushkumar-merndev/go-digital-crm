@@ -116,6 +116,7 @@ export function DuplicateLeadDeletionWorkspace({ spec }: { spec: PageSpec }) {
   });
 
   const decide = useMutation({
+    meta: { toast: false },
     mutationFn: () => {
       if (!decisionState) throw new Error('DUPLICATE_DECISION_NOT_READY');
       return decideDuplicateLeadDeletion({

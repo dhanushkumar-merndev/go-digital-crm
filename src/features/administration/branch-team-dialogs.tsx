@@ -33,6 +33,11 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import {
+  assignmentModeLabel,
+  assignmentModes,
+  type AssignmentMode,
+} from '@/features/leads/assignment-mode';
+import {
   fetchBranchAccessOptions,
   fetchTeamAdministrationOptions,
   saveBranch,
@@ -50,6 +55,11 @@ function safeAdministrationMutationMessage(error: unknown) {
     return 'This configuration changed after you opened it. Refresh the workspace and try again.';
   const message =
     typeof error === 'object' && error !== null ? (error as { message?: string }).message : null;
+  // Seat and branch limits carry a readable detail naming the branch and limit.
+  const detail =
+    typeof error === 'object' && error !== null ? (error as { details?: string }).details : null;
+  if (message === 'ROLE_SEAT_LIMIT_REACHED' || message === 'BRANCH_LIMIT_REACHED')
+    return `${detail ?? 'This dealership has reached its limit.'} Ask Go Digital Marketing to raise the limit.`;
   const safeMessages: Record<string, string> = {
     BRANCH_NAME_OR_CODE_EXISTS: 'Another active branch already uses this name or code.',
     BRANCH_HAS_ACTIVE_DEPENDENCIES:
@@ -372,10 +382,10 @@ export function TeamEditorDialog({
   const [branchId, setBranchId] = useState(record?.branch_id ?? '');
   const [name, setName] = useState(record?.name ?? '');
   const [managerId, setManagerId] = useState(record?.manager_id ?? 'none');
-  const [freshMode, setFreshMode] = useState<'ROUND_ROBIN' | 'MANUAL_ASSIGNMENT'>(
+  const [freshMode, setFreshMode] = useState<AssignmentMode>(
     record?.fresh_assignment_mode ?? 'ROUND_ROBIN',
   );
-  const [qualifiedMode, setQualifiedMode] = useState<'ROUND_ROBIN' | 'MANUAL_ASSIGNMENT'>(
+  const [qualifiedMode, setQualifiedMode] = useState<AssignmentMode>(
     record?.qualified_assignment_mode ?? 'ROUND_ROBIN',
   );
   const [active, setActive] = useState(record?.active ?? true);
@@ -484,8 +494,11 @@ export function TeamEditorDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ROUND_ROBIN">Round Robin</SelectItem>
-                <SelectItem value="MANUAL_ASSIGNMENT">Manual Assignment</SelectItem>
+                {assignmentModes.map((mode) => (
+                  <SelectItem key={mode} value={mode}>
+                    {assignmentModeLabel(mode)}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -499,8 +512,11 @@ export function TeamEditorDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ROUND_ROBIN">Round Robin</SelectItem>
-                <SelectItem value="MANUAL_ASSIGNMENT">Manual Assignment</SelectItem>
+                {assignmentModes.map((mode) => (
+                  <SelectItem key={mode} value={mode}>
+                    {assignmentModeLabel(mode)}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

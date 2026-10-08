@@ -6,8 +6,9 @@ import { z } from 'zod';
 import { isRoleKey } from '@/config/navigation';
 import type { RoleKey } from '@/config/navigation/types';
 import {
-  developmentDemoRoleEmails,
   developmentDemoMfaRoles,
+  developmentDemoOrganizationKeys,
+  developmentDemoRoleEmail,
   DEVELOPMENT_DEMO_ROLE_LOGIN_PATH,
 } from '@/lib/auth/development-demo-role-login';
 import { isDevelopmentDemoRoleLoginEnabled } from '@/lib/runtime/runtime-mode';
@@ -15,7 +16,10 @@ import { isDevelopmentDemoRoleLoginEnabled } from '@/lib/runtime/runtime-mode';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const requestSchema = z.object({ role: z.string().refine(isRoleKey) });
+const requestSchema = z.object({
+  role: z.string().refine(isRoleKey),
+  organization: z.enum(developmentDemoOrganizationKeys).default('demo'),
+});
 
 function privateJson(body: object, status = 200) {
   const response = NextResponse.json(body, { status });
@@ -71,7 +75,7 @@ export async function POST(request: NextRequest) {
   if (!url || !key || !password) return privateJson({ error: 'DEMO_LOGIN_UNAVAILABLE' }, 503);
 
   const role = parsed.data.role as RoleKey;
-  const demoEmail = developmentDemoRoleEmails[role];
+  const demoEmail = developmentDemoRoleEmail(role, parsed.data.organization);
   const completeDemoMfa = developmentDemoMfaRoles.has(role);
   if (completeDemoMfa && !serviceRoleKey)
     return privateJson({ error: 'DEMO_MFA_UNAVAILABLE' }, 503);

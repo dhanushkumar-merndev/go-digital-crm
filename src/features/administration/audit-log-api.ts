@@ -27,36 +27,29 @@ const auditLogSchema = z.object({
 export type AuditLogRecord = z.infer<typeof auditLogSchema>;
 export type AuditLogCursor = Pick<AuditLogRecord, 'created_at' | 'id'>;
 
+/** Page-local filter text; the RPC escapes LIKE wildcards server-side. */
 function filterValue(value: string) {
-  return value
-    .trim()
-    .slice(0, 80)
-    .replaceAll('\\', '\\\\')
-    .replaceAll('%', '\\%')
-    .replaceAll('_', '\\_');
+  return value.trim().slice(0, 80);
 }
 
+/**
+ * Reads through `get_audit_log_page`, not the table. The RLS policies check
+ * permission once per row (12 s for 8 rows as Super Admin); the RPC applies the
+ * same rules once per organization/branch and walks the (created_at, id) index.
+ */
 export async function fetchAuditLogPage(input: {
   cursor: AuditLogCursor | null;
   action: string;
   resource: string;
   signal?: AbortSignal;
 }) {
-  const action = filterValue(input.action);
-  const resource = filterValue(input.resource);
-  let request = createClient()
-    .from('audit_logs')
-    .select('id,action,resource_type,resource_id,actor_id,branch_id,metadata,created_at')
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(pageSize + 1);
-  if (action) request = request.ilike('action', `%${action}%`);
-  if (resource) request = request.ilike('resource_type', `%${resource}%`);
-  if (input.cursor) {
-    request = request.or(
-      `created_at.lt.${input.cursor.created_at},and(created_at.eq.${input.cursor.created_at},id.lt.${input.cursor.id})`,
-    );
-  }
+  const request = createClient().rpc('get_audit_log_page', {
+    target_action: filterValue(input.action),
+    target_resource: filterValue(input.resource),
+    cursor_created_at: input.cursor?.created_at ?? null,
+    cursor_id: input.cursor ? Number(input.cursor.id) : null,
+    page_limit: pageSize + 1,
+  });
   const { data, error } = await (input.signal ? request.abortSignal(input.signal) : request);
   if (error) throw error;
   const records = z.array(auditLogSchema).parse(data ?? []);

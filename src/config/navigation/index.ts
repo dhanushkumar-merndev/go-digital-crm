@@ -77,8 +77,8 @@ export const roleNavigation: Record<RoleKey, RoleNavigation> = {
     ]),
   },
   'showroom-manager': {
-    label: 'Showroom Manager',
-    shortLabel: 'Showroom Manager',
+    label: 'Sales Manager',
+    shortLabel: 'Sales Manager',
     scope: 'MG Road Branch',
     group: 'Sales',
     items: items([
@@ -145,6 +145,7 @@ export const roleNavigation: Record<RoleKey, RoleNavigation> = {
       ['AI & Usage', 'ai-usage', 'BrainCircuit'],
       ['Company & Compliance', 'company-compliance', 'Landmark'],
       ['Audit Logs', 'audit-logs', 'ScrollText'],
+      ['Branch Performance', 'branch-performance', 'ChartNoAxesCombined'],
       ['Reports', 'reports', 'FileChartColumn'],
     ]),
   },
@@ -181,7 +182,6 @@ export const roleNavigation: Record<RoleKey, RoleNavigation> = {
       ['Showroom Performance', 'showroom-performance', 'Building2'],
       ['Operations Overview', 'operations-overview', 'PanelsTopLeft'],
       ['Bookings & Delivery', 'bookings-delivery', 'BadgeIndianRupee'],
-      ['Targets & Performance', 'targets-performance', 'Goal'],
       ['AI Business Summary', 'ai-business-summary', 'BrainCircuit'],
       ['Competitor Compare', 'competitor-compare', 'GitCompareArrows'],
       ['Reports', 'reports', 'FileChartColumn'],

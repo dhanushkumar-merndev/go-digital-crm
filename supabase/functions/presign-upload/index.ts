@@ -2,7 +2,7 @@ import { PutObjectCommand } from 'npm:@aws-sdk/client-s3@3.1110.0';
 import { getSignedUrl } from 'npm:@aws-sdk/s3-request-presigner@3.1110.0';
 import { z } from 'npm:zod@4';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
-import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
+import { authenticatedClient, serviceClient, verifiedUserId } from '../_shared/supabase.ts';
 import { safeObjectFileName, tigrisBucket, tigrisClient } from '../_shared/tigris.ts';
 
 const allowedMimeSizes = new Map<string, number>([
@@ -98,29 +98,37 @@ Deno.serve(async (request) => {
       );
 
     const client = authenticatedClient(request);
-    const { data: auth } = await client.auth.getUser();
-    if (!auth.user)
-      return failure('UNAUTHENTICATED', 'Authentication is required.', requestId, 401);
-    const { data: context } = await client.rpc('get_access_context');
+    const userId = await verifiedUserId(client, request);
+    if (!userId) return failure('UNAUTHENTICATED', 'Authentication is required.', requestId, 401);
+    // Independent checks run together; nothing is written until both pass.
+    // authorize_profile_avatar_action already applies the CRM-destination and
+    // organization check from get_access_context, so avatars skip the repeat.
+    const [{ data: context }, authorization] = await Promise.all([
+      profileAvatar
+        ? Promise.resolve({
+            data: { destination: 'CRM', organization_id: input.organization_id },
+          })
+        : client.rpc('get_access_context'),
+      profileAvatar
+        ? client.rpc('authorize_profile_avatar_action', {
+            target_organization_id: input.organization_id,
+            target_profile_id: input.resource_id,
+            target_action: 'UPLOAD',
+          })
+        : client.rpc('authorize_object_action', {
+            target_organization_id: input.organization_id,
+            target_branch_id: input.branch_id ?? null,
+            target_resource_type: input.resource_type,
+            target_resource_id: input.resource_id,
+            target_action: 'UPLOAD',
+          }),
+    ]);
     if (
       !context ||
       context.destination !== 'CRM' ||
       context.organization_id !== input.organization_id
     )
       return failure('ACCESS_NOT_READY', 'CRM access is not available.', requestId, 403);
-    const authorization = profileAvatar
-      ? await client.rpc('authorize_profile_avatar_action', {
-          target_organization_id: input.organization_id,
-          target_profile_id: input.resource_id,
-          target_action: 'UPLOAD',
-        })
-      : await client.rpc('authorize_object_action', {
-          target_organization_id: input.organization_id,
-          target_branch_id: input.branch_id ?? null,
-          target_resource_type: input.resource_type,
-          target_resource_id: input.resource_id,
-          target_action: 'UPLOAD',
-        });
     if (authorization.error || !authorization.data)
       return failure('PERMISSION_DENIED', 'You cannot upload to this record.', requestId, 403);
 
@@ -142,7 +150,7 @@ Deno.serve(async (request) => {
       expected_mime_type: input.mime_type,
       expected_size_bytes: input.size_bytes,
       expected_checksum: input.checksum_sha256,
-      requested_by: auth.user.id,
+      requested_by: userId,
       expires_at: expiresAt,
     });
     if (intentError) throw intentError;
