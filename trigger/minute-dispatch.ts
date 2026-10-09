@@ -9,6 +9,7 @@ import { runAiVoiceEscalation } from './ai-voice-escalation';
 import { runMarketingDispatch } from './marketing-dispatch';
 import { runProviderEventDispatch } from './provider-event-dispatch';
 import { runProviderOutbox } from './provider-outbox';
+import { runStuckRecordingSweep } from './provider-recording-ingest';
 import { runVehicleComparisonAiExpiry } from './vehicle-comparison-ai-expiry';
 
 function requiredEnvironment(name: string) {
@@ -47,6 +48,7 @@ export const minuteDispatch = schedules.task({
       voice_escalation: runAiVoiceEscalation,
       provider_events: runProviderEventDispatch,
       provider_outbox: runProviderOutbox,
+      recording_sweep: runStuckRecordingSweep,
       marketing: runMarketingDispatch,
       comparison_expiry: runVehicleComparisonAiExpiry,
     } as const;

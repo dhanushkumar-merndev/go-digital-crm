@@ -5,6 +5,7 @@ import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
 import {
   configureTelecmiStereoStream,
   describeTelecmiFailure,
+  listTelecmiAgents,
   normalizeTelecmiPhone,
   normalizeTelecmiUserId,
   testTelecmiCredential,
@@ -230,6 +231,30 @@ Deno.serve(async (request) => {
       webhook_secret: previousCredential?.webhook_secret ?? newWebhookSecret(),
     };
     await testTelecmiCredential(credential);
+    const providerAgents = await listTelecmiAgents(credential);
+    if (!providerAgents.some((agent) => agent.agentId === credential.default_user_id))
+      return failure(
+        'TELECMI_ACCOUNT_AGENT_NOT_FOUND',
+        'Select an existing agent from this app for the TeleCMI account user ID.',
+        requestId,
+        422,
+      );
+    for (const mapping of input.parallel_agents) {
+      const agent = providerAgents.find((candidate) => candidate.agentId === mapping.user_id);
+      let phone: string | null = null;
+      try {
+        phone = normalizeTelecmiPhone(agent?.phone ?? '');
+      } catch {
+        /* Missing or invalid provider mobile. */
+      }
+      if (!agent || phone !== normalizeTelecmiPhone(mapping.phone))
+        return failure(
+          'TELECMI_AGENT_MAPPING_STALE',
+          'An agent was removed or its mobile changed in TeleCMI. Refresh the existing-agent list and select it again.',
+          requestId,
+          409,
+        );
+    }
     const config = {
       connection_type: 'IVR_PROVIDER',
       capabilities: [
@@ -333,6 +358,20 @@ Deno.serve(async (request) => {
       throw error;
     }
   } catch (error) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'message' in error &&
+      ['TELECMI_AGENT_MAPPING_CONFLICT', 'TELECMI_AGENT_REMOVAL_IN_PROGRESS'].includes(
+        String(error.message),
+      )
+    )
+      return failure(
+        'TELECMI_AGENT_MAPPING_CONFLICT',
+        'This agent or mobile is already mapped in the CRM. Refresh the existing-agent list and choose an available agent.',
+        requestId,
+        409,
+      );
     // A provider rejection and a storage failure are not the same problem for a
     // Client Admin, so the TeleCMI reason is reported when there is one.
     const described = describeTelecmiFailure(error);

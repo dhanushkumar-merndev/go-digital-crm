@@ -3,7 +3,7 @@
 // @ts-nocheck
 import { createClient } from '@supabase/supabase-js';
 import { runBulkCampaignDispatch } from './bulk-campaign-dispatch';
-import { runDripAutoMatch } from './drip-auto-match';
+import { runDripAutoMatch, runEventDripMatches } from './drip-auto-match';
 import { runDripDispatch } from './drip-dispatch';
 import { runSocialPostPublish } from './social-post-publish';
 import { runCrmAlerts } from './crm-alerts';
@@ -24,6 +24,10 @@ export async function runMarketingDispatch(supabase: ReturnType<typeof createCli
   // this per-minute pass rather than earning a schedule of its own.
   const runAutoMatch = new Date().getUTCMinutes() === 7;
 
+  // Event matches queue their first step for now, so they run before the drip
+  // queue is claimed: a new lead's thank-you goes out in this same pass.
+  const [eventMatch] = await Promise.allSettled([runEventDripMatches(supabase)]);
+
   const [drip, bulk, social, autoMatch, alerts] = await Promise.allSettled([
     runDripDispatch(supabase),
     runBulkCampaignDispatch(supabase),
@@ -38,6 +42,7 @@ export async function runMarketingDispatch(supabase: ReturnType<typeof createCli
       : { failed: result.reason instanceof Error ? result.reason.message : 'UNKNOWN' };
 
   return {
+    event_match: settled(eventMatch),
     drip: settled(drip),
     bulk: settled(bulk),
     social: settled(social),

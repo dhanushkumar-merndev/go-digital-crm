@@ -29,8 +29,15 @@ export type LeadRecord = {
   next_followup_at: string | null;
   lead_stage: string;
   assigned_user_name: string | null;
+  /** The assignee's name only when they hold the Sales Consultant role. */
+  assigned_consultant_name?: string | null;
+  /** Who handed the lead to its current owner, e.g. the Telecaller. */
+  handed_off_by_name?: string | null;
   /** Historical handoff visible to its former Telecaller; never mutable. */
   read_only: boolean;
+  /** A same-mobile lead outside the viewer's scope, returned with only the
+   * fields needed to show it as context. Never opened or acted on. */
+  context_only?: boolean;
   phone_lead_count: number;
 };
 
@@ -352,13 +359,24 @@ export async function recordSalesLeadContact(input: {
 export async function recordTelecallerLeadContact(input: {
   leadId: string;
   channel: 'CALL' | 'WHATSAPP';
-}): Promise<{ lead_id: string; contacted_at: string; lifecycle_status: string }> {
+}): Promise<{
+  lead_id: string;
+  contacted_at: string;
+  lifecycle_status: string;
+  /** Another telecaller's untouched leads on this mobile, now the caller's. */
+  taken_over_lead_ids?: string[];
+}> {
   const { data, error } = await createClient().rpc('record_telecaller_lead_contact', {
     target_lead_id: input.leadId,
     contact_channel: input.channel,
   });
   if (error) throw error;
-  return data as { lead_id: string; contacted_at: string; lifecycle_status: string };
+  return data as {
+    lead_id: string;
+    contacted_at: string;
+    lifecycle_status: string;
+    taken_over_lead_ids?: string[];
+  };
 }
 
 export type SalesHandoffCandidate = {
@@ -367,8 +385,9 @@ export type SalesHandoffCandidate = {
   open_leads: number;
   hot_leads: number;
   recommended: boolean;
-  /** The team's qualified-lead mode; the same on every row. */
-  assignment_mode: AssignmentMode;
+  /** SAME_CUSTOMER recommends an existing consultant for automatic assignment.
+   * Other eligible consultants remain available for an explicit choice. */
+  assignment_mode: AssignmentMode | 'SAME_CUSTOMER';
 };
 
 export async function fetchSalesHandoffCandidates(
@@ -395,7 +414,7 @@ export async function transferLeadToSales(input: {
 }): Promise<{
   lead_id: string;
   assigned_user_id: string;
-  method: AssignmentMode;
+  method: AssignmentMode | 'SAME_CUSTOMER';
   lifecycle_status: string;
 }> {
   const { data, error } = await createClient().rpc('transfer_lead_to_sales', {
@@ -407,7 +426,7 @@ export async function transferLeadToSales(input: {
   return data as {
     lead_id: string;
     assigned_user_id: string;
-    method: AssignmentMode;
+    method: AssignmentMode | 'SAME_CUSTOMER';
     lifecycle_status: string;
   };
 }
@@ -426,6 +445,24 @@ export async function cancelSalesHandoff(input: {
   });
   if (error) throw error;
   return data as { lead_id: string; assigned_user_id: string; lifecycle_status: 'Contacted' };
+}
+
+/**
+ * Cancel transfer with a new consultant named: the lead moves from the current
+ * Sales Consultant to `userId` in one step and keeps its stage and history.
+ */
+export async function reassignSalesHandoff(input: {
+  leadId: string;
+  userId: string;
+  reason: string;
+}): Promise<{ lead_id: string; assigned_user_id: string; previous_assigned_user_id: string }> {
+  const { data, error } = await createClient().rpc('reassign_sales_handoff', {
+    target_lead_id: input.leadId,
+    target_user_id: input.userId,
+    reassignment_reason: input.reason.trim() || null,
+  });
+  if (error) throw error;
+  return data as { lead_id: string; assigned_user_id: string; previous_assigned_user_id: string };
 }
 
 export type LeadCreateInput = {

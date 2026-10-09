@@ -27,6 +27,7 @@
     - past configured SLA: `SLA_RISK`
 14. Assignment mode is configurable per team: **Round Robin (default)** or **Manual Assignment**.
 15. All important assignment/reassignment changes must be auditable.
+    Same-phone/customer Sales ownership is an automatic recommendation only. An authorized Telecaller or assigning manager may choose another active, qualified-lead-eligible Sales Consultant in the same tenant/team for a new enquiry. The choice changes only that lead and is audited as manual assignment; it does not expand access to sibling leads, calls, messages or documents. Completing a follow-up with Transfer to Sales performs completion and the selected handoff atomically.
 16. Web UI base components: **shadcn/ui only**.
 17. Charts: **Apache ECharts only**. Never add Recharts, Chart.js or ApexCharts.
 18. Tables: **TanStack Table + shadcn Table**.
@@ -765,6 +766,28 @@ The muted variant of the stage badge marks a row inside an expanded phone group:
 an earlier enquiry on the same mobile, shown for context and not actionable.
 
 ---
+
+### 9.9 Lead requirements and the Customer 360 lead scope
+
+Vehicle requirement, budget & preference and exchange intent belong to one
+enquiry, so they live in `lead_requirements` (1:1 with `leads`), written only
+through `update_lead_requirements` (optimistic `version`, PT409 on conflict,
+audited). A later enquiry from the same customer keeps its own requirements.
+Owned vehicles (`customer_vehicles`) carry fuel, transmission, KMs, ownership
+and purchase year; `customers.whatsapp_phone` is null when the customer uses
+their primary phone on WhatsApp.
+
+Customer 360 is grouped by enquiry (product decision 2026-10-09):
+
+- **Calls, Follow-ups, Appointments** default to all of the customer's leads,
+  with a lead picker to narrow to one. The Sales Consultant path filters in SQL
+  (`target_lead_id`); never filter a paginated page in the browser.
+- **Messages** are read one lead at a time and open in that lead's chat.
+- **Timeline** lists the leads; opening one shows `get_lead_journey` -- who
+  called and when, stage/temperature/assignment changes, follow-ups, visits,
+  test drives, quotations, bookings and notes. Lead detail shows the same
+  journey. A call on a visible lead appears as an event; its notes and AI
+  summary need access to that call.
 
 ## 10. Database table families
 

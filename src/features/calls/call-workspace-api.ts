@@ -547,3 +547,73 @@ export async function createCallRecordingDownload(objectFileId: string) {
     throw error ?? new Error(data?.error?.code ?? 'CALL_RECORDING_DOWNLOAD_FAILED');
   return data.data;
 }
+
+const callLeadOptionsSchema = z.object({
+  call_id: nullableUuid,
+  can_edit: z.boolean(),
+  leads: z.array(
+    z.object({
+      lead_id: z.uuid(),
+      interested_model: nullableString,
+      lifecycle_status: z.string(),
+      source: z.string(),
+      created_at: z.string(),
+      is_primary: z.boolean(),
+      linked: z.boolean(),
+    }),
+  ),
+});
+
+export type CallLeadOptions = z.infer<typeof callLeadOptionsSchema>;
+
+export const callLeadOptionsKey = ['call-lead-options'] as const;
+
+/**
+ * The caller's own leads on the same customer or mobile as `leadId`: the
+ * enquiries one call on it may also cover. With `callId`, `linked` marks the
+ * leads attached to that call now.
+ */
+export async function fetchCallLeadOptions(
+  leadId: string,
+  callId: string | null,
+  signal?: AbortSignal,
+): Promise<CallLeadOptions> {
+  const request = createClient().rpc('get_call_lead_options', {
+    target_lead_id: leadId,
+    target_call_id: callId,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return callLeadOptionsSchema.parse(data);
+}
+
+/** Replaces the extra leads a call covered. The call's own lead always stays. */
+export async function setCallLeads(input: { callId: string; leadIds: string[] }) {
+  const { data, error } = await createClient().rpc('set_call_leads', {
+    target_call_id: input.callId,
+    target_lead_ids: input.leadIds,
+  });
+  if (error) throw error;
+  return z
+    .object({ call_id: z.uuid(), lead_ids: z.array(z.uuid()), changed: z.boolean() })
+    .parse(data);
+}
+
+/**
+ * Turns a logged inbound call from an unknown number into a lead and links
+ * the call to it, in one transaction. The caller's number comes from the call,
+ * never from the browser.
+ */
+export async function createLeadFromCall(input: {
+  callId: string;
+  customerName: string;
+  interestedModel: string;
+}) {
+  const { data, error } = await createClient().rpc('create_lead_from_call', {
+    target_call_id: input.callId,
+    lead_customer_name: input.customerName.trim(),
+    lead_interested_model: input.interestedModel.trim() || null,
+  });
+  if (error) throw error;
+  return z.object({ call_id: z.uuid(), lead_id: z.uuid() }).parse(data);
+}

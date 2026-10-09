@@ -18,7 +18,9 @@ export type IntegrationProviderKey =
   | 'indiamart'
   | 'carwale'
   | 'cardekho'
-  | 'justdial';
+  | 'justdial'
+  | 'msg91'
+  | 'brevo';
 export type IntegrationScopeMode = 'ONE_BRANCH' | 'SELECTED_BRANCHES' | 'ALL_BRANCHES';
 
 export type IntegrationRecord = {
@@ -53,6 +55,9 @@ export type IntegrationRecord = {
     graph_api_version?: string;
     page_id?: string;
     subscription_status?: string;
+    /** MSG91: the default sender id, when one was set. */
+    sender_id?: string | null;
+    account_email?: string | null;
     models?: {
       text_model?: string;
       image_model?: string;
@@ -375,6 +380,63 @@ export function connectCarWale(input: {
   });
 }
 
+/**
+ * Tenant MSG91 account for template SMS. With a test mobile and an approved
+ * template id, one real SMS is sent before the connection is saved.
+ */
+export function connectMsg91(input: {
+  organizationId: string;
+  connectionId?: string;
+  displayName: string;
+  scopeMode: IntegrationScopeMode;
+  branchIds: string[];
+  authkey: string;
+  senderId?: string;
+  testMobile?: string;
+  testTemplateId?: string;
+}) {
+  return invokeIntegrationFunction<{
+    connection_id: string;
+    provider_key: 'msg91';
+    status: string;
+    tested_at: string | null;
+  }>('integration-connect-msg91', {
+    organization_id: input.organizationId,
+    connection_id: input.connectionId,
+    display_name: input.displayName,
+    scope_mode: input.scopeMode,
+    branch_ids: input.branchIds,
+    authkey: input.authkey,
+    sender_id: input.senderId ?? '',
+    test_mobile: input.testMobile ?? '',
+    test_template_id: input.testTemplateId ?? '',
+  });
+}
+
+export function connectBrevo(input: {
+  organizationId: string;
+  connectionId?: string;
+  displayName: string;
+  scopeMode: IntegrationScopeMode;
+  branchIds: string[];
+  apiKey: string;
+}) {
+  return invokeIntegrationFunction<{
+    connection_id: string;
+    provider_key: 'brevo';
+    status: string;
+    tested_at: string | null;
+  }>('integration-connect-brevo', {
+    organization_id: input.organizationId,
+    connection_id: input.connectionId,
+    display_name: input.displayName,
+    scope_mode: input.scopeMode,
+    branch_ids: input.branchIds,
+    api_key: input.apiKey || undefined,
+    test_connection: true,
+  });
+}
+
 export function connectCarDekho(input: {
   organizationId: string;
   connectionId?: string;
@@ -534,6 +596,23 @@ export function connectAiProvider(input: {
 
 export function testIntegrationConnection(organizationId: string, connectionId: string) {
   return invokeIntegrationFunction<{ tested_at: string }>('integration-test', {
+    organization_id: organizationId,
+    connection_id: connectionId,
+  });
+}
+
+export type LeadSyncResult = {
+  pages: number;
+  forms: number;
+  found: number;
+  queued: number;
+  already_received: number;
+  truncated: boolean;
+  synced_at: string;
+};
+
+export function syncProviderLeads(organizationId: string, connectionId: string) {
+  return invokeIntegrationFunction<LeadSyncResult>('provider-sync-leads', {
     organization_id: organizationId,
     connection_id: connectionId,
   });

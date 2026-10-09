@@ -9,6 +9,9 @@ verify_jwt = false
 [functions.provider-webhook-meta]
 verify_jwt = false
 
+[functions.provider-sync-leads]
+verify_jwt = true
+
 [functions.provider-webhook-whatsapp]
 verify_jwt = false
 
@@ -43,6 +46,12 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.integration-connect-carwale]
+verify_jwt = true
+
+[functions.integration-connect-msg91]
+verify_jwt = true
+
+[functions.integration-connect-brevo]
 verify_jwt = true
 
 [functions.integration-connect-cardekho]
@@ -87,6 +96,12 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.integration-telecmi-agents]
+verify_jwt = true
+
+[functions.integration-telecmi-list-agents]
+verify_jwt = true
+
+[functions.integration-telecmi-remove-agent]
 verify_jwt = true
 
 [functions.integration-assets-list]

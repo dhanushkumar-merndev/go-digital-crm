@@ -258,6 +258,12 @@ export async function provisionTelecmiAgentForUser(
     );
 
   try {
+    const { error: recreatedError } = await admin.rpc('record_telecmi_agent_recreated', {
+      target_organization_id: input.organizationId,
+      target_agent_id: created.userId,
+      target_actor_id: input.actorId,
+    });
+    if (recreatedError) throw recreatedError;
     await linkAgent(admin, { ...input, connectionId, agentUserId: created.userId, phone });
   } catch (error) {
     // An agent the CRM cannot link still holds a paid seat, so it is removed

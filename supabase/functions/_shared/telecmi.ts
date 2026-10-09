@@ -341,15 +341,32 @@ export async function listTelecmiAgents(
   credential: Pick<TelecmiCredential, 'app_id' | 'app_secret'>,
 ): Promise<TelecmiAgent[]> {
   const agents: TelecmiAgent[] = [];
+  const seen = new Set<string>();
   for (let page = 1; page <= 100; page += 1) {
     const result = await telecmiJson<{ count?: number; agents?: Array<Record<string, unknown>> }>(
       '/v2/user/list',
       { appid: credential.app_id, secret: credential.app_secret, page, limit: 10 },
     );
-    const rows = Array.isArray(result.agents) ? result.agents : [];
+    if (!Array.isArray(result.agents)) throw new TelecmiError('TELECMI_REQUEST_REJECTED');
+    if (
+      (typeof result.count !== 'number' && typeof result.count !== 'string') ||
+      String(result.count).trim() === ''
+    )
+      throw new TelecmiError('TELECMI_REQUEST_REJECTED');
+    const total = Number(result.count);
+    if (!Number.isSafeInteger(total) || total < 0)
+      throw new TelecmiError('TELECMI_REQUEST_REJECTED');
+    const rows = result.agents;
     for (const row of rows) {
       const agentId = optionalText(row.agent_id);
-      if (!agentId) continue;
+      if (
+        !agentId ||
+        !/^\d{1,12}_\d{1,12}$/.test(agentId) ||
+        agentId.split('_')[1] !== String(credential.app_id) ||
+        seen.has(agentId)
+      )
+        throw new TelecmiError('TELECMI_REQUEST_REJECTED');
+      seen.add(agentId);
       agents.push({
         agentId,
         name: optionalText(row.name),
@@ -357,10 +374,12 @@ export async function listTelecmiAgents(
         phone: optionalText(typeof row.phone === 'number' ? String(row.phone) : row.phone),
       });
     }
-    const total = optionalNumber(result.count) ?? agents.length;
-    if (rows.length < 10 || agents.length >= total) break;
+    if (agents.length === total) return agents;
+    if (agents.length > total) throw new TelecmiError('TELECMI_REQUEST_REJECTED');
+    if (rows.length < 10) throw new TelecmiError('TELECMI_REQUEST_REJECTED');
   }
-  return agents;
+  // A truncated directory must not be treated as proof that an agent is absent.
+  throw new TelecmiError('TELECMI_REQUEST_REJECTED');
 }
 
 // /v2/balance is the only account-level data TeleCMI exposes: call balance, SMS

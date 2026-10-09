@@ -1,6 +1,6 @@
 import { z } from 'npm:zod@4';
 import { failure, preflight, requestId as getRequestId, success } from '../_shared/http.ts';
-import { authenticatedClient } from '../_shared/supabase.ts';
+import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
 import {
   addTelecmiUser,
   describeTelecmiFailure,
@@ -73,6 +73,7 @@ Deno.serve(async (request) => {
   if (request.method !== 'POST')
     return failure('METHOD_NOT_ALLOWED', 'Only POST is supported.', requestId, 405);
 
+  let providerCreated = false;
   try {
     const parsed = schema.safeParse(await request.json());
     if (!parsed.success)
@@ -103,6 +104,13 @@ Deno.serve(async (request) => {
       phone: input.phone,
       password: input.password,
     });
+    providerCreated = true;
+    const { error: recreatedError } = await serviceClient().rpc('record_telecmi_agent_recreated', {
+      target_organization_id: input.organization_id,
+      target_agent_id: created.userId,
+      target_actor_id: auth.user.id,
+    });
+    if (recreatedError) throw recreatedError;
 
     // Only the resulting mapping is returned; the app secret and the agent
     // password are never echoed back to the caller.
@@ -112,6 +120,13 @@ Deno.serve(async (request) => {
       201,
     );
   } catch (error) {
+    if (providerCreated)
+      return failure(
+        'TELECMI_AGENT_CREATED_STATUS_PENDING',
+        'The agent was created in TeleCMI, but CRM availability could not be updated. View existing agents before trying to create it again.',
+        requestId,
+        502,
+      );
     // describeTelecmiFailure only speaks TeleCMI's vocabulary; anything thrown
     // on our side of the call collapsed into "The TeleCMI request could not be
     // completed", which tells a Client Admin nothing about what to change.

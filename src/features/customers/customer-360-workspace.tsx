@@ -3,21 +3,25 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
-  CalendarClock,
+  ChevronDown,
+  ChevronRight,
   CarFront,
   Download,
   FileText,
-  MessageSquareText,
   Pencil,
   Phone,
   Plus,
   RotateCcw,
+  Sparkles,
   TriangleAlert,
-  UserRound,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { leadDetailHref } from '@/lib/navigation/record-links';
+import { toWhatsAppClickToChatUrl } from '@/lib/phone';
+import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
+import { LeadJourney } from '@/features/leads/lead-journey';
+import { LeadRequirementsCards } from '@/features/leads/lead-requirements-panel';
 import { useMemo, useState, type ReactNode } from 'react';
 import { CustomerDripPanel } from './customer-drip-panel';
 import { CustomerAdditionalFields } from './customer-additional-fields';
@@ -59,6 +63,7 @@ import {
   type Customer360,
   type Customer360Core,
   type Customer360LazySection,
+  type Customer360LeadOption,
   type Customer360SectionPageSize,
   type Customer360SectionResult,
   type Customer360TimelineCursor,
@@ -73,6 +78,10 @@ import {
 const customer360Tabs = [
   'overview',
   'leads',
+  'calls',
+  'followups',
+  'appointments',
+  'messages',
   'test-drives',
   'quotations',
   'bookings',
@@ -87,6 +96,7 @@ type Customer360Tab = (typeof customer360Tabs)[number];
 const customerTabCreateLabel: Partial<Record<Customer360Tab, string>> = {
   overview: 'Edit customer',
   leads: 'Add lead',
+  followups: 'Add follow-up',
   'test-drives': 'Schedule test drive',
   quotations: 'Create quotation',
   bookings: 'Create booking',
@@ -99,12 +109,15 @@ const lazySectionByTab: Partial<
   Record<Exclude<Customer360Tab, 'overview'>, Customer360LazySection>
 > = {
   leads: 'leads',
+  calls: 'calls',
+  followups: 'followups',
+  appointments: 'appointments',
+  messages: 'conversations',
   'test-drives': 'test_drives',
   quotations: 'quotations',
   bookings: 'bookings',
   vehicles: 'vehicles',
   documents: 'documents',
-  timeline: 'timeline',
 };
 
 function isCustomer360Tab(value: string): value is Customer360Tab {
@@ -264,14 +277,32 @@ function CustomerHeaderValue({ label, children }: { label: string; children: Rea
   );
 }
 
-function Overview({ data, role }: { data: Customer360; role: string }) {
+function addressPart(address: Record<string, unknown> | undefined, key: string) {
+  const value = address?.[key];
+  return typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+}
+
+function Overview({
+  data,
+  role,
+  onRecordChanged,
+}: {
+  data: Customer360;
+  role: string;
+  onRecordChanged?: () => void;
+}) {
+  const canEditRequirements = hasWorkspacePermission(useWorkspaceSession(), 'lead.update');
   const primaryAddress =
     data.addresses.find((address) => address.address_type === 'HOME') ?? data.addresses[0];
-  const addressText = primaryAddress
-    ? Object.values(primaryAddress.address)
-        .filter((value): value is string | number => ['string', 'number'].includes(typeof value))
-        .join(', ')
-    : '—';
+  const addressText =
+    [addressPart(primaryAddress?.address, 'line1'), addressPart(primaryAddress?.address, 'line2')]
+      .filter(Boolean)
+      .join(', ') || '—';
+  const alternatePhone = data.contacts.find(
+    (contact) => contact.type === 'PHONE' && !contact.is_primary,
+  )?.value;
+  const opportunity = data.current_opportunity;
+  const callSummary = opportunity?.latest_call_summary ?? null;
   return (
     <div className="grid gap-6 xl:grid-cols-[1.4fr_.8fr]">
       <div className="space-y-6">
@@ -282,12 +313,19 @@ function Overview({ data, role }: { data: Customer360; role: string }) {
           <CardContent>
             <InformationGrid
               values={[
-                ['Customer UUID', data.customer.id],
-                ['Primary phone', data.customer.primary_phone ?? '—'],
-                ['Primary email', data.customer.primary_email ?? '—'],
-                ['Customer since', formatDate(data.customer.created_at, false)],
+                ['Mobile', data.customer.primary_phone ?? '—'],
+                ['Alternate mobile', alternatePhone ?? '—'],
+                [
+                  'WhatsApp',
+                  data.customer.whatsapp_phone ??
+                    (data.customer.primary_phone ? 'Same as mobile' : '—'),
+                ],
+                ['Email', data.customer.primary_email ?? '—'],
                 ['Address', addressText],
-                ['Known contacts', data.contacts.length.toLocaleString()],
+                ['City', addressPart(primaryAddress?.address, 'city') || '—'],
+                ['Pincode', addressPart(primaryAddress?.address, 'postal_code') || '—'],
+                ['Customer since', formatDate(data.customer.created_at, false)],
+                ['Customer UUID', data.customer.id],
               ]}
             />
           </CardContent>
@@ -344,6 +382,18 @@ function Overview({ data, role }: { data: Customer360; role: string }) {
             )}
           </CardContent>
         </Card>
+        {opportunity && (
+          <LeadRequirementsCards
+            leadId={opportunity.id}
+            customerId={data.customer.id}
+            interestedModel={opportunity.interested_model}
+            requirements={opportunity.requirements}
+            exchangeVehicle={opportunity.exchange_vehicle}
+            exchangeCase={opportunity.exchange_case}
+            canEdit={canEditRequirements}
+            onSaved={() => onRecordChanged?.()}
+          />
+        )}
         <CustomerAdditionalFields customerId={data.customer.id} />
         {data.custom_fields.length > 0 && (
           <Card className="shadow-none">
@@ -364,6 +414,28 @@ function Overview({ data, role }: { data: Customer360; role: string }) {
         )}
       </div>
       <div className="space-y-6">
+        {callSummary && (
+          <Card className="shadow-none">
+            <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
+              <CardTitle className="text-base">Previous call summary</CardTitle>
+              <Badge variant="violet">
+                <Sparkles className="size-3" /> AI
+              </Badge>
+            </CardHeader>
+            <CardContent>
+              <p className="rounded-lg border bg-muted/20 p-3 text-sm leading-6">
+                {callSummary.summary}
+              </p>
+              <p className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
+                <span>
+                  Call duration {formatDuration(callSummary.duration_seconds)}
+                  {callSummary.caller_name ? ` · ${callSummary.caller_name}` : ''}
+                </span>
+                <span>{formatDate(callSummary.started_at)}</span>
+              </p>
+            </CardContent>
+          </Card>
+        )}
         <Card className="shadow-none">
           <CardHeader>
             <CardTitle className="text-base">Contact identifiers</CardTitle>
@@ -414,59 +486,108 @@ function Overview({ data, role }: { data: Customer360; role: string }) {
   );
 }
 
-function Timeline({ data }: { data: Customer360 }) {
-  if (!data.timeline.length) return <EmptySection label="Timeline activity" />;
-  const labelByType: Record<string, string> = {
-    LEAD_RECEIVED: 'Lead received',
-    FIRST_CONTACTED: 'First contact completed',
-    LEAD_QUALIFIED: 'Lead qualified',
-    LEAD_TRANSFERRED_TO_SALES: 'Lead transferred to Sales',
-    FOLLOWUP_SCHEDULED: 'Follow-up scheduled',
-    FOLLOWUP_COMPLETED: 'Follow-up completed',
-    APPOINTMENT_SCHEDULED: 'Appointment scheduled',
-    APPOINTMENT_UPDATED: 'Appointment updated',
-    APPOINTMENT_COMPLETED: 'Appointment completed',
-    TEST_DRIVE_SCHEDULED: 'Test drive scheduled',
-    TEST_DRIVE_COMPLETED: 'Test drive completed',
-    QUOTATION_CREATED: 'Quotation created',
-    BOOKING_CREATED: 'Booking confirmed',
-  };
-  const iconByType = (type: string) => {
-    if (type.includes('CALL')) return Phone;
-    if (type.includes('MESSAGE')) return MessageSquareText;
-    if (type.includes('FOLLOW')) return CalendarClock;
-    return UserRound;
-  };
+function leadOptionLabel(option: Customer360LeadOption) {
+  return [option.source, option.interested_model, formatDate(option.created_at, false)]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** "All leads" or one enquiry; scopes Calls, Follow-ups, Appointments and Messages. */
+function LeadPicker({
+  options,
+  value,
+  onChange,
+  allowAll,
+}: {
+  options: Customer360LeadOption[];
+  value: string | null;
+  onChange: (leadId: string | null) => void;
+  allowAll: boolean;
+}) {
+  if (!options.length) return null;
   return (
-    <Card className="shadow-none">
-      <CardHeader>
-        <CardTitle className="text-base">Customer activity timeline</CardTitle>
-        <CardDescription>Permission-filtered events across this customer journey.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {data.timeline.map((item, index) => {
-          const Icon = iconByType(item.activity_type);
-          return (
-            <div className="relative flex gap-3 pb-6" key={item.id}>
-              {index < data.timeline.length - 1 && (
-                <span className="absolute left-4 top-8 h-full w-px bg-border" />
+    <div className="mb-4 flex flex-wrap items-center gap-2">
+      <span className="text-sm text-muted-foreground">Showing</span>
+      <Select
+        value={value ?? '__all'}
+        onValueChange={(next) => onChange(next === '__all' ? null : next)}
+      >
+        <SelectTrigger className="h-9 w-auto min-w-64" aria-label="Lead">
+          <SelectValue placeholder="Select a lead" />
+        </SelectTrigger>
+        <SelectContent>
+          {allowAll && <SelectItem value="__all">All leads ({options.length})</SelectItem>}
+          {options.map((option) => (
+            <SelectItem key={option.id} value={option.id}>
+              {leadOptionLabel(option)} — {option.lifecycle_status}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+/**
+ * One row per enquiry. Opening a lead shows its own journey -- who called and
+ * when, stage changes, follow-ups, visits, test drive, quotation, booking --
+ * instead of a customer-wide stream of "lead received" entries.
+ */
+function LeadTimelines({
+  options,
+  role,
+  defaultOpenId,
+}: {
+  options: Customer360LeadOption[];
+  role: string;
+  defaultOpenId: string | null;
+}) {
+  const [openId, setOpenId] = useState<string | null>(defaultOpenId ?? options[0]?.id ?? null);
+  if (!options.length) return <EmptySection label="Leads" />;
+  return (
+    <div className="space-y-3">
+      {options.map((option) => {
+        const open = option.id === openId;
+        return (
+          <Card key={option.id} className="overflow-hidden shadow-none">
+            <button
+              type="button"
+              className="flex w-full flex-wrap items-center gap-3 px-5 py-4 text-left hover:bg-muted/40"
+              aria-expanded={open}
+              onClick={() => setOpenId(open ? null : option.id)}
+            >
+              {open ? (
+                <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
               )}
-              <div className="z-10 grid size-8 shrink-0 place-items-center rounded-full border bg-background text-blue-600">
-                <Icon className="size-4" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">
+                  {option.interested_model ?? 'Model not recorded'} · {option.source}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Received {formatDate(option.created_at)} · Lead {shortId(option.id)}
+                </span>
+              </span>
+              <StatusBadge value={option.lifecycle_status} />
+            </button>
+            {open && (
+              <div className="border-t">
+                <LeadJourney leadId={option.id} />
+                <div className="border-t px-5 py-3 text-right">
+                  <Link
+                    href={leadDetailHref(role, option.id)}
+                    className="text-sm font-medium text-primary hover:underline"
+                  >
+                    Open lead
+                  </Link>
+                </div>
               </div>
-              <div className="pt-0.5">
-                <p className="text-sm font-semibold">
-                  {labelByType[item.activity_type] ?? item.activity_type.replaceAll('_', ' ')}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {item.actor_name ?? 'System'} · {formatDate(item.occurred_at)}
-                </p>
-              </div>
-            </div>
-          );
-        })}
-      </CardContent>
-    </Card>
+            )}
+          </Card>
+        );
+      })}
+    </div>
   );
 }
 
@@ -492,6 +613,13 @@ function Customer360Content({
   onCreateForTab,
   lazyState,
   queryScope,
+  onRecordChanged,
+  leadOptions,
+  leadFilter,
+  onLeadFilterChange,
+  messageLeadId,
+  onMessageLeadChange,
+  filterRecordsByLead,
 }: {
   data: Customer360;
   role: string;
@@ -500,6 +628,17 @@ function Customer360Content({
   onCreateForTab?: (tab: Customer360Tab) => void;
   lazyState?: Customer360LazyState;
   queryScope: readonly unknown[];
+  /** Called after an inline edit so the owner can refetch the customer. */
+  onRecordChanged?: () => void;
+  leadOptions: Customer360LeadOption[];
+  /** null means every lead. */
+  leadFilter: string | null;
+  onLeadFilterChange: (leadId: string | null) => void;
+  /** Messages are read one enquiry at a time. */
+  messageLeadId: string | null;
+  onMessageLeadChange: (leadId: string | null) => void;
+  /** The eager payload is bounded and unpaginated, so it narrows in place; the hot path filters in SQL. */
+  filterRecordsByLead: boolean;
 }) {
   const [localActiveTab, setLocalActiveTab] = useState<Customer360Tab>('overview');
   const activeTab = controlledActiveTab ?? localActiveTab;
@@ -518,6 +657,15 @@ function Customer360Content({
     onError: () => setDownloadingId(null),
   });
   const showLazyStatus = activeTab === 'overview' ? undefined : lazyState;
+  const forLead = <T extends { lead_id: string | null }>(rows: T[], leadId: string | null) =>
+    filterRecordsByLead && leadId ? rows.filter((row) => row.lead_id === leadId) : rows;
+  const calls = forLead(data.calls, leadFilter);
+  const followups = forLead(data.followups, leadFilter);
+  const appointments = forLead(data.appointments, leadFilter);
+  const conversations = messageLeadId ? forLead(data.conversations, messageLeadId) : [];
+  const leadPicker = (
+    <LeadPicker options={leadOptions} value={leadFilter} onChange={onLeadFilterChange} allowAll />
+  );
   return (
     <Tabs
       value={activeTab}
@@ -532,6 +680,16 @@ function Customer360Content({
           <TabsList className="h-auto min-w-max justify-start">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             {data.section_access.leads && <TabsTrigger value="leads">Leads</TabsTrigger>}
+            {data.section_access.calls && <TabsTrigger value="calls">Calls</TabsTrigger>}
+            {data.section_access.followups && (
+              <TabsTrigger value="followups">Follow-ups</TabsTrigger>
+            )}
+            {data.section_access.appointments && (
+              <TabsTrigger value="appointments">Appointments</TabsTrigger>
+            )}
+            {data.section_access.conversations && (
+              <TabsTrigger value="messages">Messages</TabsTrigger>
+            )}
             {data.section_access.test_drives && (
               <TabsTrigger value="test-drives">Test Drives</TabsTrigger>
             )}
@@ -553,6 +711,19 @@ function Customer360Content({
           </Button>
         ) : null}
       </div>
+      {['calls', 'followups', 'appointments'].includes(activeTab) && (
+        <div className="mt-4">{leadPicker}</div>
+      )}
+      {activeTab === 'messages' && (
+        <div className="mt-4">
+          <LeadPicker
+            options={leadOptions}
+            value={messageLeadId}
+            onChange={onMessageLeadChange}
+            allowAll={false}
+          />
+        </div>
+      )}
       {showLazyStatus?.isPending ? (
         <div className="mt-6 space-y-3">
           <Skeleton className="h-12 w-full" />
@@ -571,7 +742,7 @@ function Customer360Content({
       ) : (
         <>
           <TabsContent value="overview">
-            <Overview data={data} role={role} />
+            <Overview data={data} role={role} onRecordChanged={onRecordChanged} />
           </TabsContent>
           {data.section_access.leads && (
             <TabsContent value="leads">
@@ -604,6 +775,98 @@ function Customer360Content({
                 customerId={data.customer.id}
                 customerName={data.customer.full_name}
                 queryScope={queryScope}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.calls && (
+            <TabsContent value="calls">
+              <DetailTable
+                headers={[
+                  'Date & time',
+                  'Direction',
+                  'Source',
+                  'Outcome',
+                  'Duration',
+                  'Caller',
+                  'AI summary',
+                ]}
+                emptyLabel="Calls"
+                rows={calls.map((call) => [
+                  formatDate(call.started_at),
+                  call.direction === 'INBOUND' ? 'Inbound' : 'Outbound',
+                  call.call_source === 'PROVIDER' ? 'IVR / provider' : 'Personal call',
+                  call.outcome ? <StatusBadge key="outcome" value={call.outcome} /> : '—',
+                  formatDuration(call.duration_seconds),
+                  call.assigned_user_name ?? '—',
+                  call.ai_summary ? (
+                    <span
+                      key="summary"
+                      className="line-clamp-2 max-w-md whitespace-normal text-xs leading-5 text-muted-foreground"
+                      title={call.ai_summary}
+                    >
+                      {call.ai_summary}
+                    </span>
+                  ) : (
+                    '—'
+                  ),
+                ])}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.followups && (
+            <TabsContent value="followups">
+              <DetailTable
+                headers={['Due', 'Reason', 'Status', 'Owner', 'Completed']}
+                emptyLabel="Follow-ups"
+                rows={followups.map((followup) => [
+                  formatDate(followup.due_at),
+                  followup.reason,
+                  <StatusBadge key="status" value={followup.status} />,
+                  followup.assigned_user_name ?? '—',
+                  formatDate(followup.completed_at),
+                ])}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.appointments && (
+            <TabsContent value="appointments">
+              <DetailTable
+                headers={['Scheduled', 'Type', 'Status', 'Attendance', 'Branch', 'Owner']}
+                emptyLabel="Appointments"
+                rows={appointments.map((appointment) => [
+                  formatDate(appointment.scheduled_at),
+                  appointment.appointment_type,
+                  <StatusBadge key="status" value={appointment.status} />,
+                  appointment.attendance_status ? (
+                    <StatusBadge key="attendance" value={appointment.attendance_status} />
+                  ) : (
+                    '—'
+                  ),
+                  appointment.branch_name,
+                  appointment.assigned_user_name ?? '—',
+                ])}
+              />
+            </TabsContent>
+          )}
+          {data.section_access.conversations && (
+            <TabsContent value="messages">
+              <DetailTable
+                headers={['Channel', 'Status', 'Messages', 'Last message', 'Owner', 'Started']}
+                emptyLabel="Conversations"
+                rowHref={(rowIndex) => {
+                  const conversation = conversations[rowIndex];
+                  return conversation?.lead_id
+                    ? `${leadDetailHref(role, conversation.lead_id)}?tab=messages&conversation=${conversation.id}`
+                    : leadDetailHref(role, messageLeadId ?? '');
+                }}
+                rows={conversations.map((conversation) => [
+                  conversation.channel.replaceAll('_', ' '),
+                  <StatusBadge key="status" value={conversation.status} />,
+                  conversation.message_count.toLocaleString('en-IN'),
+                  formatDate(conversation.latest_message_at),
+                  conversation.assigned_user_name ?? '—',
+                  formatDate(conversation.created_at),
+                ])}
               />
             </TabsContent>
           )}
@@ -682,14 +945,27 @@ function Customer360Content({
           {data.section_access.vehicles && (
             <TabsContent value="vehicles">
               <DetailTable
-                headers={['Registration', 'Brand', 'Model', 'Variant', 'Year', 'Added']}
+                headers={[
+                  'Registration',
+                  'Vehicle',
+                  'Year',
+                  'Fuel',
+                  'Transmission',
+                  'KMs driven',
+                  'Ownership',
+                  'Added',
+                ]}
                 emptyLabel="Vehicles"
                 rows={data.vehicles.map((vehicle) => [
                   vehicle.registration ?? '—',
-                  vehicle.brand ?? '—',
-                  vehicle.model ?? '—',
-                  vehicle.variant ?? '—',
-                  vehicle.model_year ?? '—',
+                  [vehicle.brand, vehicle.model, vehicle.variant].filter(Boolean).join(' ') || '—',
+                  vehicle.purchase_year ?? vehicle.model_year ?? '—',
+                  vehicle.fuel_type ?? '—',
+                  vehicle.transmission ?? '—',
+                  vehicle.odometer_km == null
+                    ? '—'
+                    : `${vehicle.odometer_km.toLocaleString('en-IN')} km`,
+                  vehicle.ownership ?? '—',
                   formatDate(vehicle.created_at, false),
                 ])}
               />
@@ -738,7 +1014,11 @@ function Customer360Content({
           )}
           {data.section_access.timeline && (
             <TabsContent value="timeline">
-              <Timeline data={data} />
+              <LeadTimelines
+                options={leadOptions}
+                role={role}
+                defaultOpenId={data.current_opportunity?.id ?? null}
+              />
             </TabsContent>
           )}
           {showLazyStatus && (
@@ -844,14 +1124,40 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
     queryFn: ({ signal }) => fetchSalesCustomer360Core(customerId, signal),
     enabled: useSalesHotPath && Boolean(permissions?.canView),
   });
+  const [leadFilter, setLeadFilter] = useState<string | null>(null);
+  const [messageLeadChoice, setMessageLeadChoice] = useState<string | null>(null);
+  const leadOptions: Customer360LeadOption[] = useSalesHotPath
+    ? (salesCore.data?.lead_options ?? [])
+    : (legacyCustomer.data?.leads ?? []).map((lead) => ({
+        id: lead.id,
+        source: lead.source,
+        interested_model: lead.interested_model,
+        lifecycle_status: lead.lifecycle_status,
+        created_at: lead.created_at,
+      }));
+  // Messages default to the enquiry being worked now.
+  const messageLeadId =
+    messageLeadChoice ??
+    (useSalesHotPath
+      ? salesCore.data?.current_opportunity?.id
+      : legacyCustomer.data?.current_opportunity?.id) ??
+    leadOptions[0]?.id ??
+    null;
   // Drip is deliberately absent from the map: it fetches its own panel, so it
   // must not drive the shared section pager or its loading and error states.
   const lazySection = activeTab === 'overview' ? null : (lazySectionByTab[activeTab] ?? null);
   const activeCursor = lazySection === 'timeline' ? (timelineCursors[sectionPage] ?? null) : null;
+  const sectionLeadId =
+    lazySection === 'conversations'
+      ? messageLeadId
+      : lazySection && ['calls', 'followups', 'appointments'].includes(lazySection)
+        ? leadFilter
+        : null;
   const sectionFilters = {
     pageSize: sectionPageSize,
     cursorAt: activeCursor?.occurred_at ?? null,
     cursorId: activeCursor?.id ?? null,
+    leadId: sectionLeadId,
   };
   const salesSection = useQuery({
     queryKey: [
@@ -871,6 +1177,7 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
           page: sectionPage,
           pageSize: sectionPageSize,
           cursor: activeCursor,
+          leadId: sectionLeadId,
         },
         signal,
       );
@@ -878,7 +1185,8 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
     enabled:
       useSalesHotPath &&
       Boolean(lazySection) &&
-      Boolean(salesCore.data && lazySection && salesCore.data.section_access[lazySection]),
+      Boolean(salesCore.data && lazySection && salesCore.data.section_access[lazySection]) &&
+      (lazySection !== 'conversations' || Boolean(messageLeadId)),
   });
 
   const customerIsPending = useSalesHotPath ? salesCore.isPending : legacyCustomer.isPending;
@@ -959,6 +1267,13 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
         }
       : undefined;
 
+  const whatsappNumber = data.customer.whatsapp_phone ?? data.customer.primary_phone;
+  const refetchCustomer = () => {
+    void queryClient.invalidateQueries({ queryKey: ['customer-360', ...queryScope, customerId] });
+    if (useSalesHotPath) void salesCore.refetch();
+    else void legacyCustomer.refetch();
+  };
+
   function selectCustomerTab(tab: Customer360Tab) {
     setActiveTab(tab);
     setSectionPage(1);
@@ -978,6 +1293,7 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
         router.push(`/${role}/my-leads?action=create`);
         return;
       case 'timeline':
+      case 'followups':
         router.push(`/${role}/follow-ups?action=create`);
         return;
       case 'test-drives':
@@ -1037,6 +1353,14 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
               </CustomerHeaderValue>
               <CustomerHeaderValue label="Sales owner">
                 {data.current_opportunity?.assigned_user_name ?? 'Unassigned'}
+                {data.current_opportunity?.assigned_user_phone && (
+                  <a
+                    href={`tel:${data.current_opportunity.assigned_user_phone}`}
+                    className="mt-1 flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                  >
+                    <Phone className="size-3" /> {data.current_opportunity.assigned_user_phone}
+                  </a>
+                )}
                 <span className="mt-1 block text-xs font-normal text-muted-foreground">
                   {data.current_opportunity?.branch_name ?? 'No branch visible'}
                 </span>
@@ -1046,6 +1370,17 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
               {data.customer.primary_phone && permissions.canCreateCall ? (
                 <Button size="sm" variant="outline" onClick={() => setCallOpen(true)}>
                   <Phone className="size-3.5 text-emerald-600" /> Call through CRM
+                </Button>
+              ) : null}
+              {whatsappNumber ? (
+                <Button size="sm" variant="outline" asChild>
+                  <a
+                    href={toWhatsAppClickToChatUrl(whatsappNumber)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <WhatsAppIcon className="size-3.5" /> WhatsApp
+                  </a>
                 </Button>
               ) : null}
               {permissions.canUpdate ? (
@@ -1095,19 +1430,26 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
         onCreateForTab={createCustomerTabData}
         lazyState={lazyState}
         queryScope={queryScope}
+        onRecordChanged={refetchCustomer}
+        leadOptions={leadOptions}
+        leadFilter={leadFilter}
+        onLeadFilterChange={(leadId) => {
+          setLeadFilter(leadId);
+          setSectionPage(1);
+        }}
+        messageLeadId={messageLeadId}
+        onMessageLeadChange={(leadId) => {
+          setMessageLeadChoice(leadId);
+          setSectionPage(1);
+        }}
+        filterRecordsByLead={!useSalesHotPath}
       />
       {permissions.canUpdate && editOpen ? (
         <CustomerEditDialog
           open={editOpen}
           onOpenChange={setEditOpen}
           customerId={data.customer.id}
-          onSaved={() => {
-            void queryClient.invalidateQueries({
-              queryKey: ['customer-360', ...queryScope, customerId],
-            });
-            if (useSalesHotPath) void salesCore.refetch();
-            else void legacyCustomer.refetch();
-          }}
+          onSaved={refetchCustomer}
         />
       ) : null}
       {permissions.canCreateCall && callOpen ? (

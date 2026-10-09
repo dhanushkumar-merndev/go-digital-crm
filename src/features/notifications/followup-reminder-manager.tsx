@@ -23,6 +23,7 @@ import {
   claimFollowupReminder,
   fetchFollowupReminders,
   followupReminderKey,
+  followupReminderLabel,
 } from './followup-reminder-api';
 import { headerNotificationsKey } from './notification-api';
 import { useFollowupReminderStore } from './followup-reminder-store';
@@ -101,19 +102,26 @@ export function FollowupReminderManager() {
             if (!claimed) continue;
             void client.invalidateQueries({ queryKey: headerNotificationsKey });
             if (phase === 'DUE') enqueue(scope, item);
-            else
+            else {
+              // The action does not dismiss a Base UI toast on its own, so it
+              // closes itself by id once it has done its one job.
+              const toastId = `followup-reminder:${key}`;
               toastIds.push(
                 toast.add({
+                  id: toastId,
                   title: 'Follow-up in 5 minutes',
-                  description: item.reason,
+                  description: followupReminderLabel(item),
                   timeout: 15_000,
                   actionProps: {
                     children: 'Open follow-up',
-                    onClick: () =>
-                      router.push(notificationDetailHref(session.roleKey, 'followup', item.id)!),
+                    onClick: () => {
+                      toast.close(toastId);
+                      router.push(notificationDetailHref(session.roleKey, 'followup', item.id)!);
+                    },
                   },
                 }),
               );
+            }
           } catch {
             attempted.delete(key);
             nextDelay = Math.min(nextDelay, 15_000);
@@ -149,7 +157,7 @@ export function FollowupReminderManager() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Follow-up due now</DialogTitle>
-          <DialogDescription>{active?.reason}</DialogDescription>
+          <DialogDescription>{active ? followupReminderLabel(active) : null}</DialogDescription>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
           It’s time to contact the customer. Open the follow-up to call, complete or reschedule it.

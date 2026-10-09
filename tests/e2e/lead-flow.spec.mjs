@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { test, expect as baseExpect } from '@playwright/test';
+import { createDemoSessionProvider, demoJson } from './demo-api.mjs';
 
 // `next dev` compiles each route and its client chunks on first visit, which
 // can take several seconds per page. Assertions wait long enough for that
 // one-time compile instead of reporting it as a missing CRM record.
 const expect = baseExpect.configure({ timeout: 30_000 });
+test.use({ actionTimeout: 30_000, navigationTimeout: 45_000 });
 
 const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
 const runId = Date.now().toString(36);
@@ -53,29 +55,11 @@ const demoAnonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? localEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const demoPassword = process.env.DEMO_TEST_PASSWORD ?? localEnv.DEMO_TEST_PASSWORD;
 
-async function demoJson(response) {
-  const body = await response.text();
-  const payload = body ? JSON.parse(body) : null;
-  if (!response.ok) throw new Error(`${response.status} ${JSON.stringify(payload)}`);
-  return payload;
-}
-
-async function demoSessionFor(roleKey) {
-  if (!demoProjectUrl || !demoAnonKey || !demoPassword) {
-    throw new Error(
-      'SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY and DEMO_TEST_PASSWORD are required.',
-    );
-  }
-  const email = `${roleKey.replaceAll('_', '-')}@demo.go-digital.invalid`;
-  const session = await demoJson(
-    await fetch(`${demoProjectUrl}/auth/v1/token?grant_type=password`, {
-      method: 'POST',
-      headers: { apikey: demoAnonKey, 'content-type': 'application/json' },
-      body: JSON.stringify({ email, password: demoPassword }),
-    }),
-  );
-  return session.access_token;
-}
+const demoSessionFor = createDemoSessionProvider({
+  projectUrl: demoProjectUrl,
+  anonKey: demoAnonKey,
+  password: demoPassword,
+});
 
 async function demoRows(accessToken, table, query) {
   return demoJson(
@@ -97,6 +81,75 @@ async function demoRpc(accessToken, name, body) {
       body: JSON.stringify(body),
     }),
   );
+}
+
+async function prepareIsolatedTestDrive(page) {
+  const token = await demoSessionFor('sales_consultant');
+  const context = await demoRpc(token, 'get_workspace_bootstrap', {});
+  const active = await demoRows(token, 'test_drives', {
+    select: 'id,appointment_id,lead_id',
+    assigned_user_id: `eq.${context.user_id}`,
+    status: 'eq.ACTIVE',
+    limit: '1',
+  });
+  if (active.length) {
+    const [appointment] = await demoRows(token, 'test_drive_appointments', {
+      select: 'vehicle_registration,start_location,destination',
+      id: `eq.${active[0].appointment_id}`,
+    });
+    const [lead] = await demoRows(token, 'leads', {
+      select: 'customer_name',
+      id: `eq.${active[0].lead_id}`,
+    });
+    const seededFixture =
+      /^KA 01 TD \d+$/.test(appointment?.vehicle_registration ?? '') &&
+      appointment?.destination?.label === 'Customer home route' &&
+      appointment?.start_location?.label === 'Showroom';
+    const abandonedQa =
+      /^Amal browser QA /.test(lead?.customer_name ?? '') &&
+      /^KA QA /.test(appointment?.vehicle_registration ?? '');
+    if (!seededFixture && !abandonedQa)
+      throw new Error('An unrelated active drive requires a separate isolated test actor.');
+    await page.goto(
+      `${baseURL}/sales-consultant/test-drives?view=all&q=${encodeURIComponent(lead.customer_name)}`,
+    );
+    const activeRow = matchingRows(page, lead.customer_name)
+      .filter({ has: page.getByText('ACTIVE', { exact: true }) })
+      .first();
+    await activeRow.getByRole('button', { name: 'Test-drive actions' }).click();
+    await page.getByRole('menuitem', { name: 'Cancel test drive' }).click();
+    const cancellation = page.getByRole('dialog', { name: 'Cancel active test drive' });
+    await cancellation
+      .getByLabel('Reason')
+      .fill(
+        'Isolated browser QA: end the seeded or abandoned QA drive before starting a fresh drive.',
+      );
+    await cancellation.getByRole('button', { name: 'Cancel active drive' }).click();
+    await expect(cancellation).toBeHidden();
+  }
+  // Each run chooses a free consultant window, preserving schedule-conflict
+  // guards and previous test history instead of repeatedly using the same slot.
+  const start = Date.now() + 72 * 60 * 60_000;
+  const appointments = await demoRows(token, 'test_drive_appointments', {
+    select: 'scheduled_at,expected_duration_minutes',
+    assigned_user_id: `eq.${context.user_id}`,
+    status: 'in.(SCHEDULED,ACTIVE)',
+    scheduled_at: `gte.${new Date(start - 3 * 60 * 60_000).toISOString()}`,
+    order: 'scheduled_at.asc',
+    limit: '100',
+  });
+  for (let n = 0; n < 96; n++) {
+    const proposed = start + n * 60 * 60_000;
+    if (
+      !appointments.some(
+        (a) =>
+          Math.abs(Date.parse(a.scheduled_at) - proposed) <
+          Math.max(120, a.expected_duration_minutes ?? 45) * 60_000,
+      )
+    )
+      return dateTimeLocalInput(proposed);
+  }
+  throw new Error('No isolated consultant test-drive window is available.');
 }
 
 async function provisionFlowStock(leadId) {
@@ -190,11 +243,33 @@ if (process.env.E2E_CHROMIUM_EXECUTABLE) {
 // the reminder manager then opens a modal "Follow-up due now" over whatever
 // page the test is on. A user dismisses it and carries on; so does the suite.
 test.beforeEach(async ({ page }) => {
+  const failedLeadReads = [];
+  page.on('response', (response) => {
+    if (!response.url().endsWith('/rpc/get_lead_workspace_page_v2') || response.ok()) return;
+    failedLeadReads.push(response.json().catch(() => ({ code: 'UNREADABLE_ERROR' })));
+  });
+  // A cancelled SELECT has no side effects. Exercise the existing user retry
+  // once when the provider cancels a read; every other failure remains fatal.
+  await page.addLocatorHandler(
+    page.getByRole('heading', { name: 'Leads are not available yet', exact: true }),
+    async () => {
+      const failures = await Promise.all(failedLeadReads);
+      if (!failures.length || failures.some((failure) => failure.code !== '57014')) {
+        throw new Error('Lead workspace failed without a retryable statement cancellation.');
+      }
+      console.log('Retrying one cancelled lead-list read through Try again.');
+      await page.getByRole('button', { name: 'Try again', exact: true }).click();
+    },
+    { times: 1 },
+  );
   await page.addLocatorHandler(
     page.getByRole('dialog', { name: 'Follow-up due now' }),
     async (reminder) => {
       await reminder.getByRole('button', { name: 'Dismiss' }).click();
     },
+    // The next queued reminder can reuse this dialog immediately. Let the
+    // action retry and invoke the handler again instead of waiting for a gap.
+    { noWaitAfter: true },
   );
 });
 
@@ -306,7 +381,7 @@ async function signInAs(page, role) {
 }
 
 async function searchForLead(page) {
-  const search = page.getByPlaceholder('Search by name or mobile…');
+  const search = await leadSearchField(page);
   await search.fill(customerName);
 }
 
@@ -344,8 +419,13 @@ async function chooseInterestedModel(createDialog) {
   await option.click();
 }
 
+function dateTimeLocalInput(timestamp) {
+  const date = new Date(timestamp);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
 function futureDateTimeInput(hours = 24) {
-  return new Date(Date.now() + hours * 60 * 60_000).toISOString().slice(0, 16);
+  return dateTimeLocalInput(Date.now() + hours * 60 * 60_000);
 }
 
 function escapeRegExp(value) {
@@ -368,7 +448,7 @@ async function selectQuickView(page, label, status) {
 
 async function expectLeadInQuickView(page, leadName, label, status) {
   await selectQuickView(page, label, status);
-  const search = page.getByPlaceholder('Search by name or mobile…');
+  const search = await leadSearchField(page);
   await search.fill('');
   await search.fill(leadName);
   await expect(matchingRows(page, leadName)).toHaveCount(1, { timeout: 30_000 });
@@ -376,7 +456,7 @@ async function expectLeadInQuickView(page, leadName, label, status) {
 
 async function expectLeadOutsideQuickView(page, leadName, label, status) {
   await selectQuickView(page, label, status);
-  const search = page.getByPlaceholder('Search by name or mobile…');
+  const search = await leadSearchField(page);
   await search.fill('');
   await search.fill(leadName);
   await expect(matchingRows(page, leadName)).toHaveCount(0, { timeout: 30_000 });
@@ -393,25 +473,68 @@ async function whatsAppPhoneLink(page, control) {
 
 async function clickWhatsAppWithoutLeavingCrm(page, control) {
   const whatsapp = await whatsAppPhoneLink(page, control);
-  // The CRM first-contact mutation is attached to this anchor's click handler.
-  // Cancel only the browser's default external navigation; React still receives
-  // the same click and persists the real contact event in this CRM session.
-  await page.evaluate(() => {
-    const cancelExternalNavigation = (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      if (!target.closest('a[target="_blank"][href*="wa.me/"]')) return;
-      event.preventDefault();
-      document.removeEventListener('click', cancelExternalNavigation, true);
-    };
-    document.addEventListener('click', cancelExternalNavigation, true);
+  // Preserve the real click so Radix closes the menu and the CRM records
+  // contact. Preventing its default also prevents Radix's selection handler,
+  // leaving the modal menu open over all subsequent workflow actions.
+  const popupPromise = page.waitForEvent('popup');
+  await whatsapp.click();
+  const popup = await popupPromise;
+  await popup.close();
+}
+
+async function createAndLinkQaCustomer(page, reason) {
+  const dialog = page.getByRole('dialog', {
+    name: /Create customer|Review possible customer match/,
   });
-  await whatsapp.click({ noWaitAfter: true });
+  await expect(dialog).toBeVisible();
+  const separateCustomer = dialog.getByRole('radio', { name: /^Create a separate customer/ });
+  const createCustomer = dialog.getByRole('button', { name: 'Create and link customer' });
+  // Wait for the match lookup. A shared demo phone requires an explicit
+  // decision; a unique phone proceeds directly to creating its customer.
+  await expect(separateCustomer.or(createCustomer)).toBeVisible();
+  if (await separateCustomer.isVisible()) {
+    await separateCustomer.click();
+    await dialog.getByLabel(/Decision reason/).fill(reason);
+  }
+  await expect(createCustomer).toBeEnabled();
+  await Promise.all([page.waitForURL(/\/telecaller\/customers\//), createCustomer.click()]);
+  await expect(dialog).toBeHidden();
+}
+
+async function selectFlowSalesConsultant(page, handoff, roleKey = 'sales_consultant') {
+  const token = await demoSessionFor(roleKey);
+  const context = await demoRpc(token, 'get_workspace_bootstrap', {});
+  const [consultant] = await demoRows(token, 'profiles', {
+    select: 'full_name',
+    id: `eq.${context.user_id}`,
+    limit: '1',
+  });
+  expect(consultant?.full_name, 'The receiving demo consultant must have a profile.').toBeTruthy();
+  await expect(handoff.getByText('Loading the team’s Sales Consultants…')).toBeHidden();
+  const picker = handoff.getByRole('combobox', { name: 'Sales Consultant' });
+  await expect(picker).toBeVisible();
+  const retry = handoff.getByRole('button', { name: /^(Retry|Retry consultant list)$/ });
+  if (await retry.isVisible()) await retry.click();
+  await expect(picker).toBeEnabled();
+  await picker.click();
+  await page
+    .getByRole('option', { name: new RegExp(`^${escapeRegExp(consultant.full_name)} ·`) })
+    .click();
+  return { userId: context.user_id, name: consultant.full_name };
+}
+
+async function leadSearchField(page) {
+  const search = page.getByPlaceholder('Search by name or mobile…');
+  // Two automatic read attempts plus the single confirmed-cancellation UI
+  // retry can exceed the action's 30-second budget. Wait for the real list
+  // before typing; persistent or non-retryable errors still fail the test.
+  await expect(search).toBeVisible({ timeout: 90_000 });
+  return search;
 }
 
 async function salesLeadId(page, leadName) {
   await page.goto(`${baseURL}/sales-consultant/my-leads?status=all`);
-  await page.getByPlaceholder('Search by name or mobile…').fill(leadName);
+  await (await leadSearchField(page)).fill(leadName);
   const row = matchingRows(page, leadName).first();
   await expect(row).toContainText(leadName, { timeout: 30_000 });
   const href = await row
@@ -432,30 +555,22 @@ async function handOverNewSalesLead(page, customerName, phone) {
   await chooseInterestedModel(createDialog);
   await createDialog.getByRole('button', { name: 'Create lead' }).click();
   await expect(createDialog).toBeHidden({ timeout: 25_000 });
-  await page.getByPlaceholder('Search by name or mobile…').fill(customerName);
+  await (await leadSearchField(page)).fill(customerName);
   const row = matchingRows(page, customerName).first();
   await clickWhatsAppWithoutLeavingCrm(page, row.getByLabel(`WhatsApp ${customerName}`));
   await expect(row.getByText('Contacted', { exact: true })).toBeVisible({ timeout: 30_000 });
   await row.getByLabel(`Review possible customer match for ${customerName}`).click();
-  const customerMatch = page.getByRole('dialog', {
-    name: /Create customer|Review possible customer match/,
-  });
-  const decisionReason = customerMatch.getByLabel(/Decision reason/);
-  if (await decisionReason.isVisible().catch(() => false)) {
-    await decisionReason.fill('Separate browser QA customer for a Sales booking path.');
-  }
-  await Promise.all([
-    page.waitForURL(/\/telecaller\/customers\//),
-    customerMatch.getByRole('button', { name: 'Create and link customer' }).click(),
-  ]);
+  await createAndLinkQaCustomer(
+    page,
+    'Different synthetic QA customer sharing the demo phone for a Sales booking path.',
+  );
   await page.goto(`${baseURL}/telecaller/my-leads`);
-  await page.getByPlaceholder('Search by name or mobile…').fill(customerName);
+  await (await leadSearchField(page)).fill(customerName);
   const linkedRow = matchingRows(page, customerName).first();
   await linkedRow.getByLabel(`Transfer ${customerName} to Sales`).click();
   const handoff = page.getByRole('dialog', { name: 'Transfer to Sales' });
   await handoff.getByLabel('Reason').fill('Customer ready to book on the spot.');
-  await handoff.getByRole('combobox').click();
-  await page.getByRole('option', { name: /Dhanush Kumar/ }).click();
+  await selectFlowSalesConsultant(page, handoff);
   await handoff.getByRole('button', { name: 'Transfer to Sales' }).click();
   await expect(handoff).toBeHidden({ timeout: 25_000 });
 }
@@ -507,9 +622,11 @@ async function confirmBookingDialog(page, customerName) {
   await booking.getByRole('button', { name: 'Create booking' }).click();
   await expect(booking).toBeHidden({ timeout: 25_000 });
   await page.goto(`${baseURL}/sales-consultant/bookings?q=${encodeURIComponent(customerName)}`);
+  // Navigation mounts a fresh bookings query. Its automatic read retry can
+  // outlast 25 seconds on the demo provider; never retry the successful write.
   await expect(
     matchingRows(page, customerName).first().getByText('CONFIRMED', { exact: true }),
-  ).toBeVisible({ timeout: 25_000 });
+  ).toBeVisible({ timeout: 90_000 });
 }
 
 async function createOperationalCase(page, role, route, caseName) {
@@ -911,12 +1028,11 @@ test.describe('manual lead: Telecaller to Sales', () => {
   // Each step continues the lead created by the first test. A failure must stop
   // the chain: Playwright would otherwise restart the worker, generate a new
   // runId, and report every later step against a lead that was never created.
-  test.describe.configure({ mode: 'serial' });
+  test.describe.configure({ mode: 'serial', timeout: 240_000 });
   // A cold scoped-case query can take tens of seconds after each persisted
   // workflow transition. Finance/RTO legitimately reopen a case several
   // times, so the suite-level limit must cover that audited work rather than
   // terminating a valid department flow midway through it.
-  test.setTimeout(240_000);
 
   test('creates Amal as a Manual lead, records contact, and hands the lead to Sales', async ({
     page,
@@ -988,19 +1104,10 @@ test.describe('manual lead: Telecaller to Sales', () => {
     // This preserves the Customer-360 ownership model instead of handoffing an
     // anonymous enquiry.
     await row.getByLabel(`Review possible customer match for ${customerName}`).click();
-    const customerMatch = page.getByRole('dialog', {
-      name: /Create customer|Review possible customer match/,
-    });
-    await expect(customerMatch).toBeVisible();
-    const decisionReason = customerMatch.getByLabel(/Decision reason/);
-    if (await decisionReason.isVisible().catch(() => false)) {
-      await decisionReason.fill('This is a separate enquiry recorded during browser QA.');
-    }
-    await Promise.all([
-      page.waitForURL(new RegExp(`/${'telecaller'}/customers/`)),
-      customerMatch.getByRole('button', { name: 'Create and link customer' }).click(),
-    ]);
-    await expect(customerMatch).toBeHidden();
+    await createAndLinkQaCustomer(
+      page,
+      'Different synthetic QA customer sharing the demo test phone.',
+    );
 
     await page.goto(`${baseURL}/telecaller/my-leads`);
     await searchForLead(page);
@@ -1009,8 +1116,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await linkedRow.getByLabel(`Transfer ${customerName} to Sales`).click();
     const handoff = page.getByRole('dialog', { name: 'Transfer to Sales' });
     await handoff.getByLabel('Reason').fill('Qualified during browser QA');
-    await handoff.getByRole('combobox').click();
-    await page.getByRole('option', { name: /Dhanush Kumar/ }).click();
+    await selectFlowSalesConsultant(page, handoff);
     await handoff.getByRole('button', { name: 'Transfer to Sales' }).click();
     await expect(handoff).toBeHidden();
     await expect(linkedRow.getByText('Transferred to Sales', { exact: true })).toBeVisible();
@@ -1062,7 +1168,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     }
     await expect(createDialog).toBeHidden({ timeout: 25_000 });
 
-    const search = page.getByPlaceholder('Search by name or mobile…');
+    const search = await leadSearchField(page);
     await search.fill(edgeCustomerName);
     const row = page.locator('tbody tr').filter({ hasText: edgeCustomerName }).first();
     const transfer = row.getByLabel(`Transfer ${edgeCustomerName} to Sales`);
@@ -1101,7 +1207,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await createDialog.getByRole('button', { name: 'Create lead' }).click();
     await expect(createDialog).toBeHidden({ timeout: 25_000 });
 
-    const search = page.getByPlaceholder('Search by name or mobile…');
+    const search = await leadSearchField(page);
     await search.fill(followupCustomerName);
     const row = matchingRows(page, followupCustomerName).first();
     await expect(row.getByText('New', { exact: true })).toBeVisible();
@@ -1132,6 +1238,108 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await expectLeadOutsideQuickView(page, followupCustomerName, 'Lost', 'lost');
   });
 
+  test('completes a follow-up with a different consultant for the same customer and phone', async ({
+    page,
+  }) => {
+    const name = `Amal shared customer QA ${runId}`;
+    await signInAs(page, 'telecaller');
+    const create = await openManualLeadDialog(page);
+    await create.getByLabel('Customer name').fill(name);
+    await create.getByLabel('Phone').fill('+91 85939 39234');
+    await chooseInterestedModel(create);
+    await create.getByRole('button', { name: 'Create lead' }).click();
+    await expect(create).toBeHidden();
+    await (await leadSearchField(page)).fill(name);
+    const row = matchingRows(page, name).first();
+    await row.getByLabel(`Review possible customer match for ${name}`).click();
+    const match = page.getByRole('dialog', { name: 'Review possible customer match' });
+    await match.getByRole('radio').filter({ hasText: customerName }).click();
+    await match
+      .getByLabel(/Decision reason/)
+      .fill('Another enquiry from the same QA customer; explicitly link to the existing UUID.');
+    await Promise.all([
+      page.waitForURL(/\/telecaller\/customers\//),
+      match.getByRole('button', { name: `Link to ${customerName}`, exact: true }).click(),
+    ]);
+    await page.goto(`${baseURL}/telecaller/my-leads?status=all&q=${encodeURIComponent(name)}`);
+    await row.getByLabel(`Schedule a follow-up for ${name}`).click();
+    await page.getByRole('menuitem', { name: 'Customer Callback' }).click();
+    const followup = page.getByRole('dialog', { name: 'Schedule follow-up' });
+    await followup.locator('#followups-scheduled-at').fill(futureDateTimeInput());
+    const saveFollowup = async () => {
+      const response = page.waitForResponse((r) => r.url().includes('/rpc/create_followup'));
+      await followup.getByRole('button', { name: 'Save' }).click();
+      return response;
+    };
+    let createdResponse = await saveFollowup();
+    if (!createdResponse.ok()) {
+      const failure = await createdResponse.json();
+      // SQL statement cancellation rolls back this write. A single explicit
+      // retry uses the form's normal Save action; domain refusals still fail.
+      if (failure.code !== '57014') throw new Error(`Follow-up creation refused: ${failure.code}`);
+      createdResponse = await saveFollowup();
+    }
+    expect(createdResponse.ok(), await createdResponse.text()).toBe(true);
+    await expect(followup).toBeHidden();
+
+    // Exercise the pending-action entry point too: completion must not reopen
+    // a stale handoff after the atomic transfer has already succeeded.
+    await expect(row.getByLabel(`Transfer ${name} to Sales`)).toBeDisabled();
+    await row.getByLabel(`Schedule a follow-up for ${name}`).click();
+    await page.getByRole('menuitem', { name: 'Customer Callback' }).click();
+    const pending = page.getByRole('dialog', { name: 'Follow-up still pending' });
+    await pending.getByRole('button', { name: 'Complete follow-up' }).click();
+    const complete = page.getByRole('dialog', { name: 'Complete follow-up' });
+    await complete.getByRole('button', { name: /Transfer to Sales/ }).click();
+    await expect(complete.getByText(/Recommended: Demo Sales Consultant$/)).toBeVisible();
+    const selected = await selectFlowSalesConsultant(page, complete, 'sales_consultant_2');
+    await complete
+      .locator('#followup-completion-note')
+      .fill('Customer requested another eligible consultant for this enquiry.');
+    await page.screenshot({ path: test.info().outputPath('followup-consultant-choice.png') });
+    const saved = page.waitForResponse((r) => r.url().includes('/rpc/complete_followup'));
+    await complete.getByRole('button', { name: 'Complete follow-up', exact: true }).click();
+    const response = await saved;
+    expect(response.ok(), await response.text()).toBe(true);
+    await expect(complete).toBeHidden();
+    await expect(page.getByRole('dialog', { name: 'Transfer to Sales', exact: true })).toBeHidden();
+    await expect(
+      page.getByRole('dialog', { name: 'Schedule follow-up', exact: true }),
+    ).toBeHidden();
+    await expect(row.getByText('Transferred to Sales', { exact: true })).toBeVisible();
+
+    // Each recipient verifies their own enquiry through real RLS. The demo
+    // role switcher may use a separately configured Telecaller identity.
+    const [primaryToken, recipientToken] = await Promise.all([
+      demoSessionFor('sales_consultant'),
+      demoSessionFor('sales_consultant_2'),
+    ]);
+    const [[original], [transferred], primary] = await Promise.all([
+      demoRows(primaryToken, 'leads', {
+        select: 'id,customer_id,assigned_user_id',
+        customer_name: `eq.${customerName}`,
+      }),
+      demoRows(recipientToken, 'leads', {
+        select: 'id,customer_id,assigned_user_id',
+        customer_name: `eq.${name}`,
+      }),
+      demoRpc(primaryToken, 'get_workspace_bootstrap', {}),
+    ]);
+    expect(original).toBeTruthy();
+    expect(transferred).toBeTruthy();
+    expect(transferred.customer_id).toBe(original.customer_id);
+    expect(transferred.id).not.toBe(original.id);
+    expect(original.assigned_user_id).toBe(primary.user_id);
+    expect(transferred.assigned_user_id).toBe(selected.userId);
+    expect(
+      await demoRows(recipientToken, 'leads', { select: 'id', id: `eq.${original.id}` }),
+    ).toEqual([]);
+    const history = await demoRpc(recipientToken, 'get_lead_phone_history', {
+      target_lead_id: transferred.id,
+    });
+    expect(history.records.map((l) => l.id)).not.toContain(original.id);
+  });
+
   test('blocks Sales handoff until a Telecaller cancels the open follow-up', async ({ page }) => {
     await signInAs(page, 'telecaller');
     const createDialog = await openManualLeadDialog(page);
@@ -1149,7 +1357,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     }
     await expect(createDialog).toBeHidden({ timeout: 25_000 });
 
-    await page.getByPlaceholder('Search by name or mobile…').fill(cancelledFollowupCustomerName);
+    await (await leadSearchField(page)).fill(cancelledFollowupCustomerName);
     const row = matchingRows(page, cancelledFollowupCustomerName).first();
     await clickWhatsAppWithoutLeavingCrm(
       page,
@@ -1162,19 +1370,12 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await row
       .getByLabel(`Review possible customer match for ${cancelledFollowupCustomerName}`)
       .click();
-    const customerMatch = page.getByRole('dialog', {
-      name: /Create customer|Review possible customer match/,
-    });
-    const decisionReason = customerMatch.getByLabel(/Decision reason/);
-    if (await decisionReason.isVisible().catch(() => false)) {
-      await decisionReason.fill('Separate browser QA customer for follow-up cancellation.');
-    }
-    await Promise.all([
-      page.waitForURL(/\/telecaller\/customers\//),
-      customerMatch.getByRole('button', { name: 'Create and link customer' }).click(),
-    ]);
+    await createAndLinkQaCustomer(
+      page,
+      'Different synthetic QA customer sharing the demo phone for follow-up cancellation.',
+    );
     await page.goto(`${baseURL}/telecaller/my-leads`);
-    await page.getByPlaceholder('Search by name or mobile…').fill(cancelledFollowupCustomerName);
+    await (await leadSearchField(page)).fill(cancelledFollowupCustomerName);
     const linkedRow = matchingRows(page, cancelledFollowupCustomerName).first();
     await linkedRow.getByLabel(`Schedule a follow-up for ${cancelledFollowupCustomerName}`).click();
     await page.getByRole('menuitem', { name: 'Customer Callback' }).click();
@@ -1206,7 +1407,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await cancel.getByRole('button', { name: 'Confirm cancellation' }).click();
     await expect(cancel).toBeHidden({ timeout: 25_000 });
     await page.goto(`${baseURL}/telecaller/my-leads`);
-    await page.getByPlaceholder('Search by name or mobile…').fill(cancelledFollowupCustomerName);
+    await (await leadSearchField(page)).fill(cancelledFollowupCustomerName);
     await expectLeadInQuickView(page, cancelledFollowupCustomerName, 'Contacted', 'contacted');
     await expectLeadOutsideQuickView(page, cancelledFollowupCustomerName, 'Follow-up', 'follow-up');
   });
@@ -1221,7 +1422,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await chooseInterestedModel(createDialog);
     await createDialog.getByRole('button', { name: 'Create lead' }).click();
     await expect(createDialog).toBeHidden({ timeout: 25_000 });
-    await page.getByPlaceholder('Search by name or mobile…').fill(handoffCancellationCustomerName);
+    await (await leadSearchField(page)).fill(handoffCancellationCustomerName);
     const row = matchingRows(page, handoffCancellationCustomerName).first();
     await clickWhatsAppWithoutLeavingCrm(
       page,
@@ -1231,19 +1432,12 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await row
       .getByLabel(`Review possible customer match for ${handoffCancellationCustomerName}`)
       .click();
-    const customerMatch = page.getByRole('dialog', {
-      name: /Create customer|Review possible customer match/,
-    });
-    const decisionReason = customerMatch.getByLabel(/Decision reason/);
-    if (await decisionReason.isVisible().catch(() => false)) {
-      await decisionReason.fill('Separate browser QA customer for transfer cancellation.');
-    }
-    await Promise.all([
-      page.waitForURL(/\/telecaller\/customers\//),
-      customerMatch.getByRole('button', { name: 'Create and link customer' }).click(),
-    ]);
+    await createAndLinkQaCustomer(
+      page,
+      'Different synthetic QA customer sharing the demo phone for transfer cancellation.',
+    );
     await page.goto(`${baseURL}/telecaller/my-leads`);
-    await page.getByPlaceholder('Search by name or mobile…').fill(handoffCancellationCustomerName);
+    await (await leadSearchField(page)).fill(handoffCancellationCustomerName);
     const linkedRow = matchingRows(page, handoffCancellationCustomerName).first();
     await linkedRow.getByLabel(`Transfer ${handoffCancellationCustomerName} to Sales`).click();
     const handoff = page.getByRole('dialog', { name: 'Transfer to Sales' });
@@ -1253,17 +1447,24 @@ test.describe('manual lead: Telecaller to Sales', () => {
 
     await linkedRow.getByLabel(`Transfer ${handoffCancellationCustomerName} to Sales`).click();
     await handoff.getByLabel('Reason').fill('Qualified during Telecaller edge QA.');
-    await handoff.getByRole('combobox').click();
-    await page.getByRole('option', { name: /Dhanush Kumar/ }).click();
+    await selectFlowSalesConsultant(page, handoff);
     await handoff.getByRole('button', { name: 'Transfer to Sales' }).click();
     await expect(handoff).toBeHidden({ timeout: 25_000 });
     await expect(linkedRow.getByText('Transferred to Sales', { exact: true })).toBeVisible({
       timeout: 30_000,
     });
-    await linkedRow.getByLabel(`Cancel transfer for ${handoffCancellationCustomerName}`).click();
-    const reverse = page.getByRole('dialog', { name: 'Cancel transfer to Sales?' });
+    await linkedRow
+      .getByRole('button', {
+        name: new RegExp(
+          `^Cancel transfer(?: to .+)? for ${escapeRegExp(handoffCancellationCustomerName)}$`,
+        ),
+      })
+      .click();
+    const reverse = page.getByRole('dialog', { name: /^Cancel transfer to .+\?$/ });
+    await reverse.getByRole('combobox', { name: 'Assign to' }).click();
+    await page.getByRole('option', { name: /Return to me/ }).click();
     await reverse
-      .getByPlaceholder('Why should this lead return to the Telecaller queue?')
+      .getByRole('textbox', { name: /^Reason/ })
       .fill('Customer needs a Telecaller follow-up first.');
     await reverse.getByRole('button', { name: 'Cancel transfer' }).click();
     await expect(reverse).toBeHidden({ timeout: 25_000 });
@@ -1278,7 +1479,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     test.skip(!salesFlowLeadName, 'Set E2E_SALES_FLOW_LEAD to continue an existing Sales lead.');
     await signInAs(page, 'sales-consultant');
     await page.goto(`${baseURL}/sales-consultant/my-leads?status=all`);
-    await page.getByPlaceholder('Search by name or mobile…').fill(salesFlowLeadName);
+    await (await leadSearchField(page)).fill(salesFlowLeadName);
     const row = page.locator('tbody tr').filter({ hasText: salesFlowLeadName }).first();
     // The chain's own lead already carries the handoff's Sales follow-up, so
     // its stage reads the derived "Follow-up" rather than the lifecycle value.
@@ -1349,8 +1550,9 @@ test.describe('manual lead: Telecaller to Sales', () => {
     test.skip(!salesFlowLeadName, 'Set E2E_SALES_FLOW_LEAD to continue an existing Sales lead.');
     await signInAs(page, 'sales-consultant');
     const leadId = await salesLeadId(page, salesFlowLeadName);
-    await provisionFlowStock(leadId);
+    const testDriveStock = await provisionFlowStock(leadId);
     const testDriveRegistration = `KA QA ${runId.toUpperCase()}`;
+    const scheduledAt = await prepareIsolatedTestDrive(page);
 
     await page.goto(
       `${baseURL}/sales-consultant/test-drives?action=create&lead=${leadId}&q=${encodeURIComponent(salesFlowLeadName)}`,
@@ -1372,11 +1574,12 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await expect(vehiclePicker).toBeEnabled({ timeout: 30_000 });
     await expect(vehiclePicker.locator('svg.animate-spin')).toHaveCount(0, { timeout: 30_000 });
     await vehiclePicker.click();
-    const vehicleOption = page.getByRole('option').first();
+    await page.getByPlaceholder('Search model, variant, VIN or chassis').fill(testDriveStock.vin);
+    const vehicleOption = page.getByRole('option').filter({ hasText: testDriveStock.vin });
     await expect(vehicleOption).toBeVisible({ timeout: 30_000 });
     await vehicleOption.click();
     await page.locator('#test-drive-registration-number').fill(testDriveRegistration);
-    await page.locator('input[type="datetime-local"]').fill(futureDateTimeInput(72));
+    await page.locator('input[type="datetime-local"]').fill(scheduledAt);
     await page.getByPlaceholder('Showroom entrance').fill('Browser QA showroom');
     await page.getByPlaceholder('Planned destination').fill('Browser QA destination');
     // Navigating away before the save returns aborts it in the browser; wait
@@ -1640,13 +1843,16 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await signInAs(page, 'inventory');
     // Candidates come from the page's own RPC response rather than the rendered
     // rows, so the attempt order is the server's and every listed unit is tried.
-    const listResponse = page.waitForResponse(
-      (response) => response.url().includes('/rpc/get_stock_unit_page') && response.ok(),
-      { timeout: 30_000 },
-    );
-    // Filter values are lowercase: `?status=AVAILABLE` was ignored and listed every status.
-    await page.goto(`${baseURL}/inventory/vehicle-inventory?status=available`);
-    const listed = await (await listResponse).json();
+    // Observe navigation and its list response together, so a slow first
+    // mount cannot leave a rejected response promise unhandled.
+    const [, listResponse] = await Promise.all([
+      page.goto(`${baseURL}/inventory/vehicle-inventory?status=available`),
+      page.waitForResponse(
+        (response) => response.url().includes('/rpc/get_stock_unit_page') && response.ok(),
+        { timeout: 60_000 },
+      ),
+    ]);
+    const listed = await listResponse.json();
     const availableRows = page
       .locator('tbody tr')
       .filter({ has: page.getByText('AVAILABLE', { exact: true }) });
@@ -1809,7 +2015,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     // yet, the dialog offers Price and book instead of an empty picker.
     await signInAs(page, 'sales-consultant');
     await page.goto(`${baseURL}/sales-consultant/my-leads?status=all`);
-    await page.getByPlaceholder('Search by name or mobile…').fill(quickBookCustomerName);
+    await (await leadSearchField(page)).fill(quickBookCustomerName);
     const salesRow = matchingRows(page, quickBookCustomerName).first();
     await expect(salesRow).toContainText(quickBookCustomerName, { timeout: 30_000 });
     await salesRow.getByRole('button', { name: 'More lead actions' }).click();
@@ -1876,7 +2082,7 @@ test.describe('manual lead: Telecaller to Sales', () => {
     await saveDraftQuotation(page);
 
     await page.goto(`${baseURL}/sales-consultant/my-leads?status=all`);
-    await page.getByPlaceholder('Search by name or mobile…').fill(leadBookCustomerName);
+    await (await leadSearchField(page)).fill(leadBookCustomerName);
     const salesRow = matchingRows(page, leadBookCustomerName).first();
     await expect(salesRow).toContainText(leadBookCustomerName, { timeout: 30_000 });
     await salesRow.getByRole('button', { name: 'More lead actions' }).click();

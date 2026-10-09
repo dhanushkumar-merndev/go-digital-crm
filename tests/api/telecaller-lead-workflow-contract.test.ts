@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const workspace = readFileSync('src/features/leads/lead-workspace.tsx', 'utf8');
+const consultantSelector = readFileSync('src/features/leads/sales-consultant-selector.tsx', 'utf8');
 const workspaceApi = readFileSync('src/features/leads/lead-workspace-api.ts', 'utf8');
 const intakeMigration = readFileSync(
   'supabase/migrations/202608310003_telecaller_created_lead_intake_workflow.sql',
@@ -136,12 +137,12 @@ describe('Telecaller to Sales handoff', () => {
 
   it('lets the Telecaller pick a consultant or take the auto recommendation', () => {
     expect(workspace).toContain('function SalesHandoffDialog');
-    expect(workspace).toContain("const AUTO_SALES_HANDOFF = 'auto'");
+    expect(consultantSelector).toContain("const AUTO_SALES_HANDOFF = 'auto'");
     // The automatic rule follows the team's qualified-lead mode.
-    expect(workspace).toContain(
-      "Auto-assign · {autoRotates ? 'next in rotation' : 'fewest open leads'}",
-    );
-    expect(workspace).toContain('{consultant.open_leads} open');
+    expect(workspace).toContain('<SalesConsultantSelector');
+    expect(consultantSelector).toContain("? 'next in rotation'");
+    expect(consultantSelector).toContain(": 'fewest open leads'");
+    expect(consultantSelector).toContain('{consultant.open_leads} open');
     expect(workspace).toContain('userId: selection === AUTO_SALES_HANDOFF ? null : selection');
     expect(workspace).toContain('function canHandOffToSales');
     expect(workspaceApi).toContain('transfer_lead_to_sales');

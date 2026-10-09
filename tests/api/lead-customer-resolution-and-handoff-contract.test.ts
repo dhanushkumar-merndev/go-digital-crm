@@ -84,7 +84,7 @@ describe('Telecaller sales handoff history', () => {
     expect(handoffVisibility).toContain("''read_only'', handoff_read_only");
     expect(handoffVisibility).toContain('can_update := not handoff_read_only');
     expect(listUi).toContain('Open read-only lead details');
-    expect(listUi).toContain('Read only');
+    expect(listUi).toContain('Cancel transfer for ${row.original.customer_name}');
     expect(detailUi).toContain('!data.access.read_only');
     expect(detailUi).toContain('Open customer 360');
   });

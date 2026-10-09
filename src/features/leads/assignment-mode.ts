@@ -23,13 +23,22 @@ const descriptions: Record<AssignmentMode, string> = {
   MANUAL_ASSIGNMENT: 'chosen by a person',
 };
 
+/**
+ * Assignment-history methods that are not team modes. SAME_CUSTOMER records a
+ * lead kept with, or taken over by, the person already handling the customer.
+ * Teams never run in it, so it stays out of assignmentModes and the pickers.
+ */
+const historyOnlyLabels: Record<string, string> = {
+  SAME_CUSTOMER: 'Same customer',
+};
+
 export function isAssignmentMode(value: string): value is AssignmentMode {
   return (assignmentModes as readonly string[]).includes(value);
 }
 
 /** Accepts any string because assignment history rows carry the method as text. */
 export function assignmentModeLabel(value: string): string {
-  return isAssignmentMode(value) ? labels[value] : value;
+  return isAssignmentMode(value) ? labels[value] : (historyOnlyLabels[value] ?? value);
 }
 
 export function assignmentModeDescription(value: string): string {

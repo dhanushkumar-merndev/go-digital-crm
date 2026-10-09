@@ -66,8 +66,10 @@ describe('customer drip dispatch contract', () => {
     expect(migration).toContain('claimed.id,\n    claimed.lease_token');
   });
 
-  it('names the SMS gap instead of retrying a channel that cannot succeed', () => {
-    expect(worker).toContain('DRIP_SMS_PROVIDER_NOT_CONFIGURED');
+  it('sends SMS through the tenant MSG91 connection and approved template', () => {
+    expect(worker).toContain('sendMsg91TemplateSms');
+    expect(worker).toContain('DRIP_SMS_NOT_CONNECTED');
+    expect(worker).toContain('decryptCredential<Msg91Credential>');
   });
 
   it('backs off, gives up at the attempt cap, and completes finished enrollments', () => {

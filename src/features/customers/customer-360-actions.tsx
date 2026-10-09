@@ -22,8 +22,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { ProviderCallStartError, startProviderCall } from '@/features/calls/call-workspace-api';
+import { toast } from '@/components/ui/toast';
+import { OptionalSelect } from '@/components/shared/optional-select';
+import {
+  ProviderCallStartError,
+  setCallLeads,
+  startProviderCall,
+} from '@/features/calls/call-workspace-api';
+import { CallLeadsChecklist, useCallLeadOptions } from '@/features/calls/call-leads-checklist';
 import { liveCallQueryKeyRoot } from '@/features/calls/live-call-api';
+import { leadRequirementOptions } from '@/features/leads/lead-requirements';
 import {
   fetchCustomerTelecmiCallOptions,
   fetchCustomer360EditData,
@@ -96,7 +104,30 @@ function initialVehicles(data: Customer360EditData): VehicleDraft[] {
     model: vehicle.model,
     variant: vehicle.variant,
     model_year: vehicle.model_year,
+    fuel_type: vehicle.fuel_type,
+    transmission: vehicle.transmission,
+    odometer_km: vehicle.odometer_km,
+    ownership: vehicle.ownership,
+    purchase_year: vehicle.purchase_year,
   }));
+}
+
+const emptyVehicle: VehicleDraft = {
+  registration: null,
+  brand: null,
+  model: null,
+  variant: null,
+  model_year: null,
+  fuel_type: null,
+  transmission: null,
+  odometer_km: null,
+  ownership: null,
+  purchase_year: null,
+};
+
+function optionalNumber(value: string) {
+  const parsed = Number(value.replace(/[^0-9]/g, ''));
+  return value.trim() && Number.isFinite(parsed) ? parsed : null;
 }
 
 function initialCustomValues(data: Customer360EditData) {
@@ -114,6 +145,10 @@ function CustomerEditFormDialog({
   const [fullName, setFullName] = useState(data.customer.full_name);
   const [primaryPhone, setPrimaryPhone] = useState(data.customer.primary_phone ?? '');
   const [primaryEmail, setPrimaryEmail] = useState(data.customer.primary_email ?? '');
+  const [whatsappMode, setWhatsappMode] = useState<'SAME' | 'OTHER'>(
+    data.customer.whatsapp_phone ? 'OTHER' : 'SAME',
+  );
+  const [whatsappPhone, setWhatsappPhone] = useState(data.customer.whatsapp_phone ?? '');
   const [contacts, setContacts] = useState<ContactDraft[]>(() => initialContacts(data));
   const [addresses, setAddresses] = useState<AddressDraft[]>(() => initialAddresses(data));
   const [vehicles, setVehicles] = useState<VehicleDraft[]>(() => initialVehicles(data));
@@ -135,6 +170,7 @@ function CustomerEditFormDialog({
           full_name: fullName,
           primary_phone: primaryPhone.trim() || null,
           primary_email: primaryEmail.trim() || null,
+          whatsapp_phone: whatsappMode === 'OTHER' ? whatsappPhone.trim() || null : null,
           contacts: contacts.filter((contact) => contact.value.trim()),
           addresses: addresses.filter((address) =>
             Object.values(address.address).some((value) => value.trim()),
@@ -221,7 +257,38 @@ function CustomerEditFormDialog({
                 maxLength={30}
               />
             </div>
-            <div className="sm:col-span-2">
+            <div>
+              <Label htmlFor="customer-whatsapp-mode">WhatsApp</Label>
+              <Select
+                value={whatsappMode}
+                onValueChange={(mode: 'SAME' | 'OTHER') => setWhatsappMode(mode)}
+              >
+                <SelectTrigger id="customer-whatsapp-mode" className="mt-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SAME">Same as primary phone</SelectItem>
+                  <SelectItem value="OTHER">Different number</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {whatsappMode === 'OTHER' ? (
+              <div>
+                <Label htmlFor="customer-whatsapp-phone">WhatsApp number</Label>
+                <Input
+                  id="customer-whatsapp-phone"
+                  className="mt-2"
+                  value={whatsappPhone}
+                  onChange={(event) => setWhatsappPhone(event.target.value)}
+                  inputMode="tel"
+                  maxLength={30}
+                  required
+                />
+              </div>
+            ) : (
+              <div className="hidden sm:block" />
+            )}
+            <div className="sm:col-span-3">
               <Label htmlFor="customer-primary-email">Primary email</Label>
               <Input
                 id="customer-primary-email"
@@ -363,12 +430,7 @@ function CustomerEditFormDialog({
           <EditSection
             title="Vehicles"
             action="Add vehicle"
-            onAdd={() =>
-              setVehicles((current) => [
-                ...current,
-                { registration: null, brand: null, model: null, variant: null, model_year: null },
-              ])
-            }
+            onAdd={() => setVehicles((current) => [...current, { ...emptyVehicle }])}
           >
             {vehicles.length ? (
               vehicles.map((vehicle, index) => (
@@ -413,6 +475,40 @@ function CustomerEditFormDialog({
                     }
                     placeholder="Model year"
                     inputMode="numeric"
+                  />
+                  <Input
+                    value={vehicle.purchase_year ?? ''}
+                    onChange={(event) =>
+                      updateVehicle(index, { purchase_year: optionalNumber(event.target.value) })
+                    }
+                    placeholder="Year of purchase"
+                    inputMode="numeric"
+                  />
+                  <OptionalSelect
+                    value={vehicle.fuel_type}
+                    options={leadRequirementOptions.fuel_type}
+                    placeholder="Fuel type"
+                    onChange={(fuel_type) => updateVehicle(index, { fuel_type })}
+                  />
+                  <OptionalSelect
+                    value={vehicle.transmission}
+                    options={leadRequirementOptions.transmission}
+                    placeholder="Transmission"
+                    onChange={(transmission) => updateVehicle(index, { transmission })}
+                  />
+                  <Input
+                    value={vehicle.odometer_km ?? ''}
+                    onChange={(event) =>
+                      updateVehicle(index, { odometer_km: optionalNumber(event.target.value) })
+                    }
+                    placeholder="KMs driven"
+                    inputMode="numeric"
+                  />
+                  <OptionalSelect
+                    value={vehicle.ownership}
+                    options={leadRequirementOptions.ownership}
+                    placeholder="Ownership"
+                    onChange={(ownership) => updateVehicle(index, { ownership })}
                   />
                 </div>
               ))
@@ -721,6 +817,10 @@ export function CustomerTelecmiCallDialog({
   const [connectionId, setConnectionId] = useState('');
   const requestId = useRef<string | null>(null);
   const options = optionsQuery.data;
+  // The customer's other open enquiries the caller owns: one call usually
+  // covers them all, so the caller ticks them here before dialing.
+  const leadOptions = useCallLeadOptions(options?.lead_id ?? null, null, open);
+  const [extraLeadIds, setExtraLeadIds] = useState<string[]>([]);
   const selectedConnectionId = useMemo(
     () => connectionId || options?.connections[0]?.id || '',
     [connectionId, options?.connections],
@@ -740,8 +840,20 @@ export function CustomerTelecmiCallDialog({
         requestId: requestId.current,
       });
     },
-    onSuccess: () => {
+    onSuccess: (started) => {
       requestId.current = null;
+      if (extraLeadIds.length)
+        // The call is already ringing; a failed link must not look like a
+        // failed call, and it can be fixed later from Call detail.
+        void setCallLeads({ callId: started.call_id, leadIds: extraLeadIds })
+          .then(() => queryClient.invalidateQueries({ queryKey: ['lead-activity'] }))
+          .catch(() =>
+            toast.add({
+              type: 'error',
+              title: 'Call started, but the other leads were not attached',
+              description: 'Open the call from Calls and tick the leads it covered.',
+            }),
+          );
       onOpenChange(false);
       // No toast: LiveCallBar takes over from here and follows the call through
       // ringing, connection and outcome instead of announcing it once. Show it
@@ -809,6 +921,21 @@ export function CustomerTelecmiCallDialog({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          ) : null}
+          {leadOptions.data && leadOptions.data.leads.length > 1 ? (
+            <div className="space-y-2">
+              <Label>This call is for</Label>
+              <CallLeadsChecklist
+                options={leadOptions.data}
+                selected={extraLeadIds}
+                onChange={setExtraLeadIds}
+                disabled={start.isPending}
+              />
+              <p className="text-xs text-muted-foreground">
+                This customer has more than one enquiry with you. Tick each one this call is about;
+                the call then shows on every ticked lead&rsquo;s history.
+              </p>
             </div>
           ) : null}
           {!optionsQuery.isPending && unavailable ? (

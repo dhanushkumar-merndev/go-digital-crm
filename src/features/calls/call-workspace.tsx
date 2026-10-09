@@ -26,6 +26,7 @@ import {
   Sparkles,
   TriangleAlert,
   RadioTower,
+  UserRoundPlus,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -91,6 +92,13 @@ import {
   type CallWorkspacePermissions,
   type FinalizeManualCallInput,
 } from './call-workspace-api';
+import { CallLeadsCard } from './call-leads-checklist';
+import {
+  CreateLeadFromCallDialog,
+  callerTelHref,
+  formatCallerPhone,
+  isUnknownInboundCaller,
+} from './create-lead-from-call-dialog';
 import { liveCallQueryKeyRoot } from './live-call-api';
 import {
   isCallVersionConflict,
@@ -878,6 +886,7 @@ function CallDetailSheet({
               )}
             </div>
           )}
+          {data.lead_id ? <CallLeadsCard leadId={data.lead_id} callId={data.id} /> : null}
           <div className="grid gap-4 xl:grid-cols-12">
             <Card className="shadow-none xl:col-span-3">
               <CardHeader>
@@ -1183,6 +1192,7 @@ function CallTable({
   isFetching,
   onQueryChange,
   onOpen,
+  onCreateLead,
 }: {
   data: CallWorkspaceResult;
   query: CallQuery;
@@ -1190,6 +1200,8 @@ function CallTable({
   isFetching: boolean;
   onQueryChange: (next: Partial<CallQuery>) => void;
   onOpen: (call: CallRecord) => void;
+  /** Present only when the user may create leads. */
+  onCreateLead?: (call: CallRecord) => void;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const columns = useMemo<ColumnDef<CallRecord>[]>(
@@ -1225,6 +1237,8 @@ function CallTable({
               >
                 {row.original.customer_name ?? 'Restricted party'}
               </Link>
+            ) : isUnknownInboundCaller(row.original) ? (
+              <p className="font-semibold">Unknown caller</p>
             ) : (
               <p className="font-semibold">{row.original.customer_name ?? 'Restricted party'}</p>
             )}
@@ -1239,10 +1253,12 @@ function CallTable({
       {
         accessorKey: 'phone',
         header: 'Phone',
-        cell: ({ getValue }) => {
+        cell: ({ getValue, row }) => {
           const phone = getValue<string | null>();
           return phone ? (
-            <span className="font-medium">{phone}</span>
+            <span className="font-medium">
+              {isUnknownInboundCaller(row.original) ? formatCallerPhone(phone) : phone}
+            </span>
           ) : (
             <span className="text-muted-foreground">—</span>
           );
@@ -1315,6 +1331,25 @@ function CallTable({
         header: 'Action',
         cell: ({ row }) => (
           <div className="flex items-center gap-1">
+            {isUnknownInboundCaller(row.original) && (
+              <>
+                <Button asChild size="icon" className="size-8" variant="ghost">
+                  <a href={callerTelHref(row.original.phone as string)} aria-label="Call back">
+                    <Phone className="size-4" />
+                  </a>
+                </Button>
+                {onCreateLead && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    onClick={() => onCreateLead(row.original)}
+                  >
+                    <UserRoundPlus className="size-3.5" /> Create lead
+                  </Button>
+                )}
+              </>
+            )}
             <Button
               size="icon"
               className="size-8"
@@ -1328,7 +1363,7 @@ function CallTable({
         ),
       },
     ],
-    [expandedId, onOpen, role],
+    [expandedId, onCreateLead, onOpen, role],
   );
   // TanStack Table returns an imperative model; React Compiler intentionally skips this hook.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -1570,6 +1605,8 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
   const [createOpen, setCreateOpen] = useState(() => searchParams.get('action') === 'create');
   const [manualTimes, setManualTimes] = useState({ startedAt: '', endedAt: '' });
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
+  const [leadFromCall, setLeadFromCall] = useState<CallRecord | null>(null);
+  const canCreateLead = hasWorkspacePermission(workspaceSession, 'lead.create');
   const [detailEndedAt, setDetailEndedAt] = useState('');
   const [activeTab, setActiveTab] = useState<CallWorkspaceView>('today');
   const debouncedSearch = useDebouncedValue(query.search, 300);
@@ -1759,8 +1796,15 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
           isFetching={workspace.isFetching}
           onQueryChange={onQueryChange}
           onOpen={openCall}
+          onCreateLead={canCreateLead && !spec.readOnly ? setLeadFromCall : undefined}
         />
       </div>
+      <CreateLeadFromCallDialog
+        call={leadFromCall}
+        role={role}
+        onOpenChange={(open) => !open && setLeadFromCall(null)}
+        onCreated={invalidate}
+      />
       {permissions.canCreate && (
         <ManualCallDialog
           key={manualTimes.endedAt || 'manual-call'}

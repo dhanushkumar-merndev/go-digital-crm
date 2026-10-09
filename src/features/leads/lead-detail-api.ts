@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
+import { leadRequirementsSchema } from './lead-requirements';
 
 const nullableString = z.string().nullable();
 const nullableUuid = z.uuid().nullable();
@@ -78,6 +79,36 @@ const leadDetailSchema = z.object({
     }),
   ),
   latest_ai_summary: nullableString,
+  requirements: leadRequirementsSchema
+    .nullable()
+    .optional()
+    .transform((value) => value ?? null),
+  exchange_vehicle: z
+    .object({
+      id: z.uuid(),
+      registration: nullableString,
+      brand: nullableString,
+      model: nullableString,
+      variant: nullableString,
+      model_year: z.number().int().nullable(),
+      fuel_type: nullableString,
+      odometer_km: z.number().int().nullable(),
+      ownership: nullableString,
+      purchase_year: z.number().int().nullable(),
+    })
+    .nullable()
+    .optional()
+    .transform((value) => value ?? null),
+  exchange_case: z
+    .object({
+      status: z.string(),
+      customer_expected_value: z.coerce.number().nullable(),
+      estimated_value: z.coerce.number().nullable(),
+      accepted_value: z.coerce.number().nullable(),
+    })
+    .nullable()
+    .optional()
+    .transform((value) => value ?? null),
 });
 
 export type LeadDetail = z.infer<typeof leadDetailSchema>;

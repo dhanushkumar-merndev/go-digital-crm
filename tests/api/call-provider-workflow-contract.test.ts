@@ -81,7 +81,12 @@ describe('TeleCMI provider calling boundary', () => {
     expect(webhook).toContain('constantTimeEqual(existing.payload_hash, payloadHash)');
     expect(webhook).toContain('return response(409)');
     expect(webhook).toContain("event_type: 'TELECMI_CALL_EVENT'");
-    expect(webhook).toContain('const providerCallId = text(payload.call_id');
+    // Click-to-call keeps TeleCMI's call_id; an inbound call has none and is
+    // identified by conversation_uuid, shared by both of its legs.
+    expect(webhook).toContain('text(payload.call_id, 255) ||');
+    expect(webhook).toContain(
+      "(inbound ? text(payload.conversation_uuid, 255) || providerLegId : '')",
+    );
     expect(webhook).toContain('const providerLegId = text(payload.cmiuuid');
     expect(webhook).toContain('provider_leg_id: providerLegId || null');
     expect(webhook).not.toContain('provider-recording-ingest');
@@ -99,7 +104,7 @@ describe('TeleCMI provider calling boundary', () => {
     expect(dispatch).toContain('providerRecordingIngest');
     expect(dispatch).toContain('tasks.trigger');
     expect(dispatch).toContain("provider: 'telecmi'");
-    expect(dispatch).toContain("if (receipt.leg !== 'b') return false");
+    expect(dispatch).toContain("if (!receipt.inbound && receipt.leg !== 'b') return false");
     expect(ingest).toContain("payload.provider === 'telecmi'");
     expect(ingest).toContain('integration_credentials');
     expect(ingest).toContain("new URL('https://rest.telecmi.com/v2/play')");
@@ -215,5 +220,82 @@ describe('assigned dealership header', () => {
     expect(migration).toContain('public.team_members');
     expect(migration).toContain('public.user_branch_access');
     expect(workspace).toContain('Select customer or lead');
+  });
+});
+
+describe('TeleCMI inbound IVR call log', () => {
+  const inboundMigration = source('supabase/migrations/202610091303_telecmi_inbound_call_log.sql');
+
+  it('treats only TeleCMI inbound calls the CRM did not start as inbound', () => {
+    expect(webhook).toContain(
+      "text(payload.direction, 20).toLowerCase() === 'inbound' && !crmCallId && !providerRequestId",
+    );
+    expect(webhook).toContain("admin.rpc('apply_telecmi_inbound_call_event'");
+    expect(webhook).toContain("caller_phone: inbound ? text(payload.from, 40).replace(/\\D/g, '')");
+    expect(dispatch).toContain("supabase.rpc('apply_telecmi_inbound_call_event'");
+    expect(dispatch).toContain("inbound: receipt.direction === 'inbound'");
+  });
+
+  it('logs one call row per conversation and never creates a lead or customer', () => {
+    expect(inboundMigration).toContain(
+      'on conflict (organization_id, connection_id, provider_call_id)',
+    );
+    expect(inboundMigration).toContain("'INBOUND',\n      'PROVIDER', 'HUMAN', 'RINGING'");
+    expect(inboundMigration).not.toMatch(/insert into public\.(leads|customers)/);
+    expect(inboundMigration).toContain("message = 'SERVICE_ROLE_REQUIRED'");
+    expect(inboundMigration).toContain("'call.inbound_logged'");
+  });
+
+  it('marks an unanswered inbound call as a missed call and lets the call-end record decide', () => {
+    expect(inboundMigration).toContain(
+      "next_status := 'FAILED';\n      next_outcome := 'NO_ANSWER';",
+    );
+    expect(inboundMigration).toContain(
+      "next_status := 'COMPLETED';\n      next_outcome := 'CONNECTED';",
+    );
+  });
+
+  it('gives the call to the answering agent, else the lead owner, else the least-loaded telecaller', () => {
+    expect(inboundMigration).toContain('owner_id := agent_profile_id;');
+    expect(inboundMigration).toContain('owner_id := lead_match.assigned_user_id;');
+    expect(inboundMigration).toContain("member_row.member_type::text = 'TELECALLER_BDC'");
+    expect(inboundMigration).toContain("missed_row.outcome = 'NO_ANSWER'");
+  });
+});
+
+describe('inbound caller shown on the Calls list and turned into a lead', () => {
+  const listMigration = source('supabase/migrations/202610091351_call_list_caller_phone.sql');
+  const leadMigration = source('supabase/migrations/202610091401_create_lead_from_call.sql');
+  const dialog = source('src/features/calls/create-lead-from-call-dialog.tsx');
+
+  it('shows and searches the caller number only when no lead or customer resolves', () => {
+    expect(listMigration).toContain('else call_row.caller_phone\n      end as phone');
+    expect(listMigration).toContain(
+      "else app_private.normalize_phone_digits(coalesce(call_row.normalized_caller_phone, ''))",
+    );
+    expect(listMigration).toContain('Text-patched from the deployed pg_get_functiondef');
+  });
+
+  it('creates the lead through create_lead and links the call in one transaction', () => {
+    expect(leadMigration).toContain(
+      'app_private.can_access_call(call_row.organization_id, call_row.id)',
+    );
+    expect(leadMigration).toContain("errcode = 'PT409', message = 'CALL_ALREADY_HAS_LEAD'");
+    expect(leadMigration).toContain('new_lead_id := public.create_lead(');
+    expect(leadMigration).toContain('call_row.normalized_caller_phone,');
+    expect(leadMigration).toContain("'call.lead_created_from_call'");
+    expect(leadMigration).toContain('for update;');
+    expect(leadMigration).not.toContain('to anon');
+  });
+
+  it('lets the telecaller who handled the call keep the new lead', () => {
+    // No team: create_lead self-assigns for own-records users instead of round robin.
+    expect(leadMigration).toMatch(/call_row\.branch_id,\n[\s\S]*?\n {4}null,\n {4}'Manual',/);
+  });
+
+  it('never takes the phone number from the browser', () => {
+    expect(api).toContain("rpc('create_lead_from_call'");
+    expect(api).not.toMatch(/create_lead_from_call[\s\S]{0,200}lead_phone/);
+    expect(dialog).toContain("call.direction === 'INBOUND' && !call.lead_id && !call.customer_id");
   });
 });

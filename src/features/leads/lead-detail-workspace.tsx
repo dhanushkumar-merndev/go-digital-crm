@@ -7,7 +7,6 @@ import {
   CalendarDays,
   CircleAlert,
   Flame,
-  History,
   Mail,
   Phone,
   RotateCcw,
@@ -22,6 +21,8 @@ import { StatusBadge } from '@/components/shared/status-badge';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { LeadJourney } from './lead-journey';
+import { LeadRequirementsCards } from './lead-requirements-panel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
@@ -89,7 +90,15 @@ function LeadHeaderValue({ label, children }: { label: string; children: React.R
   );
 }
 
-function LeadOverview({ data, role }: { data: LeadDetail; role: string }) {
+function LeadOverview({
+  data,
+  role,
+  onRequirementsSaved,
+}: {
+  data: LeadDetail;
+  role: string;
+  onRequirementsSaved: () => void;
+}) {
   const lead = data.lead;
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,.8fr)]">
@@ -154,6 +163,16 @@ function LeadOverview({ data, role }: { data: LeadDetail; role: string }) {
             />
           </CardContent>
         </Card>
+        <LeadRequirementsCards
+          leadId={lead.id}
+          customerId={lead.customer_id}
+          interestedModel={lead.interested_model}
+          requirements={data.requirements}
+          exchangeVehicle={data.exchange_vehicle}
+          exchangeCase={data.exchange_case}
+          canEdit={data.access.can_update && !data.access.read_only}
+          onSaved={onRequirementsSaved}
+        />
       </div>
       <div className="space-y-4">
         <Card className="shadow-none">
@@ -203,35 +222,6 @@ function LeadOverview({ data, role }: { data: LeadDetail; role: string }) {
           </Card>
         )}
       </div>
-    </div>
-  );
-}
-
-function Timeline({ items }: { items: LeadDetail['timeline'] }) {
-  if (!items.length) {
-    return (
-      <p className="py-12 text-center text-sm text-muted-foreground">
-        No recorded lead activity yet.
-      </p>
-    );
-  }
-  return (
-    <div className="space-y-0 p-5">
-      {items.map((item, index) => (
-        <div key={item.id} className="relative flex gap-3 pb-5 last:pb-0">
-          {index < items.length - 1 && (
-            <span className="absolute left-4 top-8 h-[calc(100%-20px)] w-px bg-border" />
-          )}
-          <span className="z-10 grid size-8 shrink-0 place-items-center rounded-full border bg-white text-blue-600">
-            <History className="size-4" />
-          </span>
-          <div className="min-w-0 pt-0.5">
-            <p className="text-sm font-semibold">{item.title}</p>
-            {item.detail && <p className="mt-0.5 text-xs text-muted-foreground">{item.detail}</p>}
-            <p className="mt-1 text-[11px] text-muted-foreground">{formatDate(item.occurred_at)}</p>
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
@@ -449,11 +439,11 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
           </TabsList>
         </div>
         <TabsContent value="overview">
-          <LeadOverview data={data} role={role} />
+          <LeadOverview data={data} role={role} onRequirementsSaved={() => void detail.refetch()} />
         </TabsContent>
         <TabsContent value="timeline">
           <Card className="shadow-none">
-            <Timeline items={data.timeline} />
+            <LeadJourney leadId={lead.id} />
           </Card>
         </TabsContent>
         {data.access.can_calls && (

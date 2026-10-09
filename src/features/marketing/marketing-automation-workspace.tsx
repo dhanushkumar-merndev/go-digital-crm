@@ -54,6 +54,7 @@ import {
   fetchMarketingAutomationPermissions,
   fetchMarketingReviewCustomerOptions,
 } from './marketing-automation-api';
+import { SmsFallbackCampaignDialog } from './sms-fallback-campaign-dialog';
 
 const workspaceKey = ['marketing-automation-workspace'] as const;
 const channels = ['WHATSAPP', 'SMS', 'EMAIL'] as const;
@@ -576,8 +577,9 @@ export function MarketingAutomationWorkspace({
         <PageHeader spec={{ ...spec, primaryAction: undefined }} />
         <Alert variant="destructive">
           <AlertDescription>
-            Marketing automation is unavailable. Marketing automation permission and an authorized
-            tenant scope are required.
+            {workspace.error && 'code' in workspace.error && workspace.error.code === '42501'
+              ? 'Marketing automation permission and an authorized tenant scope are required.'
+              : 'Unable to load marketing automation. Refresh the page to try again.'}
           </AlertDescription>
         </Alert>
       </div>
@@ -602,7 +604,8 @@ export function MarketingAutomationWorkspace({
       {tab === 'DRIP' ? (
         <>
           {permissions?.canManage ? (
-            <div className="flex justify-end">
+            <div className="flex flex-wrap justify-end gap-2">
+              <SmsFallbackCampaignDialog onComplete={invalidate} />
               <CreateDripCampaignDialog onComplete={invalidate} />
             </div>
           ) : null}

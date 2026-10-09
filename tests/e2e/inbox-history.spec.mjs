@@ -2,6 +2,7 @@ import { test, expect as baseExpect } from '@playwright/test';
 
 const expect = baseExpect.configure({ timeout: 30_000 });
 const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
+const visibleBrowser = process.env.E2E_VISIBLE_BROWSER === 'true';
 
 test.use({
   launchOptions: {
@@ -9,8 +10,19 @@ test.use({
     ...(process.env.E2E_CHROMIUM_EXECUTABLE
       ? { executablePath: process.env.E2E_CHROMIUM_EXECUTABLE }
       : {}),
+    ...(visibleBrowser
+      ? {
+          args: [
+            '--start-fullscreen',
+            `--window-position=${process.env.E2E_WINDOW_POSITION ?? '0,0'}`,
+            '--window-size=1920,1080',
+            '--ozone-platform=x11',
+            '--class=gdm-e2e',
+          ],
+        }
+      : {}),
   },
-  viewport: { width: 1440, height: 1000 },
+  viewport: visibleBrowser ? null : { width: 1440, height: 1000 },
 });
 
 test('refreshes inbox messages and syncs history only for the selected chat', async ({
@@ -30,7 +42,7 @@ test('refreshes inbox messages and syncs history only for the selected chat', as
   await test.step('Sign in as the demo Telecaller', async () => {
     await page.goto(`${baseURL}/login`);
     await page.getByRole('button', { name: /Open development role switcher/ }).click();
-    await page.getByRole('button', { name: 'Telecaller / BDC Executive', exact: true }).click();
+    await page.getByRole('button', { name: /^Telecaller \/ BDC Executive(?:\s|$)/ }).click();
     await page.waitForURL(/\/telecaller\/dashboard/, { timeout: 45_000 });
   });
 
@@ -39,7 +51,7 @@ test('refreshes inbox messages and syncs history only for the selected chat', as
     const loaded = page.waitForResponse(
       (response) => response.url().endsWith('/rest/v1/rpc/get_context_inbox_page') && response.ok(),
     );
-    await page.goto(`${baseURL}/telecaller/inbox`);
+    await page.goto(`${baseURL}/telecaller/messages`);
     personalChats = (await (await loaded).json()).records.filter(
       (row) => row.channel === 'WHATSAPP_PERSONAL',
     );

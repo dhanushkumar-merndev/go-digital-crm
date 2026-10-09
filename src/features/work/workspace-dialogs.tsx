@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { useMemo, useRef, useState } from 'react';
 import {
   useWorkspaceSession,
@@ -44,7 +44,12 @@ import {
 import { SearchSelect } from '@/components/ui/search-select';
 import { salesConsultantKeys } from '@/features/sales-consultant/sales-consultant-cache';
 import { optionQueryOptions } from '@/lib/query/option-query';
-import { updateLead } from '@/features/leads/lead-workspace-api';
+import { fetchSalesHandoffCandidates, updateLead } from '@/features/leads/lead-workspace-api';
+import {
+  AUTO_SALES_HANDOFF,
+  SalesConsultantSelector,
+} from '@/features/leads/sales-consultant-selector';
+import { retryRpcRead } from '@/lib/supabase/read-rpc';
 import {
   isWorkVersionConflict,
   schedulableAppointmentTypes,
@@ -82,6 +87,15 @@ function safeMutationMessage(error: unknown) {
       APPOINTMENT_NOT_DUE: 'A future appointment cannot be marked as no-show.',
       APPOINTMENT_TERMINAL: 'This appointment is already closed.',
       FOLLOWUP_TERMINAL: 'This follow-up is already closed.',
+      FOLLOWUP_HAS_NO_LEAD: 'Link this follow-up to a lead before transferring it to Sales.',
+      LEAD_CUSTOMER_REQUIRED: 'Link or create the lead’s customer before transferring it to Sales.',
+      SALES_CONSULTANT_NOT_ELIGIBLE:
+        'That consultant is no longer eligible. Refresh the list and choose another.',
+      NO_ELIGIBLE_SALES_CONSULTANT: 'No eligible Sales Consultant is available in this team.',
+      FOLLOWUP_PENDING_BEFORE_SALES_HANDOFF:
+        'Complete or cancel the other open follow-ups before transferring this lead.',
+      LEAD_ALREADY_WITH_SALES: 'This lead has already been transferred to Sales.',
+      LEAD_LOST: 'A lost lead cannot be transferred to Sales.',
       SCOPE_DENIED: 'This record is outside your current data scope.',
       PERMISSION_DENIED:
         'You no longer have permission to change this work item. Refresh the list.',
@@ -934,7 +948,7 @@ export function FollowupCompleteDialog({
   record: FollowupRecord;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCompleted: () => void;
+  onCompleted: (outcome: FollowupOutcome) => void;
 }) {
   const [outcome, setOutcome] = useState<FollowupOutcome | null>(null);
   const [note, setNote] = useState('');
@@ -942,19 +956,45 @@ export function FollowupCompleteDialog({
   const [chained, setChained] = useState<WorkKind | null>(null);
   const workspaceSession = useWorkspaceSession();
   const isTelecaller = workspaceSession?.roleKey === 'telecaller';
+  const [salesSelection, setSalesSelection] = useState<string>(AUTO_SALES_HANDOFF);
+  const [salesSearch, setSalesSearch] = useState('');
+  const debouncedSalesSearch = useDebouncedValue(salesSearch, 300);
+  const transferRequest = useRef<{ fingerprint: string; id: string } | null>(null);
+  const candidates = useQuery({
+    queryKey: [
+      'sales-handoff-candidates',
+      ...workspaceQueryScope(workspaceSession),
+      record.lead_id,
+      debouncedSalesSearch,
+    ],
+    queryFn: ({ signal }) =>
+      fetchSalesHandoffCandidates(record.lead_id ?? '', debouncedSalesSearch, signal),
+    enabled: open && outcome === 'TRANSFER_TO_SALES' && isTelecaller && Boolean(record.lead_id),
+    placeholderData: keepPreviousData,
+    retry: retryRpcRead,
+  });
 
   const complete = useMutation({
-    mutationFn: (chosen: FollowupOutcome) =>
-      completeWork({
+    mutationFn: (chosen: FollowupOutcome) => {
+      const fingerprint = JSON.stringify([record.id, record.version, note, salesSelection]);
+      if (chosen === 'TRANSFER_TO_SALES' && transferRequest.current?.fingerprint !== fingerprint)
+        transferRequest.current = { fingerprint, id: crypto.randomUUID() };
+      return completeWork({
         kind: 'followups',
         id: record.id,
         expectedVersion: record.version,
         note,
-        requestId: crypto.randomUUID(),
+        requestId:
+          chosen === 'TRANSFER_TO_SALES' ? transferRequest.current!.id : crypto.randomUUID(),
         outcome: chosen,
-      }),
-    onSuccess: () => {
-      onCompleted();
+        salesConsultantId:
+          chosen === 'TRANSFER_TO_SALES' && salesSelection !== AUTO_SALES_HANDOFF
+            ? salesSelection
+            : null,
+      });
+    },
+    onSuccess: (_result, chosen) => {
+      onCompleted(chosen);
       onOpenChange(false);
     },
   });
@@ -979,7 +1019,7 @@ export function FollowupCompleteDialog({
       });
     },
     onSuccess: () => {
-      onCompleted();
+      onCompleted('LOST');
       onOpenChange(false);
     },
   });
@@ -991,7 +1031,15 @@ export function FollowupCompleteDialog({
   const busy = complete.isPending || markLost.isPending;
   const lostReasonTooShort = lostReason.trim().length < 3;
   const canSubmit =
-    Boolean(outcome) && !busy && (outcome !== 'LOST' || (!lostUnavailable && !lostReasonTooShort));
+    Boolean(outcome) &&
+    !busy &&
+    (outcome !== 'LOST' || (!lostUnavailable && !lostReasonTooShort)) &&
+    (outcome !== 'TRANSFER_TO_SALES' ||
+      (Boolean(record.lead_id) &&
+        !candidates.isPending &&
+        !candidates.isPlaceholderData &&
+        !candidates.isError &&
+        Boolean(candidates.data?.length)));
 
   const entity = {
     leadId: record.lead_id,
@@ -1024,28 +1072,57 @@ export function FollowupCompleteDialog({
               {outcomeChoices
                 .filter((c) => c.value !== 'TRANSFER_TO_SALES' || isTelecaller)
                 .map((choice) => {
-                const disabled = choice.value === 'LOST' && lostUnavailable;
-                const active = outcome === choice.value;
-                return (
-                  <button
-                    key={choice.value}
-                    type="button"
-                    disabled={disabled}
-                    aria-pressed={active}
-                    onClick={() => setOutcome(choice.value)}
-                    className={`rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                      active ? 'border-blue-400 bg-blue-50/60' : 'hover:border-blue-200'
-                    }`}
-                  >
-                    <p className="text-sm font-semibold text-[#12213f]">{choice.label}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {disabled ? 'This follow-up is not linked to a lead.' : choice.hint}
-                    </p>
-                  </button>
-                );
-              })}
+                  const disabled =
+                    busy ||
+                    ((choice.value === 'LOST' || choice.value === 'TRANSFER_TO_SALES') &&
+                      lostUnavailable);
+                  const active = outcome === choice.value;
+                  return (
+                    <button
+                      key={choice.value}
+                      type="button"
+                      disabled={disabled}
+                      aria-pressed={active}
+                      onClick={() => setOutcome(choice.value)}
+                      className={`rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                        active ? 'border-blue-400 bg-blue-50/60' : 'hover:border-blue-200'
+                      }`}
+                    >
+                      <p className="text-sm font-semibold text-[#12213f]">{choice.label}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {lostUnavailable &&
+                        (choice.value === 'LOST' || choice.value === 'TRANSFER_TO_SALES')
+                          ? 'This follow-up is not linked to a lead.'
+                          : choice.hint}
+                      </p>
+                    </button>
+                  );
+                })}
             </div>
           </div>
+          {outcome === 'TRANSFER_TO_SALES' && record.lead_id && (
+            <div className="mt-4 space-y-2">
+              <SalesConsultantSelector
+                consultants={candidates.data ?? []}
+                value={salesSelection}
+                onValueChange={setSalesSelection}
+                search={salesSearch}
+                onSearchChange={setSalesSearch}
+                loading={candidates.isPending || candidates.isPlaceholderData}
+                failed={candidates.isError}
+                disabled={busy}
+              />
+              {candidates.isError && (
+                <Button
+                  variant="outline"
+                  disabled={candidates.isFetching}
+                  onClick={() => void candidates.refetch()}
+                >
+                  Retry consultant list
+                </Button>
+              )}
+            </div>
+          )}
           {outcome === 'LOST' && !lostUnavailable && (
             <div className="mt-4 space-y-2">
               <Label htmlFor="followup-lost-reason">Why was the lead lost?</Label>

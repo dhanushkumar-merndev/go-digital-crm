@@ -1,12 +1,22 @@
 'use client';
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Trash2, UserPlus } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { formatNationalPhone, toDialableDigits } from '@/lib/phone';
+import { fetchAvailableTelecmiAgents } from './telecmi-agents-api';
+import { TelecmiAgentManager } from './telecmi-agent-manager';
 import { provisionTelecmiAgent, type IntegrationScopeMode } from './integration-workspace-api';
 
 export type TelecmiAgentRow = { key: string; user_id: string; phone: string };
@@ -18,30 +28,71 @@ export function newTelecmiAgentRow(row?: { user_id: string; phone: string }): Te
 /**
  * Editor for the TeleCMI user_id/phone mappings a website call needs.
  *
- * A row can be typed in by hand for an agent that already exists in the TeleCMI
+ * A row is selected from available agents in the TeleCMI
  * dashboard, or created here: provisioning calls TeleCMI's user API and fills
  * the returned `extension_appid` in, which is the field admins most often
  * mistype. The App Secret is only ever forwarded to the Edge Function.
  */
 export function TelecmiAgentEditor({
   organizationId,
+  connectionId,
   scopeMode,
   branchIds,
   appId,
   appSecret,
   rows,
+  defaultUserId,
   onChange,
 }: {
   organizationId: string;
+  connectionId?: string;
   scopeMode: IntegrationScopeMode;
   branchIds: string[];
   appId: string;
   appSecret: string;
   rows: TelecmiAgentRow[];
+  defaultUserId: string;
   onChange: (rows: TelecmiAgentRow[]) => void;
 }) {
   const [creating, setCreating] = useState(false);
+  const [choosingExisting, setChoosingExisting] = useState(false);
   const [draft, setDraft] = useState({ name: '', extension: '', phone: '', password: '' });
+  // Query keys must never contain the plaintext secret. Rotate an opaque key
+  // when it changes so agents loaded for old credentials cannot be selected.
+  const credentialKey = useMemo(() => (appSecret ? crypto.randomUUID() : 'stored'), [appSecret]);
+  const canList =
+    Number(appId) > 0 &&
+    (appSecret.trim().length >= 8 || (Boolean(connectionId) && appSecret.trim() === '')) &&
+    (scopeMode === 'ALL_BRANCHES' ? branchIds.length === 0 : branchIds.length > 0);
+  const existingAgents = useQuery({
+    queryKey: [
+      'telecmi-available-agents',
+      organizationId,
+      connectionId,
+      appId,
+      scopeMode,
+      branchIds,
+      credentialKey,
+    ],
+    queryFn: () =>
+      fetchAvailableTelecmiAgents({
+        organizationId,
+        connectionId,
+        scopeMode,
+        branchIds,
+        appId: Number(appId),
+        appSecret: appSecret.trim() || undefined,
+      }),
+    enabled: false,
+    gcTime: 0,
+    staleTime: 0,
+  });
+  const selectableAgents = (existingAgents.data?.agents ?? []).filter(
+    (agent) =>
+      !rows.some(
+        (row) => row.user_id === agent.agent_id || toDialableDigits(row.phone) === agent.phone,
+      ),
+  );
   const canProvision =
     Number(appId) > 0 &&
     appSecret.trim().length >= 8 &&
@@ -70,11 +121,9 @@ export function TelecmiAgentEditor({
       ]);
       setDraft({ name: '', extension: '', phone: '', password: '' });
       setCreating(false);
+      void existingAgents.refetch();
     },
   });
-
-  const updateRow = (key: string, patch: Partial<TelecmiAgentRow>) =>
-    onChange(rows.map((row) => (row.key === key ? { ...row, ...patch } : row)));
 
   return (
     <div className="grid gap-3 sm:col-span-2">
@@ -85,22 +134,137 @@ export function TelecmiAgentEditor({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => onChange([...rows, newTelecmiAgentRow()])}
+            disabled={!canList || existingAgents.isFetching}
+            onClick={() => {
+              setCreating(false);
+              setChoosingExisting(true);
+              void existingAgents.refetch();
+            }}
           >
             <Plus className="size-4" />
-            Add existing
+            Existing agents
           </Button>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setCreating((open) => !open)}
+            onClick={() => {
+              setChoosingExisting(false);
+              setCreating((open) => !open);
+            }}
           >
             <UserPlus className="size-4" />
             Create in TeleCMI
           </Button>
         </div>
       </div>
+
+      {!canList ? (
+        <p className="text-xs text-muted-foreground">
+          Enter the App ID, App Secret and connection scope above to load existing agents.
+        </p>
+      ) : null}
+
+      {choosingExisting ? (
+        <div className="space-y-3 rounded-lg border p-3">
+          <p className="text-xs text-muted-foreground">
+            Assign an available agent or remove an unused agent from TeleCMI. Agents already mapped
+            in the CRM or selected here are hidden from the assignment dropdown.
+          </p>
+          {existingAgents.isFetching ? (
+            <p role="status" className="text-sm text-muted-foreground">
+              Loading TeleCMI agents…
+            </p>
+          ) : existingAgents.isError ? (
+            <Alert variant="destructive">
+              <AlertTitle>Agents could not be loaded</AlertTitle>
+              <AlertDescription>
+                {existingAgents.error instanceof Error
+                  ? existingAgents.error.message
+                  : 'Try again.'}
+              </AlertDescription>
+            </Alert>
+          ) : existingAgents.data && selectableAgents.length === 0 ? (
+            <p role="status" className="text-sm text-muted-foreground">
+              No available agents with a registered mobile. Already mapped or selected agents are
+              hidden. You can create an agent if your TeleCMI plan has a free seat.
+            </p>
+          ) : existingAgents.data ? (
+            <Select
+              value=""
+              onValueChange={(agentId) => {
+                const agent = selectableAgents.find((candidate) => candidate.agent_id === agentId);
+                if (!agent || existingAgents.isFetching) return;
+                onChange([
+                  ...rows,
+                  newTelecmiAgentRow({ user_id: agent.agent_id, phone: agent.phone }),
+                ]);
+              }}
+            >
+              <SelectTrigger aria-label="Select existing TeleCMI agent">
+                <SelectValue placeholder="Select an available agent" />
+              </SelectTrigger>
+              <SelectContent>
+                {selectableAgents.map((agent) => (
+                  <SelectItem key={agent.agent_id} value={agent.agent_id}>
+                    {agent.name ?? 'Agent'} · {agent.agent_id} · {formatNationalPhone(agent.phone)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+          {existingAgents.data && !existingAgents.isFetching && !existingAgents.isError ? (
+            <TelecmiAgentManager
+              agents={existingAgents.data.all_agents}
+              rows={rows}
+              defaultUserId={defaultUserId}
+              busy={!canList}
+              context={{
+                organizationId,
+                connectionId,
+                scopeMode,
+                branchIds,
+                appId: Number(appId),
+                appSecret: appSecret.trim() || undefined,
+              }}
+              onAssign={(agent) => {
+                if (
+                  !agent.phone ||
+                  rows.some(
+                    (row) =>
+                      row.user_id === agent.agent_id || toDialableDigits(row.phone) === agent.phone,
+                  )
+                )
+                  return;
+                onChange([
+                  ...rows,
+                  newTelecmiAgentRow({ user_id: agent.agent_id, phone: agent.phone }),
+                ]);
+              }}
+              onRemoved={() => existingAgents.refetch()}
+            />
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!canList || existingAgents.isFetching}
+              onClick={() => void existingAgents.refetch()}
+            >
+              Refresh agents
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setChoosingExisting(false)}
+            >
+              Close
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {rows.length === 0 ? (
         <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
@@ -115,7 +279,7 @@ export function TelecmiAgentEditor({
             {index === 0 ? 'TeleCMI user ID' : null}
             <Input
               value={row.user_id}
-              onChange={(event) => updateRow(row.key, { user_id: event.target.value })}
+              readOnly
               placeholder="101_2223012"
               pattern="\d{1,12}_\d{1,12}"
               required
@@ -127,7 +291,7 @@ export function TelecmiAgentEditor({
             {index === 0 ? 'Employee mobile' : null}
             <Input
               value={row.phone}
-              onChange={(event) => updateRow(row.key, { phone: event.target.value })}
+              readOnly
               placeholder="919876543210"
               required
               autoComplete="off"
@@ -203,6 +367,20 @@ export function TelecmiAgentEditor({
                   ? provision.error.message
                   : 'TeleCMI rejected the request.'}
               </AlertDescription>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-2"
+                disabled={!canList || existingAgents.isFetching}
+                onClick={() => {
+                  setCreating(false);
+                  setChoosingExisting(true);
+                  void existingAgents.refetch();
+                }}
+              >
+                View existing agents
+              </Button>
             </Alert>
           ) : null}
           <div className="flex items-center justify-end gap-2 sm:col-span-2">

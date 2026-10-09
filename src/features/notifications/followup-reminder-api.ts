@@ -1,7 +1,18 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
-const reminderSchema = z.object({ id: z.uuid(), due_at: z.string(), reason: z.string() });
+const reminderSchema = z.object({
+  id: z.uuid(),
+  due_at: z.string(),
+  reason: z.string(),
+  customer_name: z.string().nullish(),
+});
 export type FollowupReminder = z.infer<typeof reminderSchema>;
+/** "Sunita Bhat · Document Reminder": the 5-minute and due-now reminders for
+ * one follow-up otherwise read identically to reminders for other customers. */
+export function followupReminderLabel(item: Pick<FollowupReminder, 'reason' | 'customer_name'>) {
+  const name = item.customer_name?.trim();
+  return name ? `${name} · ${item.reason}` : item.reason;
+}
 export const followupReminderKey = ['followup-reminders'] as const;
 export async function fetchFollowupReminders(signal: AbortSignal) {
   const { data, error } = await createClient().rpc('get_my_followup_reminders').abortSignal(signal);

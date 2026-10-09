@@ -96,8 +96,9 @@ describe('LEAST_ASSIGNED team assignment mode', () => {
     expect(executable).toContain(
       "order by case when qualified_mode = 'ROUND_ROBIN' then 0 else loaded_row.open_leads end asc",
     );
+    // SAME_CUSTOMER: the customer already has a consultant (202610090502).
     expect(read('src/features/leads/lead-workspace-api.ts')).toContain(
-      'assignment_mode: AssignmentMode;',
+      "assignment_mode: AssignmentMode | 'SAME_CUSTOMER';",
     );
   });
 

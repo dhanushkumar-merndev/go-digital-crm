@@ -17,7 +17,6 @@ import {
   ChevronRight,
   ChevronUp,
   ClockAlert,
-  Eye,
   FileUp,
   Flame,
   MoreVertical,
@@ -50,9 +49,11 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { SummaryToggle } from '@/components/domain/summary-toggle';
 import { LeadWorkspaceSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
+import { overdueTableRowClassName } from '@/components/shared/table-row-styles';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import { retryRpcRead } from '@/lib/supabase/read-rpc';
+import { AUTO_SALES_HANDOFF, SalesConsultantSelector } from './sales-consultant-selector';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
@@ -140,6 +141,7 @@ import {
   recordSalesLeadContact,
   recordTelecallerLeadContact,
   cancelSalesHandoff,
+  reassignSalesHandoff,
   fetchSalesHandoffCandidates,
   transferLeadToSales,
   setPersonalLeadPreference,
@@ -1371,9 +1373,6 @@ function LeadAssignmentDialog({
   );
 }
 
-/** Auto-assign is the sentinel that tells the database to balance the book. */
-const AUTO_SALES_HANDOFF = 'auto';
-
 /**
  * The lead row knows a follow-up is due (`next_followup_at`) but not which row
  * it is, and completing or cancelling one needs its id and version for the
@@ -1470,9 +1469,11 @@ function PendingFollowupDialog({
           onOpenChange={(open) => {
             if (!open) setAction(null);
           }}
-          onCompleted={() => {
+          onCompleted={(outcome) => {
             setAction(null);
-            onResolved(() => resume?.());
+            onResolved(() => {
+              if (outcome !== 'TRANSFER_TO_SALES') resume?.();
+            });
           }}
         />
       )}
@@ -1576,10 +1577,6 @@ function SalesHandoffDialog({
     retry: retryRpcRead,
   });
   const consultants: SalesHandoffCandidate[] = candidates.data ?? [];
-  const recommended = consultants.find((consultant) => consultant.recommended) ?? null;
-  // Only a ROUND_ROBIN team rotates; every other team's automatic pick balances
-  // the open book (see transfer_lead_to_sales).
-  const autoRotates = consultants[0]?.assignment_mode === 'ROUND_ROBIN';
   const mutation = useMutation({
     meta: { toast: false },
     mutationFn: transferLeadToSales,
@@ -1631,47 +1628,16 @@ function SalesHandoffDialog({
             });
           }}
         >
-          <div className="grid gap-1.5 text-sm font-medium">
-            Sales Consultant
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="pl-9"
-                placeholder="Search Sales Consultant"
-                maxLength={160}
-              />
-            </div>
-            <Select value={selection} onValueChange={setSelection}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={AUTO_SALES_HANDOFF}>
-                  Auto-assign · {autoRotates ? 'next in rotation' : 'fewest open leads'}
-                  {recommended ? ` (${recommended.full_name})` : ''}
-                </SelectItem>
-                {consultants.map((consultant) => (
-                  <SelectItem key={consultant.user_id} value={consultant.user_id}>
-                    {consultant.full_name} · {consultant.open_leads} open
-                    {consultant.hot_leads ? ` · ${consultant.hot_leads} hot` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs font-normal text-muted-foreground">
-              {candidates.isPending
-                ? 'Loading the team’s Sales Consultants…'
-                : candidates.isError
-                  ? 'The Sales Consultant list is currently unavailable.'
-                  : consultants.length
-                    ? autoRotates
-                      ? 'Auto-assign picks the next Sales Consultant in this team’s rotation.'
-                      : 'Auto-assign picks the consultant carrying the fewest open leads in this team.'
-                    : 'No eligible Sales Consultant is available in this team.'}
-            </p>
-          </div>
+          <SalesConsultantSelector
+            consultants={consultants}
+            value={selection}
+            onValueChange={setSelection}
+            search={search}
+            onSearchChange={setSearch}
+            loading={candidates.isPending || candidates.isPlaceholderData}
+            failed={candidates.isError}
+            disabled={mutation.isPending}
+          />
           <label className="grid gap-1.5 text-sm font-medium">
             <span>
               Reason <RequiredMark />
@@ -1723,12 +1689,24 @@ function salesHandoffCancellationErrorMessage(error: unknown) {
     return 'Only a lead that is currently transferred to Sales can be returned.';
   if (message.includes('HANDOFF_ORIGINAL_TELECALLER_REQUIRED'))
     return 'Only the Telecaller who transferred this lead can return it.';
+  if (message.includes('SALES_CONSULTANT_UNCHANGED'))
+    return 'The lead is already with that Sales Consultant. Choose someone else.';
+  if (message.includes('SALES_CONSULTANT_NOT_ELIGIBLE'))
+    return 'That Sales Consultant cannot take leads in this team right now. Choose someone else.';
   if (message.includes('PERMISSION_DENIED') || message.includes('SCOPE_DENIED'))
     return 'You do not have access to return this lead. Refresh and try again.';
   return 'The transfer could not be cancelled. Nothing was changed. Refresh and try again.';
 }
 
 /** A transfer reversal is a new auditable handoff event, never a history edit. */
+const RETURN_TO_TELECALLER = 'return-to-me';
+
+/**
+ * Cancelling a transfer names who takes the lead next: another Sales
+ * Consultant (the lead moves straight across and keeps its stage) or the
+ * telecaller themselves (it returns to their Contacted queue). One press does
+ * the whole move and closes.
+ */
 function SalesHandoffCancellationDialog({
   lead,
   open,
@@ -1740,16 +1718,59 @@ function SalesHandoffCancellationDialog({
   onOpenChange: (open: boolean) => void;
   onCancelled: () => void;
 }) {
+  const workspaceSession = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(workspaceSession);
   const [reason, setReason] = useState('');
+  const [nextOwner, setNextOwner] = useState('');
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const currentConsultant = lead?.assigned_consultant_name ?? 'the Sales Consultant';
+  const candidates = useQuery({
+    queryKey: ['sales-handoff-candidates', ...queryScope, lead?.id, debouncedSearch],
+    queryFn: ({ signal }) => fetchSalesHandoffCandidates(lead?.id ?? '', debouncedSearch, signal),
+    enabled: open && Boolean(lead),
+    placeholderData: keepPreviousData,
+    retry: retryRpcRead,
+  });
+  const options = useMemo<SearchSelectOption[]>(
+    () => [
+      {
+        value: RETURN_TO_TELECALLER,
+        label: 'Return to me',
+        description: 'Back to your Contacted queue',
+      },
+      ...(candidates.data ?? [])
+        .filter((consultant) => consultant.user_id !== lead?.assigned_user_id)
+        .map((consultant) => ({
+          value: consultant.user_id,
+          label: consultant.full_name,
+          description: `${consultant.open_leads} open${consultant.hot_leads ? ` · ${consultant.hot_leads} hot` : ''}`,
+        })),
+    ],
+    [candidates.data, lead?.assigned_user_id],
+  );
   const mutation = useMutation({
     meta: { toast: false },
-    mutationFn: cancelSalesHandoff,
-    onSuccess: () => {
+    mutationFn: async (input: { leadId: string; owner: string; reason: string }) => {
+      if (input.owner === RETURN_TO_TELECALLER) {
+        await cancelSalesHandoff({ leadId: input.leadId, reason: input.reason });
+        return null;
+      }
+      await reassignSalesHandoff({
+        leadId: input.leadId,
+        userId: input.owner,
+        reason: input.reason,
+      });
+      return options.find((option) => option.value === input.owner)?.label ?? null;
+    },
+    onSuccess: (movedTo) => {
       onOpenChange(false);
       toast.add({
         type: 'success',
         title: 'Transfer cancelled',
-        description: 'The lead is back with you as Contacted and is no longer in the Sales queue.',
+        description: movedTo
+          ? `The lead moved from ${currentConsultant} to ${movedTo}. Its stage and history stay as they were.`
+          : 'The lead is back with you as Contacted and is no longer in the Sales queue.',
       });
       onCancelled();
     },
@@ -1767,21 +1788,40 @@ function SalesHandoffCancellationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Cancel transfer to Sales?</DialogTitle>
+          <DialogTitle>Cancel transfer to {currentConsultant}?</DialogTitle>
           <DialogDescription>
-            {lead
-              ? `${lead.customer_name} will return to your Contacted queue and be removed from the Sales Consultant’s active leads.`
-              : 'Return this lead to the Telecaller queue.'}
+            Choose who takes {lead?.customer_name ?? 'this lead'} next. Its follow-ups go with it,
+            and its visits, test drives, quotations and bookings stay on the lead&rsquo;s timeline.
           </DialogDescription>
         </DialogHeader>
         <form
           className="mt-4 grid gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!lead) return;
-            mutation.mutate({ leadId: lead.id, reason });
+            if (!lead || !nextOwner) return;
+            mutation.mutate({ leadId: lead.id, owner: nextOwner, reason });
           }}
         >
+          <div className="grid gap-1.5 text-sm font-medium">
+            <span>
+              Assign to <RequiredMark />
+            </span>
+            <SearchSelect
+              value={nextOwner}
+              onValueChange={setNextOwner}
+              options={options}
+              search={search}
+              onSearchChange={setSearch}
+              isPending={candidates.isPending}
+              isFetching={candidates.isFetching}
+              isError={candidates.isError}
+              disabled={mutation.isPending}
+              placeholder="Choose a Sales Consultant"
+              searchPlaceholder="Search Sales Consultant"
+              emptyMessage="No other eligible Sales Consultant in this team."
+              aria-label="Assign to"
+            />
+          </div>
           <label className="grid gap-1.5 text-sm font-medium">
             <span>
               Reason <RequiredMark />
@@ -1792,7 +1832,7 @@ function SalesHandoffCancellationDialog({
               required
               minLength={1}
               maxLength={500}
-              placeholder="Why should this lead return to the Telecaller queue?"
+              placeholder={`Why is this lead leaving ${currentConsultant}?`}
             />
           </label>
           <DialogFooter>
@@ -1802,7 +1842,7 @@ function SalesHandoffCancellationDialog({
             <Button
               type="submit"
               variant="destructive"
-              disabled={mutation.isPending || !reason.trim()}
+              disabled={mutation.isPending || !reason.trim() || !nextOwner}
             >
               {mutation.isPending ? 'Cancelling…' : 'Cancel transfer'}
             </Button>
@@ -2195,6 +2235,7 @@ function LeadTable({
     'system-administrator',
     'business-owner',
   ].includes(role);
+  const currentUserId = useWorkspaceSession()?.userId ?? null;
   const showLeadStageFilter = role !== 'sales-consultant';
   const leadStageOptions =
     role === 'telecaller'
@@ -2286,6 +2327,25 @@ function LeadTable({
     () => new Set(historyRecords.map((lead) => lead.id)),
     [historyRecords],
   );
+  // An expanded group mixes two kinds of row. Leads the viewer owns are their
+  // own opportunities -- a second model, a separate purchase -- and keep their
+  // full actions. Everything else is context: greyed, no actions, and for a
+  // consultant's out-of-scope rows (`context_only`) not even openable.
+  const contextLeadIds = useMemo(
+    () =>
+      new Set(
+        historyRecords
+          .filter(
+            (lead) =>
+              lead.context_only ||
+              lead.read_only ||
+              !currentUserId ||
+              lead.assigned_user_id !== currentUserId,
+          )
+          .map((lead) => lead.id),
+      ),
+    [currentUserId, historyRecords],
+  );
   const lastHistoryLeadId = useMemo(
     () => (historyRecords.length ? historyRecords[historyRecords.length - 1]?.id : null),
     [historyRecords],
@@ -2360,6 +2420,7 @@ function LeadTable({
         cell: ({ row }) => {
           const lead = row.original;
           const isHistoryLead = historyLeadIds.has(lead.id);
+          const isContextLead = contextLeadIds.has(lead.id);
           const isLastHistoryLead = lastHistoryLeadId === lead.id;
           const isHighlighted = highlightedLeadId === lead.id;
           return (
@@ -2393,19 +2454,23 @@ function LeadTable({
               ) : (
                 <span className="size-6 shrink-0" aria-hidden="true" />
               )}
-              <Link
-                href={leadDetailHref(role, row.original.id)}
-                className={cn(
-                  'font-medium transition-colors hover:text-primary hover:underline',
-                  isHighlighted
-                    ? 'font-semibold text-blue-700'
-                    : isHistoryLead
-                      ? 'text-slate-500'
-                      : 'text-muted-foreground',
-                )}
-              >
-                L-{shortId(lead.id)}
-              </Link>
+              {lead.context_only ? (
+                <span className="font-medium text-slate-500">L-{shortId(lead.id)}</span>
+              ) : (
+                <Link
+                  href={leadDetailHref(role, row.original.id)}
+                  className={cn(
+                    'font-medium transition-colors hover:text-primary hover:underline',
+                    isHighlighted
+                      ? 'font-semibold text-blue-700'
+                      : isContextLead
+                        ? 'text-slate-500'
+                        : 'text-muted-foreground',
+                  )}
+                >
+                  L-{shortId(lead.id)}
+                </Link>
+              )}
               {!isHistoryLead && lead.phone_lead_count > 1 ? (
                 <Badge
                   variant="outline"
@@ -2423,7 +2488,7 @@ function LeadTable({
         header: 'Customer',
         cell: ({ row }) => {
           const { customer_id: customerId, customer_name: customerName, id } = row.original;
-          const isHistoryLead = historyLeadIds.has(id);
+          const isHistoryLead = contextLeadIds.has(id);
           // `title` keeps the full name reachable once it ellipsizes.
           if (isHistoryLead) {
             return (
@@ -2455,7 +2520,7 @@ function LeadTable({
               id: 'assigned_consultant',
               header: 'Consultant',
               cell: ({ row }: { row: { original: LeadRecord } }) => {
-                const isHistoryLead = historyLeadIds.has(row.original.id);
+                const isHistoryLead = contextLeadIds.has(row.original.id);
                 return (
                   <span
                     className={cn(
@@ -2474,7 +2539,7 @@ function LeadTable({
         accessorKey: 'phone',
         header: 'Mobile',
         cell: ({ getValue, row }) => {
-          const isHistoryLead = historyLeadIds.has(row.original.id);
+          const isHistoryLead = contextLeadIds.has(row.original.id);
           const phone = String(getValue() ?? '');
           // The column is dense and every Indian mobile is the same ten digits,
           // so the country code is noise here and lives on the tooltip instead.
@@ -2494,7 +2559,7 @@ function LeadTable({
         accessorKey: 'interested_model',
         header: 'Model',
         cell: ({ getValue, row }) => {
-          const isHistoryLead = historyLeadIds.has(row.original.id);
+          const isHistoryLead = contextLeadIds.has(row.original.id);
           return (
             <span className={isHistoryLead ? 'text-slate-500' : undefined}>
               {String(getValue() ?? '—')}
@@ -2506,7 +2571,7 @@ function LeadTable({
         accessorKey: 'source',
         header: 'Source',
         cell: ({ getValue, row }) => {
-          const isHistoryLead = historyLeadIds.has(row.original.id);
+          const isHistoryLead = contextLeadIds.has(row.original.id);
           return (
             <span className={isHistoryLead ? 'text-slate-500' : undefined}>
               {String(getValue() ?? '—')}
@@ -2519,7 +2584,7 @@ function LeadTable({
         header: 'Lead stage',
         cell: ({ row }) => {
           const lead = row.original;
-          const isHistoryLead = historyLeadIds.has(lead.id);
+          const isHistoryLead = contextLeadIds.has(lead.id);
           const stage = leadStageLabel(lead.lead_stage, Boolean(lead.next_followup_at));
           const stageDestination = stageFocusDestinations[stage];
           const destination =
@@ -2536,14 +2601,53 @@ function LeadTable({
                   href: leadDetailHref(role, lead.id),
                   actionLabel: 'Open lead details',
                 };
+          // Who the lead now sits with in Sales. Only a Sales Consultant is
+          // named: a lead still with a Telecaller shows nothing, and so does a
+          // consultant's own lead. Manager views have a Consultant column.
+          const consultantName =
+            !isManagerView && lead.assigned_user_id !== currentUserId
+              ? lead.assigned_consultant_name?.trim()
+              : null;
+          // A consultant sees the other direction: who handed the lead over.
+          const handedOffBy =
+            role === 'sales-consultant' && lead.assigned_user_id === currentUserId
+              ? lead.handed_off_by_name?.trim()
+              : null;
+          const ownerLine = consultantName
+            ? { text: consultantName, title: `Sales Consultant: ${consultantName}` }
+            : handedOffBy
+              ? { text: `from ${handedOffBy}`, title: `Handed over by ${handedOffBy}` }
+              : null;
           return (
-            <StageBadge
-              value={stage}
-              href={destination.href}
-              actionLabel={destination.actionLabel}
-              customerName={lead.customer_name}
-              isMuted={isHistoryLead}
-            />
+            <div className="flex min-w-0 flex-col items-start gap-0.5">
+              {lead.context_only ? (
+                <Badge
+                  variant={leadStageVariant(stage)}
+                  className="rounded px-2 py-0 text-[10px] opacity-60 grayscale-[30%]"
+                >
+                  {stage}
+                </Badge>
+              ) : (
+                <StageBadge
+                  value={stage}
+                  href={destination.href}
+                  actionLabel={destination.actionLabel}
+                  customerName={lead.customer_name}
+                  isMuted={isHistoryLead}
+                />
+              )}
+              {ownerLine ? (
+                <span
+                  className={cn(
+                    'max-w-36 truncate text-[10px] leading-3 text-muted-foreground',
+                    isHistoryLead && 'text-slate-400',
+                  )}
+                  title={ownerLine.title}
+                >
+                  {ownerLine.text}
+                </span>
+              ) : null}
+            </div>
           );
         },
       },
@@ -2551,7 +2655,7 @@ function LeadTable({
         accessorKey: 'temperature',
         header: 'Temperature',
         cell: ({ row }) => {
-          const isHistoryLead = historyLeadIds.has(row.original.id);
+          const isHistoryLead = contextLeadIds.has(row.original.id);
           if (canUpdate && !row.original.read_only && !isHistoryLead) {
             return (
               <DropdownMenu>
@@ -2593,35 +2697,11 @@ function LeadTable({
         },
       },
       {
-        accessorKey: 'updated_at',
-        header: 'Last activity',
-        cell: ({ getValue, row }) => {
-          const isHistoryLead = historyLeadIds.has(row.original.id);
-          return (
-            <span className={isHistoryLead ? 'text-slate-400' : undefined}>
-              {formatCompactDate(String(getValue()))}
-            </span>
-          );
-        },
-      },
-      {
-        accessorKey: 'next_followup_at',
-        header: 'Next follow-up',
-        cell: ({ row }) => {
-          const isHistoryLead = historyLeadIds.has(row.original.id);
-          return (
-            <span className={isHistoryLead ? 'text-slate-400' : undefined}>
-              {formatCompactDate(row.original.next_followup_at)}
-            </span>
-          );
-        },
-      },
-      {
         accessorKey: 'created_at',
         header: 'Created',
         cell: ({ getValue, row }) => {
           const createdAt = String(getValue());
-          const isHistoryLead = historyLeadIds.has(row.original.id);
+          const isHistoryLead = contextLeadIds.has(row.original.id);
           return (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -2642,41 +2722,68 @@ function LeadTable({
         },
       },
       {
+        accessorKey: 'updated_at',
+        header: 'Last activity',
+        cell: ({ getValue, row }) => {
+          const isHistoryLead = contextLeadIds.has(row.original.id);
+          return (
+            <span className={isHistoryLead ? 'text-slate-400' : undefined}>
+              {formatCompactDate(String(getValue()))}
+            </span>
+          );
+        },
+      },
+      {
+        accessorKey: 'next_followup_at',
+        header: 'Next follow-up',
+        cell: ({ row }) => {
+          const isHistoryLead = contextLeadIds.has(row.original.id);
+          return (
+            <span className={isHistoryLead ? 'text-slate-400' : undefined}>
+              {formatCompactDate(row.original.next_followup_at)}
+            </span>
+          );
+        },
+      },
+      {
         id: 'actions',
         header: 'Actions',
         cell: ({ row }) => {
+          // Context rows in an expanded group carry no actions at all -- not
+          // even View. This check has to run before the read-only branch, or a
+          // context row (always read_only) would get a View link it can't open.
+          if (contextLeadIds.has(row.original.id)) return null;
+          // A lead with Sales opens from the row itself, and the consultant's
+          // name already sits under the stage badge. The only action left is
+          // pulling the transfer back.
           if (row.original.read_only) {
+            // At any Sales stage -- follow-up, visit, test drive, quotation or
+            // booking -- the telecaller can pull the lead back; its history
+            // stays and the timeline carries on.
+            const canCancel =
+              canCancelSalesHandoff &&
+              (row.original.lifecycle_status === 'Transferred to Sales' ||
+                row.original.lifecycle_status === 'Appointment Scheduled');
+            if (!canCancel) return null;
             return (
-              <div className="flex justify-end gap-1">
-                <Button asChild variant="ghost" size="sm" className="h-7 text-xs">
-                  <Link
-                    href={leadDetailHref(role, row.original.id)}
-                    title="Read only — transferred to Sales"
-                    aria-label={`View ${row.original.customer_name} (read only)`}
-                  >
-                    <Eye className="size-3.5" />
-                    View
-                  </Link>
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs text-rose-600 hover:text-rose-700"
+                  aria-label={`Cancel transfer for ${row.original.customer_name}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCancelSalesHandoff(row.original);
+                  }}
+                >
+                  <Undo2 className="size-3.5" />
+                  Cancel transfer
                 </Button>
-                {canCancelSalesHandoff &&
-                row.original.lifecycle_status === 'Transferred to Sales' ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs text-rose-600 hover:text-rose-700"
-                    title={`Cancel transfer for ${row.original.customer_name}`}
-                    aria-label={`Cancel transfer for ${row.original.customer_name}`}
-                    onClick={() => onCancelSalesHandoff(row.original)}
-                  >
-                    <Undo2 className="size-3.5" />
-                    Cancel transfer
-                  </Button>
-                ) : null}
               </div>
             );
           }
-          if (historyLeadIds.has(row.original.id)) return null;
 
           return (
             <div className="flex items-center justify-end gap-0.5">
@@ -2713,7 +2820,15 @@ function LeadTable({
                     <DropdownMenuLabel className="text-xs">
                       Call {row.original.customer_name}
                     </DropdownMenuLabel>
-                    <DropdownMenuItem onSelect={() => onProviderCall(row.original)}>
+                    <DropdownMenuItem
+                      disabled={!row.original.customer_id && !canLinkCustomer}
+                      title={
+                        !row.original.customer_id && !canLinkCustomer
+                          ? 'Ask an authorized employee to link this lead to a customer first.'
+                          : undefined
+                      }
+                      onSelect={() => onProviderCall(row.original)}
+                    >
                       <PhoneCall className="size-3.5" />
                       Call through CRM
                     </DropdownMenuItem>
@@ -2782,6 +2897,24 @@ function LeadTable({
                     >
                       <WhatsAppIcon className="size-3.5" />
                       WhatsApp API
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <a
+                        href={toWhatsAppClickToChatUrl(row.original.phone)}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() => {
+                          if (role === 'telecaller') {
+                            onIntakeContact(row.original, 'WHATSAPP');
+                          } else {
+                            onSalesContact(row.original, 'WHATSAPP');
+                          }
+                        }}
+                      >
+                        <Smartphone className="size-3.5" />
+                        WhatsApp on my phone
+                      </a>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -3097,6 +3230,7 @@ function LeadTable({
       advanceLead,
       blockedByOpenFollowup,
       isManagerView,
+      currentUserId,
       onAssign,
       onEdit,
       onTemperatureChange,
@@ -3120,6 +3254,7 @@ function LeadTable({
       personalFlags,
       expandedLeadId,
       historyLeadIds,
+      contextLeadIds,
       lastHistoryLeadId,
       highlightedLeadId,
       togglePhoneHistory,
@@ -3474,13 +3609,22 @@ function LeadTable({
                           : undefined
                       }
                       title={row.original.read_only ? 'Open read-only lead details' : undefined}
-                      className={
+                      className={cn(
                         highlightedLeadId === row.original.id
-                          ? focusedRowClassName
+                          ? row.original.next_followup_at &&
+                            Date.parse(row.original.next_followup_at) < Date.now() &&
+                            row.original.lifecycle_status !== 'Lost'
+                            ? 'ring-1 ring-inset ring-blue-200/80 transition-colors duration-500'
+                            : focusedRowClassName
                           : expandedLeadId === row.original.id
                             ? 'bg-blue-50/40 hover:bg-blue-50/60 transition-colors duration-500'
-                            : 'hover:bg-slate-50/70 transition-colors duration-500'
-                      }
+                            : 'hover:bg-slate-50/70 transition-colors duration-500',
+                        !row.original.context_only &&
+                          row.original.lifecycle_status !== 'Lost' &&
+                          row.original.next_followup_at &&
+                          Date.parse(row.original.next_followup_at) < Date.now() &&
+                          overdueTableRowClassName,
+                      )}
                       onClick={(event) => {
                         if (!row.original.read_only) return;
                         if (
@@ -3534,55 +3678,81 @@ function LeadTable({
                       </TableRow>
                     ) : null}
                     {expandedLeadId === row.original.id
-                      ? historyTable.getRowModel().rows.map((historyRow) => (
-                          <TableRow
-                            key={`history-${historyRow.original.id}`}
-                            id={`lead-row-${historyRow.original.id}`}
-                            tabIndex={0}
-                            aria-label={`Open historical lead L-${shortId(historyRow.original.id)} for ${historyRow.original.customer_name}`}
-                            title={`Open lead L-${shortId(historyRow.original.id)}`}
-                            className={
-                              highlightedLeadId === historyRow.original.id
-                                ? focusedRowClassName
-                                : 'cursor-pointer bg-slate-50/40 text-slate-500 transition-colors hover:bg-slate-100/70 border-b border-b-slate-100/80 focus-visible:bg-slate-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring'
-                            }
-                            onClick={(event) => {
-                              if (
-                                (event.target as HTMLElement).closest(
-                                  'a, button, input, select, textarea, [role="button"], [role="menuitem"]',
+                      ? historyTable.getRowModel().rows.map((historyRow) => {
+                          const historyLead = historyRow.original;
+                          // The viewer's own lead in the group is a separate
+                          // opportunity (another model, another purchase) and
+                          // is worked from here like any other row.
+                          const isWorkable = !contextLeadIds.has(historyLead.id);
+                          // Another consultant's or telecaller's lead: shown so
+                          // the customer's other enquiries are visible, never
+                          // opened from here.
+                          const isOpenable = !historyLead.context_only;
+                          const openLead = () =>
+                            tableRouter.push(leadDetailHref(role, historyLead.id));
+                          return (
+                            <TableRow
+                              key={`history-${historyLead.id}`}
+                              id={`lead-row-${historyLead.id}`}
+                              tabIndex={isOpenable ? 0 : undefined}
+                              aria-label={
+                                isOpenable
+                                  ? `Open lead L-${shortId(historyLead.id)} for ${historyLead.customer_name}`
+                                  : `Lead L-${shortId(historyLead.id)} for ${historyLead.customer_name}, assigned to someone else`
+                              }
+                              title={
+                                isOpenable
+                                  ? `Open lead L-${shortId(historyLead.id)}`
+                                  : 'Assigned to someone else — shown for context'
+                              }
+                              className={
+                                highlightedLeadId === historyLead.id
+                                  ? focusedRowClassName
+                                  : isWorkable
+                                    ? 'cursor-pointer border-b border-b-slate-100/80 transition-colors hover:bg-slate-50/70 focus-visible:bg-slate-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring'
+                                    : cn(
+                                        'bg-slate-50/40 text-slate-500 transition-colors border-b border-b-slate-100/80',
+                                        isOpenable &&
+                                          'cursor-pointer hover:bg-slate-100/70 focus-visible:bg-slate-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                                      )
+                              }
+                              onClick={(event) => {
+                                if (!isOpenable) return;
+                                if (
+                                  (event.target as HTMLElement).closest(
+                                    'a, button, input, select, textarea, [role="button"], [role="menuitem"]',
+                                  )
                                 )
-                              )
-                                return;
-                              tableRouter.push(leadDetailHref(role, historyRow.original.id));
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key !== 'Enter' && event.key !== ' ') return;
-                              if (event.target !== event.currentTarget) return;
-                              event.preventDefault();
-                              tableRouter.push(leadDetailHref(role, historyRow.original.id));
-                            }}
-                          >
-                            {historyRow.getVisibleCells().map((cell) => (
-                              <TableCell
-                                key={`history-${cell.id}`}
-                                className={cn(
-                                  'whitespace-nowrap px-3 py-2.5 text-xs text-slate-500',
-                                  cell.column.id === 'lead_id' && 'relative',
-                                  cell.column.id === 'customer_name' && 'max-w-[190px]',
-                                  cell.column.id === 'actions' && 'w-px !pr-4',
-                                )}
-                              >
-                                {/* A row in the expanded group is a read-only
-                                    record of an earlier enquiry on the same
-                                    mobile. Its actions repeated the parent's on
-                                    a lead you are only looking back at, so the
-                                    cell is left empty and the row itself is the
-                                    single affordance: pressing it opens the lead. */}
-                                {cell.column.id === 'actions' ? null : renderLeadCell(cell)}
-                              </TableCell>
-                            ))}
-                          </TableRow>
-                        ))
+                                  return;
+                                openLead();
+                              }}
+                              onKeyDown={(event) => {
+                                if (!isOpenable) return;
+                                if (event.key !== 'Enter' && event.key !== ' ') return;
+                                if (event.target !== event.currentTarget) return;
+                                event.preventDefault();
+                                openLead();
+                              }}
+                            >
+                              {historyRow.getVisibleCells().map((cell) => (
+                                <TableCell
+                                  key={`history-${cell.id}`}
+                                  className={cn(
+                                    'whitespace-nowrap px-3 py-2.5 text-xs',
+                                    !isWorkable && 'text-slate-500',
+                                    cell.column.id === 'lead_id' && 'relative',
+                                    cell.column.id === 'customer_name' && 'max-w-[190px]',
+                                    cell.column.id === 'actions' && 'w-px !pr-4',
+                                  )}
+                                >
+                                  {/* A context row repeats nothing actionable:
+                                      its actions cell renders empty. */}
+                                  {renderLeadCell(cell)}
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          );
+                        })
                       : null}
                   </Fragment>
                 ))
@@ -3871,6 +4041,7 @@ export function LeadWorkspace({
   const [followupShortcut, setFollowupShortcut] = useState<FollowupShortcut | null>(null);
   const [appointmentShortcut, setAppointmentShortcut] = useState<AppointmentShortcut | null>(null);
   const [matchingLead, setMatchingLead] = useState<LeadRecord | null>(null);
+  const [callAfterCustomerMatch, setCallAfterCustomerMatch] = useState(false);
   const [duplicateDeletionLead, setDuplicateDeletionLead] = useState<LeadRecord | null>(null);
   const [pendingFollowup, setPendingFollowup] = useState<PendingFollowupRequest | null>(null);
   const debouncedSearch = useDebouncedValue(query.search, 300);
@@ -4260,7 +4431,16 @@ export function LeadWorkspace({
     // Silent on success, for the same reason as salesContactMutation.
     meta: { toast: false },
     mutationFn: recordTelecallerLeadContact,
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      // First contact wins the customer: another telecaller's untouched leads
+      // on this mobile just moved here. Say so, or they appear unannounced.
+      const takenOver = result.taken_over_lead_ids?.length ?? 0;
+      if (takenOver)
+        toast.add({
+          title: `Also took over ${takenOver} ${takenOver === 1 ? 'lead' : 'leads'} on this number`,
+          description:
+            'You contacted this customer first, so their other new enquiries are now yours.',
+        });
       await Promise.all([
         queryClient.cancelQueries({ queryKey: ['lead-workspace', ...queryScope] }),
         queryClient.cancelQueries({ queryKey: ['lead-workspace-meta', ...queryScope] }),
@@ -4469,7 +4649,10 @@ export function LeadWorkspace({
         }
         onScheduleFollowup={(lead, reason) => setFollowupShortcut({ lead, reason })}
         onScheduleAppointment={(lead, type) => setAppointmentShortcut({ lead, type })}
-        onMatchCustomer={setMatchingLead}
+        onMatchCustomer={(lead) => {
+          setCallAfterCustomerMatch(false);
+          setMatchingLead(lead);
+        }}
         onSalesContact={(lead, channel) =>
           salesContactMutation.mutate({ leadId: lead.id, channel })
         }
@@ -4483,7 +4666,14 @@ export function LeadWorkspace({
           Boolean(workspaceSession?.organizationId) &&
           hasWorkspacePermission(workspaceSession, 'call.create')
         }
-        onProviderCall={setProviderCallLead}
+        onProviderCall={(lead) => {
+          if (lead.customer_id) {
+            setProviderCallLead(lead);
+          } else {
+            setCallAfterCustomerMatch(true);
+            setMatchingLead(lead);
+          }
+        }}
         canProviderWhatsApp={
           !spec.readOnly &&
           Boolean(workspaceSession?.organizationId) &&
@@ -4499,13 +4689,13 @@ export function LeadWorkspace({
         onRequestDuplicateDeletion={setDuplicateDeletionLead}
         onPendingFollowup={setPendingFollowup}
       />
-      {workspaceSession?.organizationId && providerCallLead ? (
+      {workspaceSession?.organizationId && providerCallLead?.customer_id ? (
         <CustomerTelecmiCallDialog
           key={providerCallLead.id}
           open
           onOpenChange={(open) => !open && setProviderCallLead(null)}
           organizationId={workspaceSession.organizationId}
-          customerId={providerCallLead.customer_id ?? ''}
+          customerId={providerCallLead.customer_id}
           leadId={providerCallLead.id}
           customerName={providerCallLead.customer_name}
           customerPhone={providerCallLead.phone}
@@ -4667,13 +4857,22 @@ export function LeadWorkspace({
         lead={matchingLead as MatchableLead | null}
         open={Boolean(matchingLead)}
         canCreate={Boolean(permissions?.canCreateCustomer)}
-        onOpenChange={(open) => !open && setMatchingLead(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMatchingLead(null);
+            setCallAfterCustomerMatch(false);
+          }
+        }}
         onResolved={(customerId) => {
           void invalidate();
           void queryClient.invalidateQueries({
             queryKey: ['customer-workspace', ...queryScope],
           });
-          router.push(`/${role}/customers/${customerId}`);
+          if (callAfterCustomerMatch && matchingLead) {
+            setProviderCallLead({ ...matchingLead, customer_id: customerId });
+          } else {
+            router.push(`/${role}/customers/${customerId}`);
+          }
         }}
       />
       <DuplicateLeadDeletionRequestDialog

@@ -44,6 +44,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { Badge } from '@/components/ui/badge';
+import { overdueTableRowClassName } from '@/components/shared/table-row-styles';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
@@ -1181,13 +1182,15 @@ function WorkTable({
                         <TableRow
                           key={row.id}
                           id={focusRowElementId(kind, row.original.id)}
-                          className={
-                            focused
-                              ? focusedRowClassName
-                              : isOverdue
-                                ? 'bg-red-50/60 hover:bg-red-100/70 dark:bg-red-950/20 dark:hover:bg-red-950/40'
-                                : 'hover:bg-slate-50/70'
-                          }
+                          data-overdue={isOverdue || undefined}
+                          className={cn(
+                            focused &&
+                              (isOverdue
+                                ? 'ring-1 ring-inset ring-blue-200/80'
+                                : focusedRowClassName),
+                            isOverdue && overdueTableRowClassName,
+                            !focused && !isOverdue && 'hover:bg-slate-50/70',
+                          )}
                         >
                           {row.getVisibleCells().map((cell) => (
                             <TableCell
@@ -1467,6 +1470,15 @@ export function WorkWorkspace({
   // to that lead. The badge only knows the lead, so more than one follow-up or
   // appointment can match and all of them are marked.
   const focusId = readFocusParam(searchParams);
+  // The query is seeded from the URL only on mount. A reminder link pushed
+  // while this page is already open carries its own tab and search, so a newly
+  // arrived focus re-seeds from the URL; otherwise the row it points at may be
+  // filtered out of the list and there is nothing to mark.
+  const [seededFocusId, setSeededFocusId] = useState(focusId);
+  if (focusId !== seededFocusId) {
+    setSeededFocusId(focusId);
+    if (focusId) setQuery(parseWorkQuery(searchParams, kind));
+  }
   const focusMatchedIds = useMemo(
     () =>
       focusId

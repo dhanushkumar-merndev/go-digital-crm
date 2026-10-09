@@ -19,7 +19,9 @@ const workWorkspace = source('src/features/work/workspace.tsx');
 
 describe('Customer 360 edit contract', () => {
   it('provides a contextual creation action for each editable Customer 360 tab', () => {
-    // Calls, conversations, follow-ups and appointments belong to the lead.
+    // Calls, follow-ups, appointments and messages are read-only tabs on
+    // Customer 360 (product decision 2026-10-09, AGENTS §9.5); creating one
+    // still starts from its own workspace.
     for (const label of [
       'Add lead',
       'Add follow-up',
@@ -31,7 +33,16 @@ describe('Customer 360 edit contract', () => {
       expect(customerWorkspace).toContain(label);
     }
     expect(customerWorkspace).toContain('router.push(`/${role}/follow-ups?action=create`)');
-    expect(customerWorkspace).not.toContain('<TabsTrigger value="appointments">');
+    for (const [access, tab] of [
+      ['calls', 'calls'],
+      ['followups', 'followups'],
+      ['appointments', 'appointments'],
+      ['conversations', 'messages'],
+    ]) {
+      expect(customerWorkspace).toMatch(
+        new RegExp(`data\\.section_access\\.${access} && \\(?\\s*<TabsTrigger value="${tab}">`),
+      );
+    }
     expect(customerWorkspace).toContain('router.push(`/${role}/test-drives?action=create`)');
     expect(customerWorkspace).toContain('router.push(`/${role}/quotations?action=create`)');
     expect(customerWorkspace).toContain('router.push(`/${role}/bookings?action=create`)');

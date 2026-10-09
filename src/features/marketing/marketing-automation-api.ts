@@ -3,7 +3,9 @@ import { createClient } from '@/lib/supabase/client';
 
 const nullableString = z.string().nullable();
 const nullableUuid = z.uuid().nullable();
-const timestamp = z.string().datetime().nullable();
+// PostgreSQL timestamptz JSON includes offsets such as +00:00, as well as Z.
+const requiredTimestamp = z.string().datetime({ offset: true });
+const timestamp = requiredTimestamp.nullable();
 
 const campaignSchema = z.object({
   id: z.uuid(),
@@ -15,7 +17,7 @@ const campaignSchema = z.object({
   starts_at: timestamp,
   step_count: z.coerce.number().int().nonnegative(),
   version: z.coerce.number().int().positive(),
-  updated_at: z.string().datetime(),
+  updated_at: requiredTimestamp,
 });
 
 const reviewSchema = z.object({
@@ -29,8 +31,8 @@ const reviewSchema = z.object({
   status: z.enum(['QUEUED', 'SENT', 'DELIVERED', 'COMPLETED', 'FAILED', 'CANCELLED']),
   scheduled_for: timestamp,
   sent_at: timestamp,
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime(),
+  created_at: requiredTimestamp,
+  updated_at: requiredTimestamp,
   version: z.coerce.number().int().positive(),
 });
 
@@ -60,7 +62,7 @@ const customerOptionSchema = z.object({
   booking_id: z.uuid(),
   booking_number: z.string(),
   branch_id: z.uuid(),
-  updated_at: z.string().datetime(),
+  updated_at: requiredTimestamp,
 });
 export type MarketingReviewCustomerOption = z.infer<typeof customerOptionSchema>;
 
@@ -69,6 +71,68 @@ const scopeOptionsSchema = z.object({
   branches: z.array(z.object({ id: z.uuid(), name: z.string() })),
 });
 export type MarketingAutomationScopeOptions = z.infer<typeof scopeOptionsSchema>;
+
+const builderOptionsSchema = z.object({
+  can_manage: z.boolean(),
+  tokens: z.array(z.string()),
+  sources: z.array(z.string()),
+  channels: z.object({ WHATSAPP: z.boolean(), SMS: z.boolean(), EMAIL: z.boolean() }),
+  templates: z.array(
+    z.object({
+      id: z.uuid(),
+      name: z.string(),
+      channel: z.enum(['WHATSAPP', 'SMS', 'EMAIL']),
+      status: z.string(),
+      body: nullableString,
+      placeholders: z.array(z.string()),
+    }),
+  ),
+});
+
+export async function fetchMarketingDripBuilderOptions(signal?: AbortSignal) {
+  const request = createClient().rpc('get_marketing_drip_builder_options');
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return builderOptionsSchema.parse(data);
+}
+
+export async function createSmsFallbackCampaign(input: {
+  name: string;
+  branchId?: string;
+  sources: string[];
+  templateId: string;
+  variableMap: Record<string, string>;
+  requestId: string;
+}) {
+  const { data, error } = await createClient().rpc('save_marketing_drip_campaign', {
+    target_campaign_id: null,
+    target_expected_version: null,
+    target_branch_id: input.branchId || null,
+    target_payload: {
+      name: input.name,
+      description:
+        'Send an enquiry thank-you by SMS when no lead or linked customer email is available.',
+      trigger_type: 'LEAD_CREATED',
+      trigger_conditions: { sources: input.sources, models: [], email_presence: 'MISSING' },
+      steps: [
+        {
+          step_order: 1,
+          delay_hours: 0,
+          channels: [
+            {
+              channel: 'SMS',
+              template_id: input.templateId,
+              variable_map: input.variableMap,
+            },
+          ],
+        },
+      ],
+    },
+    target_request_id: input.requestId,
+  });
+  if (error) throw error;
+  return mutationResultSchema.parse(data);
+}
 
 const mutationResultSchema = z.object({
   id: z.uuid(),

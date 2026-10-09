@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
+import { leadRequirementsSchema } from '@/features/leads/lead-requirements';
 import type { CustomerQuery } from './customer-workspace-query';
 
 const nullableString = z.string().nullable();
@@ -118,12 +119,21 @@ const sectionAccessSchema = z.object({
   customer_care: z.boolean(),
 });
 
+const optionalNullableString = nullableString.optional().transform((value) => value ?? null);
+const optionalNullableNumber = z.coerce
+  .number()
+  .nullable()
+  .optional()
+  .transform((value) => value ?? null);
+
 const customer360Schema = z.object({
   customer: z.object({
     id: z.uuid(),
     full_name: z.string(),
     primary_phone: nullableString,
     primary_email: nullableString,
+    // null means the customer uses their primary phone on WhatsApp.
+    whatsapp_phone: optionalNullableString,
     created_at: z.string(),
     updated_at: z.string(),
   }),
@@ -141,6 +151,56 @@ const customer360Schema = z.object({
       team_name: nullableString,
       assigned_user_id: z.uuid().nullable(),
       assigned_user_name: nullableString,
+      assigned_user_phone: optionalNullableString,
+      requirements: leadRequirementsSchema
+        .nullable()
+        .optional()
+        .transform((value) => value ?? null),
+      exchange_case: z
+        .object({
+          id: z.uuid(),
+          status: z.string(),
+          vehicle_id: z.uuid().nullable(),
+          customer_expected_value: z.coerce.number().nullable(),
+          estimated_value: z.coerce.number().nullable(),
+          accepted_value: z.coerce.number().nullable(),
+          odometer_km: z.number().int().nullable(),
+          fuel_type: nullableString,
+          ownership: nullableString,
+          updated_at: z.string(),
+        })
+        .nullable()
+        .optional()
+        .transform((value) => value ?? null),
+      exchange_vehicle: z
+        .object({
+          id: z.uuid(),
+          registration: nullableString,
+          brand: nullableString,
+          model: nullableString,
+          variant: nullableString,
+          model_year: z.number().int().nullable(),
+          fuel_type: nullableString,
+          transmission: nullableString,
+          odometer_km: z.number().int().nullable(),
+          ownership: nullableString,
+          purchase_year: z.number().int().nullable(),
+        })
+        .nullable()
+        .optional()
+        .transform((value) => value ?? null),
+      latest_call_summary: z
+        .object({
+          call_id: z.uuid(),
+          summary: z.string(),
+          started_at: z.string(),
+          duration_seconds: z.number().int().nullable(),
+          caller_name: nullableString,
+          generated_at: z.string(),
+        })
+        .nullable()
+        .optional()
+        .transform((value) => value ?? null),
       created_at: z.string(),
       updated_at: z.string(),
     })
@@ -164,6 +224,11 @@ const customer360Schema = z.object({
       model: nullableString,
       variant: nullableString,
       model_year: z.number().int().nullable(),
+      fuel_type: optionalNullableString,
+      transmission: optionalNullableString,
+      odometer_km: optionalNullableNumber,
+      ownership: optionalNullableString,
+      purchase_year: optionalNullableNumber,
       created_at: z.string(),
     }),
   ),
@@ -207,6 +272,7 @@ const customer360Schema = z.object({
       assigned_user_name: nullableString,
       recording_status: nullableString,
       transcript_status: nullableString,
+      ai_summary: optionalNullableString,
     }),
   ),
   conversations: z.array(
@@ -360,6 +426,8 @@ export type UpdateCustomer360Input = {
     full_name: string;
     primary_phone: string | null;
     primary_email: string | null;
+    /** Omit to keep the stored number; null or '' means "same as mobile". */
+    whatsapp_phone?: string | null;
     contacts: Array<{ id?: string; type: 'PHONE' | 'EMAIL'; value: string; is_primary: boolean }>;
     addresses: Array<{
       id?: string;
@@ -373,6 +441,11 @@ export type UpdateCustomer360Input = {
       model: string | null;
       variant: string | null;
       model_year: number | null;
+      fuel_type: string | null;
+      transmission: string | null;
+      odometer_km: number | null;
+      ownership: string | null;
+      purchase_year: number | null;
     }>;
     custom_fields: Array<{ definition_id: string; value: unknown }>;
     additional_fields?: Array<{ label: string; value: string }>;
@@ -420,17 +493,34 @@ export async function fetchCustomerTelecmiCallOptions(
   return customerTelecmiCallOptionsSchema.parse(data);
 }
 
-const customer360CoreSchema = customer360Schema.pick({
-  customer: true,
-  current_opportunity: true,
-  section_access: true,
-  contacts: true,
-  addresses: true,
-  custom_fields: true,
-  notes: true,
-});
+const customer360CoreSchema = customer360Schema
+  .pick({
+    customer: true,
+    current_opportunity: true,
+    section_access: true,
+    contacts: true,
+    addresses: true,
+    custom_fields: true,
+    notes: true,
+  })
+  .extend({
+    lead_options: z
+      .array(
+        z.object({
+          id: z.uuid(),
+          source: z.string(),
+          interested_model: nullableString,
+          lifecycle_status: z.string(),
+          created_at: z.string(),
+        }),
+      )
+      .default([]),
+  });
 
 export type Customer360Core = z.infer<typeof customer360CoreSchema>;
+
+/** One enquiry as the Customer 360 lead picker and timeline list show it. */
+export type Customer360LeadOption = Customer360Core['lead_options'][number];
 
 export const customer360LazySections = [
   'leads',
@@ -509,6 +599,8 @@ export async function fetchSalesCustomer360Section<S extends Customer360LazySect
     page: number;
     pageSize: Customer360SectionPageSize;
     cursor?: Customer360TimelineCursor | null;
+    /** Narrow calls, follow-ups, appointments and conversations to one enquiry. */
+    leadId?: string | null;
   },
   signal?: AbortSignal,
 ): Promise<Customer360SectionResult<S>> {
@@ -519,6 +611,7 @@ export async function fetchSalesCustomer360Section<S extends Customer360LazySect
     target_page_size: input.pageSize,
     target_cursor_at: input.cursor?.occurred_at ?? null,
     target_cursor_id: input.cursor?.id ?? null,
+    target_lead_id: input.leadId ?? null,
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;

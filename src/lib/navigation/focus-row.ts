@@ -78,6 +78,10 @@ export function useFocusedRows({
   // function of the URL rather than a copy of it that can drift, and avoids
   // writing state from inside the effect.
   const [consumedKey, setConsumedKey] = useState<string | null>(null);
+  // Once the mark is spent the param is stripped, so a fresh `?focus=` showing
+  // up again is a new arrival -- a second click on the same reminder or badge
+  // while already on this page -- and must mark the same rows again.
+  if (!focusId && consumedKey !== null) setConsumedKey(null);
   // Identity-stable so a caller re-deriving the array every render does not
   // restart the timer and hold the mark up forever.
   const matchKey = matchedIds.join(',');

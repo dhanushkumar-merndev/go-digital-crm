@@ -35,6 +35,7 @@
     "seed:demo:customer-personalisation": "node scripts/seed-demo-customer-personalisation.mjs --apply",
     "seed:demo:test-drive-inventory": "node scripts/seed-demo-test-drive-inventory.mjs --apply",
     "seed:demo:competitor-comparison": "node scripts/seed-demo-competitor-comparison.mjs --apply",
+    "seed:demo:full-profile-lead": "node scripts/seed-demo-full-profile-lead.mjs --apply",
     "test:demo:flow": "node scripts/test-demo-business-flow.mjs",
     "test:demo:roles": "node scripts/test-demo-role-access.mjs",
     "test:demo:combinations": "node scripts/test-demo-lead-flow-combinations.mjs",

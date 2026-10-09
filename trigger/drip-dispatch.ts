@@ -2,6 +2,11 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 import { createClient } from '@supabase/supabase-js';
+import {
+  Msg91SmsError,
+  sendMsg91TemplateSms,
+  type Msg91Credential,
+} from '../src/lib/providers/msg91-sms-adapter';
 
 type DripMessage = {
   id: string;
@@ -119,7 +124,61 @@ async function sendWhatsApp(
   return payload.messages[0].id;
 }
 
-async function sendEmail(message: DripMessage): Promise<string> {
+async function sendSms(
+  supabase: ReturnType<typeof createClient>,
+  message: DripMessage,
+): Promise<string> {
+  if (!message.connected_account_id) throw new Error('DRIP_SMS_NOT_CONNECTED');
+  const { data: secret, error } = await supabase
+    .from('integration_credentials')
+    .select('encrypted_payload')
+    .eq('connected_account_id', message.connected_account_id)
+    .eq('organization_id', message.organization_id)
+    .maybeSingle();
+  if (error || !secret) throw error ?? new Error('DRIP_SMS_CREDENTIAL_NOT_FOUND');
+  const credential = await decryptCredential<Msg91Credential>(secret.encrypted_payload);
+  try {
+    return await sendMsg91TemplateSms({
+      credential,
+      templateId: String(message.template_provider_id),
+      recipient: String(message.recipient ?? ''),
+      variables: message.template_variables ?? {},
+    });
+  } catch (error) {
+    if (error instanceof Msg91SmsError) throw new Error(error.code);
+    throw error;
+  }
+}
+
+async function sendEmail(
+  supabase: ReturnType<typeof createClient>,
+  message: DripMessage,
+): Promise<string> {
+  let apiKey: string;
+  if (message.connected_account_id) {
+    const { data: account, error: accountError } = await supabase
+      .from('connected_accounts')
+      .select('status')
+      .eq('id', message.connected_account_id)
+      .eq('organization_id', message.organization_id)
+      .eq('provider_key', 'brevo')
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (accountError || account?.status !== 'CONNECTED')
+      throw new Error('DRIP_EMAIL_NOT_CONNECTED');
+    const { data: secret, error } = await supabase
+      .from('integration_credentials')
+      .select('encrypted_payload')
+      .eq('connected_account_id', message.connected_account_id)
+      .eq('organization_id', message.organization_id)
+      .maybeSingle();
+    if (error || !secret) throw new Error('DRIP_EMAIL_CREDENTIAL_NOT_FOUND');
+    const credential = await decryptCredential<{ api_key: string }>(secret.encrypted_payload);
+    apiKey = credential.api_key;
+    if (!apiKey?.trim()) throw new Error('DRIP_EMAIL_CREDENTIAL_INVALID');
+  } else {
+    apiKey = requiredEnvironment('BREVO_API_KEY');
+  }
   const recipient = String(message.recipient ?? '').trim();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipient)) throw new Error('DRIP_RECIPIENT_INVALID');
   const response = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -127,7 +186,7 @@ async function sendEmail(message: DripMessage): Promise<string> {
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
-      'api-key': requiredEnvironment('BREVO_API_KEY'),
+      'api-key': apiKey,
       // The message id is stable across retries, so a redelivery after an unknown
       // outcome is de-duplicated by Brevo rather than sent twice.
       'idempotency-key': message.application_message_id,
@@ -152,10 +211,9 @@ async function deliver(supabase: ReturnType<typeof createClient>, message: DripM
   if (!message.template_provider_id) throw new Error('DRIP_TEMPLATE_NOT_APPROVED');
   if (!message.recipient) throw new Error('DRIP_RECIPIENT_MISSING');
   if (message.channel === 'WHATSAPP') return sendWhatsApp(supabase, message);
-  if (message.channel === 'EMAIL') return sendEmail(message);
-  // The schema has always allowed SMS but no SMS provider is integrated. Saying so
-  // is better than retrying a channel that cannot succeed.
-  throw new Error('DRIP_SMS_PROVIDER_NOT_CONFIGURED');
+  if (message.channel === 'EMAIL') return sendEmail(supabase, message);
+  if (message.channel === 'SMS') return sendSms(supabase, message);
+  throw new Error('DRIP_CHANNEL_UNSUPPORTED');
 }
 
 /** One step of the marketing dispatch pass. Scheduling lives in

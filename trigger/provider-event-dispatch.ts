@@ -55,6 +55,7 @@ type TelecmiCallReceipt = {
   durationSeconds: number | null;
   recorded: boolean;
   recordingFile: string | null;
+  inbound: boolean;
 };
 
 type AppliedTelecmiCall = {
@@ -644,6 +645,7 @@ function readTelecmiCallReceipt(payload: unknown): TelecmiCallReceipt {
     durationSeconds: duration === null || duration === undefined ? null : Number(duration),
     recorded: receipt.recorded,
     recordingFile: nullableReceiptText(receipt.recording_file, 255),
+    inbound: receipt.direction === 'inbound',
   };
 }
 
@@ -651,21 +653,35 @@ function readTelecmiCallReceipt(payload: unknown): TelecmiCallReceipt {
 // call itself is moved by apply_telecmi_call_event, which the webhook already
 // ran the moment the event arrived; replaying it is a no-op.
 function telecmiRecordingEligible(receipt: TelecmiCallReceipt, call: AppliedTelecmiCall) {
-  // Click-to-call leg A is the dealership employee. Only the customer leg's
-  // record carries the conversation recording.
   if (receipt.eventType !== 'CDR') return false;
-  if (receipt.leg !== 'b') return false;
+  // Click-to-call leg A is the dealership employee. Only the customer leg's
+  // record carries the conversation recording. An inbound call's record is the
+  // whole conversation.
+  if (!receipt.inbound && receipt.leg !== 'b') return false;
   return call.connected && receipt.recorded;
 }
 
-async function applyTelecmiCallReceipt(supabase: SupabaseClient, event: ProviderEvent) {
-  const { data, error } = await supabase.rpc('apply_telecmi_call_event', {
-    target_organization_id: event.organization_id,
-    target_connection_id: event.connected_account_id,
-    target_provider_event_id: event.id,
-    target_received_at: event.received_at,
-    target_receipt: event.payload,
-  });
+async function applyTelecmiCallReceipt(
+  supabase: SupabaseClient,
+  event: ProviderEvent,
+  receipt: TelecmiCallReceipt,
+) {
+  // Inbound calls to the IVR number are logged by their own function; the
+  // click-to-call apply would read their legs the wrong way round.
+  const { data, error } = receipt.inbound
+    ? await supabase.rpc('apply_telecmi_inbound_call_event', {
+        target_organization_id: event.organization_id,
+        target_connection_id: event.connected_account_id,
+        target_received_at: event.received_at,
+        target_receipt: event.payload,
+      })
+    : await supabase.rpc('apply_telecmi_call_event', {
+        target_organization_id: event.organization_id,
+        target_connection_id: event.connected_account_id,
+        target_provider_event_id: event.id,
+        target_received_at: event.received_at,
+        target_receipt: event.payload,
+      });
   if (error) {
     if (error.code === '22023' && error.message)
       throw new ProviderDispatchError(
@@ -767,7 +783,7 @@ async function dispatchTelecmiCall(
   const connection = await activeConnection(supabase, event);
   if (connection.provider_key !== 'telecmi')
     throw new ProviderDispatchError('PROVIDER_EVENT_CONNECTION_MISMATCH', true);
-  const call = await applyTelecmiCallReceipt(supabase, event);
+  const call = await applyTelecmiCallReceipt(supabase, event, receipt);
   if (!call) return { status: 'UNMAPPED', safeErrorCode: 'TELECMI_CALL_NOT_MAPPED' };
   const recording = await telecmiRecording(supabase, event, call, receipt);
   return {

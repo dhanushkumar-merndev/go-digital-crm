@@ -8,6 +8,7 @@ const org = randomUUID();
 const user = randomUUID();
 const branch = randomUUID();
 const lead = randomUUID();
+const customer = randomUUID();
 let upcoming: { id: string; due_at: string };
 let due: { id: string; due_at: string };
 
@@ -18,15 +19,19 @@ beforeAll(async () => {
     create function app_private.current_tenant_organization() returns uuid language sql as $$ select '${org}'::uuid $$;
     create function app_private.has_permission(uuid,text) returns boolean language sql as $$ select coalesce(current_setting('test.allowed',true),'yes') <> 'no' $$;
     create function app_private.can_access_record(uuid,uuid,uuid,uuid) returns boolean language sql as $$ select coalesce(current_setting('test.scope',true),'yes') <> 'no' $$;
-    create table leads(id uuid primary key, organization_id uuid, deleted_at timestamptz);
-    create table followups(id uuid primary key default gen_random_uuid(), organization_id uuid, assigned_user_id uuid, lead_id uuid, branch_id uuid, team_id uuid, status text default 'OPEN', due_at timestamptz, reason text default 'Call customer');
+    create table leads(id uuid primary key, organization_id uuid, deleted_at timestamptz, customer_name text default 'Enquiry Name');
+    create table customers(id uuid primary key, organization_id uuid, full_name text);
+    create table followups(id uuid primary key default gen_random_uuid(), organization_id uuid, assigned_user_id uuid, lead_id uuid, customer_id uuid, branch_id uuid, team_id uuid, status text default 'OPEN', due_at timestamptz, reason text default 'Call customer');
     create table notifications(id uuid primary key default gen_random_uuid(),organization_id uuid,user_id uuid,event_type text,title text,body text,resource_type text,resource_id uuid,dedupe_key text);
     create unique index notifications_dedupe_idx on notifications(organization_id,user_id,dedupe_key) where dedupe_key is not null;
     insert into leads values('${lead}','${org}',null);
+    insert into customers values('${customer}','${org}','Sunita Bhat');
   `);
-  await db.exec(
-    readFileSync('supabase/migrations/202609080008_followup_web_reminders.sql', 'utf8'),
-  );
+  for (const file of [
+    '202609080008_followup_web_reminders.sql',
+    '202610090101_followup_reminder_customer_name.sql',
+  ])
+    await db.exec(readFileSync(`supabase/migrations/${file}`, 'utf8'));
   async function add(interval: string, owner = user, tenant = org, status = 'OPEN') {
     const result = await db.query<{ id: string; due_at: string }>(
       'insert into followups(organization_id,assigned_user_id,lead_id,branch_id,due_at,status) values($1,$2,$3,$4,now()+$5::interval,$6) returning id,due_at::text',
@@ -35,6 +40,7 @@ beforeAll(async () => {
     return result.rows[0]!;
   }
   upcoming = await add('4 minutes');
+  await db.query('update followups set customer_id=$1 where id=$2', [customer, upcoming.id]);
   due = await add('-1 minute');
   await add('2 hours');
   await add('-1 day');
@@ -54,10 +60,14 @@ const claim = (item: { id: string; due_at: string }, phase: string) =>
 
 describe('authenticated follow-up reminder RPCs', () => {
   it('returns only nearby, open, owned work and a server timestamp', async () => {
-    const result = await db.query<{ result: { records: { id: string }[]; server_now: string } }>(
-      'select get_my_followup_reminders() result',
-    );
+    const result = await db.query<{
+      result: { records: { id: string; customer_name: string }[]; server_now: string };
+    }>('select get_my_followup_reminders() result');
     expect(result.rows[0]!.result.records.map((row) => row.id)).toEqual([due.id, upcoming.id]);
+    expect(result.rows[0]!.result.records.map((row) => row.customer_name)).toEqual([
+      'Enquiry Name',
+      'Sunita Bhat',
+    ]);
     expect(Date.parse(result.rows[0]!.result.server_now)).toBeGreaterThan(0);
   });
   it('claims each phase once across repeated calls and rejects premature due alerts', async () => {
@@ -67,7 +77,14 @@ describe('authenticated follow-up reminder RPCs', () => {
     expect((await claim(due, 'UPCOMING')).rows[0]!.claimed).toBe(false);
     expect((await claim(due, 'DUE')).rows[0]!.claimed).toBe(true);
     expect((await claim(due, 'DUE')).rows[0]!.claimed).toBe(false);
-    expect((await db.query('select * from notifications')).rows).toHaveLength(2);
+    const bodies = await db.query<{ event_type: string; body: string }>(
+      'select event_type, body from notifications order by event_type',
+    );
+    // Both reminders name the customer so the bell can tell them apart.
+    expect(bodies.rows).toEqual([
+      { event_type: 'FOLLOWUP_DUE', body: 'Enquiry Name · Call customer' },
+      { event_type: 'FOLLOWUP_UPCOMING', body: 'Sunita Bhat · Call customer' },
+    ]);
   });
   it('rejects another owner, stale schedule, closed work and deleted leads', async () => {
     const other = (

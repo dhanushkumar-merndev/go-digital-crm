@@ -62,6 +62,28 @@ async function directRoute(admin: ReturnType<typeof serviceClient>, routeToken: 
   };
 }
 
+type DirectRoute = NonNullable<Awaited<ReturnType<typeof directRoute>>>;
+
+// Meta reports a rejected delivery only in its own dashboard, so rejections on a
+// resolved tenant route are recorded here. Unresolved routes are not logged:
+// the endpoint is public and must not let anonymous callers write rows.
+async function logRejection(
+  admin: ReturnType<typeof serviceClient>,
+  route: DirectRoute | null,
+  code: string,
+  context: Record<string, unknown> = {},
+) {
+  if (!route) return;
+  // Best effort: a failed diagnostic insert must not change the webhook response.
+  await admin.from('error_logs').insert({
+    organization_id: route.organizationId,
+    service: 'provider-webhook-meta',
+    safe_code: code,
+    safe_message: 'Meta webhook request was rejected.',
+    sanitized_context: { connected_account_id: route.connectionId, ...context },
+  });
+}
+
 Deno.serve(async (request) => {
   const preflightResponse = preflight(request);
   if (preflightResponse) return preflightResponse;
@@ -73,7 +95,8 @@ Deno.serve(async (request) => {
     const mode = url.searchParams.get('hub.mode');
     const token = url.searchParams.get('hub.verify_token') ?? '';
     const challenge = url.searchParams.get('hub.challenge');
-    const direct = routeToken ? await directRoute(serviceClient(), routeToken) : null;
+    const admin = serviceClient();
+    const direct = routeToken ? await directRoute(admin, routeToken) : null;
     if (routeToken && !direct)
       return failure('WEBHOOK_ROUTE_INVALID', 'Webhook route is invalid.', requestId, 403);
     const expectedToken =
@@ -83,8 +106,10 @@ Deno.serve(async (request) => {
       !challenge ||
       !expectedToken ||
       !constantTimeEqual(token, expectedToken)
-    )
+    ) {
+      await logRejection(admin, direct, 'WEBHOOK_VERIFICATION_FAILED', { mode });
       return failure('WEBHOOK_VERIFICATION_FAILED', 'Webhook verification failed.', requestId, 403);
+    }
     return new Response(challenge, {
       status: 200,
       headers: { ...jsonHeaders, 'content-type': 'text/plain; charset=utf-8' },
@@ -105,11 +130,15 @@ Deno.serve(async (request) => {
   if (routeToken && !direct)
     return failure('WEBHOOK_ROUTE_INVALID', 'Webhook route is invalid.', requestId, 403);
   const appSecret = direct?.credential.app_secret ?? Deno.env.get('META_APP_SECRET') ?? '';
-  if (!appSecret || !signature.startsWith('sha256='))
+  if (!appSecret || !signature.startsWith('sha256=')) {
+    await logRejection(admin, direct, 'INVALID_SIGNATURE', { signature_present: !!signature });
     return failure('INVALID_SIGNATURE', 'Webhook signature is invalid.', requestId, 401);
+  }
   const expectedSignature = `sha256=${await hmacSha256Hex(appSecret, rawBody)}`;
-  if (!constantTimeEqual(signature, expectedSignature))
+  if (!constantTimeEqual(signature, expectedSignature)) {
+    await logRejection(admin, direct, 'INVALID_SIGNATURE', { signature_present: true });
     return failure('INVALID_SIGNATURE', 'Webhook signature is invalid.', requestId, 401);
+  }
 
   try {
     const events = extractMetaLeadEvents(JSON.parse(rawBody) as unknown);
@@ -117,13 +146,15 @@ Deno.serve(async (request) => {
       return failure('TOO_MANY_EVENTS', 'The webhook event batch is too large.', requestId, 413);
     if (events.length === 0) return success({ accepted: true, queued: 0 }, requestId);
 
-    if (direct && events.some((event) => event.pageId !== direct.credential.page_id))
+    if (direct && events.some((event) => event.pageId !== direct.credential.page_id)) {
+      await logRejection(admin, direct, 'WEBHOOK_ROUTE_MISMATCH', { event_count: events.length });
       return failure(
         'WEBHOOK_ROUTE_MISMATCH',
         'Webhook route does not match this Page.',
         requestId,
         403,
       );
+    }
     const routes = await resolveProviderAssetRoutes(
       admin,
       'meta',
@@ -133,13 +164,17 @@ Deno.serve(async (request) => {
     if (
       direct &&
       Array.from(routes.values()).some((route) => route.connectionId !== direct.connectionId)
-    )
+    ) {
+      await logRejection(admin, direct, 'WEBHOOK_CONNECTION_MISMATCH', {
+        event_count: events.length,
+      });
       return failure(
         'WEBHOOK_CONNECTION_MISMATCH',
         'Webhook route does not match this connection.',
         requestId,
         403,
       );
+    }
     const payloadHash = await sha256Base64Url(rawBody);
     const receipts = events.flatMap((event) => {
       const route = routes.get(event.pageId);
@@ -187,6 +222,7 @@ Deno.serve(async (request) => {
       requestId,
     );
   } catch {
+    await logRejection(admin, direct, 'META_WEBHOOK_FAILED').catch(() => undefined);
     return failure(
       'META_WEBHOOK_FAILED',
       'The provider webhook could not be accepted.',

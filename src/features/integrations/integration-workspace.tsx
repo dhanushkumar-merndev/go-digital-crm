@@ -66,6 +66,7 @@ import {
   TelecmiAgentEditor,
   type TelecmiAgentRow,
 } from './telecmi-agent-editor';
+import { MetaLeadSyncCard } from './meta-lead-sync-card';
 import { TelecmiPlanCard } from './telecmi-plan-card';
 import {
   hasWorkspacePermission,
@@ -76,6 +77,8 @@ import {
   connectAiProvider,
   connectCarDekho,
   connectCarWale,
+  connectMsg91,
+  connectBrevo,
   connectIndiaMart,
   connectJustdial,
   connectMetaDirect,
@@ -117,6 +120,8 @@ const providerOptions: Array<{ value: AdminIntegrationProviderKey; label: string
   { value: 'openrouter', label: 'OpenRouter text, image & analysis models' },
   { value: 'groq', label: 'Groq transcription & AI analysis' },
   { value: 'telecmi', label: 'TeleCMI IVR calling & recordings' },
+  { value: 'msg91', label: 'MSG91 SMS (DLT templates)' },
+  { value: 'brevo', label: 'Brevo Email' },
 ];
 
 const statusLabels: Record<IntegrationStatusFilter, string> = {
@@ -266,6 +271,8 @@ type ConnectRequest =
         | 'carwale'
         | 'cardekho'
         | 'justdial'
+        | 'msg91'
+        | 'brevo'
       >;
       displayName: string;
     }
@@ -316,6 +323,15 @@ type ConnectRequest =
       apiKey: string;
       defaultTeamId?: string;
     }
+  | {
+      kind: 'msg91';
+      displayName: string;
+      authkey: string;
+      senderId?: string;
+      testMobile?: string;
+      testTemplateId?: string;
+    }
+  | { kind: 'brevo'; displayName: string; apiKey: string }
   | {
       kind: 'ai';
       providerKey: Extract<IntegrationProviderKey, 'openrouter' | 'groq'>;
@@ -371,6 +387,8 @@ function ProviderConnectionDialog({
       'carwale',
       'cardekho',
       'justdial',
+      'msg91',
+      'brevo',
     ].includes(existing?.provider_key ?? '')
       ? (existing?.provider_key as AdminIntegrationProviderKey)
       : 'meta',
@@ -415,6 +433,9 @@ function ProviderConnectionDialog({
     existing?.provider_key === 'telecmi' ? (existing.external_account_id ?? '') : '',
   );
   const [telecmiAppSecret, setTelecmiAppSecret] = useState('');
+  const [telecmiDefaultUserId, setTelecmiDefaultUserId] = useState(
+    existing?.connection_config.default_user_id ?? '',
+  );
   // The secret itself never leaves the server; this only records that one is
   // already held, so the field can be optional on a re-save.
   const existingSecretStored = Boolean(existing);
@@ -507,6 +528,31 @@ function ProviderConnectionDialog({
           imageModel: request.imageModel,
           transcriptionModel: request.transcriptionModel,
           analysisModel: request.analysisModel,
+          apiKey: request.apiKey,
+        });
+        return { authorizationUrl: null };
+      }
+      if (request.kind === 'msg91') {
+        await connectMsg91({
+          organizationId,
+          connectionId: existing?.id,
+          displayName: request.displayName,
+          scopeMode,
+          branchIds: effectiveBranchIds,
+          authkey: request.authkey,
+          senderId: request.senderId,
+          testMobile: request.testMobile,
+          testTemplateId: request.testTemplateId,
+        });
+        return { authorizationUrl: null };
+      }
+      if (request.kind === 'brevo') {
+        await connectBrevo({
+          organizationId,
+          connectionId: existing?.id,
+          displayName: request.displayName,
+          scopeMode,
+          branchIds: effectiveBranchIds,
           apiKey: request.apiKey,
         });
         return { authorizationUrl: null };
@@ -751,6 +797,25 @@ function ProviderConnectionDialog({
                   teamName: String(form.get('teamName') ?? '').trim() || undefined,
                   aiStreamEnabled,
                   aiStreamWsUrl: aiStreamEnabled ? aiStreamWsUrl.trim() : undefined,
+                });
+                return;
+              }
+              if (providerKey === 'msg91') {
+                mutation.mutate({
+                  kind: 'msg91',
+                  displayName,
+                  authkey: String(form.get('msg91Authkey') ?? '').trim(),
+                  senderId: String(form.get('msg91SenderId') ?? '').trim() || undefined,
+                  testMobile: String(form.get('msg91TestMobile') ?? '').trim() || undefined,
+                  testTemplateId: String(form.get('msg91TestTemplateId') ?? '').trim() || undefined,
+                });
+                return;
+              }
+              if (providerKey === 'brevo') {
+                mutation.mutate({
+                  kind: 'brevo',
+                  displayName,
+                  apiKey: String(form.get('brevoApiKey') ?? '').trim(),
                 });
                 return;
               }
@@ -1191,6 +1256,87 @@ function ProviderConnectionDialog({
                 </label>
               </div>
             )}
+            {providerKey === 'brevo' && (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Connect Brevo for email campaigns in the selected branches. The account check does
+                  not send an email. Templates and verified senders are managed in Brevo.
+                </p>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  Brevo API key
+                  <Input
+                    name="brevoApiKey"
+                    type="password"
+                    required={!existingSecretStored}
+                    autoComplete="new-password"
+                    maxLength={300}
+                    placeholder={storedSecretPlaceholder ?? 'Paste the Brevo API key'}
+                  />
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {existingSecretStored
+                      ? 'Leave blank to keep the stored key.'
+                      : 'Brevo → SMTP & API → API keys. Authorize the server IP in Brevo Security settings.'}
+                  </span>
+                </label>
+              </div>
+            )}
+            {providerKey === 'msg91' && (
+              <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
+                <p className="text-xs text-muted-foreground sm:col-span-2">
+                  Template SMS for drip campaigns and customer updates. Every SMS uses a
+                  DLT-approved MSG91 template; marketing records each template&rsquo;s MSG91 id in
+                  Drip Campaigns.
+                </p>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  MSG91 authkey
+                  <Input
+                    name="msg91Authkey"
+                    type="password"
+                    required={!existingSecretStored}
+                    minLength={10}
+                    maxLength={200}
+                    placeholder={storedSecretPlaceholder ?? 'Paste the MSG91 authkey'}
+                    autoComplete="new-password"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    {existingSecretStored
+                      ? 'Stored encrypted. Leave blank to keep it, or enter a new key to rotate it.'
+                      : 'MSG91 panel → API → Authkey. Allow this server in its IP whitelist.'}
+                  </span>
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  Sender ID (optional)
+                  <Input
+                    name="msg91SenderId"
+                    maxLength={6}
+                    pattern="[A-Za-z]{6}"
+                    defaultValue={existing?.connection_config.sender_id ?? ''}
+                    placeholder="e.g. GODIGI"
+                    autoComplete="off"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Leave blank to use the sender set on each MSG91 template.
+                  </span>
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  Test mobile (optional)
+                  <Input name="msg91TestMobile" maxLength={20} placeholder="98765 43210" />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  Test template id (optional)
+                  <Input
+                    name="msg91TestTemplateId"
+                    maxLength={64}
+                    placeholder="Approved MSG91 template id"
+                    autoComplete="off"
+                  />
+                </label>
+                <p className="text-[11px] text-muted-foreground sm:col-span-2">
+                  With a test mobile and template id, one real SMS is sent before saving, which
+                  proves the key works. Nothing is saved if it fails.
+                </p>
+              </div>
+            )}
             {providerKey === 'carwale' && options.data && (
               <div className="grid gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4 sm:grid-cols-2">
                 <div className="space-y-2 sm:col-span-2">
@@ -1469,7 +1615,11 @@ function ProviderConnectionDialog({
                     min={1}
                     autoComplete="off"
                     value={telecmiAppId}
-                    onChange={(event) => setTelecmiAppId(event.target.value)}
+                    onChange={(event) => {
+                      setTelecmiAppId(event.target.value);
+                      setTelecmiAgents([]);
+                      setTelecmiDefaultUserId('');
+                    }}
                   />
                   <span className="text-xs font-normal text-muted-foreground">
                     TeleCMI dashboard → Developer → App Secret.
@@ -1482,8 +1632,12 @@ function ProviderConnectionDialog({
                     required
                     placeholder="12345_67890"
                     autoComplete="off"
-                    defaultValue={existing?.connection_config.default_user_id ?? ''}
+                    value={telecmiDefaultUserId}
+                    onChange={(event) => setTelecmiDefaultUserId(event.target.value)}
                   />
+                  <span className="text-xs font-normal text-muted-foreground">
+                    Filled from the first selected agent, in extension_appid format.
+                  </span>
                 </label>
                 <label className="grid gap-1.5 text-sm font-medium">
                   Caller ID <span className="font-normal text-muted-foreground">(optional)</span>
@@ -1565,12 +1719,18 @@ function ProviderConnectionDialog({
                 </label>
                 <TelecmiAgentEditor
                   organizationId={organizationId}
+                  connectionId={existing?.id}
                   scopeMode={scopeMode}
-                  branchIds={selectedBranchIds}
+                  branchIds={effectiveBranchIds}
                   appId={telecmiAppId}
                   appSecret={telecmiAppSecret}
                   rows={telecmiAgents}
-                  onChange={setTelecmiAgents}
+                  defaultUserId={telecmiDefaultUserId}
+                  onChange={(agents) => {
+                    setTelecmiAgents(agents);
+                    if (!telecmiDefaultUserId && agents[0]?.user_id)
+                      setTelecmiDefaultUserId(agents[0].user_id);
+                  }}
                 />
                 {inboundRoute === 'IVR' ? (
                   <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
@@ -2156,6 +2316,12 @@ function ConnectionDetailSheet({
                 connectionId={connection.id}
               />
             )}
+          {connection.provider_key === 'meta' && canManage && connection.status === 'CONNECTED' && (
+            <MetaLeadSyncCard
+              organizationId={connection.organization_id}
+              connectionId={connection.id}
+            />
+          )}
           {(capabilities.length > 0 || models) && (
             <section className="rounded-lg border p-4">
               <h3 className="font-medium">Enabled configuration</h3>
@@ -2221,6 +2387,8 @@ function ConnectionDetailSheet({
             [
               'whatsapp_cloud',
               'telecmi',
+              'msg91',
+              'brevo',
               'openrouter',
               'groq',
               'indiamart',

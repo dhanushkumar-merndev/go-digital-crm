@@ -24,3 +24,18 @@ export async function runDripAutoMatch(supabase: ReturnType<typeof createClient>
     skipped: number;
   };
 }
+
+/**
+ * Event-triggered drips: new leads, birthdays and anniversaries, bookings,
+ * deliveries. Every minute, so a new lead's thank-you leaves within a minute or
+ * two; the match is set-based and indexed, and idempotent per occurrence.
+ */
+export async function runEventDripMatches(supabase: ReturnType<typeof createClient>) {
+  const { data, error } = await supabase.rpc('run_event_drip_matches', { target_limit: 500 });
+  if (error) throw error;
+  return (data ?? { enrolled: 0, messages: 0, cancelled: 0 }) as {
+    enrolled: number;
+    messages: number;
+    cancelled: number;
+  };
+}

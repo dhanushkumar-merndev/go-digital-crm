@@ -577,6 +577,7 @@ export async function completeWork(input: {
   note: string;
   requestId: string;
   outcome?: FollowupOutcome;
+  salesConsultantId?: string | null;
 }) {
   const functionName = input.kind === 'followups' ? 'complete_followup' : 'complete_appointment';
   const idKey = input.kind === 'followups' ? 'target_followup_id' : 'target_appointment_id';
@@ -586,7 +587,12 @@ export async function completeWork(input: {
     completion_note: input.note || null,
     target_request_id: input.requestId,
   };
-  if (input.kind === 'followups') parameters.followup_outcome = input.outcome ?? null;
+  if (input.kind === 'followups') {
+    parameters.followup_outcome = input.outcome ?? null;
+    if (input.outcome === 'TRANSFER_TO_SALES') {
+      parameters.target_sales_consultant_id = input.salesConsultantId ?? null;
+    }
+  }
   const { data, error } = await createClient().rpc(functionName, parameters);
   throwMutationError(error);
   return mutationResultSchema.parse(data);
