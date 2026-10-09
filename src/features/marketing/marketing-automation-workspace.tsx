@@ -55,6 +55,7 @@ import {
   fetchMarketingReviewCustomerOptions,
 } from './marketing-automation-api';
 import { SmsFallbackCampaignDialog } from './sms-fallback-campaign-dialog';
+import { DripCampaignEditor } from './drip-campaign-editor';
 
 const workspaceKey = ['marketing-automation-workspace'] as const;
 const channels = ['WHATSAPP', 'SMS', 'EMAIL'] as const;
@@ -480,6 +481,7 @@ export function MarketingAutomationWorkspace({
     ? { canManage: hasWorkspacePermission(session, 'marketing.automation.manage') }
     : undefined;
   const [tab, setTab] = useState<'DRIP' | 'REVIEWS'>(initialTab);
+  const [campaignId, setCampaignId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const workspace = useQuery({
     queryKey: [...workspaceKey, ...queryScope],
@@ -628,6 +630,7 @@ export function MarketingAutomationWorkspace({
                       <TableHead>Steps</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Updated</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -655,11 +658,21 @@ export function MarketingAutomationWorkspace({
                           <TableCell className="whitespace-nowrap text-muted-foreground">
                             {formatDate(campaign.updated_at)}
                           </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setCampaignId(campaign.id)}
+                              aria-label={`${permissions?.canManage ? 'Edit' : 'View'} ${campaign.name}`}
+                            >
+                              {permissions?.canManage ? 'Edit' : 'View'}
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={5} className="h-44 text-center">
+                        <TableCell colSpan={6} className="h-44 text-center">
                           <p className="font-medium">No drip campaigns yet</p>
                           <p className="mt-1 text-sm text-muted-foreground">
                             Create a scoped sequence to begin the review and approval flow.
@@ -672,6 +685,12 @@ export function MarketingAutomationWorkspace({
               </div>
             </CardContent>
           </Card>
+          <DripCampaignEditor
+            campaignId={campaignId}
+            canManage={Boolean(permissions?.canManage)}
+            onClose={() => setCampaignId(null)}
+            onComplete={invalidate}
+          />
         </>
       ) : (
         <>

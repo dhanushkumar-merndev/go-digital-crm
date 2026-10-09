@@ -63,6 +63,8 @@ const runtimeTargets = {
 
 const exampleOnlyNames = ['NEXT_PUBLIC_ENABLE_LOCAL_PREVIEW', 'DEMO_ROLE_LOGIN_ENABLED'];
 const optionalRuntimeNames = [
+  // Optional local setup key; tenant SMS workers use encrypted connections.
+  'MSG91_API_KEYS',
   'PERSONAL_WHATSAPP_GATEWAY_URL',
   'PERSONAL_WHATSAPP_SIGNING_SECRET',
   'PROVIDER_EVENT_BATCH_SIZE',

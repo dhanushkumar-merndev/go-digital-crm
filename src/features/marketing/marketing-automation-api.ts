@@ -96,6 +96,102 @@ export async function fetchMarketingDripBuilderOptions(signal?: AbortSignal) {
   return builderOptionsSchema.parse(data);
 }
 
+const dripChannelSchema = z.object({
+  channel: z.enum(['WHATSAPP', 'SMS', 'EMAIL']),
+  template_id: nullableUuid,
+  variable_map: z.record(z.string(), z.string()),
+  body: z.string(),
+});
+const dripDetailSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  description: nullableString,
+  branch_id: nullableUuid,
+  status: campaignSchema.shape.status,
+  version: z.coerce.number().int().positive(),
+  trigger_type: z.enum([
+    'AUDIENCE',
+    'LEAD_CREATED',
+    'BIRTHDAY',
+    'ANNIVERSARY',
+    'BOOKING_CONFIRMED',
+    'VEHICLE_DELIVERED',
+    'DELIVERY_ANNIVERSARY',
+  ]),
+  trigger_conditions: z.record(z.string(), z.unknown()),
+  audience_filter: z.record(z.string(), z.unknown()),
+  steps: z.array(
+    z.object({
+      step_order: z.number().int(),
+      delay_hours: z.number().int(),
+      channels: z.array(dripChannelSchema),
+    }),
+  ),
+});
+export type MarketingDripDetail = z.infer<typeof dripDetailSchema>;
+export type MarketingDripChannel = z.infer<typeof dripChannelSchema>;
+
+export async function fetchMarketingDripCampaign(id: string, signal?: AbortSignal) {
+  const request = createClient().rpc('get_marketing_drip_campaign', { target_campaign_id: id });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return dripDetailSchema.parse(data);
+}
+
+export async function saveMarketingDripCampaign(detail: MarketingDripDetail, requestId: string) {
+  const { data, error } = await createClient().rpc(
+    detail.trigger_type === 'AUDIENCE'
+      ? 'update_marketing_audience_drip_campaign'
+      : 'save_marketing_drip_campaign',
+    {
+      target_campaign_id: detail.id,
+      target_expected_version: detail.version,
+      target_branch_id: detail.branch_id,
+      target_payload: {
+        name: detail.name,
+        description: detail.description,
+        trigger_type: detail.trigger_type,
+        trigger_conditions: detail.trigger_conditions,
+        audience_filter: detail.audience_filter,
+        steps: detail.steps,
+      },
+      target_request_id: requestId,
+    },
+  );
+  if (error) throw error;
+  return mutationResultSchema.parse(data);
+}
+
+export async function setMarketingDripStatus(
+  id: string,
+  status: 'ACTIVE' | 'PAUSED',
+  version: number,
+) {
+  const { data, error } = await createClient().rpc('set_marketing_drip_campaign_status', {
+    target_campaign_id: id,
+    target_status: status,
+    target_expected_version: version,
+  });
+  if (error) throw error;
+  return mutationResultSchema.parse(data);
+}
+
+export async function createMarketingDripTemplate(
+  name: string,
+  channel: MarketingDripChannel['channel'],
+  body: string,
+  requestId: string,
+) {
+  const { data, error } = await createClient().rpc('create_marketing_template', {
+    target_name: name.slice(0, 120),
+    target_channel: channel,
+    target_body: body,
+    target_request_id: requestId,
+  });
+  if (error) throw error;
+  return z.object({ id: z.uuid(), status: z.literal('DRAFT'), replayed: z.boolean() }).parse(data);
+}
+
 export async function createSmsFallbackCampaign(input: {
   name: string;
   branchId?: string;

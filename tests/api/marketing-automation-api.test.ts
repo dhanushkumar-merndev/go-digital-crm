@@ -7,6 +7,9 @@ import {
   fetchMarketingReviewCustomerOptions,
   createSmsFallbackCampaign,
   fetchMarketingDripBuilderOptions,
+  fetchMarketingDripCampaign,
+  saveMarketingDripCampaign,
+  setMarketingDripStatus,
 } from '../../src/features/marketing/marketing-automation-api';
 
 const id = '65d2a775-8b6d-45f6-a031-52b0be7b1125';
@@ -148,5 +151,86 @@ describe('marketing automation RPC responses', () => {
     };
     rpc.mockResolvedValue({ data, error: null });
     await expect(fetchMarketingDripBuilderOptions()).resolves.toEqual(data);
+  });
+
+  const detail = {
+    id,
+    name: 'SMS thank-you',
+    description: null,
+    branch_id: id,
+    status: 'PAUSED' as const,
+    version: 4,
+    trigger_type: 'LEAD_CREATED' as const,
+    trigger_conditions: { sources: ['Other'], models: ['Sedan'], email_presence: 'MISSING' },
+    audience_filter: { provider_tag: 'preserve' },
+    steps: [
+      {
+        step_order: 1,
+        delay_hours: 0,
+        channels: [
+          {
+            channel: 'SMS' as const,
+            template_id: id,
+            variable_map: { NAME: 'customer_first_name' },
+            body: 'Thanks {{NAME}}',
+          },
+        ],
+      },
+    ],
+  };
+
+  it('loads full campaign rules and legacy nullable template identifiers without dropping fields', async () => {
+    const data = {
+      ...detail,
+      trigger_type: 'AUDIENCE',
+      steps: [
+        { ...detail.steps[0], channels: [{ ...detail.steps[0].channels[0], template_id: null }] },
+      ],
+    };
+    rpc.mockResolvedValue({ data, error: null });
+    await expect(fetchMarketingDripCampaign(id)).resolves.toEqual(data);
+    expect(rpc).toHaveBeenCalledWith('get_marketing_drip_campaign', { target_campaign_id: id });
+  });
+
+  it.each(['LEAD_CREATED', 'AUDIENCE'] as const)(
+    'saves %s edits with version, original rules and channel variables',
+    async (trigger_type) => {
+      rpc.mockResolvedValue({
+        data: { id, status: 'PAUSED', version: 5, replayed: false },
+        error: null,
+      });
+      await saveMarketingDripCampaign({ ...detail, trigger_type }, id);
+      expect(rpc).toHaveBeenCalledWith(
+        trigger_type === 'AUDIENCE'
+          ? 'update_marketing_audience_drip_campaign'
+          : 'save_marketing_drip_campaign',
+        {
+          target_campaign_id: id,
+          target_expected_version: 4,
+          target_branch_id: id,
+          target_request_id: id,
+          target_payload: {
+            name: detail.name,
+            description: null,
+            trigger_type,
+            trigger_conditions: detail.trigger_conditions,
+            audience_filter: detail.audience_filter,
+            steps: detail.steps,
+          },
+        },
+      );
+    },
+  );
+
+  it('preserves stale-edit errors and requires the expected version when pausing', async () => {
+    const error = { code: 'PT409', message: 'MARKETING_DRIP_CAMPAIGN_VERSION_CONFLICT' };
+    rpc.mockResolvedValue({ data: null, error });
+    await expect(saveMarketingDripCampaign(detail, id)).rejects.toEqual(error);
+    await expect(setMarketingDripStatus(id, 'PAUSED', 4)).rejects.toEqual(error);
+    expect(rpc).toHaveBeenLastCalledWith('set_marketing_drip_campaign_status', {
+      target_campaign_id: id,
+      target_status: 'PAUSED',
+      target_expected_version: 4,
+    });
   });
 });

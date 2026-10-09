@@ -497,7 +497,22 @@ async function createAndLinkQaCustomer(page, reason) {
     await dialog.getByLabel(/Decision reason/).fill(reason);
   }
   await expect(createCustomer).toBeEnabled();
-  await Promise.all([page.waitForURL(/\/telecaller\/customers\//), createCustomer.click()]);
+  const submitDecision = async () => {
+    const response = page.waitForResponse((result) =>
+      result.url().endsWith('/rpc/resolve_lead_customer'),
+    );
+    await createCustomer.click();
+    return response;
+  };
+  let decisionResponse = await submitDecision();
+  if (!decisionResponse.ok()) {
+    const failure = await decisionResponse.json();
+    if (failure.code !== '57014') throw new Error(`Customer decision refused: ${failure.code}`);
+    console.log('Retrying one cancelled customer decision through Create and link customer.');
+    decisionResponse = await submitDecision();
+  }
+  expect(decisionResponse.ok(), `Customer decision HTTP ${decisionResponse.status()}`).toBe(true);
+  await page.waitForURL(/\/telecaller\/customers\//);
   await expect(dialog).toBeHidden();
 }
 
@@ -571,7 +586,23 @@ async function handOverNewSalesLead(page, customerName, phone) {
   const handoff = page.getByRole('dialog', { name: 'Transfer to Sales' });
   await handoff.getByLabel('Reason').fill('Customer ready to book on the spot.');
   await selectFlowSalesConsultant(page, handoff);
-  await handoff.getByRole('button', { name: 'Transfer to Sales' }).click();
+  const submitHandoff = async () => {
+    const response = page.waitForResponse((result) =>
+      result.url().endsWith('/rpc/transfer_lead_to_sales'),
+    );
+    await handoff.getByRole('button', { name: 'Transfer to Sales' }).click();
+    return response;
+  };
+  let handoffResponse = await submitHandoff();
+  if (!handoffResponse.ok()) {
+    const failure = await handoffResponse.json();
+    // A confirmed PostgreSQL cancellation rolls back the whole RPC. Retry the
+    // user's submit once; never retry unknown outcomes or domain refusals.
+    if (failure.code !== '57014') throw new Error(`Sales handoff refused: ${failure.code}`);
+    console.log('Retrying one cancelled Sales handoff through Transfer to Sales.');
+    handoffResponse = await submitHandoff();
+  }
+  expect(handoffResponse.ok(), `Sales handoff HTTP ${handoffResponse.status()}`).toBe(true);
   await expect(handoff).toBeHidden({ timeout: 25_000 });
 }
 
