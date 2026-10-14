@@ -18,7 +18,26 @@ const content = z.discriminatedUnion('type', [
     language_code: z.string().trim().min(2).max(20),
     components: z.array(z.record(z.string(), z.unknown())).max(20).default([]),
   }),
+  // An approved template registered in the CRM. The server resolves the Meta
+  // name and body itself, so the client cannot send an unapproved template or
+  // record a body that differs from what the customer received.
+  z.object({
+    type: z.literal('crm_template'),
+    template_id: z.uuid(),
+    variables: z.record(z.string().max(40), z.string().trim().min(1).max(1024)).default({}),
+  }),
 ]);
+
+type ResolvedTemplate = { name: string; languageCode: string; body: string; components: unknown[] };
+
+// Meta numbers template placeholders positionally. CRM bodies name them, in the
+// {{1}}, {{2}} convention, so they are ordered the way the drip dispatcher
+// orders them: numerically by key.
+function orderedPlaceholders(placeholders: string[]) {
+  return [...new Set(placeholders)].sort((left, right) =>
+    left.localeCompare(right, 'en', { numeric: true }),
+  );
+}
 const schema = z.object({
   organization_id: z.uuid(),
   conversation_id: z.uuid(),
@@ -156,6 +175,113 @@ Deno.serve(async (request) => {
         requestId,
         409,
       );
+    let resolvedTemplate: ResolvedTemplate | undefined;
+    if (input.content.type === 'crm_template') {
+      const variables = input.content.variables;
+      const fill = (text: string, prefix: string) =>
+        text.replace(
+          /\{\{\s*([A-Za-z0-9_]{1,40})\s*\}\}/g,
+          (match: string, name: string) => variables[`${prefix}${name}`]?.trim() ?? match,
+        );
+      const missingFields = (names: string[]) => names.some((name) => !variables[name]?.trim());
+      const variablesRequired = () =>
+        failure(
+          'WHATSAPP_TEMPLATE_VARIABLES_REQUIRED',
+          'Fill in every template field before sending.',
+          requestId,
+          422,
+        );
+      const { data: template } = await serviceClient()
+        .from('templates')
+        .select('id,provider_template_id,content,placeholders,channel,status')
+        .eq('organization_id', input.organization_id)
+        .eq('id', input.content.template_id)
+        .is('deleted_at', null)
+        .maybeSingle();
+      // A template synced from Meta and switched on for this conversation's
+      // own WhatsApp connection by an admin.
+      const { data: metaTemplate } = template
+        ? { data: null }
+        : await serviceClient()
+            .from('whatsapp_business_templates')
+            .select('name,language,parameter_format,header_text,body,footer_text,fields')
+            .eq('organization_id', input.organization_id)
+            .eq('id', input.content.template_id)
+            .eq('connected_account_id', conversation.connection_id)
+            .eq('enabled', true)
+            .eq('supported', true)
+            .eq('meta_status', 'APPROVED')
+            .is('removed_from_meta_at', null)
+            .maybeSingle();
+      const body = typeof template?.content?.body === 'string' ? template.content.body : null;
+      if (
+        template &&
+        body &&
+        template.provider_template_id &&
+        String(template.status).toUpperCase() === 'APPROVED' &&
+        ['WHATSAPP', 'WHATSAPP_BUSINESS'].includes(String(template.channel).toUpperCase())
+      ) {
+        const placeholders = orderedPlaceholders(
+          Array.isArray(template.placeholders) ? template.placeholders.map(String) : [],
+        );
+        if (missingFields(placeholders)) return variablesRequired();
+        resolvedTemplate = {
+          name: template.provider_template_id,
+          languageCode: Deno.env.get('META_TEMPLATE_LANGUAGE')?.trim() || 'en',
+          body: fill(body, ''),
+          components: placeholders.length
+            ? [
+                {
+                  type: 'body',
+                  parameters: placeholders.map((name) => ({
+                    type: 'text',
+                    text: variables[name]!.trim(),
+                  })),
+                },
+              ]
+            : [],
+        };
+      } else if (metaTemplate) {
+        // `fields` is already in Meta's order: header first, then body.
+        const fields: string[] = Array.isArray(metaTemplate.fields)
+          ? metaTemplate.fields.map(String)
+          : [];
+        if (missingFields(fields)) return variablesRequired();
+        const named = metaTemplate.parameter_format === 'NAMED';
+        const parametersFor = (prefix: string) =>
+          fields
+            .filter((key) => key.startsWith(prefix))
+            .map((key) => ({
+              type: 'text',
+              ...(named ? { parameter_name: key.slice(prefix.length) } : {}),
+              text: variables[key]!.trim(),
+            }));
+        const header = parametersFor('header:');
+        const bodyParameters = parametersFor('body:');
+        resolvedTemplate = {
+          name: metaTemplate.name,
+          languageCode: metaTemplate.language,
+          body: [
+            metaTemplate.header_text ? fill(metaTemplate.header_text, 'header:') : null,
+            fill(metaTemplate.body ?? '', 'body:'),
+            metaTemplate.footer_text,
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+          components: [
+            ...(header.length ? [{ type: 'header', parameters: header }] : []),
+            ...(bodyParameters.length ? [{ type: 'body', parameters: bodyParameters }] : []),
+          ],
+        };
+      } else {
+        return failure(
+          'WHATSAPP_TEMPLATE_NOT_APPROVED',
+          'Select an approved WhatsApp template.',
+          requestId,
+          422,
+        );
+      }
+    }
     const recipient = String(conversation.external_contact ?? '').replace(/\D/g, '');
     if (recipient.length < 7 || recipient.length > 20)
       return failure(
@@ -272,7 +398,8 @@ Deno.serve(async (request) => {
           conversation_id: conversation.id,
           application_message_id: input.application_message_id,
           direction: 'OUTBOUND',
-          body: input.content.type === 'text' ? input.content.body : null,
+          body:
+            input.content.type === 'text' ? input.content.body : (resolvedTemplate?.body ?? null),
           delivery_status: 'PENDING',
           sent_by: auth.user.id,
           sent_at: sentAt,
@@ -290,7 +417,14 @@ Deno.serve(async (request) => {
                   language_code: input.content.language_code,
                   components: input.content.components,
                 }
-              : { message_type: 'text' }),
+              : input.content.type === 'crm_template' && resolvedTemplate
+                ? {
+                    message_type: 'template',
+                    template_id: input.content.template_id,
+                    template_name: resolvedTemplate.name,
+                    language_code: resolvedTemplate.languageCode,
+                  }
+                : { message_type: 'text' }),
           },
         })
         .select('id')
@@ -330,11 +464,18 @@ Deno.serve(async (request) => {
             recipient_type: 'individual',
             to: recipient,
             type: 'template',
-            template: {
-              name: input.content.name,
-              language: { code: input.content.language_code },
-              components: input.content.components,
-            },
+            template:
+              input.content.type === 'template'
+                ? {
+                    name: input.content.name,
+                    language: { code: input.content.language_code },
+                    components: input.content.components,
+                  }
+                : {
+                    name: resolvedTemplate!.name,
+                    language: { code: resolvedTemplate!.languageCode },
+                    components: resolvedTemplate!.components,
+                  },
             biz_opaque_callback_data: input.application_message_id,
           };
     const provider = await fetch(
@@ -350,17 +491,42 @@ Deno.serve(async (request) => {
     );
     const providerResult = (await provider.json().catch(() => null)) as {
       messages?: Array<{ id?: string }>;
+      error?: {
+        code?: number;
+        error_subcode?: number;
+        message?: string;
+        error_data?: { details?: string };
+      };
     } | null;
     const providerMessageId = providerResult?.messages?.[0]?.id;
     if (!provider.ok || !providerMessageId) {
       const retryable = provider.status === 429 || provider.status >= 500;
+      // Meta's own reason (e.g. 131030 recipient not in the test number's
+      // allowed list, 132001 template/language not found, 131042 payment).
+      // Codes and their public descriptions only; never the request or token.
+      const providerError = providerResult?.error
+        ? {
+            code: providerResult.error.code ?? null,
+            subcode: providerResult.error.error_subcode ?? null,
+            title: String(providerResult.error.message ?? '').slice(0, 200),
+            details: String(providerResult.error.error_data?.details ?? '').slice(0, 300),
+            http_status: provider.status,
+          }
+        : { code: null, subcode: null, title: '', details: '', http_status: provider.status };
+      const { data: failedRow } = await admin
+        .from('conversation_messages')
+        .select('metadata')
+        .eq('id', message.id)
+        .maybeSingle();
       const { error: failureUpdateError } = await admin
         .from('conversation_messages')
         .update({
           delivery_status: retryable ? 'RETRY' : 'FAILED',
           safe_error_code: 'WHATSAPP_PROVIDER_REJECTED',
+          metadata: { ...(failedRow?.metadata ?? {}), provider_error: providerError },
         })
-        .eq('id', message.id);
+        .eq('id', message.id)
+        .is('provider_status_at', null);
       if (failureUpdateError) throw failureUpdateError;
       if (retryable)
         await admin.from('domain_outbox').insert({
@@ -380,6 +546,8 @@ Deno.serve(async (request) => {
           provider_message_id: null,
           status: retryable ? 'RETRY' : 'FAILED',
           duplicate: false,
+          provider_error_code: providerError.code,
+          provider_error: providerError.details || providerError.title || null,
         },
         requestId,
         retryable ? 202 : 422,
@@ -388,7 +556,10 @@ Deno.serve(async (request) => {
     const { error: sentUpdateError } = await admin
       .from('conversation_messages')
       .update({ provider_message_id: providerMessageId, delivery_status: 'SENT' })
-      .eq('id', message.id);
+      .eq('id', message.id)
+      // A callback can finish before Meta's send response. It has already set
+      // the provider ID and final status; never overwrite that receipt.
+      .is('provider_status_at', null);
     if (sentUpdateError) throw sentUpdateError;
     await admin.from('conversations').update({ last_message_at: sentAt }).eq('id', conversation.id);
     await admin.from('audit_logs').insert({
@@ -421,7 +592,8 @@ Deno.serve(async (request) => {
           delivery_status: 'PENDING_RECONCILIATION',
           safe_error_code: 'SEND_RESULT_UNKNOWN',
         })
-        .eq('id', activeMessage.id);
+        .eq('id', activeMessage.id)
+        .is('provider_status_at', null);
       await admin.from('domain_outbox').insert({
         organization_id: activeMessage.organizationId,
         event_type: 'message.status.reconcile',

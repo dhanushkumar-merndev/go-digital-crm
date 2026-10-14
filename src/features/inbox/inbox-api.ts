@@ -120,6 +120,101 @@ export async function sendInboxWhatsAppMessage(input: {
   return data.data;
 }
 
+const replyTemplateSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  provider_template_id: z.string(),
+  body: z.string(),
+  placeholders: z.array(z.string()),
+  // Templates synced from Meta: header and body fill their own {{n}} fields.
+  sections: z
+    .object({
+      header: z.string().optional(),
+      body: z.string().optional(),
+      footer: z.string().optional(),
+    })
+    .nullable()
+    .optional(),
+});
+const replyTemplateStateSchema = z.object({
+  window_open: z.boolean(),
+  window_expires_at: nullableString,
+  suggestions: z.record(z.string(), z.string()),
+  templates: z.array(replyTemplateSchema),
+});
+export type WhatsAppReplyTemplate = z.infer<typeof replyTemplateSchema>;
+export type WhatsAppReplyTemplateState = z.infer<typeof replyTemplateStateSchema>;
+
+/**
+ * Whether Official WhatsApp's 24-hour customer-service window is open for this
+ * conversation, and the approved templates that may open it when it is not.
+ */
+export async function fetchWhatsAppReplyTemplates(conversationId: string, signal?: AbortSignal) {
+  const timeout = AbortSignal.timeout(10_000);
+  const { data, error } = await createClient()
+    .rpc('get_whatsapp_business_reply_templates', { target_conversation_id: conversationId })
+    .abortSignal(signal ? AbortSignal.any([signal, timeout]) : timeout);
+  if (error) throw error;
+  return replyTemplateStateSchema.parse(data);
+}
+
+/** Meta refused the send; carries Meta's own error code and description. */
+export class WhatsAppProviderError extends Error {
+  constructor(
+    readonly providerCode: number | null,
+    readonly providerDetail: string | null,
+  ) {
+    super('WHATSAPP_PROVIDER_REJECTED');
+    this.name = 'WhatsAppProviderError';
+  }
+}
+
+/**
+ * Sends an approved template. The server resolves the Meta template name and
+ * body from the CRM record, so only the template and its field values go up.
+ */
+export async function sendInboxWhatsAppTemplate(input: {
+  organizationId: string;
+  conversationId: string;
+  expectedLeadId: string | null;
+  templateId: string;
+  variables: Record<string, string>;
+  applicationMessageId: string;
+}) {
+  const { data, error } = await createClient().functions.invoke<
+    EdgeEnvelope<{ message_id: string; status?: string }>
+  >('send-message', {
+    body: {
+      organization_id: input.organizationId,
+      conversation_id: input.conversationId,
+      expected_lead_id: input.expectedLeadId,
+      application_message_id: input.applicationMessageId,
+      content: { type: 'crm_template', template_id: input.templateId, variables: input.variables },
+    },
+  });
+  if (error) {
+    if (error.name === 'FunctionsFetchError' || error.name === 'FunctionsRelayError')
+      throw new Error('NETWORK_UNAVAILABLE');
+    const context = (error as { context?: unknown }).context;
+    const envelope = (
+      context instanceof Response ? await context.json().catch(() => null) : null
+    ) as EdgeEnvelope<{
+      status?: string;
+      provider_error_code?: number | null;
+      provider_error?: string | null;
+    }> | null;
+    // Meta rejected it: the attempt is stored as a failed message in the thread.
+    if (envelope?.data?.status === 'FAILED')
+      throw new WhatsAppProviderError(
+        envelope.data.provider_error_code ?? null,
+        envelope.data.provider_error ?? null,
+      );
+    throw new Error(envelope?.error?.code ?? 'MESSAGE_SEND_FAILED');
+  }
+  if (!data?.ok) throw new Error(data?.error?.code ?? 'MESSAGE_SEND_FAILED');
+  return data.data;
+}
+
 const leadOptionSchema = z.object({
   id: z.uuid(),
   customer_id: nullableUuid,

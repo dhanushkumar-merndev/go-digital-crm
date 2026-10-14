@@ -155,6 +155,9 @@ verify_jwt = true
 [functions.send-message]
 verify_jwt = true
 
+[functions.whatsapp-templates-sync]
+verify_jwt = true
+
 [functions.personal-whatsapp-link-start]
 verify_jwt = true
 

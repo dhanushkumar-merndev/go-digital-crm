@@ -67,7 +67,26 @@ import {
   type TelecmiAgentRow,
 } from './telecmi-agent-editor';
 import { MetaLeadSyncCard } from './meta-lead-sync-card';
+import { connectPortalInbox, type PortalInboxMailboxInput } from './portal-inbox-api';
+import {
+  initialPortalInboxDraft,
+  isEmailInboxConnection,
+  portalDraftProblem,
+  portalHasStoredPassword,
+  PortalInboxFields,
+  portalMailboxFromDraft,
+  portalRulesFromDraft,
+  type PortalInboxDraft,
+} from './portal-inbox-form';
+import { PortalInboxStatusCard } from './portal-inbox-status-card';
 import { TelecmiPlanCard } from './telecmi-plan-card';
+import { PORTAL_WEBHOOK_CONNECT_ENABLED } from '@/config/feature-flags/portal-integrations';
+import {
+  portalInboxProviderKeys,
+  type PortalInboxProviderKey,
+} from '@/lib/providers/portal-email-parser';
+import { WhatsAppTemplatesCard } from './whatsapp-templates-card';
+import { WhatsAppWebhookSetup, type WhatsAppWebhookMode } from './whatsapp-webhook-setup';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
@@ -294,6 +313,8 @@ type ConnectRequest =
       phoneNumberId: string;
       whatsappBusinessAccountId: string;
       accessToken: string;
+      appSecret: string;
+      webhookVerifyToken: string;
     }
   | {
       kind: 'indiamart';
@@ -332,6 +353,13 @@ type ConnectRequest =
       testTemplateId?: string;
     }
   | { kind: 'brevo'; displayName: string; apiKey: string }
+  | {
+      kind: 'portal-inbox';
+      providerKey: PortalInboxProviderKey;
+      displayName: string;
+      mailbox: PortalInboxMailboxInput;
+      draft: PortalInboxDraft;
+    }
   | {
       kind: 'ai';
       providerKey: Extract<IntegrationProviderKey, 'openrouter' | 'groq'>;
@@ -373,6 +401,7 @@ function ProviderConnectionDialog({
   onClose: () => void;
   onConnected: () => void;
 }) {
+  const queryClient = useQueryClient();
   const options = useQuery({
     queryKey: ['integration-options', organizationId],
     queryFn: fetchIntegrationOptions,
@@ -427,6 +456,10 @@ function ProviderConnectionDialog({
     instructions: string;
     ready?: boolean;
   } | null>(null);
+  const [whatsappSetup, setWhatsappSetup] = useState<{
+    webhook_url: string;
+    webhook_mode: WhatsAppWebhookMode;
+  } | null>(null);
   // App ID and secret are controlled because provisioning a TeleCMI agent needs
   // their current values before the connection form is submitted.
   const [telecmiAppId, setTelecmiAppId] = useState(
@@ -451,6 +484,23 @@ function ProviderConnectionDialog({
   const [aiStreamWsUrl, setAiStreamWsUrl] = useState(
     existing?.connection_config.ai_stream_ws_url ?? '',
   );
+  const isPortalProvider = (portalInboxProviderKeys as readonly string[]).includes(providerKey);
+  // Legacy portal webhook connect — hidden, kept for re-enable. With the flag
+  // off every portal connection (new, or an existing webhook one being
+  // edited) uses the email inbox form.
+  const [portalMethod, setPortalMethod] = useState<'EMAIL_INBOX' | 'WEBHOOK'>(
+    PORTAL_WEBHOOK_CONNECT_ENABLED && existing && !isEmailInboxConnection(existing)
+      ? 'WEBHOOK'
+      : 'EMAIL_INBOX',
+  );
+  const usePortalInbox = isPortalProvider && portalMethod === 'EMAIL_INBOX';
+  const [portalDraft, setPortalDraft] = useState<PortalInboxDraft>(() =>
+    initialPortalInboxDraft(
+      isPortalProvider ? (providerKey as PortalInboxProviderKey) : 'justdial',
+      existing,
+    ),
+  );
+  const [portalFormError, setPortalFormError] = useState<string | null>(null);
   const existingModels = existing?.connection_config?.models;
   const effectiveBranchIds =
     scopeMode === 'ALL_BRANCHES'
@@ -579,6 +629,25 @@ function ProviderConnectionDialog({
         });
         return { authorizationUrl: null, telecmiSetup: result };
       }
+      if (request.kind === 'portal-inbox') {
+        await connectPortalInbox({
+          organizationId,
+          connectionId: existing?.id,
+          providerKey: request.providerKey,
+          displayName: request.displayName,
+          scopeMode,
+          branchIds: effectiveBranchIds,
+          defaultTeamId: defaultTeamId === 'none' ? undefined : defaultTeamId,
+          mailbox: request.mailbox,
+          senderDomains: request.draft.senderDomains,
+          pollIntervalMinutes: request.draft.pollInterval,
+          parseRules: portalRulesFromDraft(request.draft),
+        });
+        void queryClient.invalidateQueries({ queryKey: ['portal-inbox-mailboxes'] });
+        return { authorizationUrl: null };
+      }
+      // Legacy portal webhook connect — hidden, kept for re-enable
+      // (PORTAL_WEBHOOK_CONNECT_ENABLED). Reached only through the WEBHOOK method.
       if (request.kind === 'indiamart') {
         const result = await connectIndiaMart({
           organizationId,
@@ -671,7 +740,7 @@ function ProviderConnectionDialog({
           },
         };
       }
-      await connectWhatsApp({
+      const whatsapp = await connectWhatsApp({
         organizationId,
         connectionId: existing?.id,
         displayName: request.displayName,
@@ -682,15 +751,24 @@ function ProviderConnectionDialog({
         phoneNumberId: request.phoneNumberId,
         whatsappBusinessAccountId: request.whatsappBusinessAccountId,
         accessToken: request.accessToken,
+        appSecret: request.appSecret,
+        webhookVerifyToken: request.webhookVerifyToken,
       });
-      return { authorizationUrl: null, telecmiSetup: null, portalSetup: null };
+      return {
+        authorizationUrl: null,
+        telecmiSetup: null,
+        portalSetup: null,
+        whatsappSetup: whatsapp,
+      };
     },
     onSuccess: ({
       authorizationUrl,
       telecmiSetup: setup,
       portalSetup: pSetup,
+      whatsappSetup: wSetup,
     }: {
       authorizationUrl: string | null;
+      whatsappSetup?: { webhook_url: string; webhook_mode: WhatsAppWebhookMode } | null;
       telecmiSetup?: { webhook_url: string; call_flow_url: string } | null;
       portalSetup?: {
         provider_name: string;
@@ -713,6 +791,10 @@ function ProviderConnectionDialog({
         setPortalSetup(pSetup);
         return;
       }
+      if (wSetup) {
+        setWhatsappSetup(wSetup);
+        return;
+      }
       onClose();
     },
   });
@@ -729,7 +811,9 @@ function ProviderConnectionDialog({
         <DialogHeader>
           <DialogTitle>
             {existing
-              ? `Replace ${providerLabel(existing.provider_key)} credential`
+              ? usePortalInbox
+                ? `Edit ${providerLabel(existing.provider_key)} inbox settings`
+                : `Replace ${providerLabel(existing.provider_key)} credential`
               : 'Connect provider'}
           </DialogTitle>
           <DialogDescription>
@@ -773,6 +857,8 @@ function ProviderConnectionDialog({
                     form.get('whatsappBusinessAccountId') ?? '',
                   ).trim(),
                   accessToken: String(form.get('accessToken') ?? '').trim(),
+                  appSecret: String(form.get('whatsappAppSecret') ?? '').trim(),
+                  webhookVerifyToken: String(form.get('whatsappWebhookVerifyToken') ?? '').trim(),
                 });
                 return;
               }
@@ -816,6 +902,24 @@ function ProviderConnectionDialog({
                   kind: 'brevo',
                   displayName,
                   apiKey: String(form.get('brevoApiKey') ?? '').trim(),
+                });
+                return;
+              }
+              if (usePortalInbox) {
+                const mailbox = portalMailboxFromDraft(
+                  portalDraft,
+                  portalHasStoredPassword(existing, portalDraft),
+                );
+                const problem =
+                  typeof mailbox === 'string' ? mailbox : portalDraftProblem(portalDraft);
+                setPortalFormError(problem);
+                if (problem || typeof mailbox === 'string') return;
+                mutation.mutate({
+                  kind: 'portal-inbox',
+                  providerKey: providerKey as PortalInboxProviderKey,
+                  displayName,
+                  mailbox,
+                  draft: portalDraft,
                 });
                 return;
               }
@@ -888,6 +992,10 @@ function ProviderConnectionDialog({
                     setDisplayName(providerLabel(next));
                   }
                   if (next === 'meta') setMetaConnectionMode('MANUAL_API');
+                  if ((portalInboxProviderKeys as readonly string[]).includes(next)) {
+                    setPortalDraft(initialPortalInboxDraft(next as PortalInboxProviderKey, null));
+                    setPortalFormError(null);
+                  }
                 }}
               >
                 <SelectTrigger>
@@ -925,6 +1033,53 @@ function ProviderConnectionDialog({
                 onScopeModeChange={setScopeMode}
                 onSelectedBranchIdsChange={setSelectedBranchIds}
               />
+            )}
+            {isPortalProvider && PORTAL_WEBHOOK_CONNECT_ENABLED && (
+              <label className="grid gap-1.5 text-sm font-medium">
+                Connection method
+                <Select
+                  value={portalMethod}
+                  onValueChange={(value) => setPortalMethod(value as typeof portalMethod)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="EMAIL_INBOX">Read lead emails from an inbox</SelectItem>
+                    <SelectItem value="WEBHOOK">Portal webhook with API key</SelectItem>
+                  </SelectContent>
+                </Select>
+              </label>
+            )}
+            {usePortalInbox && options.data && (
+              <PortalInboxFields
+                providerKey={providerKey as PortalInboxProviderKey}
+                existing={existing}
+                draft={portalDraft}
+                onChange={(draft) => {
+                  setPortalDraft(draft);
+                  setPortalFormError(null);
+                }}
+                teams={options.data.teams.filter(
+                  (team) =>
+                    scopeMode === 'ALL_BRANCHES' || effectiveBranchIds.includes(team.branch_id),
+                )}
+                defaultTeamId={defaultTeamId}
+                onDefaultTeamIdChange={setDefaultTeamId}
+                routingBranchName={
+                  options.data.branches.find(
+                    (branch) =>
+                      branch.id ===
+                      (options.data?.teams.find((team) => team.id === defaultTeamId)?.branch_id ??
+                        (scopeMode === 'ONE_BRANCH' ? effectiveBranchIds[0] : undefined)),
+                  )?.name ?? null
+                }
+              />
+            )}
+            {usePortalInbox && portalFormError && (
+              <Alert variant="destructive">
+                <AlertDescription>{portalFormError}</AlertDescription>
+              </Alert>
             )}
             {providerKey === 'meta' && options.data && (
               <div className="grid gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4 sm:grid-cols-2">
@@ -1167,9 +1322,107 @@ function ProviderConnectionDialog({
                       : 'Stored encrypted and never returned to the browser.'}
                   </span>
                 </label>
+                <div className="space-y-1 border-t pt-4 sm:col-span-2">
+                  <p className="text-sm font-medium">
+                    Your own Meta app{' '}
+                    <span className="font-normal text-muted-foreground">(optional)</span>
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Fill both to receive customer replies through your own Meta app, then create the
+                    webhook link below. Paste it in Meta with the same verify token. Leave both
+                    blank to use the Go Digital Marketing app.
+                  </p>
+                </div>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  Meta app secret
+                  <Input
+                    name="whatsappAppSecret"
+                    type="password"
+                    minLength={16}
+                    maxLength={256}
+                    autoComplete="new-password"
+                    placeholder={
+                      existing?.connection_config.webhook_mode === 'DEALERSHIP_APP'
+                        ? storedSecretPlaceholder
+                        : undefined
+                    }
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    App settings → Basic → App secret. Checks that events really come from Meta.
+                  </span>
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  Webhook verify token
+                  <Input
+                    name="whatsappWebhookVerifyToken"
+                    type="password"
+                    minLength={16}
+                    maxLength={128}
+                    pattern="[!-~]+"
+                    autoComplete="new-password"
+                    placeholder={
+                      existing?.connection_config.webhook_mode === 'DEALERSHIP_APP'
+                        ? storedSecretPlaceholder
+                        : undefined
+                    }
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Any value of 16+ characters, no spaces. Type the same value in Meta.
+                  </span>
+                </label>
+                <div className="space-y-3 sm:col-span-2">
+                  {whatsappSetup ? (
+                    <WhatsAppWebhookSetup
+                      webhookUrl={whatsappSetup.webhook_url}
+                      mode={whatsappSetup.webhook_mode}
+                    />
+                  ) : (
+                    <>
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        disabled={
+                          mutation.isPending ||
+                          options.isPending ||
+                          !validScope ||
+                          !selectedInboundBranch
+                        }
+                        onClick={(event) => {
+                          const form = event.currentTarget.form;
+                          if (!form) return;
+                          const hasStoredWebhook =
+                            existing?.connection_config.webhook_mode === 'DEALERSHIP_APP';
+                          if (hasStoredWebhook) return;
+                          for (const name of ['whatsappAppSecret', 'whatsappWebhookVerifyToken']) {
+                            const input = form.elements.namedItem(name);
+                            if (input instanceof HTMLInputElement && !input.value.trim()) {
+                              event.preventDefault();
+                              input.setCustomValidity(
+                                name === 'whatsappAppSecret'
+                                  ? 'Enter your Meta app secret to create a webhook link.'
+                                  : 'Enter a webhook verify token to create a webhook link.',
+                              );
+                              input.reportValidity();
+                              input.setCustomValidity('');
+                              return;
+                            }
+                          }
+                        }}
+                      >
+                        <Link2 className="size-4" />
+                        {mutation.isPending ? 'Creating webhook link…' : 'Create webhook link'}
+                      </Button>
+                      <p className="text-[11px] text-muted-foreground">
+                        Verifies and saves this connection, then shows its callback URL to copy into
+                        Meta.
+                      </p>
+                    </>
+                  )}
+                </div>
               </div>
             )}
-            {providerKey === 'indiamart' && options.data && (
+            {/* Legacy portal webhook connect — hidden, kept for re-enable. */}
+            {providerKey === 'indiamart' && !usePortalInbox && options.data && (
               <div className="grid gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4 sm:grid-cols-2">
                 <div className="space-y-2 sm:col-span-2">
                   <div className="flex items-center gap-2 text-sm font-semibold text-primary">
@@ -1337,7 +1590,8 @@ function ProviderConnectionDialog({
                 </p>
               </div>
             )}
-            {providerKey === 'carwale' && options.data && (
+            {/* Legacy portal webhook connect — hidden, kept for re-enable. */}
+            {providerKey === 'carwale' && !usePortalInbox && options.data && (
               <div className="grid gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4 sm:grid-cols-2">
                 <div className="space-y-2 sm:col-span-2">
                   <div className="flex items-center gap-2 text-sm font-semibold text-primary">
@@ -1424,7 +1678,8 @@ function ProviderConnectionDialog({
                 </label>
               </div>
             )}
-            {providerKey === 'cardekho' && options.data && (
+            {/* Legacy portal webhook connect — hidden, kept for re-enable. */}
+            {providerKey === 'cardekho' && !usePortalInbox && options.data && (
               <div className="grid gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4 sm:grid-cols-2">
                 <div className="space-y-2 sm:col-span-2">
                   <div className="flex items-center gap-2 text-sm font-semibold text-primary">
@@ -1510,7 +1765,8 @@ function ProviderConnectionDialog({
                 </label>
               </div>
             )}
-            {providerKey === 'justdial' && options.data && (
+            {/* Legacy portal webhook connect — hidden, kept for re-enable. */}
+            {providerKey === 'justdial' && !usePortalInbox && options.data && (
               <div className="grid gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4 sm:grid-cols-2">
                 <div className="space-y-2 sm:col-span-2">
                   <div className="flex items-center gap-2 text-sm font-semibold text-primary">
@@ -1956,9 +2212,9 @@ function ProviderConnectionDialog({
             )}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={onClose}>
-                {telecmiSetup || portalSetup ? 'Done' : 'Cancel'}
+                {telecmiSetup || portalSetup || whatsappSetup ? 'Done' : 'Cancel'}
               </Button>
-              {!telecmiSetup && !portalSetup ? (
+              {!telecmiSetup && !portalSetup && !whatsappSetup ? (
                 <Button
                   type="submit"
                   disabled={
@@ -2316,6 +2572,27 @@ function ConnectionDetailSheet({
                 connectionId={connection.id}
               />
             )}
+          {connection.provider_key === 'whatsapp_cloud' && canManage && (
+            <WhatsAppWebhookSetup
+              webhookUrl={connection.connection_config.webhook_url}
+              mode={connection.connection_config.webhook_mode}
+            />
+          )}
+          {connection.provider_key === 'whatsapp_cloud' &&
+            canManage &&
+            connection.status === 'CONNECTED' && (
+              <WhatsAppTemplatesCard
+                organizationId={connection.organization_id}
+                connectionId={connection.id}
+              />
+            )}
+          {isEmailInboxConnection(connection) && (
+            <PortalInboxStatusCard
+              organizationId={connection.organization_id}
+              connectionId={connection.id}
+              canManage={canManage}
+            />
+          )}
           {connection.provider_key === 'meta' && canManage && connection.status === 'CONNECTED' && (
             <MetaLeadSyncCard
               organizationId={connection.organization_id}
@@ -2397,7 +2674,9 @@ function ConnectionDetailSheet({
               'justdial',
               ...(connection.connection_config.connection_type === 'META_DIRECT' ? ['meta'] : []),
             ].includes(connection.provider_key) && (
-              <Button onClick={onReplace}>Replace credential</Button>
+              <Button onClick={onReplace}>
+                {isEmailInboxConnection(connection) ? 'Edit inbox settings' : 'Replace credential'}
+              </Button>
             )}
         </SheetFooter>
       </SheetContent>

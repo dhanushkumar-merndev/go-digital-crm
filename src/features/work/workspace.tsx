@@ -36,6 +36,7 @@ import {
 } from '@/components/skeletons/sales-consultant-skeletons';
 import { SummaryToggle } from '@/components/domain/summary-toggle';
 import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
+import { DateRangeDialog } from '@/components/shared/date-range-dialog';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import {
@@ -47,14 +48,6 @@ import { Badge } from '@/components/ui/badge';
 import { overdueTableRowClassName } from '@/components/shared/table-row-styles';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -804,8 +797,6 @@ function WorkTable({
     (team) => query.branchId === 'all' || team.branch_id === query.branchId,
   );
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
-  const [draftFollowupFrom, setDraftFollowupFrom] = useState(query.followupFrom);
-  const [draftFollowupTo, setDraftFollowupTo] = useState(query.followupTo);
   const followupDateLabel =
     query.followupFrom && query.followupTo
       ? `${query.followupFrom} – ${query.followupTo}`
@@ -824,8 +815,8 @@ function WorkTable({
               'grid items-end gap-2.5',
               kind === 'followups'
                 ? managerial
-                  ? 'min-w-[1800px] grid-cols-[1.45fr_.85fr_.85fr_.9fr_1.2fr_.85fr_.9fr_.85fr_.9fr_1.2fr_108px_auto]'
-                  : 'min-w-[1400px] grid-cols-[1.45fr_.85fr_.85fr_.9fr_1.2fr_.85fr_1.2fr_108px_auto]'
+                  ? 'min-w-[1920px] grid-cols-[1.45fr_.85fr_.85fr_.9fr_1.2fr_.9fr_.85fr_.9fr_.85fr_.9fr_1.2fr_108px_auto]'
+                  : 'min-w-[1520px] grid-cols-[1.45fr_.85fr_.85fr_.9fr_1.2fr_.9fr_.85fr_1.2fr_108px_auto]'
                 : managerial
                   ? 'min-w-[1320px] grid-cols-[1.45fr_.85fr_.9fr_.85fr_.85fr_.9fr_1.2fr_108px]'
                   : 'min-w-[920px] grid-cols-[1.45fr_.9fr_.9fr_1.2fr_108px]',
@@ -974,17 +965,34 @@ function WorkTable({
                     </SelectContent>
                   </Select>
                 </label>
+                <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+                  Buyer type
+                  <Select
+                    value={query.buyerType}
+                    onValueChange={(buyerType) =>
+                      onQueryChange({
+                        buyerType: buyerType as WorkQuery['buyerType'],
+                        page: 1,
+                      })
+                    }
+                  >
+                    <SelectTrigger className="h-8 bg-white text-[10px]">
+                      <SelectValue placeholder="Individual & company" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Individual &amp; company</SelectItem>
+                      <SelectItem value="INDIVIDUAL">Individual</SelectItem>
+                      <SelectItem value="COMPANY">Company</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
                 <div className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
                   Follow-up date
                   <Button
                     type="button"
                     variant="outline"
                     className="h-8 justify-start px-2 text-[10px] font-normal text-muted-foreground"
-                    onClick={() => {
-                      setDraftFollowupFrom(query.followupFrom);
-                      setDraftFollowupTo(query.followupTo);
-                      setDateRangeOpen(true);
-                    }}
+                    onClick={() => setDateRangeOpen(true)}
                   >
                     <CalendarDays className="size-3.5 shrink-0 text-blue-600" />
                     <span className="truncate">{followupDateLabel}</span>
@@ -1284,63 +1292,16 @@ function WorkTable({
         )}
       </CardContent>
       {kind === 'followups' && (
-        <Dialog open={dateRangeOpen} onOpenChange={setDateRangeOpen}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Follow-up date range</DialogTitle>
-              <DialogDescription>Show follow-ups due in this period.</DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-2 sm:grid-cols-2">
-              <label className="grid gap-1.5 text-sm font-medium">
-                From
-                <Input
-                  type="date"
-                  value={draftFollowupFrom}
-                  onChange={(event) => setDraftFollowupFrom(event.target.value)}
-                />
-              </label>
-              <label className="grid gap-1.5 text-sm font-medium">
-                To
-                <Input
-                  type="date"
-                  min={draftFollowupFrom || undefined}
-                  value={draftFollowupTo}
-                  onChange={(event) => setDraftFollowupTo(event.target.value)}
-                />
-              </label>
-            </div>
-            <DialogFooter className="sm:justify-between">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setDraftFollowupFrom('');
-                  setDraftFollowupTo('');
-                }}
-              >
-                Clear dates
-              </Button>
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setDateRangeOpen(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    onQueryChange({
-                      followupFrom: draftFollowupFrom,
-                      followupTo: draftFollowupTo,
-                      page: 1,
-                    });
-                    setDateRangeOpen(false);
-                  }}
-                >
-                  Apply range
-                </Button>
-              </div>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <DateRangeDialog
+          open={dateRangeOpen}
+          onOpenChange={setDateRangeOpen}
+          title="Follow-up date range"
+          description="Show follow-ups due in this period."
+          value={{ from: query.followupFrom, to: query.followupTo }}
+          onApply={(range) =>
+            onQueryChange({ followupFrom: range.from, followupTo: range.to, page: 1 })
+          }
+        />
       )}
     </Card>
   );
@@ -1508,6 +1469,7 @@ export function WorkWorkspace({
       'model',
       'source',
       'temperature',
+      'buyerType',
       'followupFrom',
       'followupTo',
     ].some((key) => key in next);

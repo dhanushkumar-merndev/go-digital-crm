@@ -1,8 +1,9 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pause, Plus, Trash2 } from 'lucide-react';
+import { EmailMessageEditor } from '@/components/shared/email-message-editor';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -27,12 +28,14 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import {
+  createMarketingDripCampaign,
   createMarketingDripTemplate,
   fetchMarketingAutomationScopeOptions,
   fetchMarketingDripBuilderOptions,
   fetchMarketingDripCampaign,
   saveMarketingDripCampaign,
   setMarketingDripStatus,
+  type MarketingAutomationScopeOptions,
   type MarketingDripDetail,
   type MarketingDripChannel,
 } from './marketing-automation-api';
@@ -46,7 +49,51 @@ const triggerNames: Record<MarketingDripDetail['trigger_type'], string> = {
   BOOKING_CONFIRMED: 'Booking confirmed',
   VEHICLE_DELIVERED: 'Vehicle delivered',
   DELIVERY_ANNIVERSARY: 'Delivery anniversary',
+  AUTOMATION: 'Started by an automation',
 };
+// What a new campaign can start from, in the order the builder offers them.
+const triggerHelp: Record<MarketingDripDetail['trigger_type'], string> = {
+  LEAD_CREATED: 'Starts when a new lead arrives; the first step leaves within about a minute.',
+  BOOKING_CONFIRMED: 'Starts when a booking is created.',
+  VEHICLE_DELIVERED: 'Starts when a delivery is marked delivered.',
+  BIRTHDAY: "Starts on the customer's birthday. Needs the Date of birth custom field on customers.",
+  ANNIVERSARY:
+    "Starts on the customer's wedding anniversary. Needs the Wedding anniversary custom field on customers.",
+  DELIVERY_ANNIVERSARY: 'Starts each year on the date the vehicle was delivered.',
+  AUTOMATION:
+    'Starts only when an automation (Campaigns → Automations) runs it, for example when a lead moves to Qualified.',
+  AUDIENCE:
+    'Checked every hour: enrolls each customer once when a lead matches the stage, temperature, source and age rules.',
+};
+const triggerOrder = Object.keys(triggerHelp) as Array<MarketingDripDetail['trigger_type']>;
+function defaultConditions(trigger: MarketingDripDetail['trigger_type']): Record<string, unknown> {
+  if (trigger === 'LEAD_CREATED') return { sources: [], models: [], email_presence: 'ANY' };
+  if (['BIRTHDAY', 'ANNIVERSARY', 'DELIVERY_ANNIVERSARY'].includes(trigger))
+    return { days_before: 0, send_hour: 10 };
+  return {};
+}
+// A new campaign exists only in the form until it is saved, so its id and
+// version are never sent.
+function newCampaign(scopes: MarketingAutomationScopeOptions): MarketingDripDetail {
+  return {
+    id: '00000000-0000-0000-0000-000000000000',
+    name: '',
+    description: null,
+    branch_id: scopes.can_use_organization_scope ? null : (scopes.branches[0]?.id ?? null),
+    status: 'DRAFT',
+    version: 1,
+    trigger_type: 'LEAD_CREATED',
+    trigger_conditions: defaultConditions('LEAD_CREATED'),
+    audience_filter: {},
+    steps: [
+      {
+        step_order: 1,
+        delay_hours: 0,
+        channels: [{ channel: 'EMAIL', template_id: null, body: '', variable_map: {} }],
+      },
+    ],
+  };
+}
 function placeholders(body: string) {
   return [
     ...new Set(
@@ -70,11 +117,14 @@ function errorMessage(error: unknown) {
 
 export function DripCampaignEditor({
   campaignId,
+  creating = false,
   canManage,
   onClose,
   onComplete,
 }: {
   campaignId: string | null;
+  /** Open on a blank draft instead of an existing campaign. */
+  creating?: boolean;
   canManage: boolean;
   onClose: () => void;
   onComplete: () => void;
@@ -82,6 +132,7 @@ export function DripCampaignEditor({
   const scope = workspaceQueryScope(useWorkspaceSession());
   const queryClient = useQueryClient();
   const busy = useRef(false);
+  const open = Boolean(campaignId) || creating;
   const detail = useQuery({
     queryKey: ['marketing-drip-detail', ...scope, campaignId],
     queryFn: ({ signal }) => fetchMarketingDripCampaign(campaignId!, signal),
@@ -90,39 +141,43 @@ export function DripCampaignEditor({
   const options = useQuery({
     queryKey: ['marketing-drip-builder-options', ...scope],
     queryFn: ({ signal }) => fetchMarketingDripBuilderOptions(signal),
-    enabled: Boolean(campaignId),
+    enabled: open,
   });
   const scopes = useQuery({
     queryKey: ['marketing-automation-scope-options', ...scope],
     queryFn: ({ signal }) => fetchMarketingAutomationScopeOptions(signal),
-    enabled: Boolean(campaignId),
+    enabled: open,
   });
+  const draft = useMemo(() => (scopes.data ? newCampaign(scopes.data) : null), [scopes.data]);
+  const initial = creating ? draft : detail.data;
   const refresh = async () => {
     await detail.refetch();
     onComplete();
   };
   return (
     <Dialog
-      open={Boolean(campaignId)}
-      onOpenChange={(open) => {
-        if (!open && !busy.current) onClose();
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !busy.current) onClose();
       }}
     >
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Drip campaign</DialogTitle>
+          <DialogTitle>{creating ? 'Create drip campaign' : 'Drip campaign'}</DialogTitle>
           <DialogDescription>
-            Review the audience, messages and timing for this campaign.
+            {creating
+              ? 'Choose what starts the sequence, then write each step. It is saved as a draft.'
+              : 'Review the audience, messages and timing for this campaign.'}
           </DialogDescription>
         </DialogHeader>
-        {detail.isError || options.isError || scopes.isError ? (
+        {(!creating && detail.isError) || options.isError || scopes.isError ? (
           <Alert variant="destructive">
             <AlertDescription>
               Unable to load campaign details.{' '}
               <Button
                 variant="link"
                 onClick={() => {
-                  void detail.refetch();
+                  if (!creating) void detail.refetch();
                   void options.refetch();
                   void scopes.refetch();
                 }}
@@ -131,10 +186,11 @@ export function DripCampaignEditor({
               </Button>
             </AlertDescription>
           </Alert>
-        ) : detail.data && options.data && scopes.data ? (
+        ) : initial && options.data && scopes.data ? (
           <CampaignForm
-            key={`${detail.data.id}:${detail.data.version}`}
-            initial={detail.data}
+            key={creating ? 'new' : `${initial.id}:${initial.version}`}
+            initial={initial}
+            isNew={creating}
             options={options.data}
             scopes={scopes.data}
             canManage={canManage && options.data.can_manage}
@@ -163,6 +219,7 @@ export function DripCampaignEditor({
 
 function CampaignForm({
   initial,
+  isNew,
   options,
   scopes,
   canManage,
@@ -173,6 +230,7 @@ function CampaignForm({
   onBusyChange,
 }: {
   initial: MarketingDripDetail;
+  isNew: boolean;
   options: Awaited<ReturnType<typeof fetchMarketingDripBuilderOptions>>;
   scopes: Awaited<ReturnType<typeof fetchMarketingAutomationScopeOptions>>;
   canManage: boolean;
@@ -184,10 +242,14 @@ function CampaignForm({
 }) {
   const [form, setForm] = useState(() => structuredClone(initial));
   const requestId = useRef(crypto.randomUUID());
+  // A new audience campaign is created first and then saved as an edit; if that
+  // second call fails, the retry must edit the campaign that already exists.
+  const createdAudience = useRef<{ id: string; version: number } | null>(null);
+  const audienceEditRequestId = useRef(crypto.randomUUID());
   const draftRequests = useRef(new Map<string, { requestId: string; id?: string }>());
   const [dirty, setDirty] = useState(false);
   const editable = canManage && (initial.status === 'DRAFT' || initial.status === 'PAUSED');
-  const legacy = initial.trigger_type === 'AUDIENCE';
+  const legacy = form.trigger_type === 'AUDIENCE';
   const edit = (next: MarketingDripDetail) => {
     setForm(next);
     setDirty(true);
@@ -203,6 +265,21 @@ function CampaignForm({
             }
           : step,
       ),
+    });
+  const changeTrigger = (trigger_type: MarketingDripDetail['trigger_type']) =>
+    edit({
+      ...form,
+      trigger_type,
+      trigger_conditions: defaultConditions(trigger_type),
+      audience_filter: {},
+      // An audience step sends on one channel and takes typed values, not
+      // lead fields, so a mapping made for the other kind cannot carry over.
+      steps: form.steps.map((step) => ({
+        ...step,
+        channels: (trigger_type === 'AUDIENCE' ? step.channels.slice(0, 1) : step.channels).map(
+          (channel) => ({ ...channel, variable_map: {} }),
+        ),
+      })),
     });
   const condition = (key: string, value: unknown) =>
     edit({ ...form, trigger_conditions: { ...form.trigger_conditions, [key]: value } });
@@ -265,14 +342,38 @@ function CampaignForm({
           );
         }
       }
-      return saveMarketingDripCampaign(payload, requestId.current);
+      if (!isNew) return saveMarketingDripCampaign(payload, requestId.current);
+      if (payload.trigger_type !== 'AUDIENCE')
+        return saveMarketingDripCampaign(payload, requestId.current, true);
+      if (!createdAudience.current) {
+        const created = await createMarketingDripCampaign({
+          name: payload.name.trim(),
+          description: payload.description?.trim() || undefined,
+          branchId: payload.branch_id ?? undefined,
+          defaultChannel: payload.steps[0].channels[0].channel,
+          audienceFilter: payload.audience_filter,
+          steps: payload.steps.map((step) => ({
+            step_order: step.step_order,
+            delay_hours: step.delay_hours,
+            channel: step.channels[0].channel,
+            message_body: step.channels[0].body.trim(),
+          })),
+          requestId: requestId.current,
+        });
+        createdAudience.current = { id: created.id, version: created.version };
+      }
+      return saveMarketingDripCampaign(
+        { ...payload, ...createdAudience.current },
+        audienceEditRequestId.current,
+      );
     },
     onSuccess: () => {
       toast.add({
         type: 'success',
-        title: 'Campaign saved',
-        description:
-          'Message changes use new draft templates and need provider approval before activation.',
+        title: isNew ? 'Campaign saved as a draft' : 'Campaign saved',
+        description: isNew
+          ? 'Open it to activate once the provider has approved every template.'
+          : 'Message changes use new draft templates and need provider approval before activation.',
       });
       onTemplatesChanged();
       onComplete();
@@ -323,7 +424,7 @@ function CampaignForm({
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          {initial.status} · {triggerNames[initial.trigger_type]}
+          {isNew ? 'New campaign' : `${initial.status} · ${triggerNames[initial.trigger_type]}`}
         </p>
         {canManage && initial.status === 'ACTIVE' && (
           <Button
@@ -336,7 +437,7 @@ function CampaignForm({
             Pause to edit
           </Button>
         )}
-        {canManage && (initial.status === 'DRAFT' || initial.status === 'PAUSED') && (
+        {canManage && !isNew && (initial.status === 'DRAFT' || initial.status === 'PAUSED') && (
           <Button
             type="button"
             variant="outline"
@@ -353,7 +454,7 @@ function CampaignForm({
           checks them; messages already submitted to a provider cannot be recalled.
         </p>
       )}
-      {dirty && (
+      {dirty && !isNew && (
         <p className="text-sm text-muted-foreground">
           Save your changes before activating. Changed message text is saved as a new draft
           template.
@@ -419,6 +520,30 @@ function CampaignForm({
             onChange={(e) => edit({ ...form, description: e.target.value })}
           />
         </label>
+        {isNew && (
+          <label className="grid gap-1.5 text-sm font-medium">
+            Starts when
+            <Select
+              disabled={pending}
+              value={form.trigger_type}
+              onValueChange={(value) => changeTrigger(value as MarketingDripDetail['trigger_type'])}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {triggerOrder.map((trigger) => (
+                  <SelectItem key={trigger} value={trigger}>
+                    {triggerNames[trigger]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-xs font-normal text-muted-foreground">
+              {triggerHelp[form.trigger_type]}
+            </span>
+          </label>
+        )}
         {legacy && (
           <div className="space-y-4 rounded-md border p-4">
             <p className="text-sm font-medium">Audience rules</p>
@@ -493,7 +618,7 @@ function CampaignForm({
             </label>
           </div>
         )}
-        {initial.trigger_type === 'LEAD_CREATED' && (
+        {form.trigger_type === 'LEAD_CREATED' && (
           <div className="space-y-4 rounded-md border p-4">
             <p className="text-sm font-medium">
               Lead sources{' '}
@@ -552,7 +677,7 @@ function CampaignForm({
             </label>
           </div>
         )}
-        {['BIRTHDAY', 'ANNIVERSARY', 'DELIVERY_ANNIVERSARY'].includes(initial.trigger_type) && (
+        {['BIRTHDAY', 'ANNIVERSARY', 'DELIVERY_ANNIVERSARY'].includes(form.trigger_type) && (
           <div className="grid gap-4 sm:grid-cols-2">
             {[
               ['days_before', 'Days before', 30, 0],
@@ -697,20 +822,39 @@ function CampaignForm({
                       </Button>
                     )}
                   </div>
-                  <label className="grid gap-1.5 text-sm font-medium">
-                    Message
-                    <Textarea
-                      aria-label={`Step ${i + 1} ${channel.channel} message`}
+                  {!options.channels[channel.channel] && (
+                    <p className="text-xs text-amber-700">
+                      {channel.channel === 'WHATSAPP' ? 'WhatsApp' : channel.channel} is not
+                      connected yet. Connect it in Tools before activating this campaign.
+                    </p>
+                  )}
+                  {channel.channel === 'EMAIL' ? (
+                    <EmailMessageEditor
+                      ariaLabel={`Step ${i + 1} ${channel.channel} message`}
                       value={channel.body}
-                      rows={3}
-                      maxLength={4000}
-                      onChange={(e) => editChannel(i, j, { ...channel, body: e.target.value })}
+                      variableMap={channel.variable_map}
+                      literalVariables={legacy}
+                      disabled={!editable || pending}
+                      onChange={(body) => editChannel(i, j, { ...channel, body })}
                     />
-                  </label>
-                  <p className="text-xs text-muted-foreground">
-                    Use {'{{NAME}}'} for a variable. Edited text creates a draft template and needs
-                    provider approval.
-                  </p>
+                  ) : (
+                    <>
+                      <label className="grid gap-1.5 text-sm font-medium">
+                        Message
+                        <Textarea
+                          aria-label={`Step ${i + 1} ${channel.channel} message`}
+                          value={channel.body}
+                          rows={3}
+                          maxLength={4000}
+                          onChange={(e) => editChannel(i, j, { ...channel, body: e.target.value })}
+                        />
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        Use {'{{NAME}}'} for a variable. Edited text creates a draft template and
+                        needs provider approval.
+                      </p>
+                    </>
+                  )}
                   {placeholders(channel.body).map((p) => (
                     <label className="grid gap-1.5 text-sm font-medium" key={p}>
                       {p}
@@ -812,7 +956,7 @@ function CampaignForm({
         </Button>
         {editable && (
           <Button type="submit" disabled={!valid || pending || !dirty}>
-            {save.isPending ? 'Saving…' : 'Save changes'}
+            {save.isPending ? 'Saving…' : isNew ? 'Save draft' : 'Save changes'}
           </Button>
         )}
       </div>

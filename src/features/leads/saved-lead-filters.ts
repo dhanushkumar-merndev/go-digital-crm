@@ -1,6 +1,8 @@
 import {
+  leadBuyerTypeFilters,
   leadStageFilters,
   leadTemperatureFilters,
+  type LeadBuyerTypeFilter,
   type LeadQuery,
   type LeadStageFilter,
   type LeadTemperatureFilter,
@@ -10,7 +12,16 @@ export const MAX_SAVED_LEAD_FILTERS = 5;
 
 export type SavedLeadFilterValues = Pick<
   LeadQuery,
-  'search' | 'model' | 'source' | 'stage' | 'temperature' | 'followupFrom' | 'followupTo'
+  | 'search'
+  | 'model'
+  | 'source'
+  | 'stage'
+  | 'temperature'
+  | 'buyerType'
+  | 'followupFrom'
+  | 'followupTo'
+  | 'createdFrom'
+  | 'createdTo'
 >;
 
 export type SavedLeadFilter = {
@@ -53,6 +64,10 @@ function validFilterValues(value: unknown): SavedLeadFilterValues | null {
   const temperature = leadTemperatureFilters.includes(filters.temperature as LeadTemperatureFilter)
     ? (filters.temperature as LeadTemperatureFilter)
     : 'all';
+  // Filters saved before buyer types existed have no value here.
+  const buyerType = leadBuyerTypeFilters.includes(filters.buyerType as LeadBuyerTypeFilter)
+    ? (filters.buyerType as LeadBuyerTypeFilter)
+    : 'all';
 
   return {
     search: text(filters.search, 160),
@@ -60,8 +75,12 @@ function validFilterValues(value: unknown): SavedLeadFilterValues | null {
     source: text(filters.source, 100),
     stage,
     temperature,
+    buyerType,
     followupFrom: text(filters.followupFrom, 10),
     followupTo: text(filters.followupTo, 10),
+    // Filters saved before the created-date range existed have no value here.
+    createdFrom: text(filters.createdFrom, 10),
+    createdTo: text(filters.createdTo, 10),
   };
 }
 
@@ -88,8 +107,11 @@ export function savedLeadFilterValues(query: LeadQuery): SavedLeadFilterValues {
     source: query.source,
     stage: query.stage,
     temperature: query.temperature,
+    buyerType: query.buyerType,
     followupFrom: query.followupFrom,
     followupTo: query.followupTo,
+    createdFrom: query.createdFrom,
+    createdTo: query.createdTo,
   };
 }
 
@@ -100,8 +122,11 @@ export function emptySavedLeadFilterValues(): SavedLeadFilterValues {
     source: '',
     stage: 'all',
     temperature: 'all',
+    buyerType: 'all',
     followupFrom: '',
     followupTo: '',
+    createdFrom: '',
+    createdTo: '',
   };
 }
 

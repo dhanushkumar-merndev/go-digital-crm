@@ -117,6 +117,7 @@ const dripDetailSchema = z.object({
     'BOOKING_CONFIRMED',
     'VEHICLE_DELIVERED',
     'DELIVERY_ANNIVERSARY',
+    'AUTOMATION',
   ]),
   trigger_conditions: z.record(z.string(), z.unknown()),
   audience_filter: z.record(z.string(), z.unknown()),
@@ -138,14 +139,21 @@ export async function fetchMarketingDripCampaign(id: string, signal?: AbortSigna
   return dripDetailSchema.parse(data);
 }
 
-export async function saveMarketingDripCampaign(detail: MarketingDripDetail, requestId: string) {
+// `create` saves a new event-triggered campaign: the same RPC with no id or
+// version. A new audience campaign is created by createMarketingDripCampaign and
+// then saved here as an edit, because only the audience editor attaches templates.
+export async function saveMarketingDripCampaign(
+  detail: MarketingDripDetail,
+  requestId: string,
+  create = false,
+) {
   const { data, error } = await createClient().rpc(
     detail.trigger_type === 'AUDIENCE'
       ? 'update_marketing_audience_drip_campaign'
       : 'save_marketing_drip_campaign',
     {
-      target_campaign_id: detail.id,
-      target_expected_version: detail.version,
+      target_campaign_id: create ? null : detail.id,
+      target_expected_version: create ? null : detail.version,
       target_branch_id: detail.branch_id,
       target_payload: {
         name: detail.name,

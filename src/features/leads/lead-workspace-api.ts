@@ -20,6 +20,10 @@ export type LeadRecord = {
   lifecycle_status: string;
   temperature: 'COLD' | 'WARM' | 'HOT' | 'DORMANT' | null;
   lost_reason: string | null;
+  /** Absent on rows from readers that predate buyer types; treat as INDIVIDUAL. */
+  buyer_type?: 'INDIVIDUAL' | 'COMPANY';
+  /** The registered company's name on a COMPANY lead. */
+  company_name?: string | null;
   work_state: 'NEW_TODAY' | 'PENDING' | 'SLA_RISK' | null;
   assigned_user_id: string | null;
   first_contacted_at: string | null;
@@ -162,8 +166,11 @@ export function toLeadMetaQuery(query: LeadQuery): LeadMetaQuery {
     source: query.source,
     stage: query.stage,
     temperature: query.temperature,
+    buyerType: query.buyerType,
     followupFrom: query.followupFrom,
     followupTo: query.followupTo,
+    createdFrom: query.createdFrom,
+    createdTo: query.createdTo,
   };
 }
 
@@ -183,13 +190,15 @@ async function callLeadWorkspace(
     target_source: query.source || null,
     target_stage: query.stage,
     target_temperature: query.temperature,
+    target_buyer_type: query.buyerType,
     target_followup_from: query.followupFrom || null,
     target_followup_to: query.followupTo || null,
+    target_created_from: query.createdFrom || null,
+    target_created_to: query.createdTo || null,
     target_include_records: parts.records,
     target_include_kpis: parts.kpis,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   const result = data as Partial<LeadWorkspaceResult> | null;
   return {
     records: Array.isArray(result?.records)
@@ -244,8 +253,7 @@ export async function fetchLeadPhoneHistory(
 ): Promise<LeadPhoneHistory> {
   const supabase = createClient();
   const request = supabase.rpc('get_lead_phone_history', { target_lead_id: leadId });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   const result = data as Partial<LeadPhoneHistory> | null;
   const total = Number(result?.total ?? 0);
   return {
@@ -312,8 +320,7 @@ type PersonalLeadPreferenceRow = {
 
 export async function fetchPersonalLeadFlags(signal?: AbortSignal): Promise<PersonalLeadFlags> {
   const request = createClient().rpc('get_my_lead_preferences');
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
 
   return Object.fromEntries(
     ((data ?? []) as PersonalLeadPreferenceRow[]).map((row) => [
@@ -565,8 +572,7 @@ export async function fetchAssignableUsers(leadId: string, search = '', signal?:
     target_lead_id: leadId,
     target_search: search.normalize('NFKC').trim().slice(0, 160),
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return data as ProfileRow[];
 }
 
@@ -613,7 +619,6 @@ export async function fetchInterestedModelOptions(
     target_search: params.search?.normalize('NFKC').trim().slice(0, 100) || '',
     target_limit: params.limit ?? 5,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return z.array(interestedModelOptionSchema).parse(data ?? []);
 }

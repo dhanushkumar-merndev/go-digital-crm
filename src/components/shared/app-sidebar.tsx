@@ -1,16 +1,17 @@
 'use client';
 
+import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CircleHelp, ShieldCheck } from 'lucide-react';
+import { ChevronDown, CircleHelp, ShieldCheck } from 'lucide-react';
 import {
   EMPTY_NAVIGATION_ACCESS,
   filterNavigationItems,
   roleNavigation,
   type NavigationAccess,
 } from '@/config/navigation';
-import type { RoleKey } from '@/config/navigation/types';
+import type { NavItem, RoleKey } from '@/config/navigation/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,6 +27,111 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { useUiStore } from '@/stores/ui-store';
 import { AppIcon } from './icon';
+
+type NavigationEntry =
+  | { kind: 'item'; item: NavItem }
+  | { kind: 'group'; title: string; icon: string; items: NavItem[] };
+
+// Consecutive items that share a group become one collapsible entry.
+function navigationEntries(items: NavItem[]) {
+  const entries: NavigationEntry[] = [];
+  for (const item of items) {
+    const previous = entries.at(-1);
+    if (!item.group) entries.push({ kind: 'item', item });
+    else if (previous?.kind === 'group' && previous.title === item.group.title)
+      previous.items.push(item);
+    else entries.push({ kind: 'group', ...item.group, items: [item] });
+  }
+  return entries;
+}
+
+function NavigationLink({
+  item,
+  href,
+  active,
+  nested,
+  onNavigate,
+}: {
+  item: NavItem;
+  href: string;
+  active: boolean;
+  nested?: boolean;
+  onNavigate?: () => void;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onNavigate}
+      aria-current={active ? 'page' : undefined}
+      className={cn(
+        'flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors',
+        nested && 'h-9 pl-9',
+        active
+          ? 'bg-blue-500 text-white shadow-sm'
+          : 'text-slate-300 hover:bg-white/7 hover:text-white',
+      )}
+    >
+      <AppIcon name={item.icon} className="size-[17px] shrink-0" />
+      <span className="truncate">{item.title}</span>
+    </Link>
+  );
+}
+
+function NavigationGroup({
+  title,
+  icon,
+  items,
+  role,
+  pathname,
+  onNavigate,
+}: {
+  title: string;
+  icon: string;
+  items: NavItem[];
+  role: RoleKey;
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const isActive = (slug: string) =>
+    pathname === `/${role}/${slug}` || pathname.startsWith(`/${role}/${slug}/`);
+  const containsActive = items.some((item) => isActive(item.slug));
+  // Open on the group's own pages; elsewhere it stays as the user left it.
+  const [expanded, setExpanded] = useState(containsActive);
+  const open = expanded || containsActive;
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setExpanded(!open)}
+        className={cn(
+          'flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors',
+          containsActive ? 'text-white' : 'text-slate-300 hover:bg-white/7 hover:text-white',
+        )}
+      >
+        <AppIcon name={icon} className="size-[17px] shrink-0" />
+        <span className="flex-1 truncate text-left">{title}</span>
+        <ChevronDown
+          className={cn('size-4 shrink-0 transition-transform', open ? 'rotate-180' : '')}
+        />
+      </button>
+      {open ? (
+        <div className="mt-1 space-y-1">
+          {items.map((item) => (
+            <NavigationLink
+              key={item.slug}
+              item={item}
+              href={`/${role}/${item.slug}`}
+              active={isActive(item.slug)}
+              nested
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function SidebarContent({
   role,
@@ -74,24 +180,28 @@ function SidebarContent({
         </div>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-        {navigationItems.map((item) => {
-          const href = `/${role}/${item.slug}`;
-          const active = pathname === href || pathname.startsWith(`${href}/`);
+        {navigationEntries(navigationItems).map((entry) => {
+          if (entry.kind === 'group')
+            return (
+              <NavigationGroup
+                key={`group:${entry.title}`}
+                title={entry.title}
+                icon={entry.icon}
+                items={entry.items}
+                role={role}
+                pathname={pathname}
+                onNavigate={onNavigate}
+              />
+            );
+          const href = `/${role}/${entry.item.slug}`;
           return (
-            <Link
+            <NavigationLink
+              key={entry.item.slug}
+              item={entry.item}
               href={href}
-              onClick={onNavigate}
-              key={item.slug}
-              className={cn(
-                'flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors',
-                active
-                  ? 'bg-blue-500 text-white shadow-sm'
-                  : 'text-slate-300 hover:bg-white/7 hover:text-white',
-              )}
-            >
-              <AppIcon name={item.icon} className="size-[17px] shrink-0" />
-              <span className="truncate">{item.title}</span>
-            </Link>
+              active={pathname === href || pathname.startsWith(`${href}/`)}
+              onNavigate={onNavigate}
+            />
           );
         })}
       </nav>

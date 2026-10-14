@@ -40,6 +40,7 @@ import {
   type TelecallerPerformance,
 } from './sales-consultant-performance-api';
 import { SalesHandoffReport } from './sales-handoff-report';
+import { TelecallerActivityChart } from './telecaller-activity-chart';
 
 const duration = (seconds: number) =>
   `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
@@ -240,35 +241,42 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
       </div>
       <KpiGrid metrics={metrics.slice(0, 5)} className="xl:grid-cols-5" />
       <KpiGrid metrics={metrics.slice(5)} className="xl:grid-cols-4" />
-      <div className={`grid gap-4 ${telecaller ? 'xl:grid-cols-2' : 'xl:grid-cols-3'}`}>
-        <Chart title="Calls by Day">
-          <EChart
-            kind="line"
-            data={d.daily.map((x) => ({ name: x.name, value: x.calls, secondary: x.connected }))}
-            seriesNames={['Calls', 'Connected Calls']}
-          />
-        </Chart>
-        {!telecaller && (
-          <Chart title="Lead Conversion Funnel">
-            <EChart kind="funnel" data={funnel} funnelMode="staged" />
+      {telecaller ? (
+        <TelecallerActivityChart
+          key={`${range.from}:${range.to}`}
+          rows={(d as TelecallerPerformance).daily}
+        />
+      ) : (
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Chart title="Calls by Day">
+            <EChart
+              kind="line"
+              data={d.daily.map((x) => ({ name: x.name, value: x.calls, secondary: x.connected }))}
+              seriesNames={['Calls', 'Connected Calls']}
+            />
           </Chart>
-        )}
-        <Chart title={telecaller ? 'Follow-ups and Sales Handoffs' : 'Appointment Trend'}>
-          <EChart
-            kind="line"
-            data={d.daily.map((x) => ({
-              name: x.name,
-              value: 'followups_completed' in x ? x.followups_completed : x.appointments,
-              secondary: 'transferred' in x ? x.transferred : x.test_drives,
-            }))}
-            seriesNames={
-              telecaller
-                ? ['Follow-ups Completed', 'Leads Transferred']
-                : ['Appointments', 'Test Drives']
-            }
-          />
-        </Chart>
-      </div>
+          {!telecaller && (
+            <Chart title="Lead Conversion Funnel">
+              <EChart kind="funnel" data={funnel} funnelMode="staged" />
+            </Chart>
+          )}
+          <Chart title={telecaller ? 'Follow-ups and Sales Handoffs' : 'Appointment Trend'}>
+            <EChart
+              kind="line"
+              data={d.daily.map((x) => ({
+                name: x.name,
+                value: 'followups_completed' in x ? x.followups_completed : x.appointments,
+                secondary: 'transferred' in x ? x.transferred : x.test_drives,
+              }))}
+              seriesNames={
+                telecaller
+                  ? ['Follow-ups Completed', 'Leads Transferred']
+                  : ['Appointments', 'Test Drives']
+              }
+            />
+          </Chart>
+        </div>
+      )}
       {targeted.length > 0 ? (
         <Card className="shadow-none">
           <CardHeader>

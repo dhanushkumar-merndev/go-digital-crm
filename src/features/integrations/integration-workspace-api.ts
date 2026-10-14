@@ -1,3 +1,4 @@
+import type { PortalEmailRule, PortalPollInterval } from '@/lib/providers/portal-email-parser';
 import { createClient } from '@/lib/supabase/client';
 import { buildOAuthStartPayload, type OAuthStartInput } from './integration-oauth-connection';
 import {
@@ -55,6 +56,18 @@ export type IntegrationRecord = {
     graph_api_version?: string;
     page_id?: string;
     subscription_status?: string;
+    /** Official WhatsApp: whose Meta app delivers the webhook, and its callback URL. */
+    webhook_mode?: 'DEALERSHIP_APP' | 'PLATFORM_APP';
+    webhook_url?: string;
+    /** Portal email inbox (Justdial / CarWale / CarDekho / IndiaMART). Absent on
+     * the legacy webhook connections of the same providers. */
+    ingest_mode?: 'EMAIL_INBOX';
+    imap_host?: string;
+    imap_port?: number;
+    sender_domains?: string[];
+    poll_interval_minutes?: PortalPollInterval;
+    parse_rules?: PortalEmailRule[];
+    mailbox_source_connection_id?: string | null;
     /** MSG91: the default sender id, when one was set. */
     sender_id?: string | null;
     account_email?: string | null;
@@ -270,22 +283,27 @@ export function connectWhatsApp(input: {
   phoneNumberId: string;
   whatsappBusinessAccountId: string;
   accessToken: string;
+  appSecret: string;
+  webhookVerifyToken: string;
 }) {
-  return invokeIntegrationFunction<{ connection_id: string; webhook_url: string }>(
-    'integration-connect-whatsapp',
-    {
-      organization_id: input.organizationId,
-      connection_id: input.connectionId,
-      display_name: input.displayName,
-      scope_mode: input.scopeMode,
-      branch_ids: input.branchIds,
-      default_inbound_branch_id: input.defaultInboundBranchId,
-      default_team_id: input.defaultTeamId,
-      phone_number_id: input.phoneNumberId,
-      whatsapp_business_account_id: input.whatsappBusinessAccountId,
-      access_token: input.accessToken,
-    },
-  );
+  return invokeIntegrationFunction<{
+    connection_id: string;
+    webhook_url: string;
+    webhook_mode: 'DEALERSHIP_APP' | 'PLATFORM_APP';
+  }>('integration-connect-whatsapp', {
+    organization_id: input.organizationId,
+    connection_id: input.connectionId,
+    display_name: input.displayName,
+    scope_mode: input.scopeMode,
+    branch_ids: input.branchIds,
+    default_inbound_branch_id: input.defaultInboundBranchId,
+    default_team_id: input.defaultTeamId,
+    phone_number_id: input.phoneNumberId,
+    whatsapp_business_account_id: input.whatsappBusinessAccountId,
+    access_token: input.accessToken,
+    app_secret: input.appSecret,
+    webhook_verify_token: input.webhookVerifyToken,
+  });
 }
 
 export function connectMetaDirect(input: {

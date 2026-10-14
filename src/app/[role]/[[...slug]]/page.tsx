@@ -22,6 +22,7 @@ import { CustomerCareWorkspace } from '@/features/customer-care/customer-care-wo
 import { DeliveryFeedbackWorkspace } from '@/features/delivery/delivery-feedback-workspace';
 import { MarketingWorkspace } from '@/features/marketing/marketing-workspace';
 import { MarketingAutomationWorkspace } from '@/features/marketing/marketing-automation-workspace';
+import { MarketingRulesWorkspace } from '@/features/marketing/marketing-rules-workspace';
 import { AiImageCreationWorkspace } from '@/features/marketing/ai-image-creation-workspace';
 import { BulkCampaignWorkspace } from '@/features/marketing/bulk-campaign-workspace';
 import { AssetLibraryWorkspace } from '@/features/marketing/asset-library-workspace';
@@ -290,6 +291,8 @@ export default async function RolePage({ params }: Props) {
         initialTab={slug[0] === 'reviews' ? 'REVIEWS' : 'DRIP'}
       />
     );
+  if (role === 'digital-marketing' && slug[0] === 'automations' && !isLocalPreviewMode())
+    return <MarketingRulesWorkspace spec={spec} />;
   if (role === 'digital-marketing' && slug[0] === 'ai-content-image' && !isLocalPreviewMode())
     return <AiImageCreationWorkspace spec={spec} />;
   if (role === 'digital-marketing' && slug[0] === 'bulk-campaigns' && !isLocalPreviewMode())

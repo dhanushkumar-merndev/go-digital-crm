@@ -30,6 +30,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { VehicleColourInput } from '@/components/domain/vehicle-colour-input';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { retryRpcRead } from '@/lib/supabase/read-rpc';
 import {
   allocateStockUnit,
   changeStockStatus,
@@ -88,6 +89,7 @@ export function StockIntakeDialog({
   const variants = useQuery({
     queryKey: ['inventory-variant-options', organizationId, ...queryScope, debouncedVariantSearch],
     queryFn: ({ signal }) => fetchVariantOptions(debouncedVariantSearch, signal),
+    retry: retryRpcRead,
     enabled: open,
     placeholderData: keepPreviousData,
   });
@@ -286,6 +288,7 @@ export function StockUnitDetailSheet({
   const detail = useQuery({
     queryKey: ['inventory-unit-detail', stockUnitId, ...queryScope],
     queryFn: ({ signal }) => fetchStockUnitDetail(stockUnitId as string, signal),
+    retry: retryRpcRead,
     enabled: Boolean(stockUnitId),
   });
   const [status, setStatus] = useState('');
@@ -310,6 +313,7 @@ export function StockUnitDetailSheet({
     queryKey: ['inventory-booking-options', data?.branch_id, ...queryScope, debouncedBookingSearch],
     queryFn: ({ signal }) =>
       fetchBookingOptions(data?.branch_id as string, debouncedBookingSearch, signal),
+    retry: retryRpcRead,
     enabled: Boolean(data?.branch_id && permissions.canAllocate && data.status === 'AVAILABLE'),
     placeholderData: keepPreviousData,
   });

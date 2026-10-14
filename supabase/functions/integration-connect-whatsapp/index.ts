@@ -20,6 +20,23 @@ const schema = z
       (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
       z.string().trim().min(20).max(4096).optional(),
     ),
+    // Only for a dealership on its own Meta app: the app secret signs the
+    // webhook events and the verify token is the one typed into Meta Webhooks.
+    // Left blank on a replace, the stored values are kept.
+    app_secret: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z.string().trim().min(16).max(256).optional(),
+    ),
+    webhook_verify_token: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z
+        .string()
+        .trim()
+        .min(16)
+        .max(128)
+        .regex(/^[\x21-\x7E]+$/)
+        .optional(),
+    ),
   })
   .superRefine((input, context) => {
     if (!input.connection_id && !input.access_token)
@@ -112,6 +129,7 @@ Deno.serve(async (request) => {
 
     const admin = serviceClient();
     let storedAccessToken: string | undefined;
+    let storedWebhook: { app_secret?: string; webhook_verify_token?: string } = {};
     if (connectionId) {
       const { data: stored, error: storedError } = await admin
         .from('integration_credentials')
@@ -120,10 +138,29 @@ Deno.serve(async (request) => {
         .eq('connected_account_id', connectionId)
         .maybeSingle();
       if (storedError) throw storedError;
-      if (stored?.encrypted_payload)
-        storedAccessToken = (await decryptJson<{ access_token?: string }>(stored.encrypted_payload))
-          .access_token;
+      if (stored?.encrypted_payload) {
+        const previous = await decryptJson<{
+          access_token?: string;
+          app_secret?: string;
+          webhook_verify_token?: string;
+        }>(stored.encrypted_payload);
+        storedAccessToken = previous.access_token;
+        storedWebhook = {
+          app_secret: previous.app_secret,
+          webhook_verify_token: previous.webhook_verify_token,
+        };
+      }
     }
+    const appSecret = input.app_secret ?? storedWebhook.app_secret;
+    const webhookVerifyToken = input.webhook_verify_token ?? storedWebhook.webhook_verify_token;
+    if (Boolean(appSecret) !== Boolean(webhookVerifyToken))
+      return failure(
+        'WHATSAPP_WEBHOOK_SETTINGS_INCOMPLETE',
+        'Enter both the Meta app secret and the webhook verify token, or leave both blank.',
+        requestId,
+        422,
+      );
+    const webhookMode = appSecret && webhookVerifyToken ? 'DEALERSHIP_APP' : 'PLATFORM_APP';
     const resolvedAccessToken = resolveStoredProviderSecret(
       input.access_token,
       storedAccessToken,
@@ -201,10 +238,11 @@ Deno.serve(async (request) => {
       );
 
     failureStage = 'CONNECTION_SAVE';
+    let existingConfig: Record<string, unknown> = {};
     if (connectionId) {
       const { data: existing } = await admin
         .from('connected_accounts')
-        .select('id')
+        .select('id,connection_config')
         .eq('id', connectionId)
         .eq('organization_id', input.organization_id)
         .eq('provider_key', 'whatsapp_cloud')
@@ -217,6 +255,7 @@ Deno.serve(async (request) => {
           requestId,
           404,
         );
+      existingConfig = (existing.connection_config ?? {}) as Record<string, unknown>;
       const { error } = await admin
         .from('connected_accounts')
         .update({
@@ -253,6 +292,21 @@ Deno.serve(async (request) => {
       if (error) throw error;
       connectionId = created.id;
     }
+    const webhookUrl =
+      webhookMode === 'DEALERSHIP_APP'
+        ? `${functionBase}/provider-webhook-whatsapp?connection=${connectionId}`
+        : `${functionBase}/provider-webhook-whatsapp`;
+    const { error: configError } = await admin
+      .from('connected_accounts')
+      .update({
+        connection_config: {
+          ...existingConfig,
+          webhook_mode: webhookMode,
+          webhook_url: webhookUrl,
+        },
+      })
+      .eq('id', connectionId);
+    if (configError) throw configError;
 
     failureStage = 'CREDENTIAL_SAVE';
     const { data: previousSecret, error: previousSecretError } = await admin
@@ -269,6 +323,9 @@ Deno.serve(async (request) => {
           access_token: resolvedAccessToken,
           phone_number_id: input.phone_number_id,
           whatsapp_business_account_id: input.whatsapp_business_account_id,
+          ...(webhookMode === 'DEALERSHIP_APP'
+            ? { app_secret: appSecret, webhook_verify_token: webhookVerifyToken }
+            : {}),
         }),
         key_version: (previousSecret?.key_version ?? 0) + 1,
         cipher_version: 'AES-256-GCM-v1',
@@ -333,6 +390,7 @@ Deno.serve(async (request) => {
       metadata: {
         provider_key: 'whatsapp_cloud',
         phone_number_id: input.phone_number_id,
+        webhook_mode: webhookMode,
         credential_version: (previousSecret?.key_version ?? 0) + 1,
       },
     });
@@ -344,7 +402,8 @@ Deno.serve(async (request) => {
           providerAccount.verified_name ??
           providerAccount.display_phone_number ??
           input.display_name,
-        webhook_url: `${functionBase}/provider-webhook-whatsapp`,
+        webhook_url: webhookUrl,
+        webhook_mode: webhookMode,
         credential_status: 'CONFIGURED',
       },
       requestId,

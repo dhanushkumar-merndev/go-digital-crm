@@ -7,6 +7,7 @@ import { runAiCallProcessing } from './ai-call-processing';
 import { runAiImageGeneration } from './ai-image-generation';
 import { runAiVoiceEscalation } from './ai-voice-escalation';
 import { runMarketingDispatch } from './marketing-dispatch';
+import { runPortalInboxDue } from './portal-inbox-sync';
 import { runProviderEventDispatch } from './provider-event-dispatch';
 import { runProviderOutbox } from './provider-outbox';
 import { runStuckRecordingSweep } from './provider-recording-ingest';
@@ -50,6 +51,9 @@ export const minuteDispatch = schedules.task({
       provider_outbox: runProviderOutbox,
       recording_sweep: runStuckRecordingSweep,
       marketing: runMarketingDispatch,
+      // Each portal mailbox carries its own 10 / 20 / 30 minute interval; this
+      // only starts the runs whose next_poll_at has passed.
+      portal_inbox: runPortalInboxDue,
       comparison_expiry: runVehicleComparisonAiExpiry,
     } as const;
 

@@ -8,6 +8,7 @@ import {
 } from '../_shared/provider-oauth.ts';
 import { authenticatedClient, serviceClient } from '../_shared/supabase.ts';
 import { testTelecmiCredential, type TelecmiCredential } from '../_shared/telecmi.ts';
+import { enqueueTriggerTask } from '../_shared/trigger-task.ts';
 
 const schema = z.object({ organization_id: z.uuid(), connection_id: z.uuid() });
 
@@ -41,7 +42,7 @@ Deno.serve(async (request) => {
     const admin = serviceClient();
     const { data: connection } = await admin
       .from('connected_accounts')
-      .select('id,provider_key')
+      .select('id,provider_key,connection_config')
       .eq('id', input.data.connection_id)
       .eq('organization_id', input.data.organization_id)
       .is('deleted_at', null)
@@ -66,6 +67,41 @@ Deno.serve(async (request) => {
         requestId,
         422,
       );
+    if (
+      isPortalProvider &&
+      (connection.connection_config as { ingest_mode?: string } | null)?.ingest_mode ===
+        'EMAIL_INBOX'
+    ) {
+      // Opening the mailbox over IMAP is Trigger.dev work; the run marks the
+      // connection Connected or records the IMAP error on it.
+      await admin
+        .from('connected_accounts')
+        .update({ status: 'AUTHORIZING' })
+        .eq('id', connection.id);
+      await enqueueTriggerTask(
+        'portal-inbox-sync',
+        { connectionId: connection.id, organizationId: input.data.organization_id, mode: 'test' },
+        `portal-inbox-test:${connection.id}:${requestId}`,
+      );
+      await admin.from('audit_logs').insert({
+        organization_id: input.data.organization_id,
+        actor_id: auth.user.id,
+        action: 'integration.test_requested',
+        resource_type: 'connected_account',
+        resource_id: connection.id,
+        request_id: requestId,
+        metadata: { provider_key: connection.provider_key, ingest_mode: 'EMAIL_INBOX' },
+      });
+      return success(
+        {
+          connection_id: connection.id,
+          account_label: 'Mailbox check started',
+          tested_at: new Date().toISOString(),
+        },
+        requestId,
+        202,
+      );
+    }
     const { data: secret } = await admin
       .from('integration_credentials')
       .select('encrypted_payload')

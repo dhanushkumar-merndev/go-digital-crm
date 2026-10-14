@@ -54,6 +54,7 @@ import {
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { Metric, PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
+import { retryRpcRead } from '@/lib/supabase/read-rpc';
 import { fallbackVehicleImage } from '@/lib/vehicle-image';
 import {
   fetchAllocationPage,
@@ -1143,6 +1144,7 @@ function ListWorkspace({
   const stockOptions = useQuery({
     queryKey: ['stock-check-filter-options', ...queryScope, query.branchId],
     queryFn: ({ signal }) => fetchStockCheckFilterOptions(query.branchId, signal),
+    retry: retryRpcRead,
     enabled: view === 'stock-check',
     staleTime: 60_000,
   });
@@ -1154,6 +1156,7 @@ function ListWorkspace({
       if (view === 'movements') return fetchMovementPage(requestQuery, signal);
       return fetchStockUnitPage(requestQuery, signal);
     },
+    retry: retryRpcRead,
     placeholderData: keepPreviousData,
   });
 
@@ -1278,6 +1281,7 @@ export function InventoryWorkspace({
   const branches = useQuery({
     queryKey: ['inventory-branches', ...queryScope],
     queryFn: ({ signal }) => fetchInventoryBranches(signal),
+    retry: retryRpcRead,
     enabled: Boolean(permissions),
     staleTime: 60_000,
   });

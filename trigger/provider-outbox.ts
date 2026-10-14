@@ -209,7 +209,8 @@ async function retryWhatsAppMessage(supabase: SupabaseClient, event: OutboxEvent
     await supabase
       .from('conversation_messages')
       .update({ delivery_status: 'PENDING_RECONCILIATION', safe_error_code: 'SEND_RESULT_UNKNOWN' })
-      .eq('id', message.id);
+      .eq('id', message.id)
+      .is('provider_status_at', null);
     await enqueueMessageReconciliation(
       supabase,
       event,
@@ -226,7 +227,8 @@ async function retryWhatsAppMessage(supabase: SupabaseClient, event: OutboxEvent
     const { error: retryError } = await supabase
       .from('conversation_messages')
       .update({ delivery_status: 'RETRY', safe_error_code: 'WHATSAPP_PROVIDER_REJECTED' })
-      .eq('id', message.id);
+      .eq('id', message.id)
+      .is('provider_status_at', null);
     if (retryError) throw retryError;
     throw new Error('WHATSAPP_RETRY_REJECTED');
   }
@@ -237,7 +239,9 @@ async function retryWhatsAppMessage(supabase: SupabaseClient, event: OutboxEvent
       provider_message_id: providerMessageId,
       safe_error_code: null,
     })
-    .eq('id', message.id);
+    .eq('id', message.id)
+    // Receipt processing may win the race with this send response.
+    .is('provider_status_at', null);
   if (sentError) throw sentError;
 }
 

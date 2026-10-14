@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { retryRpcRead } from '@/lib/supabase/read-rpc';
 import {
   ArrowLeft,
   CalendarClock,
@@ -22,6 +23,7 @@ import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { LeadJourney } from './lead-journey';
+import { LeadBuyerCard } from './lead-company-card';
 import { LeadRequirementsCards } from './lead-requirements-panel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -163,6 +165,13 @@ function LeadOverview({
             />
           </CardContent>
         </Card>
+        <LeadBuyerCard
+          leadId={lead.id}
+          buyerType={data.buyer_type}
+          company={data.company}
+          canEdit={data.access.can_update && !data.access.read_only}
+          onSaved={onRequirementsSaved}
+        />
         <LeadRequirementsCards
           leadId={lead.id}
           customerId={lead.customer_id}
@@ -250,6 +259,7 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
   const detail = useQuery({
     queryKey: ['lead-detail', leadId, ...workspaceQueryScope(workspaceSession)],
     queryFn: ({ signal }) => fetchLeadDetail(leadId, signal),
+    retry: retryRpcRead,
     staleTime: 60_000,
   });
   const markLost = useMutation({

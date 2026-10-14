@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SummaryToggle } from '@/components/domain/summary-toggle';
 import { TasksSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { overdueTableRowClassName } from '@/components/shared/table-row-styles';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -586,22 +587,24 @@ function TaskTable({
             </TableHeader>
             <TableBody>
               {table.getRowModel().rows.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    className={
-                      isOverdueTask(row.original)
-                        ? 'bg-red-50/60 hover:bg-red-100/70 dark:bg-red-950/20 dark:hover:bg-red-950/40'
-                        : 'hover:bg-slate-50/70'
-                    }
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className="px-4 py-3 align-middle text-xs">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
+                table.getRowModel().rows.map((row) => {
+                  const overdue = isOverdueTask(row.original);
+                  return (
+                    <TableRow
+                      key={row.id}
+                      data-overdue={overdue || undefined}
+                      className={cn(
+                        overdue ? overdueTableRowClassName : 'hover:bg-slate-50/70',
+                      )}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id} className="px-4 py-3 align-middle text-xs">
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })
               ) : (
                 <TableRow>
                   <TableCell colSpan={columns.length} className="h-44 text-center">

@@ -853,15 +853,31 @@ async function processEvent(
   }
 }
 
-/** One step of the per-minute pass. Scheduling lives in
- * trigger/minute-dispatch.ts: the project allows 10 schedules and six
- * tasks shared this same cron, so they share one slot instead. */
-export async function runProviderEventDispatch(supabase: SupabaseClient) {
+/** The minute schedule recovers retries and expired leases. A webhook-triggered
+ * run supplies fresh receipt IDs so live chat does not wait behind that pass. */
+export async function runProviderEventDispatch(supabase: SupabaseClient, eventIds?: string[]) {
+  if (
+    eventIds !== undefined &&
+    (!Array.isArray(eventIds) ||
+      eventIds.length < 1 ||
+      eventIds.length > 100 ||
+      eventIds.some(
+        (id) =>
+          typeof id !== 'string' ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id),
+      ))
+  )
+    throw new ProviderDispatchError('INVALID_PROVIDER_EVENT_IDS', true);
   const workerId = `trigger:${crypto.randomUUID()}`;
-  const { data, error } = await supabase.rpc('claim_provider_events', {
-    target_worker_id: workerId,
-    target_batch_size: configuredBatchSize(),
-  });
+  const { data, error } = eventIds
+    ? await supabase.rpc('claim_provider_event_receipts', {
+        target_worker_id: workerId,
+        target_event_ids: eventIds,
+      })
+    : await supabase.rpc('claim_provider_events', {
+        target_worker_id: workerId,
+        target_batch_size: configuredBatchSize(),
+      });
   if (error) throw error;
   const claimed = (data ?? []) as ProviderEvent[];
   const outcomes: ProcessingResult[] = [];

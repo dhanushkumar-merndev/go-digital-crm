@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { test, expect as baseExpect } from '@playwright/test';
 import { createDemoSessionProvider, demoJson } from './demo-api.mjs';
+import { isLeadFlowReadRpc } from '../../scripts/lead-flow-read-rpcs.mjs';
 
 // `next dev` compiles each route and its client chunks on first visit, which
 // can take several seconds per page. Assertions wait long enough for that
@@ -287,7 +288,7 @@ if (apiTimingsFile) {
       const api = match[2];
       // Read RPC bodies are kept so a load test can replay the exact queries
       // the pages sent; write bodies and auth headers are never recorded.
-      const isRead = match[1] === 'rest/v1/rpc' && /^(get|list|search)_/.test(api);
+      const isRead = match[1] === 'rest/v1/rpc' && isLeadFlowReadRpc(api);
       const role = new URL(page.url()).pathname.split('/')[1] ?? '';
       request
         .response()

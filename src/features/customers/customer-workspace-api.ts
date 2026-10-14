@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
+import { leadBuyerTypeSchema, leadCompanySchema } from '@/features/leads/lead-buyer-type';
 import { leadRequirementsSchema } from '@/features/leads/lead-requirements';
 import type { CustomerQuery } from './customer-workspace-query';
 
@@ -153,6 +154,11 @@ const customer360Schema = z.object({
       assigned_user_name: nullableString,
       assigned_user_phone: optionalNullableString,
       requirements: leadRequirementsSchema
+        .nullable()
+        .optional()
+        .transform((value) => value ?? null),
+      buyer_type: leadBuyerTypeSchema,
+      company: leadCompanySchema
         .nullable()
         .optional()
         .transform((value) => value ?? null),

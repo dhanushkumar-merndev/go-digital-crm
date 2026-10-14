@@ -18,6 +18,8 @@ type ExtraOptions = {
   funnelStages?: number;
   funnelLabels?: FunnelLabels;
   colors?: string[];
+  legendPosition?: 'top' | 'bottom';
+  tooltipTotals?: number[];
 };
 
 const palette = [
@@ -129,9 +131,40 @@ function optionFor(
   }
   const common = {
     textStyle,
-    tooltip: { trigger: 'axis', textStyle },
-    grid,
-    legend: { top: 0, right: 0, textStyle: { color: text, ...textStyle } },
+    tooltip: {
+      trigger: 'axis',
+      confine: true,
+      textStyle,
+      ...(extra.tooltipTotals
+        ? {
+            formatter: (params: echarts.TooltipComponentFormatterCallbackParams) => {
+              const items = Array.isArray(params) ? params : [params];
+              const index = items[0]?.dataIndex;
+              if (index === undefined) return '';
+              const heading = echarts.format.encodeHTML(data[index]?.name ?? '');
+              const lines = items.map(
+                (item) =>
+                  `<div>${typeof item.marker === 'string' ? item.marker : ''}${echarts.format.encodeHTML(item.seriesName ?? '')}<span style="float:right;margin-left:20px;font-weight:600">${Number(item.value ?? 0).toLocaleString('en-IN')}</span></div>`,
+              );
+              return `<div style="margin-bottom:6px">${heading}</div>${lines.join('')}<div style="border-top:1px solid #e5e7eb;margin-top:6px;padding-top:6px;font-weight:600">Total<span style="float:right;margin-left:20px">${(extra.tooltipTotals?.[index] ?? 0).toLocaleString('en-IN')}</span></div>`;
+            },
+          }
+        : {}),
+    },
+    grid:
+      extra.legendPosition === 'bottom'
+        ? { ...grid, left: px(12), bottom: px(52), containLabel: true }
+        : grid,
+    legend:
+      extra.legendPosition === 'bottom'
+        ? {
+            type: 'scroll',
+            bottom: 0,
+            left: 'center',
+            width: '92%',
+            textStyle: { color: text, ...textStyle },
+          }
+        : { top: 0, right: 0, textStyle: { color: text, ...textStyle } },
     xAxis: {
       type: 'category' as const,
       data: data.map((item) => item.name),
@@ -220,6 +253,9 @@ export function EChart({
   funnelStages,
   funnelLabels,
   colors,
+  legendPosition,
+  tooltipTotals,
+  onHoverIndex,
 }: {
   kind: ChartKind;
   data: Datum[];
@@ -235,9 +271,19 @@ export function EChart({
   funnelLabels?: FunnelLabels;
   /** Bar/line with `series` only: one colour per series, in series order. */
   colors?: string[];
+  /** Cartesian charts only; defaults to the existing top legend. */
+  legendPosition?: 'top' | 'bottom';
+  /** Authoritative totals by category, independent of which legend series are visible. */
+  tooltipTotals?: number[];
+  /** Category under the axis pointer; null when the pointer leaves the plot. */
+  onHoverIndex?: (index: number | null) => void;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const hoverCallback = useRef(onHoverIndex);
+  useEffect(() => {
+    hoverCallback.current = onHoverIndex;
+  }, [onHoverIndex]);
   useEffect(() => {
     const frame = frameRef.current;
     const canvas = canvasRef.current;
@@ -264,7 +310,20 @@ export function EChart({
       canvas.style.zoom = zoom === 1 ? '' : String(1 / zoom);
       canvas.style.width = `${Math.round(width * zoom)}px`;
       canvas.style.height = `${Math.round(height * zoom)}px`;
-      chart ??= echarts.init(canvas, undefined, { renderer: 'svg' });
+      if (!chart) {
+        chart = echarts.init(canvas, undefined, { renderer: 'svg' });
+        chart.on('updateAxisPointer', (raw: unknown) => {
+          const event = raw as { axesInfo?: Array<{ axisDim: string; value: number }> };
+          const index = event.axesInfo?.find((axis) => axis.axisDim === 'x')?.value;
+          hoverCallback.current?.(
+            index !== undefined && Number.isInteger(index) && index >= 0 && index < data.length
+              ? index
+              : null,
+          );
+        });
+        chart.on('hideTip', () => hoverCallback.current?.(null));
+        chart.getZr().on('globalout', () => hoverCallback.current?.(null));
+      }
       if (renderedScale !== zoom) {
         chart.setOption(
           optionFor(kind, data, seriesNames, funnelMode, zoom, {
@@ -273,6 +332,8 @@ export function EChart({
             funnelStages,
             funnelLabels,
             colors,
+            legendPosition,
+            tooltipTotals,
           }),
           true,
         );
@@ -287,11 +348,24 @@ export function EChart({
     // A zoom change moves no layout box, so the observer alone would miss it.
     window.addEventListener(CANVAS_ZOOM_CHANGED_EVENT, render);
     return () => {
+      hoverCallback.current?.(null);
       observer.disconnect();
       window.removeEventListener(CANVAS_ZOOM_CHANGED_EVENT, render);
       chart?.dispose();
     };
-  }, [funnelMode, kind, data, seriesNames, series, stacked, funnelStages, funnelLabels, colors]);
+  }, [
+    funnelMode,
+    kind,
+    data,
+    seriesNames,
+    series,
+    stacked,
+    funnelStages,
+    funnelLabels,
+    colors,
+    legendPosition,
+    tooltipTotals,
+  ]);
   return (
     <div ref={frameRef} className={className} role="img" aria-label={`${kind} chart`}>
       <div ref={canvasRef} />

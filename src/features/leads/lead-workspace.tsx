@@ -10,7 +10,10 @@ import {
   type ColumnDef,
 } from '@tanstack/react-table';
 import {
+  ArrowDown,
   ArrowRightLeft,
+  ArrowUp,
+  Building2,
   CalendarDays,
   ChevronDown,
   ChevronLeft,
@@ -52,6 +55,7 @@ import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consu
 import { overdueTableRowClassName } from '@/components/shared/table-row-styles';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
+import { DateRangeDialog } from '@/components/shared/date-range-dialog';
 import { retryRpcRead } from '@/lib/supabase/read-rpc';
 import { AUTO_SALES_HANDOFF, SalesConsultantSelector } from './sales-consultant-selector';
 import {
@@ -63,7 +67,6 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
-import { DayPicker } from '@/components/ui/day-picker';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   Dialog,
@@ -159,8 +162,12 @@ import {
   getSalesMyLeadsDefaultStatus,
   isUuid,
   isLeadVersionConflict,
+  leadBuyerTypeLabels,
+  leadOverdueDirection,
   parseLeadQuery,
+  resolveLeadSort,
   toLeadQueryString,
+  type LeadBuyerTypeFilter,
   type LeadQuery,
   type LeadStageFilter,
   type LeadStatusFilter,
@@ -185,6 +192,17 @@ import {
   openLeadWhatsAppConversation,
   type LeadWhatsAppChannel,
 } from './lead-whatsapp-api';
+
+const filterDayFormat = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' });
+
+/** What a date-range filter button reads: the applied range, or a prompt. */
+function dateRangeFilterLabel(from: string, to: string) {
+  const day = (value: string) => filterDayFormat.format(new Date(`${value}T00:00:00`));
+  if (from && to) return from === to ? day(from) : `${day(from)} – ${day(to)}`;
+  if (from) return `From ${day(from)}`;
+  if (to) return `Until ${day(to)}`;
+  return 'Select Date Range';
+}
 
 const leadSources = [
   'Facebook',
@@ -984,6 +1002,7 @@ function LeadCreateDialog({
         signal,
       ),
     enabled: open,
+    retry: retryRpcRead,
   });
 
   const modelSelectOptions = useMemo<SearchSelectOption[]>(() => {
@@ -1258,6 +1277,7 @@ function LeadAssignmentDialog({
   const debouncedUserSearch = useDebouncedValue(userSearch, 300);
   const users = useQuery({
     queryKey: ['lead-assignment-candidates', ...queryScope, lead?.id, debouncedUserSearch],
+    retry: retryRpcRead,
     queryFn: ({ signal }) => fetchAssignableUsers(lead?.id ?? '', debouncedUserSearch, signal),
     enabled: open && Boolean(lead),
     placeholderData: keepPreviousData,
@@ -1904,7 +1924,9 @@ function LeadEditDialog({
         <DialogHeader>
           <DialogTitle>
             {lifecycleShortcut
-              ? `Mark lead as ${lifecycleShortcut}`
+              ? lead.lifecycle_status === 'Lost' && lifecycleShortcut !== 'Lost'
+                ? `Reopen lead as ${lifecycleShortcut}`
+                : `Mark lead as ${lifecycleShortcut}`
               : temperatureShortcut
                 ? `Set lead temperature to ${temperatureShortcut}`
                 : 'Update lead'}
@@ -2282,8 +2304,7 @@ function LeadTable({
     [blockedByOpenFollowup, tableRouter],
   );
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
-  const [draftFollowupFrom, setDraftFollowupFrom] = useState('');
-  const [draftFollowupTo, setDraftFollowupTo] = useState('');
+  const [createdRangeOpen, setCreatedRangeOpen] = useState(false);
   const [saveFilterOpen, setSaveFilterOpen] = useState(false);
   const [savedFilterName, setSavedFilterName] = useState('');
   const [savedFilterError, setSavedFilterError] = useState<string>();
@@ -2315,6 +2336,7 @@ function LeadTable({
   );
   const phoneHistory = useQuery({
     queryKey: ['lead-phone-history', expandedLead?.organization_id, role, expandedLead?.id],
+    retry: retryRpcRead,
     queryFn: ({ signal }) => fetchLeadPhoneHistory(expandedLead!.id, signal),
     enabled: Boolean(expandedLead),
     staleTime: 60_000,
@@ -2329,8 +2351,9 @@ function LeadTable({
   );
   // An expanded group mixes two kinds of row. Leads the viewer owns are their
   // own opportunities -- a second model, a separate purchase -- and keep their
-  // full actions. Everything else is context: greyed, no actions, and for a
-  // consultant's out-of-scope rows (`context_only`) not even openable.
+  // full actions. Everything else is context: greyed, no actions beyond
+  // cancelling a transfer to Sales, and for a consultant's out-of-scope rows
+  // (`context_only`) not even openable.
   const contextLeadIds = useMemo(
     () =>
       new Set(
@@ -2399,14 +2422,10 @@ function LeadTable({
     return () => globalThis.clearTimeout(timeout);
   }, [focusLeadId, historyRecords, onFocusConsumed, visibleRecords]);
 
-  const followupDateLabel =
-    query.followupFrom && query.followupTo
-      ? `${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupFrom}T00:00:00`))} – ${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupTo}T00:00:00`))}`
-      : query.followupFrom
-        ? `From ${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupFrom}T00:00:00`))}`
-        : query.followupTo
-          ? `Until ${new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${query.followupTo}T00:00:00`))}`
-          : 'Select Date Range';
+  const followupDateLabel = dateRangeFilterLabel(query.followupFrom, query.followupTo);
+  const createdDateLabel = dateRangeFilterLabel(query.createdFrom, query.createdTo);
+  // Overdue follow-ups lead the list either way; this is the order within them.
+  const overdueDirection = leadOverdueDirection(query.sort);
   const columns = useMemo<ColumnDef<LeadRecord>[]>(
     () => [
       {
@@ -2497,20 +2516,36 @@ function LeadTable({
               </span>
             );
           }
+          // A company lead carries an icon rather than a second line, so the
+          // row height stays the same.
+          const company =
+            row.original.buyer_type === 'COMPANY' ? (row.original.company_name ?? 'Company') : null;
+          const companyMark = company ? (
+            <span title={`Company lead: ${company}`} className="shrink-0">
+              <Building2 className="size-3.5 text-indigo-600" aria-hidden="true" />
+              <span className="sr-only">Company lead: {company}</span>
+            </span>
+          ) : null;
           if (!customerId)
             return (
-              <span className="block truncate font-semibold text-foreground" title={customerName}>
-                {customerName}
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="block truncate font-semibold text-foreground" title={customerName}>
+                  {customerName}
+                </span>
+                {companyMark}
               </span>
             );
           return (
-            <Link
-              href={customerDetailHref(role, customerId)}
-              title={customerName}
-              className="block truncate font-semibold text-foreground hover:text-primary hover:underline"
-            >
-              {customerName}
-            </Link>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Link
+                href={customerDetailHref(role, customerId)}
+                title={customerName}
+                className="block truncate font-semibold text-foreground hover:text-primary hover:underline"
+              >
+                {customerName}
+              </Link>
+              {companyMark}
+            </span>
           );
         },
       },
@@ -2749,14 +2784,20 @@ function LeadTable({
         id: 'actions',
         header: 'Actions',
         cell: ({ row }) => {
-          // Context rows in an expanded group carry no actions at all -- not
-          // even View. This check has to run before the read-only branch, or a
-          // context row (always read_only) would get a View link it can't open.
-          if (contextLeadIds.has(row.original.id)) return null;
+          // Context rows in an expanded group carry no actions -- not even
+          // View -- with one exception: a lead in the viewer's scope that now
+          // sits with a Sales Consultant is a handoff, and the telecaller can
+          // pull it back or move it to another consultant from here. Without
+          // this only the group's head row could ever be cancelled.
+          const isGroupHandoff =
+            contextLeadIds.has(row.original.id) &&
+            !row.original.context_only &&
+            Boolean(row.original.assigned_consultant_name);
+          if (contextLeadIds.has(row.original.id) && !isGroupHandoff) return null;
           // A lead with Sales opens from the row itself, and the consultant's
           // name already sits under the stage badge. The only action left is
           // pulling the transfer back.
-          if (row.original.read_only) {
+          if (row.original.read_only || isGroupHandoff) {
             // At any Sales stage -- follow-up, visit, test drive, quotation or
             // booking -- the telecaller can pull the lead back; its history
             // stays and the timeline carries on.
@@ -3101,16 +3142,29 @@ function LeadTable({
                       <UserRoundPlus className="size-4" /> Assign / reassign
                     </DropdownMenuItem>
                   )}
-                  {canUpdate && (
-                    <>
+                  {canUpdate &&
+                    (row.original.lifecycle_status === 'Lost' && role === 'telecaller' ? (
+                      // A telecaller's lost lead goes back to where intake left
+                      // it. `update_lead` refuses New once a lead was contacted,
+                      // and an uncontacted one must not be stamped as contacted;
+                      // New Today / Pending / SLA Risk then derive from its age.
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          onEdit(row.original, {
+                            lifecycleStatus: row.original.first_contacted_at ? 'Contacted' : 'New',
+                          })
+                        }
+                      >
+                        <Undo2 className="size-4" /> Reopen lead
+                      </DropdownMenuItem>
+                    ) : (
                       <DropdownMenuItem
                         disabled={row.original.lifecycle_status === 'Lost'}
                         onSelect={() => onEdit(row.original, { lifecycleStatus: 'Lost' })}
                       >
                         Mark as lost
                       </DropdownMenuItem>
-                    </>
-                  )}
+                    ))}
                   {row.original.customer_id && canScheduleAppointments && (
                     <>
                       {canUpdate && <DropdownMenuSeparator />}
@@ -3321,8 +3375,11 @@ function LeadTable({
     query.source ||
     query.stage !== 'all' ||
     query.temperature !== 'all' ||
+    query.buyerType !== 'all' ||
     query.followupFrom ||
-    query.followupTo,
+    query.followupTo ||
+    query.createdFrom ||
+    query.createdTo,
   );
   const savedFilterLimitReached = savedFilters.length >= MAX_SAVED_LEAD_FILTERS;
   const openSaveFilter = () => {
@@ -3362,8 +3419,8 @@ function LeadTable({
             className={cn(
               'grid items-end gap-2.5',
               showLeadStageFilter
-                ? 'min-w-[1100px] grid-cols-[1.45fr_.85fr_.8fr_.95fr_.9fr_1.25fr_108px]'
-                : 'min-w-[980px] grid-cols-[1.45fr_.9fr_.85fr_.95fr_1.25fr_108px]',
+                ? 'min-w-[1290px] grid-cols-[1.3fr_.85fr_.8fr_.95fr_.9fr_.9fr_1fr_1fr_auto]'
+                : 'min-w-[1170px] grid-cols-[1.3fr_.9fr_.85fr_.95fr_.9fr_1fr_1fr_auto]',
             )}
           >
             <div className="relative min-w-0">
@@ -3460,95 +3517,151 @@ function LeadTable({
                 </SelectContent>
               </Select>
             </label>
+            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              Buyer type
+              <Select
+                value={query.buyerType}
+                onValueChange={(buyerType) =>
+                  onQueryChange({ buyerType: buyerType as LeadBuyerTypeFilter, page: 1 })
+                }
+              >
+                <SelectTrigger className="h-8 bg-white text-[10px]">
+                  <SelectValue placeholder="Individual & company" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Individual &amp; company</SelectItem>
+                  <SelectItem value="INDIVIDUAL">{leadBuyerTypeLabels.INDIVIDUAL}</SelectItem>
+                  <SelectItem value="COMPANY">{leadBuyerTypeLabels.COMPANY}</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            <div className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              Created date
+              <Button
+                type="button"
+                variant="outline"
+                className={cn(
+                  'h-8 justify-start bg-white px-2 text-[10px] font-normal',
+                  query.createdFrom || query.createdTo ? 'text-[#263550]' : 'text-muted-foreground',
+                )}
+                onClick={() => setCreatedRangeOpen(true)}
+              >
+                <CalendarDays className="size-3.5 shrink-0 text-blue-600" />
+                <span className="truncate">{createdDateLabel}</span>
+              </Button>
+            </div>
             <div className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
               Follow-up date
               <Button
                 type="button"
                 variant="outline"
-                className="h-8 justify-start px-2 text-[10px] font-normal text-muted-foreground"
-                onClick={() => {
-                  setDraftFollowupFrom(query.followupFrom);
-                  setDraftFollowupTo(query.followupTo);
-                  setDateRangeOpen(true);
-                }}
+                // White like the selects beside it: on the page background the
+                // outline button read as a disabled field.
+                className={cn(
+                  'h-8 justify-start bg-white px-2 text-[10px] font-normal',
+                  query.followupFrom || query.followupTo
+                    ? 'text-[#263550]'
+                    : 'text-muted-foreground',
+                )}
+                onClick={() => setDateRangeOpen(true)}
               >
                 <CalendarDays className="size-3.5 shrink-0 text-blue-600" />
                 <span className="truncate">{followupDateLabel}</span>
               </Button>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="h-8 w-full whitespace-nowrap px-2 text-[10px]">
-                  <SlidersHorizontal className="size-3.5" /> Saved Filters
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                <DropdownMenuLabel>Saved filters ({savedFilters.length}/5)</DropdownMenuLabel>
-                {!savedFiltersAvailable ? (
-                  <DropdownMenuItem disabled>
-                    Saved filters need an active CRM session.
+            <div className="flex items-center gap-1">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="h-8 w-[108px] whitespace-nowrap bg-white px-2 text-[10px]"
+                  >
+                    <SlidersHorizontal className="size-3.5" /> Saved Filters
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuLabel>Saved filters ({savedFilters.length}/5)</DropdownMenuLabel>
+                  {!savedFiltersAvailable ? (
+                    <DropdownMenuItem disabled>
+                      Saved filters need an active CRM session.
+                    </DropdownMenuItem>
+                  ) : savedFiltersLoading ? (
+                    <DropdownMenuItem disabled>Loading saved filters…</DropdownMenuItem>
+                  ) : savedFilters.length ? (
+                    savedFilters.flatMap((savedFilter) => [
+                      <DropdownMenuItem
+                        key={`apply-${savedFilter.id}`}
+                        onSelect={() => onQueryChange({ ...savedFilter.filters, page: 1 })}
+                      >
+                        <SlidersHorizontal className="size-3.5 text-blue-600" />
+                        <span className="truncate">{savedFilter.name}</span>
+                      </DropdownMenuItem>,
+                      <DropdownMenuItem
+                        key={`remove-${savedFilter.id}`}
+                        className="pl-9 text-destructive focus:text-destructive"
+                        onSelect={() => {
+                          void onRemoveSavedFilter(savedFilter.id).catch(() =>
+                            toast.add({
+                              type: 'error',
+                              title: 'Filter could not be removed',
+                              description: 'Please try again.',
+                            }),
+                          );
+                        }}
+                      >
+                        <X className="size-3.5" /> Remove “{savedFilter.name}”
+                      </DropdownMenuItem>,
+                    ])
+                  ) : (
+                    <DropdownMenuItem disabled>No saved filters yet</DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={
+                      !hasFilters ||
+                      !savedFiltersAvailable ||
+                      savedFiltersLoading ||
+                      savedFilterLimitReached
+                    }
+                    onSelect={openSaveFilter}
+                  >
+                    Save current filters
                   </DropdownMenuItem>
-                ) : savedFiltersLoading ? (
-                  <DropdownMenuItem disabled>Loading saved filters…</DropdownMenuItem>
-                ) : savedFilters.length ? (
-                  savedFilters.flatMap((savedFilter) => [
-                    <DropdownMenuItem
-                      key={`apply-${savedFilter.id}`}
-                      onSelect={() => onQueryChange({ ...savedFilter.filters, page: 1 })}
-                    >
-                      <SlidersHorizontal className="size-3.5 text-blue-600" />
-                      <span className="truncate">{savedFilter.name}</span>
-                    </DropdownMenuItem>,
-                    <DropdownMenuItem
-                      key={`remove-${savedFilter.id}`}
-                      className="pl-9 text-destructive focus:text-destructive"
-                      onSelect={() => {
-                        void onRemoveSavedFilter(savedFilter.id).catch(() =>
-                          toast.add({
-                            type: 'error',
-                            title: 'Filter could not be removed',
-                            description: 'Please try again.',
-                          }),
-                        );
-                      }}
-                    >
-                      <X className="size-3.5" /> Remove “{savedFilter.name}”
-                    </DropdownMenuItem>,
-                  ])
-                ) : (
-                  <DropdownMenuItem disabled>No saved filters yet</DropdownMenuItem>
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={
-                    !hasFilters ||
-                    !savedFiltersAvailable ||
-                    savedFiltersLoading ||
-                    savedFilterLimitReached
-                  }
-                  onSelect={openSaveFilter}
+                  {savedFilterLimitReached ? (
+                    <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                      Maximum of 5 saved filters. Remove one to save another.
+                    </p>
+                  ) : null}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={!hasFilters}
+                    onSelect={() =>
+                      onQueryChange({
+                        ...emptySavedLeadFilterValues(),
+                        page: 1,
+                      })
+                    }
+                  >
+                    Clear current filters
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {/* Only while something is filtering the list, so an empty result
+                can be undone in one click without opening the menu. */}
+              {hasFilters ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                  aria-label="Clear all filters"
+                  title="Clear all filters"
+                  onClick={() => onQueryChange({ ...emptySavedLeadFilterValues(), page: 1 })}
                 >
-                  Save current filters
-                </DropdownMenuItem>
-                {savedFilterLimitReached ? (
-                  <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                    Maximum of 5 saved filters. Remove one to save another.
-                  </p>
-                ) : null}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={!hasFilters}
-                  onSelect={() =>
-                    onQueryChange({
-                      ...emptySavedLeadFilterValues(),
-                      page: 1,
-                    })
-                  }
-                >
-                  Clear current filters
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  <X className="size-4" />
+                </Button>
+              ) : null}
+            </div>
           </div>
         </div>
       </CardHeader>
@@ -3581,9 +3694,42 @@ function LeadTable({
                         virtualizeRows && 'sticky top-0 z-10',
                       )}
                     >
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.isPlaceholder ? null : header.column.id === 'next_followup_at' ? (
+                        // Overdue follow-ups stay on top in both directions; the
+                        // toggle only flips the order inside each block.
+                        <button
+                          type="button"
+                          className={cn(
+                            '-mx-1.5 inline-flex items-center gap-1 rounded px-1.5 py-1 uppercase tracking-wide hover:bg-slate-200/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                            overdueDirection && 'text-blue-700',
+                          )}
+                          aria-label={
+                            overdueDirection === 'asc'
+                              ? 'Next follow-up, overdue first, earliest due on top. Switch to latest due on top.'
+                              : 'Next follow-up, overdue first. Switch to earliest due on top.'
+                          }
+                          title={
+                            overdueDirection === 'desc'
+                              ? 'Overdue first · latest due on top'
+                              : 'Overdue first · earliest due on top'
+                          }
+                          onClick={() =>
+                            onQueryChange({
+                              sort: overdueDirection === 'asc' ? 'overdue:desc' : 'updated:desc',
+                              page: 1,
+                            })
+                          }
+                        >
+                          Next follow-up
+                          {overdueDirection === 'desc' ? (
+                            <ArrowDown className="size-3" />
+                          ) : (
+                            <ArrowUp className={cn('size-3', !overdueDirection && 'opacity-40')} />
+                          )}
+                        </button>
+                      ) : (
+                        flexRender(header.column.columnDef.header, header.getContext())
+                      )}
                     </TableHead>
                   ))}
                 </TableRow>
@@ -3836,56 +3982,30 @@ function LeadTable({
           </div>
         </div>
       </CardContent>
-      <Dialog open={dateRangeOpen} onOpenChange={setDateRangeOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Follow-up date range</DialogTitle>
-            <DialogDescription>
-              Show leads with a follow-up scheduled in this period.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-2 sm:grid-cols-2">
-            <label className="grid gap-1.5 text-sm font-medium">
-              From
-              <DayPicker value={draftFollowupFrom} onChange={setDraftFollowupFrom} />
-            </label>
-            <label className="grid gap-1.5 text-sm font-medium">
-              To
-              <DayPicker value={draftFollowupTo} onChange={setDraftFollowupTo} />
-            </label>
-          </div>
-          <div className="flex justify-between gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setDraftFollowupFrom('');
-                setDraftFollowupTo('');
-              }}
-            >
-              Clear dates
-            </Button>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={() => setDateRangeOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() => {
-                  onQueryChange({
-                    followupFrom: draftFollowupFrom,
-                    followupTo: draftFollowupTo,
-                    page: 1,
-                  });
-                  setDateRangeOpen(false);
-                }}
-              >
-                Apply range
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Plain date fields, as on the Follow-ups page. The day stepper used
+          here before capped both ends at today, so an upcoming follow-up could
+          not be picked at all, and two of them overflowed the dialog. */}
+      <DateRangeDialog
+        open={dateRangeOpen}
+        onOpenChange={setDateRangeOpen}
+        title="Follow-up date range"
+        description="Show leads with a follow-up scheduled in this period."
+        value={{ from: query.followupFrom, to: query.followupTo }}
+        onApply={(range) =>
+          onQueryChange({ followupFrom: range.from, followupTo: range.to, page: 1 })
+        }
+      />
+      <DateRangeDialog
+        open={createdRangeOpen}
+        onOpenChange={setCreatedRangeOpen}
+        title="Created date range"
+        description="Show leads that were created in this period."
+        value={{ from: query.createdFrom, to: query.createdTo }}
+        pastOnly
+        onApply={(range) =>
+          onQueryChange({ createdFrom: range.from, createdTo: range.to, page: 1 })
+        }
+      />
       <Dialog
         open={saveFilterOpen}
         onOpenChange={(open) => {
@@ -4046,7 +4166,7 @@ export function LeadWorkspace({
   const [pendingFollowup, setPendingFollowup] = useState<PendingFollowupRequest | null>(null);
   const debouncedSearch = useDebouncedValue(query.search, 300);
   const requestQuery = useMemo(
-    () => ({ ...query, search: debouncedSearch }),
+    () => ({ ...query, search: debouncedSearch, sort: resolveLeadSort(query) }),
     [debouncedSearch, query],
   );
   const queryClient = useQueryClient();
@@ -4067,6 +4187,7 @@ export function LeadWorkspace({
   );
   const personalLeadPreferences = useQuery({
     queryKey: personalPreferenceKey,
+    retry: retryRpcRead,
     queryFn: ({ signal }) => fetchPersonalLeadFlags(signal),
     enabled: Boolean(workspaceSession?.organizationId && workspaceSession.userId),
     staleTime: 60_000,
@@ -4189,12 +4310,14 @@ export function LeadWorkspace({
   const metaQuery = useMemo(() => toLeadMetaQuery(requestQuery), [requestQuery]);
   const records = useQuery({
     queryKey: ['lead-workspace', ...queryScope, requestQuery],
+    retry: retryRpcRead,
     queryFn: ({ signal }) => fetchLeadWorkspaceRecords(requestQuery, signal),
     placeholderData: keepPreviousData,
   });
   // Keyed without page, pageSize or sort, so paging reuses this entry outright.
   const meta = useQuery({
     queryKey: ['lead-workspace-meta', ...queryScope, metaQuery],
+    retry: retryRpcRead,
     queryFn: ({ signal }) => fetchLeadWorkspaceMeta(metaQuery, signal),
     placeholderData: keepPreviousData,
   });

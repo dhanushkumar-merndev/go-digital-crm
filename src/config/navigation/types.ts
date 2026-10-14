@@ -35,7 +35,12 @@ export type NavItem = {
   icon: string;
   optional?: boolean;
   requiredCapability?: NavigationCapability;
+  /** Shown under a collapsible parent in the sidebar. The item keeps its own
+   * route, so routing and slug lookups are unaffected. */
+  group?: NavGroup;
 };
+
+export type NavGroup = { title: string; icon: string };
 
 export type RoleNavigation = {
   label: string;

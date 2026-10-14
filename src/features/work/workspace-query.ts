@@ -1,5 +1,6 @@
 export const workPageSizes = [25, 50, 100] as const;
 import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
+import { leadBuyerTypeFilters, type LeadBuyerTypeFilter } from '../leads/lead-workspace-query';
 export type WorkPageSize = (typeof workPageSizes)[number];
 
 export type WorkKind = 'followups' | 'appointments';
@@ -76,6 +77,8 @@ export type WorkQuery = {
   model: string;
   source: string;
   temperature: WorkLeadTemperatureFilter;
+  /** Follow-ups only: whether the lead behind the follow-up is a company lead. */
+  buyerType: LeadBuyerTypeFilter;
   followupFrom: string;
   followupTo: string;
   sort: WorkSort;
@@ -95,6 +98,7 @@ export const defaultWorkQuery: WorkQuery = {
   model: '',
   source: '',
   temperature: 'all',
+  buyerType: 'all',
   followupFrom: '',
   followupTo: '',
   sort: 'scheduled:asc',
@@ -151,6 +155,11 @@ export function parseWorkQuery(params: URLSearchParams, kind: WorkKind): WorkQue
     temperature: ['HOT', 'WARM', 'COLD'].includes(params.get('temperature') ?? '')
       ? (params.get('temperature') as WorkLeadTemperatureFilter)
       : 'all',
+    buyerType:
+      kind === 'followups' &&
+      leadBuyerTypeFilters.includes(params.get('buyer') as LeadBuyerTypeFilter)
+        ? (params.get('buyer') as LeadBuyerTypeFilter)
+        : 'all',
     followupFrom: (params.get('followupFrom') ?? '').slice(0, 10),
     followupTo: (params.get('followupTo') ?? '').slice(0, 10),
     sort: workSorts.includes(sort as WorkSort) ? (sort as WorkSort) : 'scheduled:asc',
@@ -176,6 +185,7 @@ export function toWorkQueryString(query: WorkQuery, kind?: WorkKind) {
   if (query.model) params.set('model', query.model);
   if (query.source) params.set('source', query.source);
   if (query.temperature !== 'all') params.set('temperature', query.temperature);
+  if (query.buyerType !== 'all') params.set('buyer', query.buyerType);
   if (query.followupFrom) params.set('followupFrom', query.followupFrom);
   if (query.followupTo) params.set('followupTo', query.followupTo);
   if (query.sort !== 'scheduled:asc') params.set('sort', query.sort);

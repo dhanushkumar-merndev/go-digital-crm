@@ -16,6 +16,7 @@ import {
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
+import { useChartHover, useChartTableScroll } from '@/components/charts/use-chart-hover';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -142,6 +143,7 @@ export function SalesHandoffReport({
   const [branch, setBranch] = useState<Pick>(null);
   const [telecaller, setTelecaller] = useState<Pick>(null);
   const [consultant, setConsultant] = useState<Pick>(null);
+  const { hoveredIndex, setHoveredIndex } = useChartHover();
   const [stage, setStage] = useState<HandoffStageBucket | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const search = useDebouncedValue(searchInput.trim(), 300);
@@ -258,21 +260,26 @@ export function SalesHandoffReport({
                 onSelect={chooseBranch}
               />
             ) : null}
-            <div className="grid gap-4 xl:grid-cols-5">
-              <Card className="shadow-none xl:col-span-2">
+            <div className="grid min-w-0 gap-4 xl:grid-cols-12">
+              <Card className="min-w-0 shadow-none xl:col-span-6">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm">
                     Where each consultant&apos;s leads are now
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ConsultantStageChart rows={data.by_consultant} />
+                  <ConsultantStageChart rows={data.by_consultant} onHoverIndex={setHoveredIndex} />
                 </CardContent>
               </Card>
-              <div className="xl:col-span-3">
+              <div className="min-w-0 xl:col-span-6">
                 <ConsultantTable
                   rows={data.by_consultant}
                   selected={consultant?.id ?? null}
+                  hovered={
+                    hoveredIndex === null
+                      ? null
+                      : (data.by_consultant[hoveredIndex]?.consultant_id ?? null)
+                  }
                   onSelect={chooseConsultant}
                 />
               </div>
@@ -396,28 +403,50 @@ function summaryMetrics(data: SalesHandoffSummary, preset: SalesHandoffPreset): 
   return preset === 'TELECALLER' ? metrics.slice(1) : metrics;
 }
 
-function ConsultantStageChart({ rows }: { rows: SalesHandoffSummary['by_consultant'] }) {
+function ConsultantStageChart({
+  rows,
+  onHoverIndex,
+}: {
+  rows: SalesHandoffSummary['by_consultant'];
+  onHoverIndex: (index: number | null) => void;
+}) {
   const data = useMemo(() => rows.map((row) => ({ name: row.consultant, value: 0 })), [rows]);
   const series = useMemo(
     () => stages.map((stage) => ({ name: stage.label, values: rows.map((row) => row[stage.key]) })),
     [rows],
   );
-  return <EChart kind="bar" data={data} series={series} stacked colors={stageColors} />;
+  const totals = useMemo(() => rows.map((row) => row.transferred), [rows]);
+  return (
+    <EChart
+      kind="bar"
+      data={data}
+      series={series}
+      stacked
+      colors={stageColors}
+      tooltipTotals={totals}
+      legendPosition="bottom"
+      onHoverIndex={onHoverIndex}
+      className="h-80 w-full sm:h-96"
+    />
+  );
 }
 
 function ConsultantTable({
   rows,
   selected,
+  hovered,
   onSelect,
 }: {
   rows: SalesHandoffSummary['by_consultant'];
   selected: string | null;
+  hovered: string | null;
   onSelect: (value: Pick) => void;
 }) {
+  const { containerRef, activeRowRef } = useChartTableScroll(hovered);
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div ref={containerRef} className="min-w-0 max-w-full rounded-lg border [&>div]:max-h-96">
       <Table>
-        <TableHeader>
+        <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow>
             <TableHead>Sales Consultant</TableHead>
             <TableHead className="text-right">Received</TableHead>
@@ -434,8 +463,10 @@ function ConsultantTable({
           {rows.map((row) => (
             <TableRow
               key={row.consultant_id}
+              ref={hovered === row.consultant_id ? activeRowRef : undefined}
               data-state={selected === row.consultant_id ? 'selected' : undefined}
-              className="cursor-pointer"
+              data-hovered={hovered === row.consultant_id || undefined}
+              className="cursor-pointer data-[hovered=true]:bg-blue-50 data-[hovered=true]:hover:bg-blue-50 dark:data-[hovered=true]:bg-blue-950/40"
               onClick={() =>
                 onSelect(
                   selected === row.consultant_id

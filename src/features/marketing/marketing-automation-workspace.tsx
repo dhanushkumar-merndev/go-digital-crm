@@ -24,7 +24,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -47,9 +46,7 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import {
-  createMarketingDripCampaign,
   createMarketingReviewRequest,
-  fetchMarketingAutomationScopeOptions,
   fetchMarketingAutomationWorkspace,
   fetchMarketingAutomationPermissions,
   fetchMarketingReviewCustomerOptions,
@@ -76,247 +73,6 @@ function formatDate(value: string | null) {
 function ChannelIcon({ channel }: { channel: Channel | 'MANUAL' }) {
   if (channel === 'EMAIL') return <Mail className="size-4" />;
   return <MessageCircle className="size-4" />;
-}
-
-function CreateDripCampaignDialog({ onComplete }: { onComplete: () => void }) {
-  const queryScope = workspaceQueryScope(useWorkspaceSession());
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [scope, setScope] = useState('');
-  const [channel, setChannel] = useState<Channel>('WHATSAPP');
-  const [audience, setAudience] = useState('NEW_LEADS');
-  const [steps, setSteps] = useState([{ delay: '0', body: '' }]);
-  const [requestId, setRequestId] = useState(newRequestId);
-  const scopeOptions = useQuery({
-    queryKey: ['marketing-automation-scope-options', ...queryScope],
-    queryFn: ({ signal }) => fetchMarketingAutomationScopeOptions(signal),
-    enabled: open,
-    staleTime: 5 * 60_000,
-  });
-  const mutation = useMutation({
-    meta: { toast: false },
-    mutationFn: () =>
-      createMarketingDripCampaign({
-        name: name.trim(),
-        description: description.trim() || undefined,
-        branchId: selectedScope === 'organization' ? undefined : selectedScope,
-        defaultChannel: channel,
-        audienceFilter: { lifecycle: audience },
-        steps: steps.map((step, index) => ({
-          step_order: index + 1,
-          delay_hours: Number(step.delay),
-          channel,
-          message_body: step.body.trim(),
-        })),
-        requestId,
-      }),
-    onSuccess: () => {
-      toast.add({
-        type: 'success',
-        title: 'Drip campaign saved',
-        description:
-          'The sequence is stored as a draft and ready for the approved delivery workflow.',
-      });
-      setOpen(false);
-      setName('');
-      setDescription('');
-      setSteps([{ delay: '0', body: '' }]);
-      setRequestId(newRequestId());
-      onComplete();
-    },
-    onError: () =>
-      toast.add({
-        type: 'error',
-        title: 'Campaign could not be saved',
-        description: 'Check the sequence, scope and message content, then try again.',
-      }),
-  });
-
-  const selectedScope =
-    scope ||
-    (scopeOptions.data?.can_use_organization_scope
-      ? 'organization'
-      : (scopeOptions.data?.branches[0]?.id ?? ''));
-
-  const valid =
-    name.trim().length >= 3 &&
-    Boolean(selectedScope) &&
-    steps.length > 0 &&
-    steps.every(
-      (step) =>
-        Number.isInteger(Number(step.delay)) &&
-        Number(step.delay) >= 0 &&
-        Number(step.delay) <= 8760 &&
-        step.body.trim().length > 0,
-    );
-
-  return (
-    <>
-      <Button onClick={() => setOpen(true)}>
-        <Plus className="size-4" /> Create drip campaign
-      </Button>
-      <Dialog open={open} onOpenChange={(next) => !mutation.isPending && setOpen(next)}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Create drip campaign</DialogTitle>
-            <DialogDescription>
-              Build an auditable, provider-independent sequence. It stays a draft until an approved
-              delivery workflow activates it.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (valid) mutation.mutate();
-            }}
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="grid gap-1.5 text-sm font-medium">
-                Campaign name
-                <Input
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  maxLength={180}
-                  placeholder="New lead nurture"
-                />
-              </label>
-              <label className="grid gap-1.5 text-sm font-medium">
-                Authorized scope
-                <Select value={selectedScope} onValueChange={setScope}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select scope" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {scopeOptions.data?.can_use_organization_scope ? (
-                      <SelectItem value="organization">Organization-wide</SelectItem>
-                    ) : null}
-                    {scopeOptions.data?.branches.map((branch) => (
-                      <SelectItem key={branch.id} value={branch.id}>
-                        {branch.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
-            </div>
-            <label className="grid gap-1.5 text-sm font-medium">
-              Purpose
-              <Textarea
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                maxLength={2000}
-                rows={2}
-                placeholder="What should this sequence achieve?"
-              />
-            </label>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="grid gap-1.5 text-sm font-medium">
-                Default channel
-                <Select value={channel} onValueChange={(value) => setChannel(value as Channel)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {channels.map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {value === 'WHATSAPP' ? 'WhatsApp' : value === 'SMS' ? 'SMS' : 'Email'}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
-              <label className="grid gap-1.5 text-sm font-medium">
-                Audience
-                <Select value={audience} onValueChange={setAudience}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="NEW_LEADS">New leads</SelectItem>
-                    <SelectItem value="QUALIFIED">Qualified leads</SelectItem>
-                    <SelectItem value="BOOKED">Booked customers</SelectItem>
-                  </SelectContent>
-                </Select>
-              </label>
-            </div>
-            <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-              <div className="flex items-center justify-between">
-                <Label>Sequence steps</Label>
-                <span className="text-xs text-muted-foreground">
-                  Delay is from the previous step
-                </span>
-              </div>
-              {steps.map((step, index) => (
-                <div
-                  key={index}
-                  className="grid gap-2 rounded-md border bg-background p-3 sm:grid-cols-[110px_1fr_auto]"
-                >
-                  <Input
-                    aria-label={`Step ${index + 1} delay hours`}
-                    type="number"
-                    min={0}
-                    max={8760}
-                    value={step.delay}
-                    onChange={(event) =>
-                      setSteps((current) =>
-                        current.map((value, position) =>
-                          position === index ? { ...value, delay: event.target.value } : value,
-                        ),
-                      )
-                    }
-                    placeholder="Hours"
-                  />
-                  <Input
-                    aria-label={`Step ${index + 1} message`}
-                    value={step.body}
-                    maxLength={4000}
-                    onChange={(event) =>
-                      setSteps((current) =>
-                        current.map((value, position) =>
-                          position === index ? { ...value, body: event.target.value } : value,
-                        ),
-                      )
-                    }
-                    placeholder={`Step ${index + 1} message`}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={steps.length === 1}
-                    onClick={() =>
-                      setSteps((current) => current.filter((_, position) => position !== index))
-                    }
-                  >
-                    Remove
-                  </Button>
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={steps.length >= 24}
-                onClick={() => setSteps((current) => [...current, { delay: '24', body: '' }])}
-              >
-                <Plus className="size-3.5" /> Add step
-              </Button>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={!valid || mutation.isPending}>
-                {mutation.isPending ? 'Saving…' : 'Save campaign draft'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
 }
 
 function CreateReviewRequestDialog({ onComplete }: { onComplete: () => void }) {
@@ -482,6 +238,7 @@ export function MarketingAutomationWorkspace({
     : undefined;
   const [tab, setTab] = useState<'DRIP' | 'REVIEWS'>(initialTab);
   const [campaignId, setCampaignId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const queryClient = useQueryClient();
   const workspace = useQuery({
     queryKey: [...workspaceKey, ...queryScope],
@@ -608,7 +365,9 @@ export function MarketingAutomationWorkspace({
           {permissions?.canManage ? (
             <div className="flex flex-wrap justify-end gap-2">
               <SmsFallbackCampaignDialog onComplete={invalidate} />
-              <CreateDripCampaignDialog onComplete={invalidate} />
+              <Button onClick={() => setCreating(true)}>
+                <Plus className="size-4" /> Create drip campaign
+              </Button>
             </div>
           ) : null}
           <KpiGrid metrics={dripMetrics} />
@@ -687,8 +446,12 @@ export function MarketingAutomationWorkspace({
           </Card>
           <DripCampaignEditor
             campaignId={campaignId}
+            creating={creating}
             canManage={Boolean(permissions?.canManage)}
-            onClose={() => setCampaignId(null)}
+            onClose={() => {
+              setCampaignId(null);
+              setCreating(false);
+            }}
             onComplete={invalidate}
           />
         </>

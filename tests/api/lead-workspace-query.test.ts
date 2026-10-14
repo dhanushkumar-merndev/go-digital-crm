@@ -27,8 +27,11 @@ describe('lead workspace query boundary', () => {
       source: '',
       stage: 'all',
       temperature: 'all',
+      buyerType: 'all',
       followupFrom: '',
       followupTo: '',
+      createdFrom: '',
+      createdTo: '',
     });
   });
 
@@ -43,12 +46,15 @@ describe('lead workspace query boundary', () => {
         source: 'Website',
         stage: 'Test Drive',
         temperature: 'HOT',
+        buyerType: 'COMPANY',
         followupFrom: '2026-08-01',
         followupTo: '2026-08-31',
+        createdFrom: '2026-07-01',
+        createdTo: '2026-07-31',
         sort: 'customer:asc',
       }),
     ).toBe(
-      'page=2&pageSize=50&q=98765&status=pending&model=Nexon+EV&source=Website&stage=Test+Drive&temperature=HOT&followupFrom=2026-08-01&followupTo=2026-08-31&sort=customer%3Aasc',
+      'page=2&pageSize=50&q=98765&status=pending&model=Nexon+EV&source=Website&stage=Test+Drive&temperature=HOT&buyer=COMPANY&followupFrom=2026-08-01&followupTo=2026-08-31&createdFrom=2026-07-01&createdTo=2026-07-31&sort=customer%3Aasc',
     );
   });
 

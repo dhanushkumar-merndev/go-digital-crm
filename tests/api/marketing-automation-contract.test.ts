@@ -9,6 +9,7 @@ function source(relativePath: string) {
 const migration = source('supabase/migrations/202608220035_marketing_automation_workspace.sql');
 const api = source('src/features/marketing/marketing-automation-api.ts');
 const workspace = source('src/features/marketing/marketing-automation-workspace.tsx');
+const editor = source('src/features/marketing/drip-campaign-editor.tsx');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
 
 describe('marketing automation contract', () => {
@@ -16,7 +17,9 @@ describe('marketing automation contract', () => {
     expect(workspace).toContain(
       "['marketing-review-customer-options', ...queryScope, debouncedSearch]",
     );
-    expect(workspace).toContain("['marketing-automation-scope-options', ...queryScope]");
+    // The branch picker now lives in the campaign editor, which creates and edits.
+    expect(editor).toContain("['marketing-automation-scope-options', ...scope]");
+    expect(editor).toContain('const scope = workspaceQueryScope(useWorkspaceSession());');
     expect(workspace).toContain('queryKey: [...workspaceKey, ...queryScope]');
     expect(workspace).not.toContain('queryKeys: [workspaceKey]');
   });
@@ -55,6 +58,9 @@ describe('marketing automation contract', () => {
     expect(api).toContain("rpc('get_marketing_automation_workspace'");
     expect(api).toContain("rpc('get_marketing_review_customer_options'");
     expect(workspace).toContain('Create drip campaign');
+    // Creation opens the full editor, so a new campaign can start from any trigger.
+    expect(workspace).toContain('creating={creating}');
+    expect(editor).toContain('saveMarketingDripCampaign(payload, requestId.current, true)');
     expect(workspace).toContain('Request a Google review');
     expect(workspace).toContain('Queue request');
     expect(workspace).toContain('useTenantRealtimeInvalidation');

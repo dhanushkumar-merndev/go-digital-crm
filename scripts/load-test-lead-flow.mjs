@@ -4,8 +4,9 @@
  * Replays the read RPCs a real lead-flow run made (captured by the e2e suite
  * with E2E_API_TIMINGS=<file>) as the same demo roles, first one at a time to
  * get each API's own latency, then from many concurrent virtual users to see
- * how the APIs hold up under load. Only get_/list_/search_ RPCs are replayed;
- * nothing is written. Credentials and response bodies are never printed.
+ * how the APIs hold up under load. Only explicitly reviewed read RPCs are
+ * replayed; nothing is written.
+ * Credentials and response bodies are never printed.
  *
  * Each virtual user pauses --think ms (randomised 0.5x-1.5x) between calls, as
  * a person reading a page does; --think=0 is a stress test, not a user count.
@@ -16,6 +17,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { isLeadFlowReadRpc } from './lead-flow-read-rpcs.mjs';
 
 const [timingsFile, ...flags] = process.argv.slice(2);
 if (!timingsFile) {
@@ -65,7 +67,13 @@ const captured = fs
   .split('\n')
   .filter(Boolean)
   .map((line) => JSON.parse(line))
-  .filter((entry) => entry.body !== undefined && roleKeys[entry.role] && entry.status < 400);
+  .filter(
+    (entry) =>
+      entry.body !== undefined &&
+      isLeadFlowReadRpc(entry.api) &&
+      roleKeys[entry.role] &&
+      entry.status < 400,
+  );
 
 // One replayable request per distinct (role, api, body).
 const requests = [

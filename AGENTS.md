@@ -764,6 +764,9 @@ because a list will.
 
 The muted variant of the stage badge marks a row inside an expanded phone group:
 an earlier enquiry on the same mobile, shown for context and not actionable.
+The one exception (product decision 2026-10-10) is a lead the telecaller handed
+to Sales: it keeps **Cancel transfer** inside the group, so the customer can be
+moved to another consultant or pulled back without that lead being the head row.
 
 ---
 
@@ -788,6 +791,33 @@ Customer 360 is grouped by enquiry (product decision 2026-10-09):
   test drives, quotations, bookings and notes. Lead detail shows the same
   journey. A call on a visible lead appears as an event; its notes and AI
   summary need access to that call.
+
+### 9.10 Individual and company leads
+
+A lead is registered to an individual or to a company (product decision
+2026-10-10). `leads.buyer_type` (`INDIVIDUAL` default, `COMPANY`) belongs to the
+enquiry, not the customer, because **one lead tracks one vehicle**: a company
+that needs ten cars is ten independent leads, each marked `COMPANY`. Do not
+build a multi-vehicle lead or a quantity field to avoid that.
+
+- The company lives in `lead_company_profiles` (1:1 with `leads`): name, type,
+  GSTIN, PAN, contact, address, and how the vehicle is funded. It is written only
+  through `set_lead_buyer_type` (optimistic `version`, PT409 on conflict,
+  audited, `lead.update` in record scope).
+- A company vehicle is commonly **leased**, so funding is `OUTRIGHT`, `LOAN` or
+  `LEASE`; a lease carries its type (operating / finance), the leasing company
+  and the tenure. Funding is per vehicle and is never copied between leads.
+- Changing a lead back to an individual keeps its company profile (no hard
+  delete); registering it again finds the details still there.
+- `get_lead_company_suggestion` offers the company of another lead of the same
+  customer or mobile, so a fleet order is not retyped. It reads only leads the
+  caller can already see; a suggestion must not widen access to a sibling lead.
+- Lead and follow-up lists filter by buyer type on the server
+  (`target_buyer_type`: `all` / `INDIVIDUAL` / `COMPANY`). A follow-up with no
+  lead counts as `INDIVIDUAL`. Never filter a paginated page in the browser.
+- Buyer type is not `lead_requirements.purchase_type`, which stays a free-text
+  preference. When adding a buyer type, update the Postgres enum, the list
+  validators, `leadBuyerTypeFilters` and `leadBuyerTypeSchema` in the same change.
 
 ## 10. Database table families
 
@@ -826,6 +856,8 @@ Use migrations; never create production tables manually through dashboard-only c
 - lead_assignment_history
 - lead_stage_history
 - lead_temperature_history
+- lead_requirements
+- lead_company_profiles
 - custom_field_definitions
 - custom_field_values
 - notes

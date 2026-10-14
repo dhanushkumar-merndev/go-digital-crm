@@ -3,14 +3,21 @@ import type { NavItem, NavigationCapability, RoleKey, RoleNavigation } from './t
 
 type ItemDefinition = [string, string, string, NavigationCapability?];
 
-const items = (definitions: ItemDefinition[]) =>
-  definitions.map(([title, slug, icon, requiredCapability]): NavItem => ({
-    title,
-    slug,
-    icon,
-    optional: Boolean(requiredCapability),
-    requiredCapability,
-  }));
+const items = (definitions: Array<ItemDefinition | NavItem[]>) =>
+  definitions.flatMap((definition): NavItem[] => {
+    if (!isItemDefinition(definition)) return definition;
+    const [title, slug, icon, requiredCapability] = definition;
+    return [{ title, slug, icon, optional: Boolean(requiredCapability), requiredCapability }];
+  });
+
+function isItemDefinition(value: ItemDefinition | NavItem[]): value is ItemDefinition {
+  return typeof value[0] === 'string';
+}
+
+// Consecutive items folded under one collapsible sidebar parent.
+const group = (title: string, icon: string, definitions: ItemDefinition[]): NavItem[][] => [
+  items(definitions).map((item) => ({ ...item, group: { title, icon } })),
+];
 
 export const roleNavigation: Record<RoleKey, RoleNavigation> = {
   telecaller: {
@@ -418,8 +425,11 @@ export const roleNavigation: Record<RoleKey, RoleNavigation> = {
     items: items([
       ['Dashboard', 'dashboard', 'LayoutDashboard'],
       ['Lead Sources', 'lead-sources', 'Waypoints'],
-      ['Campaigns', 'campaigns', 'Megaphone'],
-      ['Drip Campaigns', 'drip-campaigns', 'ListRestart'],
+      ...group('Campaigns', 'Megaphone', [
+        ['Meta / Ad Campaigns', 'campaigns', 'Megaphone'],
+        ['Drip Campaigns', 'drip-campaigns', 'ListRestart'],
+        ['Automations', 'automations', 'Workflow'],
+      ]),
       ['Social Posts', 'social-posts', 'Send'],
       ['Bulk Campaigns', 'bulk-campaigns', 'Megaphone'],
       ['Asset Library', 'asset-library', 'Images'],

@@ -46,6 +46,14 @@ export type LeadStageFilter = (typeof leadStageFilters)[number];
 export const leadTemperatureFilters = ['all', 'HOT', 'WARM', 'COLD', 'DORMANT'] as const;
 export type LeadTemperatureFilter = (typeof leadTemperatureFilters)[number];
 
+/** Who the lead is registered to. A company buying ten cars is ten COMPANY leads. */
+export const leadBuyerTypeFilters = ['all', 'INDIVIDUAL', 'COMPANY'] as const;
+export type LeadBuyerTypeFilter = (typeof leadBuyerTypeFilters)[number];
+export const leadBuyerTypeLabels: Record<Exclude<LeadBuyerTypeFilter, 'all'>, string> = {
+  INDIVIDUAL: 'Individual',
+  COMPANY: 'Company',
+};
+
 export const leadSortOptions = {
   'updated:desc': { column: 'updated_at', ascending: false },
   'updated:asc': { column: 'updated_at', ascending: true },
@@ -53,6 +61,11 @@ export const leadSortOptions = {
   'created:asc': { column: 'created_at', ascending: true },
   'customer:asc': { column: 'customer_name', ascending: true },
   'customer:desc': { column: 'customer_name', ascending: false },
+  'followup:asc': { column: 'next_followup_at', ascending: true },
+  'followup:desc': { column: 'next_followup_at', ascending: false },
+  // Overdue follow-ups first, by due time; every other lead by latest activity.
+  'overdue:asc': { column: 'next_followup_at', ascending: true },
+  'overdue:desc': { column: 'next_followup_at', ascending: false },
 } as const;
 export type LeadSort = keyof typeof leadSortOptions;
 
@@ -65,8 +78,11 @@ export type LeadQuery = {
   source: string;
   stage: LeadStageFilter;
   temperature: LeadTemperatureFilter;
+  buyerType: LeadBuyerTypeFilter;
   followupFrom: string;
   followupTo: string;
+  createdFrom: string;
+  createdTo: string;
   sort: LeadSort;
 };
 
@@ -79,8 +95,11 @@ export const defaultLeadQuery: LeadQuery = {
   source: '',
   stage: 'all',
   temperature: 'all',
+  buyerType: 'all',
   followupFrom: '',
   followupTo: '',
+  createdFrom: '',
+  createdTo: '',
   sort: 'updated:desc',
 };
 
@@ -142,8 +161,13 @@ export function parseLeadQuery(
     temperature: leadTemperatureFilters.includes(params.get('temperature') as LeadTemperatureFilter)
       ? (params.get('temperature') as LeadTemperatureFilter)
       : 'all',
+    buyerType: leadBuyerTypeFilters.includes(params.get('buyer') as LeadBuyerTypeFilter)
+      ? (params.get('buyer') as LeadBuyerTypeFilter)
+      : 'all',
     followupFrom: (params.get('followupFrom') ?? '').slice(0, 10),
     followupTo: (params.get('followupTo') ?? '').slice(0, 10),
+    createdFrom: (params.get('createdFrom') ?? '').slice(0, 10),
+    createdTo: (params.get('createdTo') ?? '').slice(0, 10),
     sort: Object.hasOwn(leadSortOptions, sort ?? '') ? (sort as LeadSort) : 'updated:desc',
   };
 }
@@ -174,6 +198,39 @@ export function getSalesMyLeadsDefaultStatus(
   return 'all';
 }
 
+/**
+ * Which way the overdue block runs, or null when the list is on a sort that
+ * does not lead with overdue follow-ups (name, created, oldest activity).
+ *
+ * `asc` is the default and needs nothing in the URL: most overdue first.
+ * `desc` puts the follow-up that was missed most recently first.
+ */
+export function leadOverdueDirection(sort: LeadSort): 'asc' | 'desc' | null {
+  if (sort === 'updated:desc' || sort === 'overdue:asc' || sort === 'followup:asc') return 'asc';
+  if (sort === 'overdue:desc' || sort === 'followup:desc') return 'desc';
+  return null;
+}
+
+/**
+ * The sort a lead list is actually requested with.
+ *
+ * A lead whose follow-up is already due is the one that needs a call now, so
+ * on every tab it sits above the rest; ordering by last update alone buried it
+ * under whichever lead was touched last. Below the overdue block:
+ *
+ * - Follow-up tab: the remaining follow-ups by due time, in the same direction.
+ *   It is a due-date queue, not a recency list.
+ * - Every other tab: the usual latest-activity order.
+ *
+ * Every filter applies first, so this only decides the order of what is left.
+ * A sort that is not about follow-ups (name, created) is passed through.
+ */
+export function resolveLeadSort(query: Pick<LeadQuery, 'status' | 'sort'>): LeadSort {
+  const direction = leadOverdueDirection(query.sort);
+  if (!direction) return query.sort;
+  return query.status === 'follow-up' ? `followup:${direction}` : `overdue:${direction}`;
+}
+
 export function toLeadQueryString(query: LeadQuery) {
   const params = new URLSearchParams();
   if (query.page > 1) params.set('page', String(query.page));
@@ -184,8 +241,11 @@ export function toLeadQueryString(query: LeadQuery) {
   if (query.source) params.set('source', query.source);
   if (query.stage !== 'all') params.set('stage', query.stage);
   if (query.temperature !== 'all') params.set('temperature', query.temperature);
+  if (query.buyerType !== 'all') params.set('buyer', query.buyerType);
   if (query.followupFrom) params.set('followupFrom', query.followupFrom);
   if (query.followupTo) params.set('followupTo', query.followupTo);
+  if (query.createdFrom) params.set('createdFrom', query.createdFrom);
+  if (query.createdTo) params.set('createdTo', query.createdTo);
   if (query.sort !== 'updated:desc') params.set('sort', query.sort);
   return params.toString();
 }

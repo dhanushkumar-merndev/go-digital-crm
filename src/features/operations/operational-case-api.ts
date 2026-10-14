@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
+import { readRpc } from '@/lib/supabase/read-rpc';
 import {
   isOperationalCaseVersionConflict,
   OperationalCaseVersionConflictError,
@@ -130,8 +131,7 @@ export async function fetchOperationalCaseWorkspace(
     target_sort: query.sort,
     target_timezone: 'Asia/Kolkata',
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return workspaceSchema.parse(data);
 }
 
@@ -158,8 +158,7 @@ export async function fetchOperationalCaseBookingOptions(
     target_search: search.trim().slice(0, 160),
     target_limit: 25,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return z.array(bookingOptionSchema).parse(data ?? []);
 }
 
@@ -255,12 +254,13 @@ export type OperationalCaseDetail = z.infer<typeof detailSchema>;
 export async function fetchOperationalCaseDetail(
   department: OperationalCaseDepartment,
   caseId: string,
+  signal?: AbortSignal,
 ) {
-  const { data, error } = await createClient().rpc('get_operational_case_detail', {
+  const request = createClient().rpc('get_operational_case_detail', {
     target_department: department,
     target_case_id: caseId,
   });
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return detailSchema.parse(data);
 }
 

@@ -1,4 +1,9 @@
-import { constantTimeEqual, hmacSha256Hex, sha256Base64Url } from '../_shared/crypto.ts';
+import {
+  constantTimeEqual,
+  decryptJson,
+  hmacSha256Hex,
+  sha256Base64Url,
+} from '../_shared/crypto.ts';
 import {
   failure,
   jsonHeaders,
@@ -11,16 +16,66 @@ import {
   resolveProviderAssetRoutes,
 } from '../_shared/provider-routing.ts';
 import { serviceClient } from '../_shared/supabase.ts';
+import { enqueueTriggerTask } from '../_shared/trigger-task.ts';
 import { extractWhatsAppEvents } from '../../../src/lib/providers/whatsapp-cloud-adapter.ts';
+
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
+
+type DealershipWebhookCredential = { app_secret?: string; webhook_verify_token?: string };
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// A dealership on its own Meta app points the webhook at
+// `?connection=<id>`; that connection's stored verify token and app secret are
+// used instead of the platform ones, and only its own phone numbers are
+// accepted from that callback. Without the parameter the platform app applies.
+async function dealershipRoute(admin: ReturnType<typeof serviceClient>, connectionId: string) {
+  if (!uuidPattern.test(connectionId)) return null;
+  const { data: connection } = await admin
+    .from('connected_accounts')
+    .select('id,organization_id')
+    .eq('id', connectionId)
+    .eq('provider_key', 'whatsapp_cloud')
+    .eq('status', 'CONNECTED')
+    .contains('connection_config', { webhook_mode: 'DEALERSHIP_APP' })
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (!connection) return null;
+  const { data: stored } = await admin
+    .from('integration_credentials')
+    .select('encrypted_payload')
+    .eq('organization_id', connection.organization_id)
+    .eq('connected_account_id', connection.id)
+    .maybeSingle();
+  if (!stored) return null;
+  const credential = await decryptJson<DealershipWebhookCredential>(stored.encrypted_payload);
+  if (!credential.app_secret || !credential.webhook_verify_token) return null;
+  return {
+    connectionId: String(connection.id),
+    appSecret: credential.app_secret,
+    verifyToken: credential.webhook_verify_token,
+  };
+}
 
 Deno.serve(async (request) => {
   const preflightResponse = preflight(request);
   if (preflightResponse) return preflightResponse;
   const requestId = getRequestId(request);
   const url = new URL(request.url);
+  const routeConnectionId = url.searchParams.get('connection')?.trim() ?? '';
+  const loadDealership = async () => {
+    const route = routeConnectionId
+      ? await dealershipRoute(serviceClient(), routeConnectionId)
+      : null;
+    return { route, invalid: Boolean(routeConnectionId) && !route };
+  };
 
   if (request.method === 'GET') {
-    const expectedToken = Deno.env.get('WHATSAPP_WEBHOOK_VERIFY_TOKEN') ?? '';
+    const dealership = await loadDealership();
+    if (dealership.invalid)
+      return failure('WEBHOOK_ROUTE_INVALID', 'Webhook route is invalid.', requestId, 403);
+    const expectedToken =
+      dealership.route?.verifyToken ?? Deno.env.get('WHATSAPP_WEBHOOK_VERIFY_TOKEN') ?? '';
     const suppliedToken = url.searchParams.get('hub.verify_token') ?? '';
     const challenge = url.searchParams.get('hub.challenge');
     if (
@@ -44,7 +99,10 @@ Deno.serve(async (request) => {
   const rawBody = await request.text();
   if (new TextEncoder().encode(rawBody).byteLength > 1_000_000)
     return failure('PAYLOAD_TOO_LARGE', 'The webhook payload is too large.', requestId, 413);
-  const appSecret = Deno.env.get('META_APP_SECRET') ?? '';
+  const dealership = await loadDealership();
+  if (dealership.invalid)
+    return failure('WEBHOOK_ROUTE_INVALID', 'Webhook route is invalid.', requestId, 401);
+  const appSecret = dealership.route?.appSecret ?? Deno.env.get('META_APP_SECRET') ?? '';
   const signature = request.headers.get('x-hub-signature-256') ?? '';
   if (
     !appSecret ||
@@ -69,10 +127,18 @@ Deno.serve(async (request) => {
         ...events.statuses.map((status) => status.phoneNumberId),
       ],
     );
+    // A dealership callback is signed with that dealership's app secret, so it
+    // may only deliver events for its own connection.
+    const routeFor = (phoneNumberId: string) => {
+      const route = routes.get(phoneNumberId);
+      return route && (!dealership.route || route.connectionId === dealership.route.connectionId)
+        ? route
+        : undefined;
+    };
     const payloadHash = await sha256Base64Url(rawBody);
     const receipts = [
       ...events.messages.flatMap((message) => {
-        const route = routes.get(message.phoneNumberId);
+        const route = routeFor(message.phoneNumberId);
         return route
           ? [
               {
@@ -92,7 +158,7 @@ Deno.serve(async (request) => {
           : [];
       }),
       ...events.statuses.flatMap((status) => {
-        const route = routes.get(status.phoneNumberId);
+        const route = routeFor(status.phoneNumberId);
         return route
           ? [
               {
@@ -132,6 +198,25 @@ Deno.serve(async (request) => {
       .select('id');
     if (error) throw error;
     const queued = inserted?.length ?? 0;
+    if (queued > 0) {
+      // Acknowledge durable receipt storage promptly; waking the worker must
+      // not hold Meta's response open. If enqueue fails or the runtime stops,
+      // the existing minute schedule still claims these RECEIVED events.
+      EdgeRuntime.waitUntil(
+        (async () => {
+          try {
+            const eventIds = inserted!.map((event) => String(event.id));
+            await enqueueTriggerTask(
+              'provider-event-dispatch-now',
+              { eventIds },
+              `provider-events:${await sha256Base64Url(JSON.stringify([...eventIds].sort()))}`,
+            );
+          } catch {
+            console.warn('WHATSAPP_IMMEDIATE_DISPATCH_NOT_QUEUED');
+          }
+        })(),
+      );
+    }
     return success(
       {
         accepted: true,

@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { readRpc } from '@/lib/supabase/read-rpc';
 import { createClient } from '@/lib/supabase/client';
+import { leadBuyerTypeSchema, leadCompanySchema } from './lead-buyer-type';
 import { leadRequirementsSchema } from './lead-requirements';
 
 const nullableString = z.string().nullable();
@@ -83,6 +85,12 @@ const leadDetailSchema = z.object({
     .nullable()
     .optional()
     .transform((value) => value ?? null),
+  buyer_type: leadBuyerTypeSchema,
+  // Kept after a lead is changed back to an individual, so it is not always shown.
+  company: leadCompanySchema
+    .nullable()
+    .optional()
+    .transform((value) => value ?? null),
   exchange_vehicle: z
     .object({
       id: z.uuid(),
@@ -119,7 +127,6 @@ export function isLeadUuid(value: string) {
 
 export async function fetchLeadDetail(leadId: string, signal?: AbortSignal): Promise<LeadDetail> {
   const request = createClient().rpc('get_lead_detail_workspace', { target_lead_id: leadId });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return leadDetailSchema.parse(data);
 }

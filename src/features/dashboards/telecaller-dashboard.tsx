@@ -39,6 +39,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { PageSpec } from '@/lib/domain';
+import { retryRpcRead } from '@/lib/supabase/read-rpc';
 import { leadStageVariant } from '@/features/leads/lead-stage-variant';
 import {
   fetchLeadWorkspaceMeta,
@@ -707,6 +708,7 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
   // counts are kept, so the persisted copy holds no filter lists or rows.
   const leadMetrics = usePersistedQuery({
     queryKey: leadMetricsQueryKey,
+    retry: retryRpcRead,
     queryFn: async ({ signal }) =>
       (await fetchLeadWorkspaceMeta(toLeadMetaQuery(defaultLeadQuery), signal)).kpis,
     staleTime: DASHBOARD_QUERY_STALE_TIME_MS,

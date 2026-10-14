@@ -64,6 +64,12 @@ describe('task workspace interaction contract', () => {
     expect(workspace).toContain('initialLead={createContext}');
     expect(workspace).toContain('if (!open) setCreateContext(null)');
   });
+
+  it('applies the shared overdue table row style to overdue tasks', () => {
+    expect(workspace).toContain("import { overdueTableRowClassName } from '@/components/shared/table-row-styles';");
+    expect(workspace).toContain('data-overdue={overdue || undefined}');
+    expect(workspace).toContain('overdue ? overdueTableRowClassName :');
+  });
 });
 
 describe('task mutation feedback and cache linkage', () => {

@@ -42,20 +42,33 @@ describe('same-mobile context for Sales Consultants', () => {
   it('keeps a viewer-owned lead in an expanded group workable', () => {
     expect(workspace).toContain('const contextLeadIds = useMemo(');
     expect(workspace).toContain('lead.assigned_user_id !== currentUserId');
-    expect(workspace).toContain('if (contextLeadIds.has(row.original.id)) return null;');
+    expect(workspace).toContain(
+      'if (contextLeadIds.has(row.original.id) && !isGroupHandoff) return null;',
+    );
   });
 
   it('gives context rows no actions: the context check runs before read-only', () => {
     const actions = workspace.slice(workspace.indexOf("id: 'actions',"));
-    expect(actions.indexOf('if (contextLeadIds.has(row.original.id)) return null;')).toBeLessThan(
-      actions.indexOf('if (row.original.read_only) {'),
+    expect(
+      actions.indexOf('if (contextLeadIds.has(row.original.id) && !isGroupHandoff) return null;'),
+    ).toBeLessThan(actions.indexOf('if (row.original.read_only || isGroupHandoff) {'));
+  });
+
+  it('keeps Cancel transfer on an in-scope handoff inside an expanded group', () => {
+    const actions = workspace.slice(workspace.indexOf("id: 'actions',"));
+    const handoff = actions.slice(
+      actions.indexOf('const isGroupHandoff ='),
+      actions.indexOf('if (contextLeadIds.has(row.original.id) && !isGroupHandoff) return null;'),
     );
+    expect(handoff).toContain('contextLeadIds.has(row.original.id)');
+    expect(handoff).toContain('!row.original.context_only');
+    expect(handoff).toContain('Boolean(row.original.assigned_consultant_name)');
   });
 
   it('leaves only Cancel transfer on a read-only row', () => {
     const actions = workspace.slice(workspace.indexOf("id: 'actions',"));
     const readOnly = actions.slice(
-      actions.indexOf('if (row.original.read_only) {'),
+      actions.indexOf('if (row.original.read_only || isGroupHandoff) {'),
       actions.indexOf(
         'return (\n            <div className="flex items-center justify-end gap-0.5">',
       ),

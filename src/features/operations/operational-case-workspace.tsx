@@ -41,6 +41,7 @@ import type { PageSpec } from '@/lib/domain';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import { optionQueryOptions } from '@/lib/query/option-query';
+import { retryRpcRead } from '@/lib/supabase/read-rpc';
 import {
   createOperationalCase,
   downloadOperationalCaseDocument,
@@ -395,11 +396,12 @@ export function OperationalCaseWorkspace({
   const workspace = useQuery({
     queryKey: ['operational-cases', ...queryScope, route.department, requestQuery],
     queryFn: ({ signal }) => fetchOperationalCaseWorkspace(route.department, requestQuery, signal),
+    retry: retryRpcRead,
     enabled: Boolean(permissions.data),
     placeholderData: keepPreviousData,
   });
-  const options = useQuery(
-    optionQueryOptions({
+  const options = useQuery({
+    ...optionQueryOptions({
       queryKey: [
         'operational-case-booking-options',
         ...queryScope,
@@ -410,7 +412,8 @@ export function OperationalCaseWorkspace({
         fetchOperationalCaseBookingOptions(route.department, debouncedBookingSearch, signal),
       enabled: createOpen && Boolean(permissions.data?.canManage || permissions.data?.canRequest),
     }),
-  );
+    retry: retryRpcRead,
+  });
   const detail = useQuery({
     queryKey: [
       'operational-case-detail',
@@ -419,7 +422,8 @@ export function OperationalCaseWorkspace({
       selected?.id,
       selected?.version,
     ],
-    queryFn: () => fetchOperationalCaseDetail(route.department, selected!.id),
+    queryFn: ({ signal }) => fetchOperationalCaseDetail(route.department, selected!.id, signal),
+    retry: retryRpcRead,
     enabled: Boolean(selected),
   });
 

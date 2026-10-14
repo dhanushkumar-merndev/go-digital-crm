@@ -222,6 +222,23 @@ describe('marketing automation RPC responses', () => {
     },
   );
 
+  it('creates a new event campaign through the same RPC with no id or version', async () => {
+    rpc.mockResolvedValue({
+      data: { id, status: 'DRAFT', version: 1, replayed: false },
+      error: null,
+    });
+    await saveMarketingDripCampaign({ ...detail, trigger_type: 'BOOKING_CONFIRMED' }, id, true);
+    expect(rpc).toHaveBeenCalledWith(
+      'save_marketing_drip_campaign',
+      expect.objectContaining({
+        target_campaign_id: null,
+        target_expected_version: null,
+        target_branch_id: id,
+        target_payload: expect.objectContaining({ trigger_type: 'BOOKING_CONFIRMED' }),
+      }),
+    );
+  });
+
   it('preserves stale-edit errors and requires the expected version when pausing', async () => {
     const error = { code: 'PT409', message: 'MARKETING_DRIP_CAMPAIGN_VERSION_CONFLICT' };
     rpc.mockResolvedValue({ data: null, error });

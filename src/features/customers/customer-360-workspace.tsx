@@ -21,6 +21,7 @@ import { leadDetailHref } from '@/lib/navigation/record-links';
 import { toWhatsAppClickToChatUrl } from '@/lib/phone';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import { LeadJourney } from '@/features/leads/lead-journey';
+import { LeadBuyerCard } from '@/features/leads/lead-company-card';
 import { LeadRequirementsCards } from '@/features/leads/lead-requirements-panel';
 import { useMemo, useState, type ReactNode } from 'react';
 import { CustomerDripPanel } from './customer-drip-panel';
@@ -382,6 +383,15 @@ function Overview({
             )}
           </CardContent>
         </Card>
+        {opportunity && (
+          <LeadBuyerCard
+            leadId={opportunity.id}
+            buyerType={opportunity.buyer_type}
+            company={opportunity.company}
+            canEdit={canEditRequirements}
+            onSaved={() => onRecordChanged?.()}
+          />
+        )}
         {opportunity && (
           <LeadRequirementsCards
             leadId={opportunity.id}

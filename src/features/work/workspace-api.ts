@@ -296,6 +296,7 @@ export async function fetchWorkWorkspace(
     parameters.target_model = query.model;
     parameters.target_source = query.source;
     parameters.target_temperature = query.temperature;
+    parameters.target_buyer_type = query.buyerType;
     parameters.target_followup_from = query.followupFrom || null;
     parameters.target_followup_to = query.followupTo || null;
   } else parameters.target_appointment_type = query.appointmentType;

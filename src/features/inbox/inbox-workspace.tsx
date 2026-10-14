@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   CircleAlert,
   Clock3,
+  FileText,
   MessageCircleMore,
   RefreshCw,
   Search,
@@ -27,6 +28,11 @@ import { PersonalWhatsAppDialog } from './personal-whatsapp-dialog';
 import { PersonalWhatsAppTemplatePicker } from './personal-whatsapp-template-picker';
 import { InboxLeadContext } from './inbox-lead-context';
 import { InboxMessageScroller } from './inbox-message-scroller';
+import {
+  formatWindowExpiry,
+  WhatsAppBusinessTemplatePanel,
+  WhatsAppTemplateSendDialog,
+} from './whatsapp-business-templates';
 import {
   acknowledgeUnknownWhatsAppMessage,
   fetchPersonalWhatsAppStatus,
@@ -57,6 +63,7 @@ import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-inval
 import {
   fetchInboxConversationPage,
   fetchInboxMessagePage,
+  fetchWhatsAppReplyTemplates,
   sendInboxWhatsAppMessage,
   type InboxConversation,
 } from './inbox-api';
@@ -66,6 +73,7 @@ import {
   type LeadWhatsAppChannel,
 } from '@/features/leads/lead-whatsapp-api';
 import { fetchLeadWorkspaceRecords } from '@/features/leads/lead-workspace-api';
+import { retryRpcRead } from '@/lib/supabase/read-rpc';
 import { defaultLeadQuery } from '@/features/leads/lead-workspace-query';
 
 // WhatsApp-style ticks, kept to three states: Sending, Sent, Seen. An
@@ -190,7 +198,8 @@ function ConversationListItem({
           {channelLabel(conversation.channel)}
         </span>
         <p className="min-w-0 truncate text-xs text-muted-foreground">
-          {conversation.last_message_body ?? 'No message body available'}
+          {conversation.last_message_body ??
+            (conversation.last_message_at ? 'Attachment or template message' : 'No messages yet')}
         </p>
       </div>
     </button>
@@ -313,7 +322,7 @@ export function InboxWorkspace({
       fetchLeadWorkspaceRecords({ ...defaultLeadQuery, search: leadSearch }, signal),
     enabled: canStartChat && leadSearch.length >= 2,
     staleTime: 60_000,
-    retry: 1,
+    retry: retryRpcRead,
   });
   const openedThreads = useMemo(
     () => new Set(conversationRows.map((row) => `${row.lead_id}:${row.channel}`)),
@@ -380,6 +389,29 @@ export function InboxWorkspace({
     retry: 1,
   });
   const personalConversation = activeConversation?.channel === 'WHATSAPP_PERSONAL';
+  const businessConversation = activeConversation?.channel === 'WHATSAPP_BUSINESS';
+  const canSendBusiness =
+    businessConversation &&
+    !readOnly &&
+    activeConversation.status === 'OPEN' &&
+    hasWorkspacePermission(session, 'message.send');
+  // Official WhatsApp takes free text only inside the 24-hour window that opens
+  // when the customer writes in; outside it the first message is a template.
+  const replyTemplates = useQuery({
+    queryKey: ['whatsapp-reply-templates', ...queryScope, activeConversation?.id],
+    queryFn: ({ signal }) => fetchWhatsAppReplyTemplates(activeConversation!.id, signal),
+    enabled: canSendBusiness,
+    staleTime: 30_000,
+    // The window opens the moment the customer replies; pick that up promptly.
+    refetchInterval: 30_000,
+    retry: 1,
+    meta: { persist: false },
+  });
+  const [templateDialog, setTemplateDialog] = useState<{ templateId: string | null } | null>(null);
+  // Closed until the server says otherwise. If the check itself fails, the
+  // composer stays usable and the server still refuses text outside the window.
+  const businessWindowClosed =
+    canSendBusiness && replyTemplates.isSuccess && !replyTemplates.data.window_open;
   const personalStatus = useQuery({
     queryKey: ['personal-whatsapp-status', ...queryScope, activeConversation?.id],
     queryFn: ({ signal }) => fetchPersonalWhatsAppStatus(activeConversation?.id, signal),
@@ -407,6 +439,7 @@ export function InboxWorkspace({
         ['shared-inbox', ...queryScope],
         ['shared-inbox-messages', ...queryScope],
         ['personal-whatsapp-status', ...queryScope],
+        ['whatsapp-reply-templates', ...queryScope],
       ],
       tableQueryKeys: { templates: [['personal-whatsapp-templates', ...queryScope]] },
     },
@@ -918,6 +951,11 @@ export function InboxWorkspace({
                         <div
                           className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm ${message.direction === 'OUTBOUND' ? 'bg-emerald-100 text-slate-900' : 'bg-white border'}`}
                         >
+                          {message.metadata.message_type === 'template' && (
+                            <p className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-emerald-800">
+                              <FileText className="size-3" /> Template
+                            </p>
+                          )}
                           <p className="whitespace-pre-wrap">
                             {message.body ?? 'Attachment or provider event'}
                           </p>
@@ -1040,7 +1078,21 @@ export function InboxWorkspace({
                           : `Syncing ${queuedHere} message${queuedHere === 1 ? '' : 's'}…`}
                     </p>
                   )}
-                  {canCompose ? (
+                  {businessWindowClosed ? (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                      <p className="min-w-0 flex-1 text-xs text-amber-900">
+                        The 24-hour reply window is closed. Send an approved template first; you can
+                        type freely once {activeConversation.customer_name} replies.
+                      </p>
+                      <Button
+                        size="sm"
+                        disabled={!replyTemplates.data?.templates.length}
+                        onClick={() => setTemplateDialog({ templateId: null })}
+                      >
+                        <FileText className="size-4" /> Send template
+                      </Button>
+                    </div>
+                  ) : canCompose ? (
                     <div className="flex items-end gap-2">
                       <Textarea
                         ref={composerRef}
@@ -1063,7 +1115,17 @@ export function InboxWorkspace({
                         <Send className="size-4" />
                       </Button>
                     </div>
-                  ) : (
+                  ) : null}
+                  {canCompose &&
+                  !businessWindowClosed &&
+                  businessConversation &&
+                  replyTemplates.data?.window_open ? (
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                      Reply window open until{' '}
+                      {formatWindowExpiry(replyTemplates.data.window_expires_at)}.
+                    </p>
+                  ) : null}
+                  {businessWindowClosed || canCompose ? null : (
                     <p className="text-xs text-muted-foreground">
                       {historyLeadId && activeConversation.lead_id !== historyLeadId
                         ? 'This is earlier history for this lead. Choose “Work on this lead” before sending new messages here.'
@@ -1076,6 +1138,29 @@ export function InboxWorkspace({
                             ? 'You do not have permission to send from this conversation.'
                             : `${channelLabel(activeConversation.channel)} replies become available after its server-side provider adapter is connected.`}
                     </p>
+                  )}
+                  {canSendBusiness && session?.organizationId && (
+                    <WhatsAppTemplateSendDialog
+                      open={templateDialog !== null}
+                      onOpenChange={(open) => {
+                        if (!open) setTemplateDialog(null);
+                      }}
+                      state={replyTemplates.data}
+                      initialTemplateId={templateDialog?.templateId ?? null}
+                      organizationId={session.organizationId}
+                      conversationId={activeConversation.id}
+                      expectedLeadId={activeConversation.lead_id}
+                      customerName={activeConversation.customer_name}
+                      onSent={() => {
+                        salesConsultantCache.invalidate('inbox.message.sent');
+                        void queryClient.invalidateQueries({
+                          queryKey: ['shared-inbox-messages', ...queryScope],
+                        });
+                        void queryClient.invalidateQueries({
+                          queryKey: ['shared-inbox', ...queryScope],
+                        });
+                      }}
+                    />
                   )}
                 </div>
               </>
@@ -1136,6 +1221,18 @@ export function InboxWorkspace({
                     </Button>
                   )}
                 </div>
+                {canSendBusiness && (
+                  <WhatsAppBusinessTemplatePanel
+                    state={replyTemplates.data}
+                    isPending={replyTemplates.isPending}
+                    isError={replyTemplates.isError}
+                    onRetry={() => void replyTemplates.refetch()}
+                    disabled={Boolean(
+                      historyLeadId && activeConversation.lead_id !== historyLeadId,
+                    )}
+                    onPick={(templateId) => setTemplateDialog({ templateId })}
+                  />
+                )}
                 {personalConversation &&
                   !readOnly &&
                   hasWorkspacePermission(session, 'message.send') && (

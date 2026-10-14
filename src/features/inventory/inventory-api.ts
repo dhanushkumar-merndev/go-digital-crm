@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
+import { readRpc } from '@/lib/supabase/read-rpc';
 import { fetchCachedDashboard } from '@/lib/query/cached-dashboard-api';
 import {
   InventoryVersionConflictError,
@@ -78,8 +79,7 @@ export async function fetchInventoryBranches(signal?: AbortSignal): Promise<Inve
     .eq('active', true)
     .is('deleted_at', null)
     .order('name');
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return z.array(z.object({ id: z.uuid(), name: z.string() })).parse(data);
 }
 
@@ -172,8 +172,7 @@ export async function fetchStockUnitPage(query: InventoryQuery, signal?: AbortSi
     target_age: inventoryAgeValue(query.age),
     target_sort: query.sort,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return stockUnitPageSchema.parse(data);
 }
 
@@ -226,8 +225,7 @@ export async function fetchStockCheckFilterOptions(
   const request = createClient().rpc('get_stock_check_filter_options', {
     target_branch_id: branchId || null,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return stockCheckFilterOptionsSchema.parse(data);
 }
 
@@ -246,8 +244,7 @@ export async function fetchStockCheckPage(query: InventoryQuery, signal?: AbortS
     target_transmission: query.transmission || null,
     target_color: query.color || null,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return stockCheckPageSchema.parse(data);
 }
 
@@ -299,8 +296,7 @@ export async function fetchAllocationPage(query: InventoryQuery, signal?: AbortS
     target_branch_id: query.branchId || null,
     target_sort: query.sort,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return allocationPageSchema.parse(data);
 }
 
@@ -346,8 +342,7 @@ export async function fetchMovementPage(query: InventoryQuery, signal?: AbortSig
     target_branch_id: query.branchId || null,
     target_sort: query.sort,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return movementPageSchema.parse(data);
 }
 
@@ -359,8 +354,7 @@ export async function fetchVariantOptions(search: string, signal?: AbortSignal) 
     target_search: search.trim().slice(0, 100),
     target_limit: 25,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return z.array(optionSchema).parse(data);
 }
 
@@ -377,8 +371,7 @@ export async function fetchBookingOptions(branchId: string, search: string, sign
     target_search: search.trim().slice(0, 100),
     target_limit: 25,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return z.array(bookingOptionSchema).parse(data);
 }
 
@@ -423,8 +416,7 @@ export async function fetchStockUnitDetail(stockUnitId: string, signal?: AbortSi
   const request = createClient().rpc('get_stock_unit_detail', {
     target_stock_unit_id: stockUnitId,
   });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
+  const data = await readRpc(request, signal);
   return stockDetailSchema.parse(data);
 }
 
