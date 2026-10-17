@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   MoreHorizontal,
+  Palette,
   Pencil,
   Plus,
   RotateCcw,
@@ -71,6 +72,7 @@ import {
   TeamEditorDialog,
   TeamMembersDialog,
 } from './branch-team-dialogs';
+import { BranchFeedbackBrandingDialog } from './branch-feedback-branding-dialog';
 import {
   administrationPageSizes,
   parseAdministrationQuery,
@@ -277,6 +279,7 @@ function BranchTable({
   onQueryChange,
   onEdit,
   onAccess,
+  onBranding,
 }: {
   result: BranchAdministrationWorkspace;
   query: AdministrationQuery;
@@ -286,6 +289,7 @@ function BranchTable({
   onQueryChange: (next: Partial<AdministrationQuery>) => void;
   onEdit: (record: BranchAdministrationRecord) => void;
   onAccess: (record: BranchAdministrationRecord) => void;
+  onBranding: (record: BranchAdministrationRecord) => void;
 }) {
   const columns = useMemo<ColumnDef<BranchAdministrationRecord>[]>(
     () => [
@@ -380,12 +384,25 @@ function BranchTable({
                   Manage branch access
                 </DropdownMenuItem>
               )}
+              {preset === 'MANAGE' && permissions.canManageBranches && (
+                <DropdownMenuItem onSelect={() => onBranding(row.original)}>
+                  <Palette className="size-4" />
+                  Feedback page
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         ),
       },
     ],
-    [onAccess, onEdit, permissions.canManageBranches, permissions.canManageUsers, preset],
+    [
+      onAccess,
+      onBranding,
+      onEdit,
+      permissions.canManageBranches,
+      permissions.canManageUsers,
+      preset,
+    ],
   );
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
@@ -676,6 +693,7 @@ export function BranchTeamWorkspace({
     null,
   );
   const [branchAccess, setBranchAccess] = useState<BranchAdministrationRecord | null>(null);
+  const [branchBranding, setBranchBranding] = useState<BranchAdministrationRecord | null>(null);
   const [teamEditor, setTeamEditor] = useState<TeamAdministrationRecord | null | 'create'>(null);
   const [teamMembers, setTeamMembers] = useState<TeamAdministrationRecord | null>(null);
   const queryClient = useQueryClient();
@@ -798,6 +816,7 @@ export function BranchTeamWorkspace({
             onQueryChange={onQueryChange}
             onEdit={setBranchEditor}
             onAccess={setBranchAccess}
+            onBranding={setBranchBranding}
           />
         ) : (
           <TeamTable
@@ -828,6 +847,16 @@ export function BranchTeamWorkspace({
           branch={branchAccess}
           open
           onOpenChange={(open) => !open && setBranchAccess(null)}
+          onSaved={invalidate}
+        />
+      )}
+      {branchBranding && permissions && (
+        <BranchFeedbackBrandingDialog
+          key={`${branchBranding.id}:${branchBranding.version}`}
+          branch={branchBranding}
+          organizationId={permissions.organizationId}
+          open
+          onOpenChange={(open) => !open && setBranchBranding(null)}
           onSaved={invalidate}
         />
       )}

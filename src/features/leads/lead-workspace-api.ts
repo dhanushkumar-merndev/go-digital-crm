@@ -43,6 +43,10 @@ export type LeadRecord = {
    * fields needed to show it as context. Never opened or acted on. */
   context_only?: boolean;
   phone_lead_count: number;
+  /** The keypad auto call that first reached this lead, if any. */
+  auto_contact_call_id?: string | null;
+  /** When the telecaller verified that auto call. */
+  auto_contact_verified_at?: string | null;
 };
 
 export type LeadKpis = {

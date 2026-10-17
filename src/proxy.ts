@@ -7,6 +7,7 @@ import {
 import { getRuntimeMode, isDevelopmentDemoRoleLoginEnabled } from '@/lib/runtime/runtime-mode';
 import { DEVELOPMENT_DEMO_ROLE_LOGIN_PATH } from '@/lib/auth/development-demo-role-login';
 import { isTransientSupabaseError } from '@/lib/supabase/transient-error';
+import { embedChatFrameAncestors } from '@/features/website-chat/embed-frame-policy';
 
 type AccessContext = {
   destination:
@@ -70,6 +71,21 @@ function redirectWithSessionCookies(
 export async function proxy(request: NextRequest) {
   const runtimeMode = getRuntimeMode();
   const pathname = request.nextUrl.pathname;
+  // Uptime checks call this without a session.
+  if (pathname === '/api/health') return NextResponse.next();
+  // The website chat iframe runs on dealer websites for anonymous visitors. It
+  // reads no session and renders no CRM data, so it skips the workspace gates;
+  // its CSP lets only the connection's own domains frame it.
+  if (/^\/embed\/chat\/[^/]+$/.test(pathname)) {
+    const response = NextResponse.next();
+    response.headers.set(
+      'Content-Security-Policy',
+      `frame-ancestors ${await embedChatFrameAncestors(pathname)}`,
+    );
+    response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    return response;
+  }
   if (runtimeMode === 'LOCAL_PREVIEW') return NextResponse.next({ request });
   if (isDevelopmentDemoRoleLoginEnabled() && pathname === DEVELOPMENT_DEMO_ROLE_LOGIN_PATH)
     return NextResponse.next({ request });
@@ -173,5 +189,9 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  // Public files (images, the login animation, the website chat loader script)
+  // are served without a session.
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|lottie|js|map|txt|xml)$).*)',
+  ],
 };

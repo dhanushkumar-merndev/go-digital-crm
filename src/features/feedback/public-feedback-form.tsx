@@ -2,30 +2,138 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Star } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import {
   fetchPublicFeedbackForm,
+  fetchPublicFeedbackLogo,
   submitPublicFeedback,
   type PublicFeedbackResult,
 } from './public-feedback-api';
 
-function Shell({ children }: { children: React.ReactNode }) {
+type Branding = { color: string | null; logoUrl: string | null; name: string | null };
+
+/** Dark text on a light brand colour, white on a dark one (WCAG relative luminance). */
+function readableForeground(hex: string) {
+  const channel = (offset: number) => {
+    const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+  return luminance > 0.4 ? '#0f172a' : '#ffffff';
+}
+
+function Shell({ branding, children }: { branding?: Branding; children: React.ReactNode }) {
+  // The branch colour replaces the CRM primary for this page only, the same way
+  // .auth-page-content re-themes the sign-in pages.
+  const style = branding?.color
+    ? ({
+        '--primary': branding.color,
+        '--primary-foreground': readableForeground(branding.color),
+        '--ring': branding.color,
+      } as CSSProperties)
+    : undefined;
   return (
-    <main className="grid min-h-dvh place-items-center bg-muted/30 p-4">
-      <Card className="w-full max-w-md shadow-none">{children}</Card>
+    <main className="grid min-h-dvh place-items-center bg-muted/30 p-4" style={style}>
+      <Card className="w-full max-w-md overflow-hidden pt-0 shadow-none">
+        <div className="h-1.5 bg-primary" aria-hidden />
+        {branding?.logoUrl ? (
+          <div className="flex justify-center px-6 pt-6">
+            {/* eslint-disable-next-line @next/next/no-img-element -- short-lived presigned URL */}
+            <img
+              src={branding.logoUrl}
+              alt={branding.name ? `${branding.name} logo` : 'Showroom logo'}
+              className="h-14 w-auto max-w-[220px] object-contain"
+            />
+          </div>
+        ) : null}
+        {children}
+      </Card>
     </main>
   );
 }
 
-function Message({ title, body }: { title: string; body: string }) {
+function Message({ branding, title, body }: { branding?: Branding; title: string; body: string }) {
   return (
-    <Shell>
+    <Shell branding={branding}>
       <CardContent className="p-10 text-center">
         <p className="font-semibold">{title}</p>
         <p className="mt-2 text-sm text-muted-foreground">{body}</p>
+      </CardContent>
+    </Shell>
+  );
+}
+
+function ThankYou({
+  branding,
+  branch,
+  result,
+  comment,
+}: {
+  branding: Branding;
+  branch: string;
+  result: Extract<PublicFeedbackResult, { status: 'RECORDED' }>;
+  comment: string;
+}) {
+  const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
+  return (
+    <Shell branding={branding}>
+      <CardContent className="space-y-4 p-8 text-center">
+        <p className="text-lg font-semibold">Thank you for your feedback</p>
+        <p className="text-sm text-muted-foreground">
+          {result.rating >= 4
+            ? 'We are glad the experience went well.'
+            : `We are sorry we let you down. Our customer relations team at ${branch} will call you shortly to make it right.`}
+        </p>
+        {/* Offered on every rating. Showing it only to happy customers is
+            review gating, which Google's review policy prohibits. */}
+        {result.review_url ? (
+          <div className="space-y-3 text-left">
+            {comment ? (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  Your comment, which we copy for you so you can paste it on Google:
+                </p>
+                <blockquote className="max-h-40 overflow-y-auto rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap select-all">
+                  {comment}
+                </blockquote>
+              </>
+            ) : null}
+            <Button asChild className="w-full">
+              {/* A real link, so the new tab opens inside the tap and is never
+                  popup-blocked; the copy starts in the same gesture. */}
+              <a
+                href={result.review_url}
+                target="_blank"
+                rel="noreferrer noopener"
+                onClick={() => {
+                  if (!comment) return;
+                  if (!navigator.clipboard) {
+                    setCopy('failed');
+                    return;
+                  }
+                  navigator.clipboard.writeText(comment).then(
+                    () => setCopy('copied'),
+                    () => setCopy('failed'),
+                  );
+                }}
+              >
+                Share your experience on Google
+              </a>
+            </Button>
+            {copy === 'copied' ? (
+              <p className="text-center text-xs text-muted-foreground" role="status">
+                Comment copied. On Google, tap the review box and paste it.
+              </p>
+            ) : copy === 'failed' ? (
+              <p className="text-center text-xs text-muted-foreground" role="status">
+                Copying did not work on this device. Press and hold your comment above to copy it.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </CardContent>
     </Shell>
   );
@@ -38,6 +146,16 @@ export function PublicFeedbackForm({ token }: { token: string }) {
     queryKey: ['public-feedback-form', token],
     queryFn: () => fetchPublicFeedbackForm(token),
     retry: false,
+  });
+  const open = form.data?.status === 'OPEN' ? form.data : null;
+  // Loaded while the token is live; submission spends it. The page renders
+  // without the logo while it loads or if it fails.
+  const logo = useQuery({
+    queryKey: ['public-feedback-logo', token],
+    queryFn: () => fetchPublicFeedbackLogo(token),
+    enabled: Boolean(open?.has_logo),
+    retry: false,
+    staleTime: 9 * 60_000,
   });
   const submit = useMutation({
     mutationFn: submitPublicFeedback,
@@ -59,32 +177,25 @@ export function PublicFeedbackForm({ token }: { token: string }) {
   if (form.data.status === 'ALREADY_SUBMITTED')
     return <Message title="Thank you" body="Your feedback has already been received." />;
 
+  const { branch, organization, brand_color } = form.data;
+  const branding: Branding = {
+    color: brand_color,
+    logoUrl: logo.data ?? null,
+    name: organization,
+  };
+
   if (done?.status === 'RECORDED')
     return (
-      <Shell>
-        <CardContent className="space-y-4 p-10 text-center">
-          <p className="text-lg font-semibold">Thank you for your feedback</p>
-          <p className="text-sm text-muted-foreground">
-            {done.rating >= 4
-              ? 'We are glad the experience went well.'
-              : 'We are sorry it fell short. The team has been notified and will follow up.'}
-          </p>
-          {/* Offered on every rating. Showing it only to happy customers is
-              review gating, which Google's review policy prohibits. */}
-          {done.review_url ? (
-            <Button asChild className="w-full">
-              <a href={done.review_url} target="_blank" rel="noreferrer noopener">
-                Share your experience on Google
-              </a>
-            </Button>
-          ) : null}
-        </CardContent>
-      </Shell>
+      <ThankYou
+        branding={branding}
+        branch={branch}
+        result={done}
+        comment={submit.variables?.comments.trim() ?? ''}
+      />
     );
 
-  const { branch, organization } = form.data;
   return (
-    <Shell>
+    <Shell branding={branding}>
       <CardHeader className="text-center">
         <CardTitle className="text-lg">How was your experience?</CardTitle>
         <CardDescription>

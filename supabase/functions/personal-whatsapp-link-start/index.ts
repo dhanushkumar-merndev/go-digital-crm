@@ -29,8 +29,23 @@ Deno.serve(async (request) => {
     });
     if (error) throw error;
     try {
-      await personalGateway('POST', '/v1/sessions', data);
-    } catch {
+      // Linking or resuming is someone at the CRM right now: online.
+      await personalGateway('POST', '/v1/sessions', { ...data, online: true });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'PERSONAL_WHATSAPP_CAPACITY') {
+        // Every socket belongs to someone online. A new link is cancelled and
+        // an existing one waits as BUSY; either way the user tries again later.
+        await serviceClient().rpc('personal_whatsapp_capacity_wait', {
+          target_connection_id: data.connection_id,
+          target_generation: data.generation,
+        });
+        return failure(
+          'PERSONAL_WHATSAPP_CAPACITY',
+          'WhatsApp server is busy. Try again in a few minutes.',
+          id,
+          503,
+        );
+      }
       return success({ ...data, status: 'CONNECTING', gateway_pending: true }, id, 202);
     }
     return success({ ...data, status: 'CONNECTING' }, id, 202);

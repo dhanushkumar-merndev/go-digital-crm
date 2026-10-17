@@ -18,6 +18,30 @@ services:
       - key: PERSONAL_WHATSAPP_SIGNING_SECRET
         sync: false
       - key: PERSONAL_WHATSAPP_MAX_SESSIONS
-        value: 5
+        value: 200
       - key: PERSONAL_WHATSAPP_MEMORY_MB
         value: 512
+  # AI agent calls: the piopiy-ai orchestrator for TeleCMI PIOPIY. A worker,
+  # not a web service: it holds an outbound socket to PIOPIY and serves no
+  # HTTP, and it must not sleep, so it cannot run on the free plan.
+  - type: worker
+    name: go-digital-voice-agent
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./services/voice-agent/Dockerfile
+    dockerContext: ./services/voice-agent
+    envVars:
+      - key: AGENT_ID
+        sync: false
+      - key: AGENT_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: CRM_EDGE_BASE_URL
+        sync: false
+      - key: AI_AGENT_SERVICE_SECRET
+        sync: false

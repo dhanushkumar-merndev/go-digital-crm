@@ -193,7 +193,9 @@ describe('lead flow performance contract', () => {
     expect(leadWorkspace).not.toContain('search: lead!.id');
   });
   it('plans every remaining definer helper once per connection, not per call', () => {
-    const migration = source('supabase/migrations/202609250010_plpgsql_remaining_definer_helpers.sql');
+    const migration = source(
+      'supabase/migrations/202609250010_plpgsql_remaining_definer_helpers.sql',
+    );
     expect(migration).toContain("procedure_row.provolatile = 's'");
     expect(migration).toContain('procedure_row.prosqlbody is null');
     expect(migration).toContain('#variable_conflict use_column');

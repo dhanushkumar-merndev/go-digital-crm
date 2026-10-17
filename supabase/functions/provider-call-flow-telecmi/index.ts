@@ -47,7 +47,37 @@ Deno.serve(async (request) => {
       ivr_name?: string | null;
       team_name?: string | null;
       parallel_agents?: Array<{ user_id?: string; phone?: string }>;
+      known_caller_routing?: boolean;
+      inbound_greeting_file?: string | null;
     };
+    const greeting = config.inbound_greeting_file
+      ? { welcome_music: config.inbound_greeting_file }
+      : {};
+    const ringAgents = (agents: Array<{ agent_id?: string; phone?: string }>) =>
+      json({
+        code: 200,
+        loop: 2,
+        followme: false,
+        hangup: false,
+        timeout: 20,
+        ...greeting,
+        result: agents,
+      });
+
+    // A caller who already has a lead rings that lead's own telecaller. Any
+    // miss or lookup failure falls through to the configured action, so the
+    // lookup can never cost the dealership an inbound call.
+    const caller = typeof incoming.from === 'string' ? incoming.from : String(incoming.from ?? '');
+    if (config.known_caller_routing !== false && caller) {
+      const { data: route, error: routeError } = await admin.rpc('get_telecmi_inbound_route', {
+        target_connection_id: connection.id,
+        target_caller_phone: caller,
+      });
+      const owner = route as { agent_id?: string; phone?: string } | null;
+      if (!routeError && owner?.agent_id && owner.phone)
+        return ringAgents([{ agent_id: owner.agent_id, phone: owner.phone }]);
+    }
+
     if (config.inbound_route === 'IVR' && config.ivr_name)
       return json({ code: 200, action: 'ivr', name: config.ivr_name });
     if (config.inbound_route === 'TEAM' && config.team_name)
@@ -57,14 +87,7 @@ Deno.serve(async (request) => {
       .slice(0, 50)
       .map((agent) => ({ agent_id: agent.user_id, phone: agent.phone }));
     if (!agents.length) return json({ code: 200, hangup: true, result: [] });
-    return json({
-      code: 200,
-      loop: 2,
-      followme: false,
-      hangup: false,
-      timeout: 20,
-      result: agents,
-    });
+    return ringAgents(agents);
   } catch {
     return json({ code: 500, hangup: true }, 500);
   }

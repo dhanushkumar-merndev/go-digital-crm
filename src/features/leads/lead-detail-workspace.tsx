@@ -25,6 +25,8 @@ import { Button } from '@/components/ui/button';
 import { LeadJourney } from './lead-journey';
 import { LeadBuyerCard } from './lead-company-card';
 import { LeadRequirementsCards } from './lead-requirements-panel';
+import { LeadWebsiteAnswers } from './lead-website-answers';
+import { LeadCallLanguage } from '@/features/auto-call/lead-call-language';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
@@ -175,6 +177,7 @@ function LeadOverview({
         <LeadRequirementsCards
           leadId={lead.id}
           customerId={lead.customer_id}
+          branchId={lead.branch_id}
           interestedModel={lead.interested_model}
           requirements={data.requirements}
           exchangeVehicle={data.exchange_vehicle}
@@ -213,6 +216,12 @@ function LeadOverview({
               <p className="text-[11px] text-muted-foreground">Next follow-up</p>
               <p className="mt-1 text-sm font-semibold">{formatDate(lead.next_followup_at)}</p>
             </div>
+            <LeadCallLanguage
+              leadId={lead.id}
+              value={lead.call_language}
+              canEdit={data.access.can_update && !data.access.read_only}
+              onSaved={onRequirementsSaved}
+            />
             {lead.customer_id && (
               <Button asChild variant="outline" className="w-full">
                 <Link href={`/${role}/customers/${lead.customer_id}`}>Open customer 360</Link>
@@ -220,6 +229,7 @@ function LeadOverview({
             )}
           </CardContent>
         </Card>
+        {lead.source === 'Website' && <LeadWebsiteAnswers leadId={lead.id} />}
         {data.latest_ai_summary && (
           <Card className="border-violet-200 bg-violet-50/40 shadow-none">
             <CardHeader className="px-5 py-4">
@@ -254,7 +264,9 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
   const requestedConversation = searchParams.get('conversation');
   const [tab, setTab] = useState(searchParams.get('tab') === 'messages' ? 'messages' : 'overview');
   const [lostOpen, setLostOpen] = useState(false);
-  const [customerMatchOpen, setCustomerMatchOpen] = useState(false);
+  const [customerMatchOpen, setCustomerMatchOpen] = useState(
+    searchParams.get('match') === 'customer',
+  );
   const [lostReason, setLostReason] = useState('');
   const detail = useQuery({
     queryKey: ['lead-detail', leadId, ...workspaceQueryScope(workspaceSession)],
@@ -311,6 +323,13 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
   }
   const data = detail.data;
   const lead = data.lead;
+  // ?match=customer (from Create lead on a call) opens the review only while
+  // the lead still has no customer and this user may link one.
+  const customerMatchReviewOpen =
+    customerMatchOpen &&
+    !lead.customer_id &&
+    !data.access.read_only &&
+    hasWorkspacePermission(workspaceSession, 'customer.link');
   return (
     <div className="mx-auto max-w-[1800px] space-y-6">
       <div>
@@ -449,7 +468,16 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
           </TabsList>
         </div>
         <TabsContent value="overview">
-          <LeadOverview data={data} role={role} onRequirementsSaved={() => void detail.refetch()} />
+          <LeadOverview
+            data={data}
+            role={role}
+            onRequirementsSaved={() => {
+              void detail.refetch();
+              // The save writes a timeline entry and may change the list's Model column.
+              void queryClient.invalidateQueries({ queryKey: ['lead-journey'] });
+              salesConsultantCache.invalidate('lead.updated', { leadId });
+            }}
+          />
         </TabsContent>
         <TabsContent value="timeline">
           <Card className="shadow-none">
@@ -492,8 +520,8 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
         )}
       </Tabs>
       <CustomerMatchDialog
-        lead={(customerMatchOpen ? lead : null) as MatchableLead | null}
-        open={customerMatchOpen}
+        lead={(customerMatchReviewOpen ? lead : null) as MatchableLead | null}
+        open={customerMatchReviewOpen}
         canCreate={hasWorkspacePermission(workspaceSession, 'customer.create')}
         onOpenChange={setCustomerMatchOpen}
         onResolved={(customerId) => {

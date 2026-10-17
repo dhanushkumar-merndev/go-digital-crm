@@ -37,3 +37,6 @@ services/whatsapp-gateway/dist/
 /.trigger/
 # one-off helper scripts written during test runs
 *.tmp.mjs
+/services/voice-agent/.venv
+__pycache__
+.pytest_cache

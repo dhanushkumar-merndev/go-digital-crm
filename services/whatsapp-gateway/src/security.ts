@@ -66,6 +66,7 @@ export function decrypt(key: Buffer, context: string, value: string) {
   );
 }
 
+// Memory is the real limit; `limit` is only an operator safety bound.
 export function hasCapacity(count: number, limit: number, rss: number, memoryMb: number) {
-  return count < Math.min(5, limit) && rss < memoryMb * 1024 * 1024 * 0.7;
+  return count < limit && rss < memoryMb * 1024 * 1024 * 0.7;
 }

@@ -56,10 +56,12 @@ describe('personal WhatsApp security', () => {
     expect(() => decrypt(key, 'other:creds', encrypted)).toThrow();
     expect(() => decrypt(randomBytes(32), 'account:creds', encrypted)).toThrow();
   });
-  it('honors both the hard five-session ceiling and memory threshold', () => {
+  it('is limited by memory and the operator bound, not a fixed five sessions', () => {
     expect(hasCapacity(4, 5, 100 * 1024 * 1024, 512)).toBe(true);
-    expect(hasCapacity(5, 100, 100 * 1024 * 1024, 512)).toBe(false);
-    expect(hasCapacity(1, 5, 400 * 1024 * 1024, 512)).toBe(false);
+    expect(hasCapacity(5, 100, 100 * 1024 * 1024, 512)).toBe(true);
+    expect(hasCapacity(40, 200, 100 * 1024 * 1024, 4096)).toBe(true);
+    expect(hasCapacity(5, 5, 100 * 1024 * 1024, 512)).toBe(false);
+    expect(hasCapacity(1, 200, 400 * 1024 * 1024, 512)).toBe(false);
   });
   it('discards groups, old history, unresolved LIDs, and view-once content', async () => {
     const base = {
@@ -133,7 +135,7 @@ describe('Baileys gateway lifecycle with simulated sockets', () => {
     gateways.length = 0;
     vi.useRealTimers();
   });
-  const setup = () => {
+  const setup = (maxSessions = 5) => {
     const ev = new EventEmitter();
     const socket = {
       ev,
@@ -158,7 +160,7 @@ describe('Baileys gateway lifecycle with simulated sockets', () => {
     const gateway = new Gateway({
       rpc: rpc as Rpc,
       encryptionKey: randomBytes(32),
-      maxSessions: 5,
+      maxSessions,
       memoryMb: 512,
       rss: () => 100_000_000,
       socketFactory: factory as never,
@@ -336,6 +338,39 @@ describe('Baileys gateway lifecycle with simulated sockets', () => {
     expect(socket.end).toHaveBeenCalled();
     expect(factory).toHaveBeenCalledTimes(1);
     expect(rpc.mock.calls.some(([, args]) => args.target_operation === 'logged_out')).toBe(true);
+  });
+  it('pauses the owner away longest when an online owner needs the socket', async () => {
+    const { gateway, rpc } = setup(1);
+    const away = { connection_id: randomUUID(), generation: randomUUID() };
+    const online = { connection_id: randomUUID(), generation: randomUUID() };
+    gateway.markSeen(away.connection_id, Date.now() - 60 * 60_000);
+    await gateway.connect(away);
+    await gateway.connect(online, { online: true });
+    const operations = (connectionId: string) =>
+      rpc.mock.calls
+        .filter(([, args]) => args.target_connection_id === connectionId)
+        .map(([, args]) => args.target_operation);
+    expect(operations(away.connection_id)).toContain('idle');
+    expect(operations(away.connection_id)).not.toContain('logged_out');
+    expect(operations(online.connection_id)).toContain('acquire');
+  });
+  it('is busy when every socket belongs to someone online', async () => {
+    const { gateway } = setup(1);
+    await gateway.connect(
+      { connection_id: randomUUID(), generation: randomUUID() },
+      { online: true },
+    );
+    await expect(
+      gateway.connect({ connection_id: randomUUID(), generation: randomUUID() }, { online: true }),
+    ).rejects.toThrow('PERSONAL_WHATSAPP_CAPACITY');
+  });
+  it('never pauses anyone for an owner who is away', async () => {
+    const { gateway } = setup(1);
+    const away = { connection_id: randomUUID(), generation: randomUUID() };
+    gateway.markSeen(away.connection_id, Date.now() - 60 * 60_000);
+    await gateway.connect(away);
+    const alsoAway = { connection_id: randomUUID(), generation: randomUUID() };
+    await expect(gateway.connect(alsoAway)).rejects.toThrow('PERSONAL_WHATSAPP_CAPACITY');
   });
   it('reconnects transient socket failures with backoff and releases leases at shutdown', async () => {
     vi.useFakeTimers();

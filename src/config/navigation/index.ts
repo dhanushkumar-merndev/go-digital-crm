@@ -48,7 +48,6 @@ export const roleNavigation: Record<RoleKey, RoleNavigation> = {
       ['Tasks', 'tasks', 'ListTodo'],
       ['Activity Timeline', 'activity-timeline', 'History'],
       ['Calls', 'calls', 'Phone'],
-      ['AI Voice Calls', 'ai-voice-calls', 'Bot'],
       ['Inbox', 'messages', 'MessageCircleMore'],
       ['Appointments', 'appointments', 'CalendarDays'],
       ['Test Drives', 'test-drives', 'Route'],

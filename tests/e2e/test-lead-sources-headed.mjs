@@ -38,7 +38,10 @@ async function main() {
   await page.waitForTimeout(2000);
 
   console.log('📍 Step 4: Opening Source filter dropdown to inspect all sources...');
-  const sourceDropdown = page.getByRole('combobox').filter({ hasText: /All sources|source/i }).first();
+  const sourceDropdown = page
+    .getByRole('combobox')
+    .filter({ hasText: /All sources|source/i })
+    .first();
   await sourceDropdown.click();
   await page.waitForTimeout(3000); // Give user time to see all sources in dropdown
 
@@ -59,9 +62,7 @@ async function main() {
   await page.locator('input[name="email"]').fill(`rajesh.kumar.${runId}@example.com`);
 
   console.log('📍 Step 8: Selecting Source = "IndiaMART" in modal...');
-  const modalSourceSelect = page
-    .locator('[role="dialog"] button[role="combobox"]')
-    .first();
+  const modalSourceSelect = page.locator('[role="dialog"] button[role="combobox"]').first();
   await modalSourceSelect.click();
   await page.waitForTimeout(800);
   await page.getByRole('option', { name: 'IndiaMART' }).click();

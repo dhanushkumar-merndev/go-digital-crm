@@ -3,7 +3,7 @@ import { idempotencyKeys, task, tasks } from '@trigger.dev/sdk';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import {
-  parsePortalEmail,
+  parsePortalEmailLeads,
   portalEmailHtmlToText,
   portalInboxProviderKeys,
   portalLeadSource,
@@ -294,6 +294,17 @@ async function runInboxSync(supabase: SupabaseClient, payload: Payload) {
     try {
       const mailbox = client.mailbox;
       if (!mailbox) throw new InboxSyncError('PORTAL_INBOX_SYNC_FAILED');
+      // The test run reads the mailbox like a poll, and ingest_provider_lead
+      // accepts only a CONNECTED connection. Marking it connected once the
+      // mailbox opens, not after the run, keeps the first emails from failing.
+      if (payload.mode === 'test') {
+        const { error: connectedError } = await supabase
+          .from('connected_accounts')
+          .update({ status: 'CONNECTED' })
+          .eq('id', connection.id)
+          .eq('organization_id', connection.organization_id);
+        if (connectedError) throw connectedError;
+      }
       uidValidity = Number(mailbox.uidValidity);
       const cursorValid = state.uid_validity === uidValidity && state.last_uid !== null;
       if (!cursorValid) lastUid = null;
@@ -397,63 +408,82 @@ async function runInboxSync(supabase: SupabaseClient, payload: Payload) {
         });
         const body = mail.html ? portalEmailHtmlToText(mail.html) : (mail.text ?? '');
         // The subject is offered as its own line so a "Subject" keyword works.
-        const parsed = parsePortalEmail(`Subject: ${candidate.subject}\n${body}`, rules);
-        if (!parsed.ok) {
+        // A digest yields one record per customer, and each becomes its own lead.
+        const records = parsePortalEmailLeads(`Subject: ${candidate.subject}\n${body}`, rules);
+        const usable = records.flatMap((record, position) =>
+          record.ok ? [{ record, position }] : [],
+        );
+        if (!usable.length) {
           await logMessage(supabase, {
             ...logRow,
             status: 'PARSE_FAILED',
-            failure_code: `MISSING_${parsed.missing.join('_AND_').toUpperCase()}`,
-            extracted: parsed.fields,
+            failure_code: `MISSING_${records[0].missing.join('_AND_').toUpperCase()}`,
+            extracted: records[0].fields,
           });
           continue;
         }
-        const fields = parsed.fields;
-        const detail = [
-          `${source} email`,
-          candidate.subject ? candidate.subject.slice(0, 150) : null,
-          fields.location ? `Location: ${fields.location}` : null,
-        ]
-          .filter(Boolean)
-          .join(' · ');
-        const { data: ingested, error: ingestError } = await supabase.rpc('ingest_provider_lead', {
-          target_organization_id: connection.organization_id,
-          target_connection_id: connection.id,
-          target_branch_id: branchId,
-          target_team_id: connection.default_team_id,
-          target_external_lead_id: `email:${candidate.messageId}`.slice(0, 255),
-          target_source: source,
-          target_source_detail: detail.slice(0, 500),
-          target_campaign: fields.campaign ?? `${source} email`,
-          target_customer_name: fields.customer_name,
-          target_phone: fields.phone,
-          target_normalized_phone: fields.phone,
-          target_email: fields.email ?? null,
-          target_interested_model: fields.interested_model ?? null,
-          target_raw_payload: {
-            channel: 'EMAIL_INBOX',
-            message_id: candidate.messageId,
-            received_at: candidate.receivedAt,
-            from_domain: senderDomainOf(candidate.from),
-            extracted: fields,
-          },
-          target_request_id: crypto.randomUUID(),
-        });
-        if (ingestError) {
-          await logMessage(supabase, {
-            ...logRow,
-            status: 'FAILED',
-            failure_code: safeIngestCode(ingestError),
-            extracted: fields,
-          });
-          continue;
+        const results: Array<{ lead_id?: string; duplicate?: boolean } | null> = [];
+        let failureCode: string | null = null;
+        for (const { record, position } of usable) {
+          const fields = record.fields;
+          const detail = [
+            `${source} email`,
+            candidate.subject ? candidate.subject.slice(0, 150) : null,
+            fields.location ? `Location: ${fields.location}` : null,
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          // The first record keeps the plain message key, so emails ingested
+          // before digests were split still deduplicate against it.
+          const externalId = `email:${candidate.messageId}${position ? `#${position + 1}` : ''}`;
+          const { data: ingested, error: ingestError } = await supabase.rpc(
+            'ingest_provider_lead',
+            {
+              target_organization_id: connection.organization_id,
+              target_connection_id: connection.id,
+              target_branch_id: branchId,
+              target_team_id: connection.default_team_id,
+              target_external_lead_id: externalId.slice(0, 255),
+              target_source: source,
+              target_source_detail: detail.slice(0, 500),
+              target_campaign: fields.campaign ?? `${source} email`,
+              target_customer_name: fields.customer_name,
+              target_phone: fields.phone,
+              target_normalized_phone: fields.phone,
+              target_email: fields.email ?? null,
+              target_interested_model: fields.interested_model ?? null,
+              target_raw_payload: {
+                channel: 'EMAIL_INBOX',
+                message_id: candidate.messageId,
+                record: position + 1,
+                received_at: candidate.receivedAt,
+                from_domain: senderDomainOf(candidate.from),
+                extracted: fields,
+              },
+              target_request_id: crypto.randomUUID(),
+            },
+          );
+          if (ingestError) {
+            failureCode ??= safeIngestCode(ingestError);
+            continue;
+          }
+          const result = ingested as { lead_id?: string; duplicate?: boolean } | null;
+          if (!result?.duplicate) leadsCreated += 1;
+          results.push(result);
         }
-        const result = ingested as { lead_id?: string; duplicate?: boolean } | null;
-        if (!result?.duplicate) leadsCreated += 1;
         await logMessage(supabase, {
           ...logRow,
-          status: result?.duplicate ? 'DUPLICATE' : 'INGESTED',
-          lead_id: result?.lead_id ?? null,
-          extracted: fields,
+          status: !results.length
+            ? 'FAILED'
+            : results.every((result) => result?.duplicate)
+              ? 'DUPLICATE'
+              : 'INGESTED',
+          lead_id: results[0]?.lead_id ?? null,
+          failure_code: failureCode,
+          extracted:
+            usable.length === 1
+              ? usable[0].record.fields
+              : { leads: usable.map(({ record }) => record.fields) },
         });
       }
     } finally {

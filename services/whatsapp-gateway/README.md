@@ -41,10 +41,17 @@ for an unreviewed test.
 
 ## Scope and safety
 
-- Hard database cap: five enabled linked/recently linking accounts across this
-  Supabase deployment, not five per tenant. The process also refuses new sockets
-  at five accounts or 70% of its configured 512 MB RSS budget. Five accounts is a
-  pilot ceiling, **not measured throughput or a memory guarantee**.
+- No fixed number cap (owner decision, 2026-10-14). Any eligible user can link.
+  The gateway opens a socket while it is under 70% of `PERSONAL_WHATSAPP_MEMORY_MB`
+  and under `PERSONAL_WHATSAPP_MAX_SESSIONS` (an operator safety bound, default 200).
+  How many sockets fit in memory is **not measured**.
+- Presence: the open CRM calls `personal_whatsapp_presence` every 2 minutes while
+  visible. When the gateway is full, an online user's socket replaces the one whose
+  owner has been away longest (10+ minutes). That owner is paused (`IDLE`), keeps
+  the link and keys, and reconnects when they open the CRM again; WhatsApp then
+  delivers what arrived meanwhile. If every socket belongs to someone online, the
+  request is refused: a new link is cancelled, an existing one shows `BUSY`
+  ("WhatsApp server is busy. Try again in a few minutes.").
 - One socket owner at a time: a process-generated UUID, 45-second lease,
   10-second heartbeat and generation fence prevent stale processes from writing.
   Restoration is sequential; expired/unavailable sockets recover on a bounded

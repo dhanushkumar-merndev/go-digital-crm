@@ -8,7 +8,7 @@ const sessionProvider = readFileSync(
 );
 const roleLayout = readFileSync('src/app/[role]/layout.tsx', 'utf8');
 const header = readFileSync('src/components/shared/app-header.tsx', 'utf8');
-const proxy = readFileSync('proxy.ts', 'utf8');
+const proxy = readFileSync('src/proxy.ts', 'utf8');
 const login = readFileSync('src/app/login/page.tsx', 'utf8');
 const mfa = readFileSync('src/features/auth/mfa-gate.tsx', 'utf8');
 const loading = readFileSync('src/app/[role]/[[...slug]]/loading.tsx', 'utf8');

@@ -25,6 +25,13 @@ const allowedMimeSizes = new Map<string, number>([
   ['text/plain', 5 * 1024 * 1024],
 ]);
 
+// Auto-call prompt recordings are played to customers by PIOPIY: short clips only.
+const autoIvrPromptMimeSizes = new Map<string, number>([
+  ['audio/mpeg', 5 * 1024 * 1024],
+  ['audio/wav', 5 * 1024 * 1024],
+  ['audio/x-wav', 5 * 1024 * 1024],
+]);
+
 const profileAvatarMimeSizes = new Map<string, number>([
   ['image/jpeg', 5 * 1024 * 1024],
   ['image/png', 5 * 1024 * 1024],
@@ -50,6 +57,7 @@ const schema = z.object({
     'rto_case',
     'delivery_case',
     'profile',
+    'auto_ivr_flow',
   ]),
   resource_id: z.uuid(),
   file_name: z
@@ -79,9 +87,13 @@ Deno.serve(async (request) => {
       return failure('INVALID_PAYLOAD', 'The upload request is invalid.', requestId, 422);
     const input = parsed.data;
     const profileAvatar = input.resource_type === 'profile';
-    const maximumBytes = (profileAvatar ? profileAvatarMimeSizes : allowedMimeSizes).get(
-      input.mime_type,
-    );
+    const maximumBytes = (
+      profileAvatar
+        ? profileAvatarMimeSizes
+        : input.resource_type === 'auto_ivr_flow'
+          ? autoIvrPromptMimeSizes
+          : allowedMimeSizes
+    ).get(input.mime_type);
     if (!maximumBytes || input.size_bytes > maximumBytes)
       return failure(
         'FILE_TYPE_OR_SIZE_NOT_ALLOWED',

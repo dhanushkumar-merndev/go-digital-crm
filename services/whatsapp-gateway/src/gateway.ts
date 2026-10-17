@@ -33,16 +33,50 @@ type Dependencies = {
   memoryMb: number;
   socketFactory?: typeof makeWASocket;
   rss?: () => number;
+  // An owner with no CRM presence for this long may be paused for someone online.
+  offlineMs?: number;
 };
+
+const DEFAULT_OFFLINE_MS = 10 * 60_000;
 
 export class Gateway {
   private sessions = new Map<string, Session>();
   private worker = randomUUID();
   private starting = new Map<string, Promise<void>>();
+  // connection_id -> when its owner last had the CRM open (epoch ms).
+  private seen = new Map<string, number>();
   private closing = false;
   constructor(private deps: Dependencies) {}
 
-  async connect(identity: SessionIdentity) {
+  markSeen(connectionId: string, seenAt: number) {
+    if (Number.isFinite(seenAt)) this.seen.set(connectionId, seenAt);
+  }
+
+  isOnline(connectionId: string) {
+    const seenAt = this.seen.get(connectionId);
+    return (
+      seenAt !== undefined && Date.now() - seenAt < (this.deps.offlineMs ?? DEFAULT_OFFLINE_MS)
+    );
+  }
+
+  // The live socket whose owner has been away longest, if any owner is away.
+  private longestAway(exceptConnectionId: string) {
+    let candidate: Session | undefined;
+    let candidateSeen = Infinity;
+    for (const session of this.sessions.values()) {
+      const id = session.identity.connection_id;
+      if (session.stopped || id === exceptConnectionId || this.isOnline(id)) continue;
+      const seenAt = this.seen.get(id) ?? 0;
+      if (seenAt < candidateSeen) {
+        candidate = session;
+        candidateSeen = seenAt;
+      }
+    }
+    return candidate;
+  }
+
+  async connect(identity: SessionIdentity, options: { online?: boolean } = {}) {
+    if (options.online) this.markSeen(identity.connection_id, Date.now());
     if (this.closing) throw new Error('GATEWAY_SHUTTING_DOWN');
     const existing = this.sessions.get(identity.connection_id);
     if (existing && existing.identity.generation !== identity.generation)
@@ -58,7 +92,13 @@ export class Gateway {
         this.deps.memoryMb,
       )
     ) {
-      throw new Error('PERSONAL_WHATSAPP_CAPACITY');
+      // Full: an online owner takes the socket of whoever has been away
+      // longest. That owner keeps their link and reconnects when back.
+      const away = this.isOnline(identity.connection_id)
+        ? this.longestAway(identity.connection_id)
+        : undefined;
+      if (!away) throw new Error('PERSONAL_WHATSAPP_CAPACITY');
+      await this.stop(away, false, 'idle');
     }
     const start = this.start(identity);
     this.starting.set(identity.connection_id, start);
@@ -332,7 +372,11 @@ export class Gateway {
     if (session) await this.stop(session, true);
   }
 
-  private async stop(session: Session, logout: boolean) {
+  private async stop(
+    session: Session,
+    logout: boolean,
+    finalState: 'release' | 'idle' = 'release',
+  ) {
     if (session.stopped) return;
     session.stopped = true;
     clearInterval(session.heartbeat);
@@ -351,7 +395,7 @@ export class Gateway {
       /* No secrets or provider payloads in logs. */
     }
     try {
-      await session.store('release');
+      await session.store(finalState);
     } catch {
       /* Lease may already be revoked. */
     }

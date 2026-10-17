@@ -7,7 +7,6 @@ import {
   FollowupsSkeleton,
   TasksSkeleton,
   CallsSkeleton,
-  AiVoiceCallsSkeleton,
   InboxSkeleton,
   AppointmentsSkeleton,
   TestDrivesSkeleton,
@@ -124,8 +123,6 @@ export function getRoleSkeleton(role: string, slug: string = 'dashboard') {
         return <TasksSkeleton />;
       case 'calls':
         return <CallsSkeleton />;
-      case 'ai-voice-calls':
-        return <AiVoiceCallsSkeleton />;
       case 'messages':
       case 'inbox':
         return <InboxSkeleton />;

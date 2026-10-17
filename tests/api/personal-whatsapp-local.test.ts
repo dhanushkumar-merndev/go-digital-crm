@@ -66,7 +66,7 @@ describe('local WhatsApp development runner', () => {
       configurationProblems({
         ...env,
         SUPABASE_URL: 'http://example.com',
-        PERSONAL_WHATSAPP_MAX_SESSIONS: '6',
+        PERSONAL_WHATSAPP_MAX_SESSIONS: '1001',
         PERSONAL_WHATSAPP_ENCRYPTION_KEY: 'invalid',
       }),
     ).toEqual(

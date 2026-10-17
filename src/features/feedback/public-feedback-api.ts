@@ -2,7 +2,17 @@ import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
 
 const formSchema = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('OPEN'), branch: z.string(), organization: z.string() }),
+  z.object({
+    status: z.literal('OPEN'),
+    branch: z.string(),
+    organization: z.string(),
+    brand_color: z
+      .string()
+      .regex(/^#[0-9a-f]{6}$/)
+      .nullable()
+      .catch(null),
+    has_logo: z.boolean().catch(false),
+  }),
   z.object({ status: z.literal('INVALID') }),
   z.object({ status: z.literal('EXPIRED') }),
   z.object({ status: z.literal('ALREADY_SUBMITTED') }),
@@ -19,6 +29,11 @@ const submitSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('ALREADY_SUBMITTED') }),
 ]);
 
+const logoEnvelopeSchema = z.object({
+  ok: z.literal(true),
+  data: z.object({ logo_url: z.url(), expires_at: z.string() }),
+});
+
 export type PublicFeedbackForm = z.infer<typeof formSchema>;
 export type PublicFeedbackResult = z.infer<typeof submitSchema>;
 
@@ -29,6 +44,18 @@ export async function fetchPublicFeedbackForm(token: string) {
   });
   if (error) throw error;
   return formSchema.parse(data);
+}
+
+/**
+ * Presigned branch logo for the page. It is fetched while the token is still
+ * live, before submission spends it, and the URL lasts ten minutes.
+ */
+export async function fetchPublicFeedbackLogo(token: string) {
+  const { data, error } = await createClient().functions.invoke('public-feedback-logo', {
+    body: { token },
+  });
+  if (error) throw error;
+  return logoEnvelopeSchema.parse(data).data.logo_url;
 }
 
 export async function submitPublicFeedback(input: {

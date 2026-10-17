@@ -11,8 +11,9 @@ const env = z
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
     PERSONAL_WHATSAPP_ENCRYPTION_KEY: z.string().min(40),
     PERSONAL_WHATSAPP_SIGNING_SECRET: z.string().min(32),
-    PERSONAL_WHATSAPP_MAX_SESSIONS: z.coerce.number().int().min(1).max(5).default(5),
-    PERSONAL_WHATSAPP_MEMORY_MB: z.coerce.number().int().min(128).max(512).default(512),
+    // A safety bound only; free memory decides how many sockets actually open.
+    PERSONAL_WHATSAPP_MAX_SESSIONS: z.coerce.number().int().min(1).max(1000).default(200),
+    PERSONAL_WHATSAPP_MEMORY_MB: z.coerce.number().int().min(128).max(16384).default(512),
     PORT: z.coerce.number().int().min(1).max(65535).default(10000),
     HOST: z.enum(['127.0.0.1', '0.0.0.0', '::1']).default('0.0.0.0'),
   })
@@ -29,6 +30,7 @@ const gateway = new Gateway({
   memoryMb: config.PERSONAL_WHATSAPP_MEMORY_MB,
 });
 const identity = z.object({ connection_id: z.uuid(), generation: z.uuid() });
+const seenRow = identity.extend({ owner_seen_at: z.string().nullable() });
 let healthy = false;
 let restoring = false;
 
@@ -37,19 +39,35 @@ async function restore() {
   restoring = true;
   try {
     await rpc('personal_whatsapp_reconcile', {});
+    // Owners seen most recently first, so the people at work get sockets first.
     const { data, error } = await client
       .from('personal_whatsapp_sessions')
-      .select('connection_id,generation')
+      .select('connection_id,generation,owner_seen_at')
       .eq('enabled', true)
-      .order('requested_at')
-      .limit(5);
+      .order('owner_seen_at', { ascending: false, nullsFirst: false })
+      .limit(1000);
     if (error) throw new Error('RESTORE_UNAVAILABLE');
     healthy = true;
-    for (const row of data ?? []) {
+    for (const raw of data ?? []) {
+      const row = seenRow.parse(raw);
+      const session = { connection_id: row.connection_id, generation: row.generation };
+      if (row.owner_seen_at) gateway.markSeen(row.connection_id, Date.parse(row.owner_seen_at));
       try {
-        await gateway.connect(identity.parse(row));
-      } catch {
-        /* Retry on the next bounded restore pass. */
+        await gateway.connect(session);
+      } catch (error) {
+        // Full with online owners only: tell this owner the server is busy.
+        // An away owner just waits for the next pass.
+        if (
+          error instanceof Error &&
+          error.message === 'PERSONAL_WHATSAPP_CAPACITY' &&
+          gateway.isOnline(row.connection_id)
+        )
+          await rpc('personal_whatsapp_capacity_wait', {
+            target_connection_id: row.connection_id,
+            target_generation: row.generation,
+          }).catch(() => {
+            /* The next restore pass marks it again. */
+          });
       }
     }
   } catch {
@@ -103,7 +121,11 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (method === 'POST' && path === '/v1/sessions') {
-      await gateway.connect(identity.parse(JSON.parse(body)));
+      const input = identity.extend({ online: z.boolean().optional() }).parse(JSON.parse(body));
+      await gateway.connect(
+        { connection_id: input.connection_id, generation: input.generation },
+        { online: input.online },
+      );
       reply(202, { ok: true });
     } else if (method === 'POST' && path === '/v1/history') {
       const input = identity.extend({ conversation_id: z.uuid() }).parse(JSON.parse(body));

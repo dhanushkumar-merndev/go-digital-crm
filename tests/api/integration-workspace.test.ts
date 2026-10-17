@@ -154,9 +154,9 @@ describe('tenant integration workspace contract', () => {
     expect(workspace).not.toContain('appSecret: connection');
   });
 
-  it('reserves TeleCMI and AI fallback management for Client Admins', () => {
+  it('reserves TeleCMI and auto-call management for Client Admins', () => {
     expect(workspace).toContain(
-      '<AiVoiceAgentSettingsCard organizationId={permissions.data.organizationId} />',
+      '<AutoCallSettingsCard organizationId={permissions.data.organizationId} />',
     );
     expect(workspace).toContain("permissions.data.canManage && role === 'client-admin'");
     expect(workspace).toContain("provider.value !== 'telecmi' || role === 'client-admin'");

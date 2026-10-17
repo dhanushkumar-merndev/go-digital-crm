@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const proxy = readFileSync('proxy.ts', 'utf8');
+const proxy = readFileSync('src/proxy.ts', 'utf8');
 const home = readFileSync('src/app/page.tsx', 'utf8');
 const roleLayout = readFileSync('src/app/[role]/layout.tsx', 'utf8');
 const accessPage = readFileSync('src/app/access/[state]/page.tsx', 'utf8');

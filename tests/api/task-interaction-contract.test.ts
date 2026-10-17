@@ -66,7 +66,9 @@ describe('task workspace interaction contract', () => {
   });
 
   it('applies the shared overdue table row style to overdue tasks', () => {
-    expect(workspace).toContain("import { overdueTableRowClassName } from '@/components/shared/table-row-styles';");
+    expect(workspace).toContain(
+      "import { overdueTableRowClassName } from '@/components/shared/table-row-styles';",
+    );
     expect(workspace).toContain('data-overdue={overdue || undefined}');
     expect(workspace).toContain('overdue ? overdueTableRowClassName :');
   });

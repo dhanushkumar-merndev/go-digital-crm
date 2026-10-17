@@ -27,6 +27,19 @@ verify_jwt = false
 [functions.provider-webhook-ai-voice]
 verify_jwt = false
 
+[functions.provider-ivr-piopiy]
+verify_jwt = false
+
+[functions.provider-webhook-piopiy]
+verify_jwt = false
+
+# Called by services/voice-agent, signed with AI_AGENT_SERVICE_SECRET.
+[functions.ai-agent-call-context]
+verify_jwt = false
+
+[functions.provider-ai-agent-result]
+verify_jwt = false
+
 [functions.mobile-link-exchange]
 verify_jwt = false
 
@@ -40,6 +53,22 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.provider-webhook-justdial]
+verify_jwt = false
+
+# Website chat widget + Lead API. The public key only names a connection; these
+# boundaries enforce Turnstile, origin allow-lists, rate limits and hashed API keys.
+[functions.website-widget-config]
+verify_jwt = false
+
+[functions.website-chat-lead]
+verify_jwt = false
+
+[functions.lead-api]
+verify_jwt = false
+
+# Customer feedback page logo. No session exists there; the single-use feedback
+# token is checked by resolve_public_feedback_logo, and requests are IP rate-limited.
+[functions.public-feedback-logo]
 verify_jwt = false
 
 [functions.integration-connect-indiamart]
@@ -58,6 +87,9 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.integration-connect-justdial]
+verify_jwt = true
+
+[functions.integration-connect-portal-inbox]
 verify_jwt = true
 
 # User-initiated functions stay behind gateway JWT verification in addition to
@@ -90,6 +122,12 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.integration-connect-telecmi]
+verify_jwt = true
+
+[functions.integration-connect-piopiy]
+verify_jwt = true
+
+[functions.auto-call-dispatch]
 verify_jwt = true
 
 [functions.integration-telecmi-provision-agent]
@@ -192,4 +230,10 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.tenant-user-update]
+verify_jwt = true
+
+[functions.integration-connect-website]
+verify_jwt = true
+
+[functions.integration-website-api-key]
 verify_jwt = true

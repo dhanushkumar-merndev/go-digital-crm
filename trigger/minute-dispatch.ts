@@ -6,6 +6,7 @@ import { schedules } from '@trigger.dev/sdk';
 import { runAiCallProcessing } from './ai-call-processing';
 import { runAiImageGeneration } from './ai-image-generation';
 import { runAiVoiceEscalation } from './ai-voice-escalation';
+import { runAutoCallDialer } from './auto-call-dialer';
 import { runMarketingDispatch } from './marketing-dispatch';
 import { runPortalInboxDue } from './portal-inbox-sync';
 import { runProviderEventDispatch } from './provider-event-dispatch';
@@ -47,6 +48,8 @@ export const minuteDispatch = schedules.task({
       call_processing: runAiCallProcessing,
       image_generation: runAiImageGeneration,
       voice_escalation: runAiVoiceEscalation,
+      // Keypad auto calls for telecallers who switched Auto call on.
+      auto_call: runAutoCallDialer,
       provider_events: runProviderEventDispatch,
       provider_outbox: runProviderOutbox,
       recording_sweep: runStuckRecordingSweep,

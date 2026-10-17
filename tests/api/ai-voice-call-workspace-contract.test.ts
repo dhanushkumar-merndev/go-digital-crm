@@ -11,9 +11,8 @@ const workspaceMigration = migration.slice(
   migration.indexOf('create or replace function public.get_ai_voice_call_workspace('),
   migration.indexOf('create or replace function public.get_call_speaker_transcript('),
 );
-const api = source('src/features/calls/ai-voice-call-workspace-api.ts');
-const workspace = source('src/features/calls/ai-voice-call-workspace.tsx');
 const route = source('src/app/[role]/[[...slug]]/page.tsx');
+const navigation = source('src/config/navigation/index.ts');
 
 describe('AI voice call workspace contract', () => {
   it('uses call-mode identity, bounded pagination, and normal call data scope', () => {
@@ -38,19 +37,11 @@ describe('AI voice call workspace contract', () => {
     expect(workspaceMigration).toContain("'branch_name', page_row.branch_name");
     expect(workspaceMigration).toContain("'telecaller_name', page_row.telecaller_name");
     expect(workspaceMigration).toContain("upper(status) in ('PENDING', 'RINGING', 'IN_PROGRESS')");
-    expect(api).toContain('branch_name: z.string()');
-    expect(api).toContain('telecaller_name: z.string()');
   });
 
-  it('keeps automated calls read-only and uses the approved web query stack', () => {
-    expect(api).toContain("rpc('get_ai_voice_call_workspace'");
-    expect(workspace).toContain("from '@tanstack/react-query'");
-    expect(workspace).toContain('useDebouncedValue(query.search, 300)');
-    expect(workspace).toContain('AI fallback agent');
-    expect(workspace).toContain('record.branch_name');
-    expect(workspace).toContain('record.telecaller_name');
-    expect(workspace).not.toContain('apiKey');
-    expect(workspace).not.toContain('Create AI Call Campaign');
-    expect(route).toContain('<AiVoiceCallWorkspace');
+  it('retires the gateway-only AI Voice Calls page in favour of keypad auto calls', () => {
+    expect(route).not.toContain('AiVoiceCallWorkspace');
+    expect(navigation).not.toContain("'ai-voice-calls'");
+    expect(route).toContain('<AutoCallResultWorkspace callId={slug[1]} role={role} />');
   });
 });

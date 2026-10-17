@@ -99,7 +99,8 @@ export async function updateLeadRequirements(input: {
   leadId: string;
   expectedVersion: number | null;
   requestId: string;
-  payload: LeadRequirementsInput;
+  /** interested_model is stored on the lead; omit it to leave the model unchanged. */
+  payload: LeadRequirementsInput & { interested_model?: string | null };
 }) {
   const { data, error } = await createClient().rpc('update_lead_requirements', {
     target_lead_id: input.leadId,

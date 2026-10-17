@@ -50,7 +50,7 @@ describe('workspace bootstrap permission reuse', () => {
   });
 
   it('retries workspace bootstrap only for classified transient failures', () => {
-    for (const file of ['proxy.ts', 'src/app/page.tsx', 'src/app/[role]/layout.tsx']) {
+    for (const file of ['src/proxy.ts', 'src/app/page.tsx', 'src/app/[role]/layout.tsx']) {
       const source = read(file);
       expect(source).toContain('isTransientSupabaseError');
       expect(source).not.toContain('if (result.error || !result.data)');

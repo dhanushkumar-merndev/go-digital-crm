@@ -77,7 +77,11 @@ describe('public feedback form', () => {
     const { token } = await issuedToken();
     await claims(null);
     const form = (await rpc('get_public_feedback_form', [token])) as Record<string, unknown>;
-    expect(Object.keys(form).sort()).toEqual(['branch', 'organization', 'status']);
+    // 202610142271 adds the branch theme (colour, logo flag), still nothing personal.
+    expect(Object.keys(form).sort()).toEqual(
+      expect.arrayContaining(['branch', 'organization', 'status']),
+    );
+    expect(Object.keys(form).filter((key) => /customer|phone|email|name/.test(key))).toEqual([]);
   });
 
   it('rejects a malformed or unknown token without revealing which', async () => {

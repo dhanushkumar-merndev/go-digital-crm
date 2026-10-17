@@ -21,6 +21,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { isVersionConflictCode } from '@/lib/supabase/version-conflict';
 import { fetchCustomer360EditData } from '@/features/customers/customer-workspace-api';
+import { InterestedModelPicker } from './interested-model-picker';
 import {
   emptyLeadRequirements,
   formatBudgetRange,
@@ -105,6 +106,7 @@ function vehicleName(vehicle: ExchangeVehicleSummary | null) {
 export function LeadRequirementsCards({
   leadId,
   customerId,
+  branchId = null,
   interestedModel,
   requirements,
   exchangeVehicle,
@@ -114,6 +116,8 @@ export function LeadRequirementsCards({
 }: {
   leadId: string;
   customerId: string | null;
+  /** Narrows the model search to the lead's branch stock; null searches the catalogue. */
+  branchId?: string | null;
   interestedModel: string | null;
   requirements: LeadRequirements | null;
   exchangeVehicle: ExchangeVehicleSummary | null;
@@ -217,6 +221,8 @@ export function LeadRequirementsCards({
         <LeadRequirementsSheet
           leadId={leadId}
           customerId={customerId}
+          branchId={branchId}
+          interestedModel={interestedModel}
           requirements={requirements}
           onClose={() => setEditing(false)}
           onSaved={() => {
@@ -252,17 +258,22 @@ function fromLakh(text: string) {
 function LeadRequirementsSheet({
   leadId,
   customerId,
+  branchId,
+  interestedModel,
   requirements,
   onClose,
   onSaved,
 }: {
   leadId: string;
   customerId: string | null;
+  branchId: string | null;
+  interestedModel: string | null;
   requirements: LeadRequirements | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [draft, setDraft] = useState<LeadRequirementsInput>(() => toInput(requirements));
+  const [model, setModel] = useState(interestedModel ?? '');
   const [budgetMin, setBudgetMin] = useState(lakhText(requirements?.budget_min ?? null));
   const [budgetMax, setBudgetMax] = useState(lakhText(requirements?.budget_max ?? null));
   const [exchangeValue, setExchangeValue] = useState(
@@ -292,6 +303,7 @@ function LeadRequirementsSheet({
         requestId,
         payload: {
           ...draft,
+          interested_model: model.trim() || null,
           budget_min: fromLakh(budgetMin),
           budget_max: fromLakh(budgetMax),
           expected_exchange_value: fromLakh(exchangeValue),
@@ -328,6 +340,16 @@ function LeadRequirementsSheet({
           <section className="space-y-3">
             <h3 className="text-sm font-semibold">Vehicle requirement</h3>
             <div className="grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <Label>Interested model</Label>
+                <div className="mt-2">
+                  <InterestedModelPicker
+                    value={model}
+                    onValueChange={setModel}
+                    branchId={branchId}
+                  />
+                </div>
+              </div>
               <div>
                 <Label htmlFor="req-variant">Variant</Label>
                 <Input

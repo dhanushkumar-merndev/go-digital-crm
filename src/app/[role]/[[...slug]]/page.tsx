@@ -17,7 +17,8 @@ import { TemplateWorkspace } from '@/features/administration/template-workspace'
 import { NotificationWorkspace } from '@/features/notifications/notification-workspace';
 import { CallWorkspace } from '@/features/calls/call-workspace';
 import { AiCallFieldReviewWorkspace } from '@/features/calls/ai-call-field-review-workspace';
-import { AiVoiceCallWorkspace } from '@/features/calls/ai-voice-call-workspace';
+import { AutoCallResultWorkspace } from '@/features/auto-call/auto-call-result-workspace';
+import { AutoIvrFlowBuilder } from '@/features/auto-call/auto-ivr-flow-builder';
 import { CustomerCareWorkspace } from '@/features/customer-care/customer-care-workspace';
 import { DeliveryFeedbackWorkspace } from '@/features/delivery/delivery-feedback-workspace';
 import { MarketingWorkspace } from '@/features/marketing/marketing-workspace';
@@ -105,6 +106,23 @@ export default async function RolePage({ params }: Props) {
     !isLocalPreviewMode()
   )
     return <AiCallFieldReviewWorkspace callId={slug[1]} role={role} />;
+  if (
+    slug.length === 3 &&
+    slug[0] === 'calls' &&
+    slug[2] === 'auto-call' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(slug[1]) &&
+    !isLocalPreviewMode()
+  )
+    return <AutoCallResultWorkspace callId={slug[1]} role={role} />;
+  if (
+    role === 'client-admin' &&
+    slug.length === 3 &&
+    slug[0] === 'integrations' &&
+    slug[1] === 'auto-ivr' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(slug[2]) &&
+    !isLocalPreviewMode()
+  )
+    return <AutoIvrFlowBuilder flowId={slug[2]} />;
   if (
     role === 'system-administrator' &&
     slug.length === 2 &&
@@ -332,8 +350,6 @@ export default async function RolePage({ params }: Props) {
     !isLocalPreviewMode()
   )
     return <SalesConsultantActivityTimeline role={role} />;
-  if (role === 'sales-consultant' && slug[0] === 'ai-voice-calls' && !isLocalPreviewMode())
-    return <AiVoiceCallWorkspace />;
   if (
     ['sales-consultant', 'business-owner', 'client-admin'].includes(role) &&
     slug[0] === 'competitor-compare' &&

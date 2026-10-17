@@ -13,6 +13,7 @@ import {
   ArrowDown,
   ArrowRightLeft,
   ArrowUp,
+  BadgeCheck,
   Building2,
   CalendarDays,
   ChevronDown,
@@ -128,11 +129,12 @@ import {
   type FollowupReason,
 } from '@/features/work/workspace-dialogs';
 import { fetchLeadOpenFollowup } from '@/features/work/workspace-api';
+import { AutoCallToggle } from '@/features/auto-call/auto-call-card';
+import { InterestedModelPicker } from './interested-model-picker';
 import {
   assignLead,
   createLead,
   fetchAssignableUsers,
-  fetchInterestedModelOptions,
   fetchLeadCreateOptions,
   fetchLeadPhone,
   fetchLeadPhoneHistory,
@@ -443,6 +445,14 @@ function PhoneGroupBranch({ isLast }: { isLast: boolean }) {
 function TemperatureBadge({ value }: { value: LeadRecord['temperature'] }) {
   // DORMANT is do-not-disturb, not a colder COLD, so it gets its own styling
   // rather than reading as an ordinary cold lead. See AGENTS.md 9.7.
+  // No temperature is "Not set", as on lead detail: showing COLD would claim a
+  // rating nobody gave, and the COLD filter does not match these leads.
+  if (!value)
+    return (
+      <Badge variant="outline" className="rounded px-2 py-0 text-[10px] text-muted-foreground">
+        Not set
+      </Badge>
+    );
   const variant =
     value === 'HOT'
       ? 'destructive'
@@ -453,7 +463,7 @@ function TemperatureBadge({ value }: { value: LeadRecord['temperature'] }) {
           : 'info';
   return (
     <Badge variant={variant} className="rounded px-2 py-0 text-[10px]">
-      {value ?? 'COLD'}
+      {value}
     </Badge>
   );
 }
@@ -965,14 +975,11 @@ function LeadCreateDialog({
   const [source, setSource] = useState<(typeof leadSources)[number]>('Manual');
   const [interestedModel, setInterestedModel] = useState('');
   const [modelMissing, setModelMissing] = useState(false);
-  const [modelSearch, setModelSearch] = useState('');
-  const debouncedModelSearch = useDebouncedValue(modelSearch, 250);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
       setInterestedModel('');
       setModelMissing(false);
-      setModelSearch('');
     }
     onOpenChange(nextOpen);
   };
@@ -981,7 +988,6 @@ function LeadCreateDialog({
     mutationFn: createLead,
     onSuccess: () => {
       setInterestedModel('');
-      setModelSearch('');
       onOpenChange(false);
       onCreated();
     },
@@ -989,74 +995,6 @@ function LeadCreateDialog({
   const selectedBranchId = branchId || options.data?.branches[0]?.id || '';
   const teams = options.data?.teams.filter((team) => team.branch_id === selectedBranchId) ?? [];
   const showBranchPicker = (options.data?.branches.length ?? 0) > 1;
-
-  const modelOptionsQuery = useQuery({
-    queryKey: ['lead-interested-models', organizationId, selectedBranchId, debouncedModelSearch],
-    queryFn: ({ signal }) =>
-      fetchInterestedModelOptions(
-        {
-          branchId: selectedBranchId || undefined,
-          search: debouncedModelSearch,
-          limit: 5,
-        },
-        signal,
-      ),
-    enabled: open,
-    retry: retryRpcRead,
-  });
-
-  const modelSelectOptions = useMemo<SearchSelectOption[]>(() => {
-    const list: SearchSelectOption[] = [];
-    const serverItems = modelOptionsQuery.data ?? [];
-
-    for (const item of serverItems) {
-      let desc = '';
-      if (item.in_stock) {
-        desc = `In stock (${item.stock_count} unit${item.stock_count === 1 ? '' : 's'} at branch)`;
-      } else if (item.brand_name) {
-        desc = `${item.brand_name} · Catalog`;
-      } else {
-        desc = 'Known model';
-      }
-      list.push({
-        value: item.model_name,
-        label: item.model_name,
-        description: desc,
-      });
-    }
-
-    const trimmedSearch = modelSearch.trim();
-    if (trimmedSearch) {
-      const hasExact = list.some((opt) => opt.value.toLowerCase() === trimmedSearch.toLowerCase());
-      if (!hasExact) {
-        list.push({
-          value: trimmedSearch,
-          label: `Use "${trimmedSearch}"`,
-          description: 'Custom model entry',
-        });
-      }
-    }
-
-    if (interestedModel) {
-      const alreadyIn = list.some(
-        (opt) => opt.value.toLowerCase() === interestedModel.toLowerCase(),
-      );
-      if (!alreadyIn) {
-        list.unshift({
-          value: interestedModel,
-          label: interestedModel,
-          description: 'Selected model',
-        });
-      }
-      list.push({
-        value: '__CLEAR__',
-        label: 'Clear selection',
-        description: 'Choose a different model',
-      });
-    }
-
-    return list;
-  }, [modelOptionsQuery.data, modelSearch, interestedModel]);
 
   // A consultant does not choose a team: they belong to exactly one active
   // sales team, and `create_lead` now resolves it from that membership. The
@@ -1196,28 +1134,14 @@ function LeadCreateDialog({
             <span>
               Interested model <RequiredMark />
             </span>
-            <SearchSelect
+            <InterestedModelPicker
               value={interestedModel}
-              search={modelSearch}
-              onSearchChange={setModelSearch}
-              onValueChange={(val) => {
-                if (val === '__CLEAR__') {
-                  setInterestedModel('');
-                  setModelSearch('');
-                } else {
-                  setInterestedModel(val);
-                  setModelSearch('');
-                  setModelMissing(false);
-                }
+              onValueChange={(value) => {
+                setInterestedModel(value);
+                if (value) setModelMissing(false);
               }}
-              options={modelSelectOptions}
-              isPending={modelOptionsQuery.isPending}
-              isFetching={modelOptionsQuery.isFetching}
-              isError={modelOptionsQuery.isError}
-              placeholder="Select or search model"
-              searchPlaceholder="Type model name (top 5)…"
-              emptyMessage="No matching models. Type any name to enter a custom model."
-              aria-label="Interested model"
+              branchId={selectedBranchId || null}
+              enabled={open}
             />
             <input type="hidden" name="interestedModel" value={interestedModel} />
             {modelMissing ? (
@@ -2526,6 +2450,29 @@ function LeadTable({
               <span className="sr-only">Company lead: {company}</span>
             </span>
           ) : null;
+          // Reached by keypad Auto call; opens that call's answers.
+          const autoCallId = row.original.auto_contact_call_id;
+          const autoMark = autoCallId ? (
+            <Link
+              href={`/${role}/calls/${autoCallId}/auto-call`}
+              className="shrink-0"
+              title={
+                row.original.auto_contact_verified_at
+                  ? 'Contacted by auto call, verified'
+                  : 'Contacted by auto call. Open to review and verify'
+              }
+            >
+              <Badge
+                variant={row.original.auto_contact_verified_at ? 'success' : 'violet'}
+                className="gap-0.5 px-1.5 py-0 text-[10px]"
+              >
+                {row.original.auto_contact_verified_at ? (
+                  <BadgeCheck className="size-3" aria-hidden="true" />
+                ) : null}
+                Auto call
+              </Badge>
+            </Link>
+          ) : null;
           if (!customerId)
             return (
               <span className="flex min-w-0 items-center gap-1.5">
@@ -2533,6 +2480,7 @@ function LeadTable({
                   {customerName}
                 </span>
                 {companyMark}
+                {autoMark}
               </span>
             );
           return (
@@ -2545,6 +2493,7 @@ function LeadTable({
                 {customerName}
               </Link>
               {companyMark}
+              {autoMark}
             </span>
           );
         },
@@ -4661,7 +4610,8 @@ export function LeadWorkspace({
               : 'View and manage your leads, track progress and take timely actions.'}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {role === 'telecaller' ? <AutoCallToggle /> : null}
           {permissions?.canCreate ? (
             <>
               <Button variant="outline" onClick={() => setBulkImportOpen(true)}>

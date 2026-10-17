@@ -15,7 +15,7 @@ const mfaPolicy = readFileSync(
   'supabase/migrations/202608150001_foundation_security_hardening.sql',
   'utf8',
 );
-const proxy = readFileSync('proxy.ts', 'utf8');
+const proxy = readFileSync('src/proxy.ts', 'utf8');
 const guard = readFileSync('src/features/auth/session-expiry-guard.tsx', 'utf8');
 const bootstrap = readFileSync('src/lib/auth/workspace-bootstrap.ts', 'utf8');
 const mobileRoute = readFileSync('mobile/src/lib/session-route.ts', 'utf8');

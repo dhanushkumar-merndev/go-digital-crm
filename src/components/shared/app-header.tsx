@@ -45,6 +45,7 @@ import { ProfileSettingsDialog } from '@/features/auth/profile-settings-dialog';
 import { GlobalCustomerSearch } from '@/components/shared/global-customer-search';
 import { RecentLeadsMenu } from '@/features/leads/recent-leads';
 import { HeaderCreditBalance } from '@/components/shared/header-credit-balance';
+import { PersonalWhatsAppPresence } from '@/features/inbox/personal-whatsapp-presence';
 import { canLinkMobileApp } from '@/lib/auth/mobile-link-policy';
 import { getSafeAuthErrorMessage } from '@/lib/auth/safe-errors';
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client';
@@ -207,6 +208,7 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
         )}
         <div className="ml-auto flex items-center gap-2">
           {!previewMode && <HeaderCreditBalance />}
+          {salesWorkspace && !previewMode && <PersonalWhatsAppPresence />}
           <RecentLeadsMenu role={role} />
           {salesWorkspace && (
             <>

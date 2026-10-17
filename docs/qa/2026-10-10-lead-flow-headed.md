@@ -32,15 +32,15 @@ heuristic. Independent review found no actionable issues with the allowlist.
 
 ## Verification
 
-| Check                            | Result                                                 |
-| -------------------------------- | ------------------------------------------------------ |
-| API suite                        | 280 files, 2,032 tests passed                 |
-| Targeted transport and safety tests | 92 passed, including 81 new cases                   |
-| TypeScript                       | Passed                                                 |
-| Production webpack build         | Passed                                                 |
-| Changed-file ESLint and Prettier | Passed                                                 |
-| Full-repository ESLint           | Failed: 18 existing scratch-script errors, 12 warnings |
-| Final headed acceptance run      | Pending                                                |
+| Check                               | Result                                                 |
+| ----------------------------------- | ------------------------------------------------------ |
+| API suite                           | 280 files, 2,032 tests passed                          |
+| Targeted transport and safety tests | 92 passed, including 81 new cases                      |
+| TypeScript                          | Passed                                                 |
+| Production webpack build            | Passed                                                 |
+| Changed-file ESLint and Prettier    | Passed                                                 |
+| Full-repository ESLint              | Failed: 18 existing scratch-script errors, 12 warnings |
+| Final headed acceptance run         | Pending                                                |
 
 The existing 19-test headed suite exercises manual intake, deliberate customer
 linking, contact and follow-up scheduling, Lost/unlinked handoff guards, atomic

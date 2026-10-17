@@ -82,8 +82,8 @@ export function configurationProblems(env) {
     problems.push('PERSONAL_WHATSAPP_SIGNING_SECRET_INVALID');
   for (const [name, maximum, minimum] of [
     ['PORT', 65535, 1],
-    ['PERSONAL_WHATSAPP_MAX_SESSIONS', 5, 1],
-    ['PERSONAL_WHATSAPP_MEMORY_MB', 512, 128],
+    ['PERSONAL_WHATSAPP_MAX_SESSIONS', 1000, 1],
+    ['PERSONAL_WHATSAPP_MEMORY_MB', 16384, 128],
   ]) {
     if (
       !/^\d+$/.test(env[name] ?? '') ||

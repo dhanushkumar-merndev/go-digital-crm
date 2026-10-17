@@ -1,5 +1,6 @@
 import type { PortalEmailRule, PortalPollInterval } from '@/lib/providers/portal-email-parser';
 import { createClient } from '@/lib/supabase/client';
+import type { WebsiteWidgetConfig } from '@/lib/providers/website-lead-adapter';
 import { buildOAuthStartPayload, type OAuthStartInput } from './integration-oauth-connection';
 import {
   integrationSortOptions,
@@ -21,7 +22,8 @@ export type IntegrationProviderKey =
   | 'cardekho'
   | 'justdial'
   | 'msg91'
-  | 'brevo';
+  | 'brevo'
+  | 'website';
 export type IntegrationScopeMode = 'ONE_BRANCH' | 'SELECTED_BRANCHES' | 'ALL_BRANCHES';
 
 export type IntegrationRecord = {
@@ -50,6 +52,8 @@ export type IntegrationRecord = {
     parallel_agents?: Array<{ user_id: string; phone: string }>;
     ivr_name?: string | null;
     team_name?: string | null;
+    known_caller_routing?: boolean;
+    inbound_greeting_file?: string | null;
     ai_stream_enabled?: boolean;
     ai_stream_ws_url?: string | null;
     app_id?: string;
@@ -71,6 +75,9 @@ export type IntegrationRecord = {
     /** MSG91: the default sender id, when one was set. */
     sender_id?: string | null;
     account_email?: string | null;
+    /** Website chat & Lead API: the widget's public key and its settings. */
+    public_key?: string;
+    widget?: WebsiteWidgetConfig;
     models?: {
       text_model?: string;
       image_model?: string;
@@ -524,6 +531,8 @@ export function connectTelecmi(input: {
   parallelAgents: Array<{ user_id: string; phone: string }>;
   ivrName?: string;
   teamName?: string;
+  knownCallerRouting: boolean;
+  inboundGreetingFile?: string;
   aiStreamEnabled: boolean;
   aiStreamWsUrl?: string;
 }) {
@@ -547,6 +556,8 @@ export function connectTelecmi(input: {
     parallel_agents: input.parallelAgents,
     ivr_name: input.ivrName,
     team_name: input.teamName,
+    known_caller_routing: input.knownCallerRouting,
+    inbound_greeting_file: input.inboundGreetingFile,
     ai_stream_enabled: input.aiStreamEnabled,
     ai_stream_ws_url: input.aiStreamWsUrl,
   });

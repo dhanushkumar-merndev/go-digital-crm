@@ -60,7 +60,7 @@ import {
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { Metric, PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
-import { AiVoiceAgentSettingsCard } from './ai-voice-agent-settings';
+import { AutoCallSettingsCard } from '@/features/auto-call/auto-call-settings';
 import {
   newTelecmiAgentRow,
   TelecmiAgentEditor,
@@ -86,6 +86,14 @@ import {
   type PortalInboxProviderKey,
 } from '@/lib/providers/portal-email-parser';
 import { WhatsAppTemplatesCard } from './whatsapp-templates-card';
+import { connectWebsite } from './website/website-integration-api';
+import { WebsiteConnectionPanel } from './website/website-connection-panel';
+import { WebsiteWidgetFields } from './website/website-widget-fields';
+import {
+  defaultWebsiteWidgetConfig,
+  parseWebsiteWidgetConfig,
+  type WebsiteWidgetConfig,
+} from '@/lib/providers/website-lead-adapter';
 import { WhatsAppWebhookSetup, type WhatsAppWebhookMode } from './whatsapp-webhook-setup';
 import {
   hasWorkspacePermission,
@@ -136,6 +144,7 @@ const providerOptions: Array<{ value: AdminIntegrationProviderKey; label: string
   { value: 'carwale', label: 'CarWale Dealer Leads' },
   { value: 'cardekho', label: 'CarDekho Dealer Leads' },
   { value: 'justdial', label: 'Justdial Seller Leads' },
+  { value: 'website', label: 'Website chat widget & Lead API' },
   { value: 'openrouter', label: 'OpenRouter text, image & analysis models' },
   { value: 'groq', label: 'Groq transcription & AI analysis' },
   { value: 'telecmi', label: 'TeleCMI IVR calling & recordings' },
@@ -292,6 +301,7 @@ type ConnectRequest =
         | 'justdial'
         | 'msg91'
         | 'brevo'
+        | 'website'
       >;
       displayName: string;
     }
@@ -353,6 +363,7 @@ type ConnectRequest =
       testTemplateId?: string;
     }
   | { kind: 'brevo'; displayName: string; apiKey: string }
+  | { kind: 'website'; displayName: string; widget: WebsiteWidgetConfig }
   | {
       kind: 'portal-inbox';
       providerKey: PortalInboxProviderKey;
@@ -382,6 +393,8 @@ type ConnectRequest =
       parallelAgents: Array<{ user_id: string; phone: string }>;
       ivrName?: string;
       teamName?: string;
+      knownCallerRouting: boolean;
+      inboundGreetingFile?: string;
       aiStreamEnabled: boolean;
       aiStreamWsUrl?: string;
     };
@@ -418,6 +431,7 @@ function ProviderConnectionDialog({
       'justdial',
       'msg91',
       'brevo',
+      'website',
     ].includes(existing?.provider_key ?? '')
       ? (existing?.provider_key as AdminIntegrationProviderKey)
       : 'meta',
@@ -456,6 +470,15 @@ function ProviderConnectionDialog({
     instructions: string;
     ready?: boolean;
   } | null>(null);
+  const [websiteWidget, setWebsiteWidget] = useState<WebsiteWidgetConfig>(
+    () => existing?.connection_config.widget ?? defaultWebsiteWidgetConfig(),
+  );
+  const [websiteFormError, setWebsiteFormError] = useState<string | null>(null);
+  const [websiteSetup, setWebsiteSetup] = useState<{
+    connection_id: string;
+    public_key: string;
+    widget: WebsiteWidgetConfig;
+  } | null>(null);
   const [whatsappSetup, setWhatsappSetup] = useState<{
     webhook_url: string;
     webhook_mode: WhatsAppWebhookMode;
@@ -480,6 +503,9 @@ function ProviderConnectionDialog({
   );
   const [aiStreamEnabled, setAiStreamEnabled] = useState(
     existing?.connection_config.ai_stream_enabled ?? false,
+  );
+  const [knownCallerRouting, setKnownCallerRouting] = useState(
+    existing?.connection_config.known_caller_routing ?? true,
   );
   const [aiStreamWsUrl, setAiStreamWsUrl] = useState(
     existing?.connection_config.ai_stream_ws_url ?? '',
@@ -596,6 +622,27 @@ function ProviderConnectionDialog({
         });
         return { authorizationUrl: null };
       }
+      if (request.kind === 'website') {
+        const result = await connectWebsite({
+          organizationId,
+          // After a first save the dialog stays open on the setup panel; any
+          // later submit must update that connection, never create another.
+          connectionId: existing?.id ?? websiteSetup?.connection_id,
+          displayName: request.displayName,
+          scopeMode,
+          branchIds: effectiveBranchIds,
+          defaultTeamId: defaultTeamId === 'none' ? undefined : defaultTeamId,
+          widget: request.widget,
+        });
+        return {
+          authorizationUrl: null,
+          websiteSetup: {
+            connection_id: result.connection_id,
+            public_key: result.public_key,
+            widget: request.widget,
+          },
+        };
+      }
       if (request.kind === 'brevo') {
         await connectBrevo({
           organizationId,
@@ -624,6 +671,8 @@ function ProviderConnectionDialog({
           parallelAgents: request.parallelAgents,
           ivrName: request.ivrName,
           teamName: request.teamName,
+          knownCallerRouting: request.knownCallerRouting,
+          inboundGreetingFile: request.inboundGreetingFile,
           aiStreamEnabled: request.aiStreamEnabled,
           aiStreamWsUrl: request.aiStreamWsUrl,
         });
@@ -766,8 +815,10 @@ function ProviderConnectionDialog({
       telecmiSetup: setup,
       portalSetup: pSetup,
       whatsappSetup: wSetup,
+      websiteSetup: siteSetup,
     }: {
       authorizationUrl: string | null;
+      websiteSetup?: { connection_id: string; public_key: string; widget: WebsiteWidgetConfig };
       whatsappSetup?: { webhook_url: string; webhook_mode: WhatsAppWebhookMode } | null;
       telecmiSetup?: { webhook_url: string; call_flow_url: string } | null;
       portalSetup?: {
@@ -795,6 +846,10 @@ function ProviderConnectionDialog({
         setWhatsappSetup(wSetup);
         return;
       }
+      if (siteSetup) {
+        setWebsiteSetup(siteSetup);
+        return;
+      }
       onClose();
     },
   });
@@ -813,7 +868,9 @@ function ProviderConnectionDialog({
             {existing
               ? usePortalInbox
                 ? `Edit ${providerLabel(existing.provider_key)} inbox settings`
-                : `Replace ${providerLabel(existing.provider_key)} credential`
+                : existing.provider_key === 'website'
+                  ? 'Edit website chat & Lead API'
+                  : `Replace ${providerLabel(existing.provider_key)} credential`
               : 'Connect provider'}
           </DialogTitle>
           <DialogDescription>
@@ -881,6 +938,9 @@ function ProviderConnectionDialog({
                   parallelAgents,
                   ivrName: String(form.get('ivrName') ?? '').trim() || undefined,
                   teamName: String(form.get('teamName') ?? '').trim() || undefined,
+                  knownCallerRouting,
+                  inboundGreetingFile:
+                    String(form.get('inboundGreetingFile') ?? '').trim() || undefined,
                   aiStreamEnabled,
                   aiStreamWsUrl: aiStreamEnabled ? aiStreamWsUrl.trim() : undefined,
                 });
@@ -895,6 +955,13 @@ function ProviderConnectionDialog({
                   testMobile: String(form.get('msg91TestMobile') ?? '').trim() || undefined,
                   testTemplateId: String(form.get('msg91TestTemplateId') ?? '').trim() || undefined,
                 });
+                return;
+              }
+              if (providerKey === 'website') {
+                const parsed = parseWebsiteWidgetConfig(websiteWidget);
+                setWebsiteFormError(parsed.ok ? null : parsed.error);
+                if (!parsed.ok) return;
+                mutation.mutate({ kind: 'website', displayName, widget: parsed.value });
                 return;
               }
               if (providerKey === 'brevo') {
@@ -1080,6 +1147,45 @@ function ProviderConnectionDialog({
               <Alert variant="destructive">
                 <AlertDescription>{portalFormError}</AlertDescription>
               </Alert>
+            )}
+            {providerKey === 'website' && options.data && !websiteSetup && (
+              <WebsiteWidgetFields
+                value={websiteWidget}
+                onChange={(next) => {
+                  setWebsiteWidget(next);
+                  setWebsiteFormError(null);
+                }}
+                teams={options.data.teams.filter(
+                  (team) =>
+                    scopeMode === 'ALL_BRANCHES' || effectiveBranchIds.includes(team.branch_id),
+                )}
+                defaultTeamId={defaultTeamId}
+                onDefaultTeamIdChange={setDefaultTeamId}
+              />
+            )}
+            {providerKey === 'website' && websiteFormError && (
+              <Alert variant="destructive">
+                <AlertDescription>{websiteFormError}</AlertDescription>
+              </Alert>
+            )}
+            {websiteSetup && (
+              <div className="grid gap-3">
+                <Alert>
+                  <CheckCircle2 className="size-5 text-emerald-600" />
+                  <AlertTitle>Website connection saved</AlertTitle>
+                  <AlertDescription>
+                    Add the embed code to the website and create an API key if your backend will
+                    send leads. Both stay available from this connection&apos;s details.
+                  </AlertDescription>
+                </Alert>
+                <WebsiteConnectionPanel
+                  organizationId={organizationId}
+                  connectionId={websiteSetup.connection_id}
+                  publicKey={websiteSetup.public_key}
+                  widget={websiteSetup.widget}
+                  canManage
+                />
+              </div>
             )}
             {providerKey === 'meta' && options.data && (
               <div className="grid gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4 sm:grid-cols-2">
@@ -2016,6 +2122,35 @@ function ProviderConnectionDialog({
                     </span>
                   </label>
                 ) : null}
+                <div className="flex items-start justify-between gap-3 rounded-md border p-3 sm:col-span-2">
+                  <span className="grid gap-1 text-sm font-medium">
+                    Ring the lead&rsquo;s own telecaller when a known customer calls
+                    <span className="text-xs font-normal text-muted-foreground">
+                      A caller whose number already has a lead rings that lead&rsquo;s owner
+                      directly. Everyone else gets the inbound action above. The owner must be in
+                      the agent list. For this to work, the TeleCMI number&rsquo;s call flow must be
+                      the HTTP step with the call-flow URL, not a direct IVR.
+                    </span>
+                  </span>
+                  <Switch
+                    checked={knownCallerRouting}
+                    onCheckedChange={setKnownCallerRouting}
+                    aria-label="Ring the lead's own telecaller for known callers"
+                  />
+                </div>
+                <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+                  Greeting audio (optional)
+                  <Input
+                    name="inboundGreetingFile"
+                    maxLength={120}
+                    placeholder="welcome.wav"
+                    defaultValue={existing?.connection_config.inbound_greeting_file ?? ''}
+                  />
+                  <span className="text-xs font-normal text-muted-foreground">
+                    The file name of an audio already uploaded in TeleCMI. It plays before agents
+                    ring. A TeleCMI IVR plays its own greeting.
+                  </span>
+                </label>
                 <div className="grid gap-3 rounded-md border p-3 sm:col-span-2">
                   <div className="flex items-start justify-between gap-3">
                     <span className="grid gap-1 text-sm font-medium">
@@ -2212,9 +2347,9 @@ function ProviderConnectionDialog({
             )}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={onClose}>
-                {telecmiSetup || portalSetup || whatsappSetup ? 'Done' : 'Cancel'}
+                {telecmiSetup || portalSetup || whatsappSetup || websiteSetup ? 'Done' : 'Cancel'}
               </Button>
-              {!telecmiSetup && !portalSetup && !whatsappSetup ? (
+              {!telecmiSetup && !portalSetup && !whatsappSetup && !websiteSetup ? (
                 <Button
                   type="submit"
                   disabled={
@@ -2235,19 +2370,21 @@ function ProviderConnectionDialog({
                   <Link2 className="size-4" />
                   {mutation.isPending
                     ? 'Connecting…'
-                    : providerKey === 'meta' && metaConnectionMode === 'MANUAL_API'
-                      ? 'Verify and save'
-                      : providerKey === 'meta' && existing
-                        ? 'Reconnect with Facebook'
-                        : ['indiamart', 'carwale', 'cardekho', 'justdial'].includes(providerKey)
-                          ? 'Connect & Auto-Configure'
-                          : providerKey === 'whatsapp_cloud'
-                            ? 'Test and save'
-                            : providerKey === 'openrouter' ||
-                                providerKey === 'groq' ||
-                                providerKey === 'telecmi'
-                              ? 'Verify and save'
-                              : 'Continue with provider'}
+                    : providerKey === 'website'
+                      ? 'Save website connection'
+                      : providerKey === 'meta' && metaConnectionMode === 'MANUAL_API'
+                        ? 'Verify and save'
+                        : providerKey === 'meta' && existing
+                          ? 'Reconnect with Facebook'
+                          : ['indiamart', 'carwale', 'cardekho', 'justdial'].includes(providerKey)
+                            ? 'Connect & Auto-Configure'
+                            : providerKey === 'whatsapp_cloud'
+                              ? 'Test and save'
+                              : providerKey === 'openrouter' ||
+                                  providerKey === 'groq' ||
+                                  providerKey === 'telecmi'
+                                ? 'Verify and save'
+                                : 'Continue with provider'}
                 </Button>
               ) : null}
             </div>
@@ -2593,6 +2730,15 @@ function ConnectionDetailSheet({
               canManage={canManage}
             />
           )}
+          {connection.provider_key === 'website' && connection.status === 'CONNECTED' && (
+            <WebsiteConnectionPanel
+              organizationId={connection.organization_id}
+              connectionId={connection.id}
+              publicKey={connection.connection_config.public_key}
+              widget={connection.connection_config.widget}
+              canManage={canManage}
+            />
+          )}
           {connection.provider_key === 'meta' && canManage && connection.status === 'CONNECTED' && (
             <MetaLeadSyncCard
               organizationId={connection.organization_id}
@@ -2672,10 +2818,15 @@ function ConnectionDetailSheet({
               'carwale',
               'cardekho',
               'justdial',
+              'website',
               ...(connection.connection_config.connection_type === 'META_DIRECT' ? ['meta'] : []),
             ].includes(connection.provider_key) && (
               <Button onClick={onReplace}>
-                {isEmailInboxConnection(connection) ? 'Edit inbox settings' : 'Replace credential'}
+                {isEmailInboxConnection(connection)
+                  ? 'Edit inbox settings'
+                  : connection.provider_key === 'website'
+                    ? 'Edit settings'
+                    : 'Replace credential'}
               </Button>
             )}
         </SheetFooter>
@@ -2812,6 +2963,11 @@ function IntegrationTable({
               {record.provider_key === 'telecmi' && canManageTelecmi && (
                 <Button size="sm" variant="outline" onClick={() => onReplace(record)}>
                   Replace credential
+                </Button>
+              )}
+              {record.provider_key === 'website' && (
+                <Button size="sm" variant="outline" onClick={() => onReplace(record)}>
+                  Edit settings
                 </Button>
               )}
               {['indiamart', 'carwale', 'cardekho', 'justdial'].includes(record.provider_key) && (
@@ -3131,7 +3287,7 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
       )}
       <KpiGrid metrics={toMetrics(workspace.data.kpis)} />
       {permissions.data.canManage && role === 'client-admin' ? (
-        <AiVoiceAgentSettingsCard organizationId={permissions.data.organizationId} />
+        <AutoCallSettingsCard organizationId={permissions.data.organizationId} />
       ) : null}
       <IntegrationTable
         records={workspace.data.records}

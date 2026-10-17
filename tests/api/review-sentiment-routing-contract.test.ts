@@ -91,6 +91,7 @@ describe('review sentiment routing contract', () => {
       );
     `);
     await db.exec(source('supabase/migrations/202609070102_feedback_access_and_completion.sql'));
+    await db.exec(source('supabase/migrations/202610171757_public_feedback_complaint_creator.sql'));
 
     await db.query('insert into organizations(id) values($1)', [org]);
     await db.query('insert into profiles(id,organization_id) values($1,$2)', [actor, org]);
@@ -312,5 +313,49 @@ describe('review sentiment routing contract', () => {
     await expect(
       rpc('submit_customer_feedback', [req.feedback_id, 1, 'Wrong branch']),
     ).rejects.toThrow('FEEDBACK_SCOPE_DENIED');
+  });
+
+  // The public feedback form has no session. A low rating used to fail the
+  // customer's whole submission on customer_care_cases.created_by NOT NULL.
+  it('attributes an anonymous low-rating case to the staff member who sent the link', async () => {
+    const issuer = randomUUID();
+    await db.query('insert into profiles(id,organization_id) values($1,$2)', [issuer, org]);
+    const feedback = await db.query<{ id: string }>(
+      'insert into feedback_requests(organization_id,branch_id,customer_id,booking_id,delivery_case_id) values($1,$2,$3,$4,$5) returning id',
+      [org, branch, customer, booking, delivery],
+    );
+    const id = feedback.rows[0].id;
+    await db.query(
+      "insert into audit_logs(organization_id,actor_id,action,resource_type,resource_id) values($1,$2,'feedback_request.link_issued','feedback_request',$3)",
+      [org, issuer, id],
+    );
+    await db.query("select set_config('request.jwt.claims','',false)");
+    await db.query(
+      "update feedback_requests set status='COMPLETED',rating=2,comments='Late delivery',completed_at=now() where id=$1",
+      [id],
+    );
+    const created = await db.query<{ created_by: string }>(
+      "select created_by from customer_care_cases where case_number='CC-FB-'||replace($1::text,'-','')",
+      [id],
+    );
+    expect(created.rows).toEqual([{ created_by: issuer }]);
+  });
+
+  it('falls back to the delivery owner when no link issuer is recorded', async () => {
+    const feedback = await db.query<{ id: string }>(
+      'insert into feedback_requests(organization_id,branch_id,customer_id,booking_id,delivery_case_id) values($1,$2,$3,$4,$5) returning id',
+      [org, branch, customer, booking, delivery],
+    );
+    const id = feedback.rows[0].id;
+    await db.query("select set_config('request.jwt.claims','',false)");
+    await db.query(
+      "update feedback_requests set status='COMPLETED',rating=1,completed_at=now() where id=$1",
+      [id],
+    );
+    const created = await db.query<{ created_by: string }>(
+      "select created_by from customer_care_cases where case_number='CC-FB-'||replace($1::text,'-','')",
+      [id],
+    );
+    expect(created.rows).toEqual([{ created_by: actor }]);
   });
 });

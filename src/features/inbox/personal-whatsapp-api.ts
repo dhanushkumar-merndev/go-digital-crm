@@ -46,6 +46,24 @@ async function invoke(name: string, body: unknown, signal?: AbortSignal) {
 export const startPersonalWhatsApp = () =>
   invoke('personal-whatsapp-link-start', { consent_version: 'pilot-v1' });
 
+const presenceSchema = z
+  .object({
+    connection_id: z.uuid(),
+    status: z.string(),
+    linked: z.boolean(),
+    live: z.boolean(),
+  })
+  .nullable();
+
+/** Marks the signed-in user online; null when they have no personal WhatsApp. */
+export async function reportPersonalWhatsAppPresence() {
+  const { data, error } = await createClient()
+    .rpc('personal_whatsapp_presence')
+    .abortSignal(AbortSignal.timeout(7000));
+  if (error) throw error;
+  return presenceSchema.parse(data);
+}
+
 const gatewayStartupRetryDelays = [0, 1_500, 2_500, 3_500, 5_000, 5_000, 5_000, 5_000];
 
 function wait(delayMs: number) {
@@ -101,8 +119,7 @@ export function personalWhatsAppReason(code: string | null | undefined) {
       'Your WhatsApp link has ended. Open My WhatsApp to reconnect.',
     PERSONAL_WHATSAPP_SEND_UNRESOLVED:
       'A previous send is pending or unconfirmed. Check its status before sending again.',
-    PERSONAL_WHATSAPP_CAPACITY:
-      'The pilot has reached its connected-number limit. Try again when a slot is free.',
+    PERSONAL_WHATSAPP_CAPACITY: 'WhatsApp server is busy. Try again in a few minutes.',
     PERSONAL_WHATSAPP_NOT_CONFIGURED:
       'Personal WhatsApp setup is not complete. Contact your administrator.',
     PERSONAL_WHATSAPP_BRANCH_REQUIRED: 'A branch assignment is required to link WhatsApp.',

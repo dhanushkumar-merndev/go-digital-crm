@@ -75,7 +75,29 @@ const rule = (
  * Starting point only. Portals change their email layout without notice, so
  * every keyword is editable in the connection form and checked in its preview.
  * Longer labels come first: "Customer Name" must win over a bare "Name".
+ * "Seller" is deliberately absent: on a listing enquiry the seller is the
+ * dealer, so "Seller mobile" is not reliably the customer's number.
  */
+const carPortalRules = [
+  rule('customer_name', ['Customer Name', 'Buyer Name', 'Name', 'Customer', 'Buyer']),
+  rule('phone', [
+    'Customer Mobile',
+    'Buyer Mobile',
+    'Mobile Number',
+    'Mobile No',
+    'Mobile / Cell',
+    'Mobile',
+    'Phone Number',
+    'Phone',
+    'Contact Number',
+    'Contact No',
+  ]),
+  rule('email', ['Contact Email', 'Email Address', 'Email ID', 'Email', 'E-mail']),
+  rule('location', ['City', 'Location']),
+  rule('interested_model', ['Car Name', 'Interested In', 'Model', 'Car']),
+  rule('message', ['Customer Comments', 'Buyer Message', 'Comments', 'Message', 'Request']),
+];
+
 export const portalEmailPresets: Record<
   PortalInboxProviderKey,
   { senderDomains: string[]; rules: PortalEmailRule[] }
@@ -83,45 +105,61 @@ export const portalEmailPresets: Record<
   justdial: {
     senderDomains: ['justdial.com'],
     rules: [
-      rule('customer_name', ['Caller Name', 'Customer Name', 'Name']),
-      rule('phone', ['Mobile No', 'Mobile Number', 'Mobile', 'Phone', 'Contact No', 'Contact']),
-      rule('email', ['Email ID', 'Email']),
-      rule('location', ['Area', 'Location', 'City']),
-      rule('interested_model', ['Searched For', 'Category', 'Requirement', 'Product']),
-      rule('message', ['Comments', 'Message', 'Query']),
+      rule('customer_name', ['Caller Name', 'Customer Name', 'Name', 'Customer', 'Caller']),
+      rule('phone', [
+        'Caller Number',
+        'Mobile No',
+        'Mobile Number',
+        'Mobile / Cell',
+        'Mobile',
+        'Phone',
+        'Contact No',
+        'Contact Number',
+      ]),
+      rule('email', ['Contact Email', 'Email Address', 'Email ID', 'Email', 'E-mail']),
+      rule('location', ['City', 'Location', 'Area']),
+      rule('interested_model', [
+        'Searched For',
+        'Service Required',
+        'Service',
+        'Category',
+        'Product',
+      ]),
+      rule('message', [
+        'Customer Requirement',
+        'Requirement',
+        'Comments',
+        'Message',
+        'Query',
+        'Request',
+      ]),
     ],
   },
-  carwale: {
-    senderDomains: ['carwale.com'],
-    rules: [
-      rule('customer_name', ['Customer Name', 'Buyer Name', 'Name']),
-      rule('phone', ['Mobile Number', 'Mobile', 'Phone', 'Contact']),
-      rule('email', ['Email ID', 'Email']),
-      rule('location', ['City', 'Location']),
-      rule('interested_model', ['Car Name', 'Interested In', 'Model', 'Car']),
-      rule('message', ['Comments', 'Message']),
-    ],
-  },
-  cardekho: {
-    senderDomains: ['cardekho.com'],
-    rules: [
-      rule('customer_name', ['Customer Name', 'Buyer Name', 'Name']),
-      rule('phone', ['Mobile Number', 'Mobile', 'Phone', 'Contact']),
-      rule('email', ['Email ID', 'Email']),
-      rule('location', ['City', 'Location']),
-      rule('interested_model', ['Car Name', 'Interested In', 'Model', 'Car']),
-      rule('message', ['Comments', 'Message']),
-    ],
-  },
+  carwale: { senderDomains: ['carwale.com'], rules: carPortalRules },
+  cardekho: { senderDomains: ['cardekho.com'], rules: carPortalRules },
   indiamart: {
     senderDomains: ['indiamart.com'],
     rules: [
-      rule('customer_name', ['Buyer Name', 'Contact Person', 'Name']),
-      rule('phone', ['Mobile Number', 'Mobile', 'Phone', 'Contact']),
-      rule('email', ['Email ID', 'Email']),
+      rule('customer_name', ['Buyer Name', 'Contact Person', 'Name', 'Buyer', 'Caller']),
+      rule('phone', [
+        'Buyer Mobile',
+        'Caller Number',
+        'Mobile Number',
+        'Mobile / Cell',
+        'Mobile',
+        'Phone',
+        'Contact Number',
+      ]),
+      rule('email', ['Contact Email', 'Email Address', 'Email ID', 'Email', 'E-mail']),
       rule('location', ['City', 'Location', 'Address']),
       rule('interested_model', ['Looking for', 'Product', 'Requirement', 'Subject']),
-      rule('message', ['Requirement Details', 'Description', 'Message']),
+      rule('message', [
+        'Buyer Message',
+        'Requirement Details',
+        'Description',
+        'Message',
+        'Request',
+      ]),
     ],
   },
 };
@@ -195,6 +233,9 @@ export function portalEmailHtmlToText(html: string): string {
     html
       .replace(/<(head|style|script|title)\b[\s\S]*?<\/\1\s*>/gi, ' ')
       .replace(/<!--[\s\S]*?-->/g, ' ')
+      // "Mobile: <a href="tel:+91...">Call customer</a>": the number lives
+      // only in the link, so it is written out ahead of the link text.
+      .replace(/<a\b[^>]*\bhref\s*=\s*["']\s*(?:tel|mailto):([^"'?]+)[^"']*["'][^>]*>/gi, ' $1 ')
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/(p|div|tr|li|h[1-6]|table|section|header|footer|blockquote)\s*>/gi, '\n')
       .replace(/<\/(td|th)\s*>/gi, ' | ')
@@ -223,19 +264,31 @@ function escapeRegExp(value: string) {
 
 const SEPARATORS = /^[\s:：\-–—=|>.]+/;
 
+// A label ends at a separator or the end of the line, so "Customer contact:
+// hidden" and "Forwarded message" are not labels. A dash separates only when
+// a space follows ("Car Name - Nexon", not "customer-facing"), and a full
+// stop only before another separator ("Mobile No.:", not "Customer. Total").
+const LABEL_END = String.raw`(?=\s*(?:[:：=|>]|[\-–—](?=\s)|\.(?=\s*(?:[:：=|>\-–—]|$))|$))`;
+
 function keywordPattern(keyword: string, anchored: boolean) {
   const words = keyword.trim().split(/\s+/).map(escapeRegExp).join('\\s+');
   // Anchored: the label opens the line (after bullets or a table border).
   // Unanchored: the label sits anywhere, but on word boundaries.
   return new RegExp(
-    anchored
-      ? `^[\\s*•·\\-|]*${words}(?![\\p{L}\\p{N}])`
-      : `(?<![\\p{L}\\p{N}])${words}(?![\\p{L}\\p{N}])`,
+    anchored ? `^[\\s*•·\\-|>]*${words}${LABEL_END}` : `(?<![\\p{L}\\p{N}])${words}${LABEL_END}`,
     'iu',
   );
 }
 
-type KeywordHit = { lineIndex: number; remainder: string };
+/**
+ * Lead emails also carry the dealer's, the portal's and the forwarding
+ * employee's contact details. A label preceded by one of these roles
+ * ("Dealer mobile:", "Platform support email:") never fills a customer field.
+ */
+const NON_CUSTOMER_ROLE =
+  /(?<![\p{L}\p{N}])(dealer|dealership|support|help\s*desk|helpdesk|platform|portal|recipient|account\s+manager|agent|executive|consultant|showroom|signature|not\s+(?:the\s+)?customer)(?![\p{L}\p{N}])/iu;
+
+type KeywordHit = { lineIndex: number; remainder: string; anchored: boolean };
 
 function findKeyword(lines: string[], keywords: readonly string[]): KeywordHit | null {
   // A label at the start of a line is far more reliable than the same word in
@@ -246,11 +299,13 @@ function findKeyword(lines: string[], keywords: readonly string[]): KeywordHit |
       const pattern = keywordPattern(keyword, anchored);
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
         const match = pattern.exec(lines[lineIndex]);
-        if (match)
-          return {
-            lineIndex,
-            remainder: lines[lineIndex].slice(match.index + match[0].length),
-          };
+        if (!match) continue;
+        if (!anchored && NON_CUSTOMER_ROLE.test(lines[lineIndex].slice(0, match.index))) continue;
+        return {
+          lineIndex,
+          remainder: lines[lineIndex].slice(match.index + match[0].length),
+          anchored,
+        };
       }
     }
   }
@@ -284,7 +339,11 @@ function capture(
   if (mode === 'NEXT_LINE') return nextLine || undefined;
   // A label alone on its line ("Mobile" then the number below) falls through
   // to the next line, the common layout of two-column tables pasted as text.
-  const value = sameLine || nextLine;
+  // A label met mid-line is not alone, so its next line belongs to something else.
+  // "Buyer message:" ending its line is a heading for the text below, even
+  // though the keyword "Message" sits mid-line.
+  const labelEndsLine = /^\s*[:：]\s*$/.test(hit.remainder);
+  const value = sameLine || (hit.anchored || labelEndsLine ? nextLine : '');
   if (!value) return undefined;
   if (mode === 'NEXT_WORD') return value.split(/\s+/)[0];
   return value;
@@ -315,10 +374,16 @@ const FIELD_MAX_LENGTH: Record<PortalEmailField, number> = {
   message: 1000,
 };
 
+/** "Not supplied", "N/A", "Hidden until unlocked": a label with no usable value. */
+const PLACEHOLDER_VALUE =
+  /^(?:not\s+(?:supplied|provided|available|shared|disclosed|given)|n\/?a|nil|none|null|unknown|-+|(?:hidden|withheld|masked|locked)\b.*)$/i;
+
 function cleanField(field: PortalEmailField, raw: string): string | undefined {
+  if (PLACEHOLDER_VALUE.test(raw.trim())) return undefined;
   if (field === 'phone') return normalizePortalPhone(raw) ?? undefined;
   if (field === 'email') return EMAIL_PATTERN.exec(raw)?.[0].toLowerCase();
-  const value = raw.replace(/[\s,;:.|-]+$/, '').trim();
+  // A customer's message keeps its closing full stop; a name or city does not.
+  const value = raw.replace(field === 'message' ? /[\s,;:|-]+$/ : /[\s,;:.|-]+$/, '').trim();
   return value ? value.slice(0, FIELD_MAX_LENGTH[field]) : undefined;
 }
 
@@ -333,7 +398,61 @@ export function parsePortalEmail(
   text: string,
   rules: readonly PortalEmailRule[],
 ): PortalEmailParseResult {
+  return parseLines(textLines(text), rules);
+}
+
+/** A line that only divides records: "-----", "*** Next enquiry ***". */
+const RECORD_DIVIDER =
+  /^[\s\-=_*~|:#.]*(?:next\s+(?:lead|enquiry|inquiry|requirement)[\s\-=_*~|:#.]*)?$/i;
+
+/**
+ * Every lead in the email. A digest names several customers, each under the
+ * customer-name label; reading it as one lead would pair the first
+ * customer's name with a later customer's number, so each name starts its
+ * own record. The record runs to the last divider line before the next name,
+ * or to that name. Lines above the first name (subject, portal header) belong
+ * to the first record only. One name, or the same name repeated, is one lead.
+ */
+export function parsePortalEmailLeads(
+  text: string,
+  rules: readonly PortalEmailRule[],
+): PortalEmailParseResult[] {
   const lines = textLines(text);
+  const nameRule = rules.find((item) => item.field === 'customer_name');
+  const patterns = (nameRule?.keywords ?? [])
+    .filter((keyword) => keyword.trim())
+    .map((keyword) => keywordPattern(keyword, true));
+  const starts: number[] = [];
+  const names = new Set<string>();
+  lines.forEach((line, index) => {
+    const match = patterns.map((pattern) => pattern.exec(line)).find(Boolean);
+    if (!match) return;
+    const value = cleanField(
+      'customer_name',
+      line.slice(match.index + match[0].length).replace(SEPARATORS, ''),
+    );
+    if (!value) return;
+    starts.push(index);
+    names.add(value.toLowerCase());
+  });
+  if (starts.length < 2 || names.size < 2) return [parseLines(lines, rules)];
+
+  const ends = starts.map((start, position) => {
+    const next = starts[position + 1] ?? lines.length;
+    for (let index = next - 1; index > start; index -= 1) {
+      if (RECORD_DIVIDER.test(lines[index])) return index;
+    }
+    return next;
+  });
+  return starts.map((start, position) => {
+    // A record opens after the previous one's divider, so a "Reference" line
+    // printed above the customer's name stays with that customer.
+    const from = position === 0 ? 0 : Math.min(start, ends[position - 1] + 1);
+    return parseLines(lines.slice(from, ends[position]), rules);
+  });
+}
+
+function parseLines(lines: string[], rules: readonly PortalEmailRule[]): PortalEmailParseResult {
   const allKeywords = rules.flatMap((item) => item.keywords);
   const fields: Partial<Record<PortalEmailField, string>> = {};
   for (const item of rules) {

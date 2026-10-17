@@ -52,7 +52,7 @@ export type CacheDiagnostic = {
 type CacheEntry<T> = { value: T; created_at: string; data_version?: number };
 type RedisResponse = { result?: unknown; error?: string };
 
-function configuration() {
+export function upstashConfiguration() {
   const enabled = Deno.env.get('UPSTASH_REDIS_ENABLED') === 'true';
   const url = Deno.env.get('UPSTASH_REDIS_REST_URL');
   const token = Deno.env.get('UPSTASH_REDIS_REST_TOKEN');
@@ -78,7 +78,7 @@ export async function cacheFingerprint(value: unknown) {
   return Array.from(new Uint8Array(digest), (part) => part.toString(16).padStart(2, '0')).join('');
 }
 
-class UpstashRest {
+export class UpstashRest {
   constructor(
     private readonly url: string,
     private readonly token: string,
@@ -131,6 +131,19 @@ class UpstashRest {
     await this.command(['EVAL', script, 1, key, token]);
   }
 
+  // Fixed-window counter: the first hit starts the window.
+  async consumeWindow(key: string, windowMs: number) {
+    const script = `
+      #!lua flags=allow-key-locking
+      local count = redis.call('incr', KEYS[1])
+      if count == 1 then redis.call('pexpire', KEYS[1], ARGV[1]) end
+      return {count, redis.call('pttl', KEYS[1])}
+    `;
+    const result = await this.command<unknown>(['EVAL', script, 1, key, String(windowMs)]);
+    if (!Array.isArray(result)) throw new Error('UPSTASH_UNAVAILABLE');
+    return { count: Number(result[0]), retry_after_ms: Math.max(0, Number(result[1])) };
+  }
+
   async consumeManualRefresh(key: string) {
     const script = `
       #!lua flags=allow-key-locking
@@ -168,7 +181,7 @@ function entryAgeSeconds(entry: CacheEntry<unknown>) {
 }
 
 export async function enforceManualRefresh(userId: string, resource: ManualRefreshResource) {
-  const config = configuration();
+  const config = upstashConfiguration();
   if (!config.enabled || !config.url || !config.token)
     return { enabled: false, allowed: true, remaining: null, retry_after_ms: null };
   const redis = new UpstashRest(config.url, config.token);
@@ -186,7 +199,7 @@ export async function enforceManualRefresh(userId: string, resource: ManualRefre
 
 /** Read the current refresh quota without consuming one of its attempts. */
 export async function getManualRefreshStatus(userId: string, resource: ManualRefreshResource) {
-  const config = configuration();
+  const config = upstashConfiguration();
   if (!config.enabled || !config.url || !config.token)
     return { enabled: false, allowed: true, remaining: null, retry_after_ms: null };
 
@@ -227,7 +240,7 @@ export async function readWorkspaceCache<T>(input: {
       } satisfies CacheDiagnostic,
     };
   };
-  const config = configuration();
+  const config = upstashConfiguration();
   if (!config.enabled || !config.url || !config.token) return loadWithoutCache('BYPASS');
 
   const redis = new UpstashRest(config.url, config.token);

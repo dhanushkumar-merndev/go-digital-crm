@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { aiCallLanguageSchema } from '../auto-call/ai-call-script-definition';
 import { readRpc } from '@/lib/supabase/read-rpc';
 import { createClient } from '@/lib/supabase/client';
 import { leadBuyerTypeSchema, leadCompanySchema } from './lead-buyer-type';
@@ -25,6 +26,8 @@ const leadDetailSchema = z.object({
     interested_model: nullableString,
     lifecycle_status: z.string(),
     temperature: z.enum(['COLD', 'WARM', 'HOT', 'DORMANT']).nullable(),
+    // Older cached payloads predate the field.
+    call_language: aiCallLanguageSchema.nullable().default(null),
     work_state: z.enum(['NEW_TODAY', 'PENDING', 'SLA_RISK']).nullable(),
     assigned_user_id: nullableUuid,
     assigned_user_name: nullableString,

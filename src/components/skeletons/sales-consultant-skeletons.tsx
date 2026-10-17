@@ -857,89 +857,6 @@ export function CallsSkeleton() {
 }
 
 // ==========================================
-// 6. AI VOICE CALLS SKELETON
-// ==========================================
-export function AiVoiceCallsSkeleton() {
-  return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
-      {/* Header */}
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <Skeleton className="h-3 w-16" />
-            <Skeleton className="size-3 rounded-full" />
-            <Skeleton className="h-3 w-24" />
-          </div>
-          <Skeleton className="h-8 w-44" />
-          <Skeleton className="mt-1 h-4 w-96 max-w-full" />
-        </div>
-      </div>
-
-      {/* 4 KPI Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Card key={i} className="shadow-none">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <Skeleton className="h-4 w-28" />
-                <Skeleton className="size-8 rounded-lg" />
-              </div>
-              <Skeleton className="mt-3 h-7 w-16" />
-              <Skeleton className="mt-1.5 h-3 w-28" />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Table Card */}
-      <Card className="shadow-none">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
-          <Skeleton className="h-9 w-64 rounded-md" />
-          <div className="flex items-center gap-2">
-            <Skeleton className="h-9 w-36 rounded-md" />
-            <Skeleton className="h-9 w-24 rounded-md" />
-          </div>
-        </div>
-
-        <div className="border-b bg-muted/40 px-4 py-3 flex items-center justify-between">
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-3 w-28" />
-          <Skeleton className="h-3 w-32" />
-          <Skeleton className="h-3 w-36" />
-          <Skeleton className="h-3 w-20" />
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-3 w-14" />
-        </div>
-
-        <div className="divide-y">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex items-center justify-between px-4 py-3.5">
-              <Skeleton className="h-4 w-20" />
-              <div className="w-28">
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="mt-1 h-3 w-20" />
-              </div>
-              <Skeleton className="h-5 w-28 rounded-full" />
-              <Skeleton className="h-4 w-44" />
-              <Skeleton className="h-5 w-16 rounded-full" />
-              <Skeleton className="h-4 w-12" />
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="size-8 rounded-md" />
-            </div>
-          ))}
-        </div>
-
-        <div className="flex items-center justify-between border-t px-4 py-3">
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-8 w-24 rounded-md" />
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-// ==========================================
 // 7. INBOX SKELETON (Split Two-Pane Messenger)
 // ==========================================
 export function InboxSkeleton({ embedded = false }: { embedded?: boolean } = {}) {
@@ -959,9 +876,7 @@ export function InboxSkeleton({ embedded = false }: { embedded?: boolean } = {})
       </div>
 
       {/* Two-Pane Messenger Layout */}
-      <Card
-        className={`overflow-hidden shadow-none ${embedded ? 'h-[680px]' : 'min-h-0 flex-1'}`}
-      >
+      <Card className={`overflow-hidden shadow-none ${embedded ? 'h-[680px]' : 'min-h-0 flex-1'}`}>
         <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-12">
           {/* Left: Conversation List */}
           <div className="border-r lg:col-span-4 flex flex-col">
@@ -1874,8 +1789,6 @@ export function getSalesConsultantSkeleton(slug: string = 'dashboard') {
       return <TasksSkeleton />;
     case 'calls':
       return <CallsSkeleton />;
-    case 'ai-voice-calls':
-      return <AiVoiceCallsSkeleton />;
     case 'messages':
     case 'inbox':
       return <InboxSkeleton />;

@@ -19,6 +19,8 @@
     "format:check": "prettier --check .",
     "test:api": "vitest run tests/api",
     "test:e2e:lead-flow": "playwright test tests/e2e/lead-flow.spec.mjs",
+    "test:e2e:website-chat": "playwright test tests/e2e/website-chat.spec.mjs",
+    "test:e2e:google-review": "playwright test tests/e2e/google-review-link.spec.mjs",
     "check:edge": "pnpm dlx deno@2.9.5 check supabase/functions/_shared/*.ts supabase/functions/*/index.ts",
     "check:supabase-config": "node scripts/check-supabase-config.mjs",
     "env:check": "node scripts/validate-env.mjs",

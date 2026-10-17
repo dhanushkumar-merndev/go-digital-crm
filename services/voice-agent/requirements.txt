@@ -1,0 +1,4 @@
+# The PIOPIY orchestrator with the providers this agent uses. Pinned: the
+# session code is written against this release's VoiceAgent.Action API.
+piopiy-ai[deepgram,groq,sarvam,silero]==0.6.1
+aiohttp>=3.11.12,<4

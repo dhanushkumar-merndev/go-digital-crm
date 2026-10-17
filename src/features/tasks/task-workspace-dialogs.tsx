@@ -95,7 +95,12 @@ const duePresets = [
       return next;
     },
   },
-  { id: 'tomorrow', label: 'Tomorrow 10 am', icon: CalendarCheck2, resolve: (now: Date) => atTen(now, 1) },
+  {
+    id: 'tomorrow',
+    label: 'Tomorrow 10 am',
+    icon: CalendarCheck2,
+    resolve: (now: Date) => atTen(now, 1),
+  },
   { id: 'three-days', label: 'In 3 days', icon: Calendar, resolve: (now: Date) => atTen(now, 3) },
   { id: 'week', label: 'Next week', icon: CalendarDays, resolve: (now: Date) => atTen(now, 7) },
 ];
@@ -140,9 +145,7 @@ export function TaskFormDialog({
   const [priority, setPriority] = useState(record?.priority ?? 'NORMAL');
   const [status, setStatus] = useState(record?.status ?? 'OPEN');
   const [dueAt, setDueAt] = useState(
-    record?.due_at
-      ? toLocalDateTime(record.due_at)
-      : toLocalInput(atTen(new Date(), 1)),
+    record?.due_at ? toLocalDateTime(record.due_at) : toLocalInput(atTen(new Date(), 1)),
   );
   const [duePreset, setDuePreset] = useState<string | null>(record ? null : 'tomorrow');
   const [errors, setErrors] = useState<TaskFormErrors>({});
@@ -456,10 +459,7 @@ export function TaskFormDialog({
                     }}
                   >
                     <Icon
-                      className={cn(
-                        'size-3.5',
-                        isSelected ? 'text-blue-600' : 'text-slate-400',
-                      )}
+                      className={cn('size-3.5', isSelected ? 'text-blue-600' : 'text-slate-400')}
                     />
                     <span>{preset.label}</span>
                   </button>

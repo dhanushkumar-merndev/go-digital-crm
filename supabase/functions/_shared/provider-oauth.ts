@@ -81,6 +81,19 @@ async function responseJson<T>(response: Response, safeCode: string) {
   return body;
 }
 
+/** Keeps only an https link on a Google host; anything else is dropped, not stored. */
+function googleReviewUrl(value: string | undefined) {
+  if (!value || value.length > 2048) return null;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const google = host === 'google.com' || host.endsWith('.google.com') || host === 'g.page';
+    return url.protocol === 'https:' && google ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function providerFetch(input: string | URL, init: RequestInit = {}) {
   return fetch(input, { ...init, signal: init.signal ?? AbortSignal.timeout(15_000) });
 }
@@ -479,7 +492,7 @@ export async function discoverProviderAssets(
         name: string;
         title?: string;
         storeCode?: string;
-        metadata?: { canOperateHealthData?: boolean; placeId?: string };
+        metadata?: { placeId?: string; newReviewUri?: string };
       }>;
     }>(
       await providerFetch(locationUrl, {
@@ -489,6 +502,7 @@ export async function discoverProviderAssets(
     );
     for (const location of locations.locations ?? []) {
       if (!/^locations\/[A-Za-z0-9_-]+$/.test(location.name)) continue;
+      const placeId = location.metadata?.placeId ?? null;
       assets.push({
         id: location.name,
         type: 'GBP_LOCATION',
@@ -497,7 +511,15 @@ export async function discoverProviderAssets(
         metadata: {
           account_name: account.accountName ?? account.name,
           store_code: location.storeCode ?? null,
-          place_id: location.metadata?.placeId ?? null,
+          place_id: placeId,
+          // Mapping this location fills the branch's empty review link from it
+          // (fill_branch_review_url_from_gbp). newReviewUri is Google's own link;
+          // the place-ID form is Google's documented fallback for a listed place.
+          review_url:
+            googleReviewUrl(location.metadata?.newReviewUri) ??
+            (placeId && /^[A-Za-z0-9_-]+$/.test(placeId)
+              ? `https://search.google.com/local/writereview?placeid=${placeId}`
+              : null),
         },
       });
       if (assets.length >= 200) break;

@@ -44,6 +44,15 @@ const schema = z
       .max(50),
     ivr_name: z.string().trim().max(120).optional(),
     team_name: z.string().trim().max(120).optional(),
+    // A caller who already has a lead rings that lead's telecaller first.
+    known_caller_routing: z.boolean().default(true),
+    // An audio file already uploaded to TeleCMI, played before agents ring.
+    inbound_greeting_file: z
+      .string()
+      .trim()
+      .max(120)
+      .regex(/^[\w .-]*$/, 'Use the file name exactly as shown in TeleCMI.')
+      .optional(),
     ai_stream_enabled: z.boolean().default(false),
     ai_stream_ws_url: z.url().max(2048).optional(),
   })
@@ -273,6 +282,8 @@ Deno.serve(async (request) => {
       })),
       ivr_name: input.ivr_name || null,
       team_name: input.team_name || null,
+      known_caller_routing: input.known_caller_routing,
+      inbound_greeting_file: input.inbound_greeting_file || null,
       ai_stream_enabled: input.ai_stream_enabled,
       ai_stream_ws_url: input.ai_stream_ws_url || null,
       ...(previousSeatLimit === null ? {} : { seat_limit: previousSeatLimit }),

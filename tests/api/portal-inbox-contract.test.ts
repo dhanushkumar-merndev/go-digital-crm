@@ -74,7 +74,17 @@ describe('portal email inbox connection', () => {
     expect(worker).toContain("getMailboxLock('INBOX', { readOnly: true })");
     expect(worker).toContain('`portal-inbox:${row.connection_id}:${row.claimed_at}`');
     expect(worker).toContain('senderMatches(candidate.from, domains)');
-    expect(worker).toContain('`email:${candidate.messageId}`');
+    // A test run opens the mailbox, then marks the connection CONNECTED before
+    // ingesting: ingest_provider_lead rejects a connection still AUTHORIZING.
+    const opened = worker.indexOf("getMailboxLock('INBOX', { readOnly: true })");
+    const markedConnected = worker.indexOf(".update({ status: 'CONNECTED' })");
+    expect(markedConnected).toBeGreaterThan(opened);
+    expect(markedConnected).toBeLessThan(
+      worker.indexOf("supabase.rpc(\n            'ingest_provider_lead'"),
+    );
+    // One lead per digest record; the first keeps the plain message key.
+    expect(worker).toContain('parsePortalEmailLeads(');
+    expect(worker).toContain("`email:${candidate.messageId}${position ? `#${position + 1}` : ''}`");
     expect(read('trigger/minute-dispatch.ts')).toContain('portal_inbox: runPortalInboxDue');
   });
 

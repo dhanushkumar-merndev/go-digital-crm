@@ -172,5 +172,4 @@ describe('One desktop view across every screen size', () => {
     expect(layout).toContain('VIEWPORT_ZOOM_SCRIPT');
     expect(layout).toContain('<ViewportScale />');
   });
-
 });

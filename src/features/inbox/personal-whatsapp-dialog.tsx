@@ -106,7 +106,9 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
     data && Date.parse(data.attempt_expires_at) <= now && !connected && !data.masked_phone;
   const qrValid =
     data?.qr && data.qr_expires_at && Date.parse(data.qr_expires_at) > now && !expired;
-  const working = data?.enabled && !expired && !connected;
+  // Every socket is in use by someone online; the link is kept and retried.
+  const serverBusy = data?.enabled && data.status === 'BUSY';
+  const working = data?.enabled && !expired && !connected && !serverBusy;
   const busy = link.isPending || disconnect.isPending;
   const error = link.error ?? disconnect.error;
   return (
@@ -181,6 +183,16 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
                 Text-only sync · CRM contacts · Up to 30 days
               </p>
             </div>
+          ) : serverBusy ? (
+            <div className="space-y-3 text-sm">
+              <p>WhatsApp server is busy. Try again in a few minutes.</p>
+              <p className="text-xs text-muted-foreground">
+                Your number stays linked. It reconnects on its own once there is room.
+              </p>
+              <Button variant="outline" disabled={busy} onClick={() => link.mutate()}>
+                Try again
+              </Button>
+            </div>
           ) : working ? (
             <div className="space-y-3 text-center">
               {qrValid ? (
@@ -195,7 +207,11 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
                 <div className="flex min-h-40 flex-col items-center justify-center gap-3">
                   <LoaderCircle className="size-6 animate-spin" />
                   <p className="text-sm">
-                    {data.masked_phone ? 'Reconnecting your WhatsApp…' : 'Preparing your QR code…'}
+                    {data.status === 'IDLE'
+                      ? 'Paused while you were away. Reconnecting…'
+                      : data.masked_phone
+                        ? 'Reconnecting your WhatsApp…'
+                        : 'Preparing your QR code…'}
                   </p>
                 </div>
               )}

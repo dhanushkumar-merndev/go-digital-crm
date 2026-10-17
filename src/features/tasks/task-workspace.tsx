@@ -593,9 +593,7 @@ function TaskTable({
                     <TableRow
                       key={row.id}
                       data-overdue={overdue || undefined}
-                      className={cn(
-                        overdue ? overdueTableRowClassName : 'hover:bg-slate-50/70',
-                      )}
+                      className={cn(overdue ? overdueTableRowClassName : 'hover:bg-slate-50/70')}
                     >
                       {row.getVisibleCells().map((cell) => (
                         <TableCell key={cell.id} className="px-4 py-3 align-middle text-xs">

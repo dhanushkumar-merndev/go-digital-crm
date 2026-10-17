@@ -9,6 +9,7 @@ function source(relativePath: string) {
 const migration = source('supabase/migrations/202609160003_lead_model_search_rpc.sql');
 const api = source('src/features/leads/lead-workspace-api.ts');
 const workspace = source('src/features/leads/lead-workspace.tsx');
+const picker = source('src/features/leads/interested-model-picker.tsx');
 
 describe('lead interested model search contract', () => {
   it('protects model options by tenant, authentication, and lead permissions', () => {
@@ -34,11 +35,15 @@ describe('lead interested model search contract', () => {
     expect(api).toContain('target_limit: params.limit ?? 5');
   });
 
-  it('wires SearchSelect with debounced search in LeadCreateDialog', () => {
-    expect(workspace).toContain('SearchSelect');
-    expect(workspace).toContain('fetchInterestedModelOptions');
-    expect(workspace).toContain('debouncedModelSearch');
-    expect(workspace).toContain('useDebouncedValue(modelSearch, 250)');
-    expect(workspace).toContain('modelSelectOptions');
+  it('wires SearchSelect with debounced server search in the shared model picker', () => {
+    expect(picker).toContain('<SearchSelect');
+    expect(picker).toContain('fetchInterestedModelOptions(');
+    expect(picker).toContain('useDebouncedValue(search, 250)');
+    expect(picker).toContain("queryKey: ['lead-interested-models', ...queryScope");
+    // LeadCreateDialog and the requirements editor both use it.
+    expect(workspace).toContain('<InterestedModelPicker');
+    expect(source('src/features/leads/lead-requirements-panel.tsx')).toContain(
+      '<InterestedModelPicker',
+    );
   });
 });

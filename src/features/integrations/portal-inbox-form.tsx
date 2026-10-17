@@ -26,7 +26,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   maskMailbox,
   normalizeSenderDomain,
-  parsePortalEmail,
+  parsePortalEmailLeads,
   PORTAL_MAX_KEYWORDS_PER_RULE,
   PORTAL_MAX_KEYWORD_LENGTH,
   PORTAL_MAX_SENDER_DOMAINS,
@@ -213,13 +213,15 @@ export function PortalInboxFields({
   const shareable = (mailboxes.data ?? []).filter((mailbox) => mailbox.id !== existing?.id);
   const legacyWebhook = Boolean(existing) && !isEmailInboxConnection(existing);
   const hasStoredPassword = portalHasStoredPassword(existing, draft);
-  const preview = useMemo(
+  const previewRecords = useMemo(
     () =>
       draft.sample.trim()
-        ? parsePortalEmail(previewText(draft.sample), portalRulesFromDraft(draft))
+        ? parsePortalEmailLeads(previewText(draft.sample), portalRulesFromDraft(draft))
         : null,
     [draft],
   );
+  const preview = previewRecords?.[0] ?? null;
+  const previewLeadCount = previewRecords?.filter((record) => record.ok).length ?? 0;
 
   const addSender = () => {
     const domain = normalizeSenderDomain(draft.senderInput);
@@ -589,9 +591,11 @@ export function PortalInboxFields({
               </TableBody>
             </Table>
             <p className="border-t px-3 py-2 text-xs text-muted-foreground">
-              {preview.ok
-                ? 'This email would create a lead.'
-                : 'This email would be skipped: a lead needs a name and a mobile number.'}
+              {previewRecords && previewRecords.length > 1
+                ? `This email lists ${previewRecords.length} customers (the first is shown); ${previewLeadCount} would become ${previewLeadCount === 1 ? 'a lead' : 'leads'}. Each needs a name and a mobile number.`
+                : preview.ok
+                  ? 'This email would create a lead.'
+                  : 'This email would be skipped: a lead needs a name and a mobile number.'}
             </p>
           </div>
         )}

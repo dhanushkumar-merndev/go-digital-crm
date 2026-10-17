@@ -129,6 +129,9 @@ export function RoleSwitcher({
     });
   }
 
+  // The website chat runs inside a dealer's page; it is not a CRM workspace.
+  if (pathname.startsWith('/embed/')) return null;
+
   return (
     <>
       <Button

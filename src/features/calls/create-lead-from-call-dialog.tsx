@@ -72,7 +72,10 @@ export function CreateLeadFromCallDialog({
       setInterestedModel('');
       onCreated();
       onOpenChange(false);
-      router.push(leadDetailHref(role, result.lead_id));
+      // The caller's number may already belong to a customer: the lead opens
+      // on the possible-match review, where the user links or creates one
+      // (never merged automatically, AGENTS.md rule 11).
+      router.push(`${leadDetailHref(role, result.lead_id)}?match=customer`);
     },
   });
   const close = (open: boolean) => {

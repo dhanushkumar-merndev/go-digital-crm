@@ -77,6 +77,9 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
     );
     await db.exec(source('supabase/migrations/202609280008_personal_whatsapp_remove_send_gap.sql'));
     await db.exec(
+      source('supabase/migrations/202610141793_personal_whatsapp_presence_capacity.sql'),
+    );
+    await db.exec(
       `create trigger personal_message_lead_snapshot before insert or update of lead_id,conversation_id,organization_id on personal_whatsapp_messages for each row execute function app_private.snapshot_message_lead()`,
     );
     await db.query('insert into organizations(id) values($1)', [org]);
@@ -551,8 +554,8 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
     await claims(actor);
     expect(await rpc('get_personal_whatsapp_status')).toMatchObject({ qr: null });
   });
-  it('rejects a sixth active account across the deployment', async () => {
-    for (let i = 0; i < 4; i++) {
+  it('links a sixth account and beyond: the gateway, not a fixed cap, decides', async () => {
+    for (let i = 0; i < 6; i++) {
       const user = randomUUID();
       await db.query('insert into profiles(id,organization_id) values($1,$2)', [user, org]);
       await db.query(
@@ -562,9 +565,63 @@ describe('personal WhatsApp PostgreSQL pilot', () => {
       await db.query('insert into user_branch_access values($1,$2,$3)', [org, user, branch]);
       await rpc('personal_whatsapp_link_authorize', [user, org]);
     }
-    await expect(rpc('personal_whatsapp_link_authorize', [other, org])).rejects.toThrow(
-      'PERSONAL_WHATSAPP_CAPACITY',
+    await expect(rpc('personal_whatsapp_link_authorize', [other, org])).resolves.toMatchObject({
+      connection_id: expect.any(String),
+    });
+  });
+  it('reports the owner online and whether their socket is live', async () => {
+    await db.query(
+      "update personal_whatsapp_sessions set owner_seen_at=now()-interval '1 hour' where connection_id=$1",
+      [session.connection_id],
     );
+    await claims(actor);
+    expect(await rpc('personal_whatsapp_presence')).toMatchObject({
+      connection_id: session.connection_id,
+      linked: true,
+      live: true,
+    });
+    await claims(actor, 'service_role');
+    const seen = await db.query<{ recent: boolean }>(
+      "select owner_seen_at>now()-interval '1 minute' as recent from personal_whatsapp_sessions where connection_id=$1",
+      [session.connection_id],
+    );
+    expect(seen.rows[0].recent).toBe(true);
+  });
+  it('pauses an away owner without unlinking, then marks a refused reconnect busy', async () => {
+    await gateway('idle');
+    await claims(actor);
+    expect(await rpc('personal_whatsapp_presence')).toMatchObject({
+      status: 'IDLE',
+      linked: true,
+      live: false,
+    });
+    await claims(actor, 'service_role');
+    expect(
+      await rpc('personal_whatsapp_capacity_wait', [session.connection_id, session.generation]),
+    ).toBe('BUSY');
+    await claims(actor);
+    expect(await rpc('get_personal_whatsapp_status')).toMatchObject({
+      enabled: true,
+      status: 'BUSY',
+      send_disabled_reason: 'PERSONAL_WHATSAPP_CAPACITY',
+    });
+  });
+  it('cancels a brand-new link the busy gateway could not open', async () => {
+    const fresh = (await rpc('personal_whatsapp_link_authorize', [other, org])) as typeof session;
+    expect(
+      await rpc('personal_whatsapp_capacity_wait', [fresh.connection_id, fresh.generation]),
+    ).toBe('CANCELLED');
+    const row = await db.query<{ enabled: boolean; safe_error_code: string }>(
+      'select enabled,safe_error_code from personal_whatsapp_sessions where connection_id=$1',
+      [fresh.connection_id],
+    );
+    expect(row.rows[0]).toEqual({ enabled: false, safe_error_code: 'PERSONAL_WHATSAPP_CAPACITY' });
+  });
+  it('lets only the gateway mark capacity', async () => {
+    await claims(actor);
+    await expect(
+      rpc('personal_whatsapp_capacity_wait', [session.connection_id, session.generation]),
+    ).rejects.toThrow();
   });
   it('refuses manager accounts even with message permissions', async () => {
     const managerRole = randomUUID();

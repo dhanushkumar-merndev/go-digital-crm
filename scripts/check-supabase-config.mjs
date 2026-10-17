@@ -12,11 +12,19 @@ const publicBoundaryFunctions = new Set([
   'provider-webhook-telecmi',
   'provider-call-flow-telecmi',
   'provider-webhook-ai-voice',
+  'provider-ivr-piopiy',
+  'provider-webhook-piopiy',
+  // Called by services/voice-agent; HMAC-signed with AI_AGENT_SERVICE_SECRET.
+  'ai-agent-call-context',
+  'provider-ai-agent-result',
   'provider-webhook-whatsapp',
   'provider-webhook-indiamart',
   'provider-webhook-carwale',
   'provider-webhook-cardekho',
   'provider-webhook-justdial',
+  'website-widget-config',
+  'website-chat-lead',
+  'lead-api',
 ]);
 
 const functionNames = readdirSync(functionsDirectory)
