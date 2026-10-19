@@ -194,6 +194,10 @@ import {
   openLeadWhatsAppConversation,
   type LeadWhatsAppChannel,
 } from './lead-whatsapp-api';
+import {
+  SendReviewRequestDialog,
+  type ReviewTarget,
+} from '@/features/reviews/send-review-request-dialog';
 
 const filterDayFormat = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' });
 
@@ -2125,6 +2129,8 @@ function LeadTable({
   onTransferToSales,
   onCancelSalesHandoff,
   onRequestDuplicateDeletion,
+  canAskReview,
+  onAskReview,
   onPendingFollowup,
 }: {
   role: string;
@@ -2171,6 +2177,8 @@ function LeadTable({
   onTransferToSales: (lead: LeadRecord) => void;
   onCancelSalesHandoff: (lead: LeadRecord) => void;
   onRequestDuplicateDeletion: (lead: LeadRecord) => void;
+  canAskReview: boolean;
+  onAskReview: (lead: LeadRecord) => void;
   onPendingFollowup: (request: PendingFollowupRequest) => void;
 }) {
   const isManagerView = [
@@ -3194,6 +3202,14 @@ function LeadTable({
                       </DropdownMenuItem>
                     </>
                   )}
+                  {canAskReview && !historyLeadIds.has(row.original.id) && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => onAskReview(row.original)}>
+                        <Star className="size-4" /> Ask for a review
+                      </DropdownMenuItem>
+                    </>
+                  )}
                   {canRequestDuplicateDeletion &&
                     !historyLeadIds.has(row.original.id) &&
                     row.original.phone_lead_count > 1 &&
@@ -3251,6 +3267,8 @@ function LeadTable({
       onTransferToSales,
       onCancelSalesHandoff,
       onRequestDuplicateDeletion,
+      canAskReview,
+      onAskReview,
       onPersonalFlagChange,
       personalFlagsPending,
       role,
@@ -4112,6 +4130,7 @@ export function LeadWorkspace({
   const [matchingLead, setMatchingLead] = useState<LeadRecord | null>(null);
   const [callAfterCustomerMatch, setCallAfterCustomerMatch] = useState(false);
   const [duplicateDeletionLead, setDuplicateDeletionLead] = useState<LeadRecord | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null);
   const [pendingFollowup, setPendingFollowup] = useState<PendingFollowupRequest | null>(null);
   const debouncedSearch = useDebouncedValue(query.search, 300);
   const requestQuery = useMemo(
@@ -4760,6 +4779,14 @@ export function LeadWorkspace({
         onTransferToSales={setHandoffLead}
         onCancelSalesHandoff={setHandoffCancellationLead}
         onRequestDuplicateDeletion={setDuplicateDeletionLead}
+        canAskReview={!spec.readOnly && (role === 'telecaller' || role === 'sales-consultant')}
+        onAskReview={(lead) =>
+          setReviewTarget({
+            leadId: lead.id,
+            customerName: lead.customer_name,
+            phone: lead.phone,
+          })
+        }
         onPendingFollowup={setPendingFollowup}
       />
       {workspaceSession?.organizationId && providerCallLead?.customer_id ? (
@@ -4954,6 +4981,14 @@ export function LeadWorkspace({
         open={Boolean(duplicateDeletionLead)}
         onOpenChange={(open) => !open && setDuplicateDeletionLead(null)}
       />
+      {reviewTarget ? (
+        <SendReviewRequestDialog
+          key={reviewTarget.leadId}
+          open
+          target={reviewTarget}
+          onOpenChange={(open) => !open && setReviewTarget(null)}
+        />
+      ) : null}
     </div>
   );
 }

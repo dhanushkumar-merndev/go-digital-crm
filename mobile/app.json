@@ -24,9 +24,13 @@
           "isAndroidForegroundServiceEnabled": true
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-background-task"
     ],
-    "ios": { "supportsTablet": false, "bundleIdentifier": "com.godigitalmarketing.crm" },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.godigitalmarketing.crm"
+    },
     "android": {
       "package": "com.godigitalmarketing.crm",
       "permissions": [
@@ -35,6 +39,8 @@
         "ACCESS_BACKGROUND_LOCATION"
       ]
     },
-    "experiments": { "typedRoutes": true }
+    "experiments": {
+      "typedRoutes": true
+    }
   }
 }

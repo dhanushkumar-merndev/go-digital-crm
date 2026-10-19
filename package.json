@@ -21,6 +21,7 @@
     "test:e2e:lead-flow": "playwright test tests/e2e/lead-flow.spec.mjs",
     "test:e2e:website-chat": "playwright test tests/e2e/website-chat.spec.mjs",
     "test:e2e:google-review": "playwright test tests/e2e/google-review-link.spec.mjs",
+    "test:e2e:role-navigation": "playwright test tests/e2e/role-navigation.spec.mjs --workers=1",
     "check:edge": "pnpm dlx deno@2.9.5 check supabase/functions/_shared/*.ts supabase/functions/*/index.ts",
     "check:supabase-config": "node scripts/check-supabase-config.mjs",
     "env:check": "node scripts/validate-env.mjs",

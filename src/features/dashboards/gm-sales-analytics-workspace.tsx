@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { BarChart3, CarFront, FileText, PhoneCall, Trophy, UsersRound } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import {
@@ -8,10 +10,12 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import { SectionCard } from '@/components/shared/section-card';
 import { PerformanceDateRangeSelector } from '@/components/shared/performance-date-range-selector';
 import { GmSalesAnalyticsSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent } from '@/components/ui/card';
 import { performanceRangeForLastDays, performanceRangeLabel } from '@/lib/performance-date-range';
 import {
   Table,
@@ -22,6 +26,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { Metric } from '@/lib/domain';
+import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import {
   AGGREGATE_REALTIME_MIN_INTERVAL_MS,
   DASHBOARD_QUERY_GC_TIME_MS,
@@ -34,24 +39,36 @@ import { fetchGmSalesAnalytics, gmSalesAnalyticsSchema } from './gm-sales-analyt
 export type GmSalesAnalyticsView =
   'sales-performance' | 'showroom-comparison' | 'consultant-ranking' | 'model-performance';
 
-const copy: Record<GmSalesAnalyticsView, { title: string; description: string }> = {
-  'sales-performance': {
-    title: 'Sales Performance',
+// One page, four tabs: every view reads the same aggregate payload, so switching
+// tabs re-renders from cache instead of fetching again. The old per-view routes
+// redirect here with `?view=`.
+const views: Array<{ value: GmSalesAnalyticsView; label: string; description: string }> = [
+  {
+    value: 'sales-performance',
+    label: 'Performance',
     description: 'Organization-wide sales activity within your authorized branch scope.',
   },
-  'showroom-comparison': {
-    title: 'Showroom Comparison',
+  {
+    value: 'showroom-comparison',
+    label: 'Showroom comparison',
     description: 'Compare branch activity using only live, scope-authorized CRM records.',
   },
-  'consultant-ranking': {
-    title: 'Sales Consultant Ranking',
+  {
+    value: 'consultant-ranking',
+    label: 'Consultant ranking',
     description: 'Rank active sales consultants by current-period CRM outcomes.',
   },
-  'model-performance': {
-    title: 'Model Performance',
+  {
+    value: 'model-performance',
+    label: 'Model performance',
     description: 'Interested-model demand in your authorized sales lead scope.',
   },
-};
+];
+const defaultView: GmSalesAnalyticsView = 'sales-performance';
+
+function parseView(value: string | null): GmSalesAnalyticsView {
+  return views.find((item) => item.value === value)?.value ?? defaultView;
+}
 
 function initials(name: string) {
   return name
@@ -62,8 +79,16 @@ function initials(name: string) {
     .join('');
 }
 
-export function GmSalesAnalyticsWorkspace({ view }: { view: GmSalesAnalyticsView }) {
+export function GmSalesAnalyticsWorkspace() {
   const session = useWorkspaceSession();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [view, setView] = useState(() => parseView(searchParams.get('view')));
+  const changeView = (next: string) => {
+    const parsed = parseView(next);
+    setView(parsed);
+    replaceQueryString(pathname, parsed === defaultView ? '' : `view=${parsed}`);
+  };
   const [range, setRange] = useState(() => performanceRangeForLastDays(30));
   const query = usePersistedQuery({
     // Every GM analytics route consumes the same bounded aggregate payload.
@@ -82,7 +107,7 @@ export function GmSalesAnalyticsWorkspace({ view }: { view: GmSalesAnalyticsView
       minIntervalMs: AGGREGATE_REALTIME_MIN_INTERVAL_MS,
     })),
   );
-  const heading = copy[view];
+  const activeView = views.find((item) => item.value === view) ?? views[0];
   if (query.isPending) return <GmSalesAnalyticsSkeleton />;
   if (query.isError || !query.data)
     return (
@@ -138,13 +163,29 @@ export function GmSalesAnalyticsWorkspace({ view }: { view: GmSalesAnalyticsView
     <div className="mx-auto max-w-[1800px] space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="mb-2 text-xs text-muted-foreground">GM Sales Executive › Analytics</div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">{heading.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{heading.description}</p>
+          <nav aria-label="Breadcrumb" className="mb-2 text-xs text-muted-foreground">
+            <Link href="/gm-sales/dashboard" className="hover:text-foreground hover:underline">
+              Dashboard
+            </Link>{' '}
+            › Sales Analytics
+          </nav>
+          <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">Sales Analytics</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{activeView.description}</p>
         </div>
         <PerformanceDateRangeSelector value={range} onChange={setRange} />
       </div>
       <KpiGrid metrics={metrics} className="xl:grid-cols-5" />
+      <Tabs value={view} onValueChange={changeView}>
+        <div className="overflow-x-auto pb-1">
+          <TabsList>
+            {views.map((item) => (
+              <TabsTrigger key={item.value} value={item.value}>
+                {item.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+      </Tabs>
       {view === 'sales-performance' ? <PerformanceContent data={data} /> : null}
       {view === 'showroom-comparison' ? <BranchTable data={data} /> : null}
       {view === 'consultant-ranking' ? <ConsultantTable data={data} /> : null}
@@ -156,43 +197,39 @@ export function GmSalesAnalyticsWorkspace({ view }: { view: GmSalesAnalyticsView
 function PerformanceContent({ data }: { data: Awaited<ReturnType<typeof fetchGmSalesAnalytics>> }) {
   return (
     <div className="grid gap-5 xl:grid-cols-12">
-      <Card className="shadow-none xl:col-span-7">
-        <CardHeader>
-          <CardTitle className="text-base">Daily trend</CardTitle>
-          <CardDescription>Leads and bookings, by day</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <EChart
-            kind="line"
-            data={data.daily.map((row) => ({
-              name: row.name,
-              value: row.leads,
-              secondary: row.bookings,
-            }))}
-            seriesNames={['Leads', 'Bookings']}
-            className="h-[320px]"
-          />
-        </CardContent>
-      </Card>
-      <Card className="shadow-none xl:col-span-5">
-        <CardHeader>
-          <CardTitle className="text-base">Sales funnel volumes</CardTitle>
-          <CardDescription>Activity counts in the selected period</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <EChart
-            kind="funnel"
-            data={[
-              { name: 'Leads', value: data.kpis.leads },
-              { name: 'Calls', value: data.kpis.calls },
-              { name: 'Test drives', value: data.kpis.test_drives },
-              { name: 'Quotations', value: data.kpis.quotations },
-              { name: 'Bookings', value: data.kpis.bookings },
-            ]}
-            className="h-[320px]"
-          />
-        </CardContent>
-      </Card>
+      <SectionCard
+        title="Daily trend"
+        description="Leads and bookings, by day"
+        className="xl:col-span-7"
+      >
+        <EChart
+          kind="line"
+          data={data.daily.map((row) => ({
+            name: row.name,
+            value: row.leads,
+            secondary: row.bookings,
+          }))}
+          seriesNames={['Leads', 'Bookings']}
+          className="h-[320px]"
+        />
+      </SectionCard>
+      <SectionCard
+        title="Sales funnel volumes"
+        description="Activity counts in the selected period"
+        className="xl:col-span-5"
+      >
+        <EChart
+          kind="funnel"
+          data={[
+            { name: 'Leads', value: data.kpis.leads },
+            { name: 'Calls', value: data.kpis.calls },
+            { name: 'Test drives', value: data.kpis.test_drives },
+            { name: 'Quotations', value: data.kpis.quotations },
+            { name: 'Bookings', value: data.kpis.bookings },
+          ]}
+          className="h-[320px]"
+        />
+      </SectionCard>
       <div className="xl:col-span-12">
         <BranchTable data={data} compact />
       </div>
@@ -208,166 +245,155 @@ function BranchTable({
   compact?: boolean;
 }) {
   return (
-    <Card className="overflow-hidden shadow-none">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <BarChart3 className="size-4 text-blue-600" /> Branch performance
-        </CardTitle>
-        <CardDescription>
-          Only branches in the GM&apos;s current authorized scope are included.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="overflow-x-auto p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Showroom</TableHead>
-              <TableHead>Leads</TableHead>
-              <TableHead>Calls</TableHead>
-              <TableHead>Test drives</TableHead>
-              <TableHead>Quotations</TableHead>
-              <TableHead>Bookings</TableHead>
-              <TableHead>Conversion</TableHead>
+    <SectionCard
+      title="Branch performance"
+      description="Only branches in the GM's current authorized scope are included."
+      action={<BarChart3 className="size-4 text-blue-600" />}
+      flush
+      contentClassName="overflow-x-auto"
+    >
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Showroom</TableHead>
+            <TableHead>Leads</TableHead>
+            <TableHead>Calls</TableHead>
+            <TableHead>Test drives</TableHead>
+            <TableHead>Quotations</TableHead>
+            <TableHead>Bookings</TableHead>
+            <TableHead>Conversion</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.branches.map((branch) => (
+            <TableRow key={branch.id}>
+              <TableCell className="font-medium">{branch.name}</TableCell>
+              <TableCell>{branch.leads}</TableCell>
+              <TableCell>{branch.calls}</TableCell>
+              <TableCell>{branch.test_drives}</TableCell>
+              <TableCell>{branch.quotations}</TableCell>
+              <TableCell>{branch.bookings}</TableCell>
+              <TableCell>
+                <Badge variant={branch.conversion >= 10 ? 'success' : 'outline'}>
+                  {branch.conversion.toFixed(1)}%
+                </Badge>
+              </TableCell>
             </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.branches.map((branch) => (
-              <TableRow key={branch.id}>
-                <TableCell className="font-medium">{branch.name}</TableCell>
-                <TableCell>{branch.leads}</TableCell>
-                <TableCell>{branch.calls}</TableCell>
-                <TableCell>{branch.test_drives}</TableCell>
-                <TableCell>{branch.quotations}</TableCell>
-                <TableCell>{branch.bookings}</TableCell>
-                <TableCell>
-                  <Badge variant={branch.conversion >= 10 ? 'success' : 'outline'}>
-                    {branch.conversion.toFixed(1)}%
-                  </Badge>
-                </TableCell>
-              </TableRow>
-            ))}
-            {!data.branches.length ? (
-              <TableRow>
-                <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
-                  No accessible active branches are available.
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      </CardContent>
+          ))}
+          {!data.branches.length ? (
+            <TableRow>
+              <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                No accessible active branches are available.
+              </TableCell>
+            </TableRow>
+          ) : null}
+        </TableBody>
+      </Table>
       {compact ? null : (
-        <CardContent className="border-t py-3 text-xs text-muted-foreground">
+        <p className="border-t px-4 py-3 text-xs text-muted-foreground">
           Sorted by bookings, then leads. This does not infer or display unavailable revenue/target
           values.
-        </CardContent>
+        </p>
       )}
-    </Card>
+    </SectionCard>
   );
 }
 
 function ConsultantTable({ data }: { data: Awaited<ReturnType<typeof fetchGmSalesAnalytics>> }) {
   return (
-    <Card className="overflow-hidden shadow-none">
-      <CardHeader>
-        <CardTitle className="text-base">Consultant leaderboard</CardTitle>
-        <CardDescription>
-          Ranked by bookings, quotations, calls, then consultant name.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="overflow-x-auto p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Rank</TableHead>
-              <TableHead>Consultant</TableHead>
-              <TableHead>Showroom</TableHead>
-              <TableHead>Leads</TableHead>
-              <TableHead>Calls</TableHead>
-              <TableHead>Drives</TableHead>
-              <TableHead>Quotes</TableHead>
-              <TableHead>Bookings</TableHead>
-              <TableHead>Conversion</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.consultants.map((member, index) => (
-              <TableRow key={member.user_id}>
-                <TableCell className="font-semibold">{index + 1}</TableCell>
-                <TableCell>
-                  <span className="flex items-center gap-2">
-                    <span className="grid size-8 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700">
-                      {initials(member.full_name)}
-                    </span>
-                    {member.full_name}
+    <SectionCard
+      title="Consultant leaderboard"
+      description="Ranked by bookings, quotations, calls, then consultant name."
+      flush
+      contentClassName="overflow-x-auto"
+    >
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Rank</TableHead>
+            <TableHead>Consultant</TableHead>
+            <TableHead>Showroom</TableHead>
+            <TableHead>Leads</TableHead>
+            <TableHead>Calls</TableHead>
+            <TableHead>Drives</TableHead>
+            <TableHead>Quotes</TableHead>
+            <TableHead>Bookings</TableHead>
+            <TableHead>Conversion</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.consultants.map((member, index) => (
+            <TableRow key={member.user_id}>
+              <TableCell className="font-semibold">{index + 1}</TableCell>
+              <TableCell>
+                <span className="flex items-center gap-2">
+                  <span className="grid size-8 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700">
+                    {initials(member.full_name)}
                   </span>
-                </TableCell>
-                <TableCell>{member.branch_name}</TableCell>
-                <TableCell>{member.leads}</TableCell>
-                <TableCell>{member.calls}</TableCell>
-                <TableCell>{member.test_drives}</TableCell>
-                <TableCell>{member.quotations}</TableCell>
-                <TableCell>{member.bookings}</TableCell>
-                <TableCell>
-                  <Badge variant={member.conversion >= 10 ? 'success' : 'outline'}>
-                    {member.conversion.toFixed(1)}%
-                  </Badge>
-                </TableCell>
-              </TableRow>
-            ))}
-            {!data.consultants.length ? (
-              <TableRow>
-                <TableCell colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
-                  No active consultants are visible in your current scope.
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+                  {member.full_name}
+                </span>
+              </TableCell>
+              <TableCell>{member.branch_name}</TableCell>
+              <TableCell>{member.leads}</TableCell>
+              <TableCell>{member.calls}</TableCell>
+              <TableCell>{member.test_drives}</TableCell>
+              <TableCell>{member.quotations}</TableCell>
+              <TableCell>{member.bookings}</TableCell>
+              <TableCell>
+                <Badge variant={member.conversion >= 10 ? 'success' : 'outline'}>
+                  {member.conversion.toFixed(1)}%
+                </Badge>
+              </TableCell>
+            </TableRow>
+          ))}
+          {!data.consultants.length ? (
+            <TableRow>
+              <TableCell colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
+                No active consultants are visible in your current scope.
+              </TableCell>
+            </TableRow>
+          ) : null}
+        </TableBody>
+      </Table>
+    </SectionCard>
   );
 }
 
 function ModelTable({ data }: { data: Awaited<ReturnType<typeof fetchGmSalesAnalytics>> }) {
   return (
-    <Card className="overflow-hidden shadow-none">
-      <CardHeader>
-        <CardTitle className="text-base">Interested-model demand</CardTitle>
-        <CardDescription>
-          Derived from live lead interest fields; it is not inventory availability.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-5 xl:grid-cols-[1.1fr_1fr]">
-        <EChart
-          kind="bar"
-          data={data.models.slice(0, 12).map((row) => ({ name: row.name, value: row.leads }))}
-          className="h-[360px]"
-        />
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Model</TableHead>
-              <TableHead className="text-right">Leads</TableHead>
+    <SectionCard
+      title="Interested-model demand"
+      description="Derived from live lead interest fields; it is not inventory availability."
+      contentClassName="grid gap-5 xl:grid-cols-[1.1fr_1fr]"
+    >
+      <EChart
+        kind="bar"
+        data={data.models.slice(0, 12).map((row) => ({ name: row.name, value: row.leads }))}
+        className="h-[360px]"
+      />
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Model</TableHead>
+            <TableHead className="text-right">Leads</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.models.map((model) => (
+            <TableRow key={model.name}>
+              <TableCell className="font-medium">{model.name}</TableCell>
+              <TableCell className="text-right">{model.leads}</TableCell>
             </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.models.map((model) => (
-              <TableRow key={model.name}>
-                <TableCell className="font-medium">{model.name}</TableCell>
-                <TableCell className="text-right">{model.leads}</TableCell>
-              </TableRow>
-            ))}
-            {!data.models.length ? (
-              <TableRow>
-                <TableCell colSpan={2} className="py-10 text-center text-sm text-muted-foreground">
-                  No interested-model values are available in this period.
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+          ))}
+          {!data.models.length ? (
+            <TableRow>
+              <TableCell colSpan={2} className="py-10 text-center text-sm text-muted-foreground">
+                No interested-model values are available in this period.
+              </TableCell>
+            </TableRow>
+          ) : null}
+        </TableBody>
+      </Table>
+    </SectionCard>
   );
 }

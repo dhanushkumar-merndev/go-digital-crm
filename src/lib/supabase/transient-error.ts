@@ -22,8 +22,14 @@ export function isTransientSupabaseError(error: SupabaseErrorLike | null | undef
   if (code.startsWith('08')) return true;
   if (transientPostgrestCodes.has(code) || transientDatabaseCodes.has(code)) return true;
 
+  // A dropped connection never reaches PostgREST. supabase-js reports it with
+  // status 0 and the browser's own wording: Node says "fetch failed", Chromium
+  // "Failed to fetch", Safari "Load failed", Firefox "NetworkError when
+  // attempting to fetch resource". Without the browser forms, one dropped
+  // request on an RPC (POST, which supabase-js never retries itself) showed a
+  // page's full "not available" state instead of a single retry.
   const message = error.message?.toLowerCase() ?? '';
-  return /\b(fetch failed|network error|connection reset|connection refused|temporarily unavailable)\b/.test(
+  return /\b(fetch failed|failed to fetch|load failed|networkerror when attempting to fetch|network error|connection reset|connection refused|temporarily unavailable)\b/.test(
     message,
   );
 }

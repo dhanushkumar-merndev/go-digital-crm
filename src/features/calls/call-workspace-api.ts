@@ -617,3 +617,96 @@ export async function createLeadFromCall(input: {
   if (error) throw error;
   return z.object({ call_id: z.uuid(), lead_id: z.uuid() }).parse(data);
 }
+
+const callAiStateSchema = z.object({
+  call_id: z.uuid(),
+  lead_id: nullableUuid,
+  phone: nullableString,
+  call_source: z.string(),
+  recording_ready: z.boolean(),
+  job: z
+    .object({
+      id: z.uuid(),
+      status: z.enum(['QUEUED', 'PROCESSING', 'RETRY', 'COMPLETED', 'FAILED']),
+      safe_error_code: nullableString,
+      updated_at: z.string(),
+      completed_at: nullableString,
+    })
+    .nullable(),
+  transcript_status: nullableString,
+  has_summary: z.boolean(),
+  extraction_run_id: nullableUuid,
+  can_request: z.boolean(),
+  can_regenerate: z.boolean(),
+  can_create_lead: z.boolean(),
+  auto_process: z.boolean(),
+});
+
+export type CallAiState = z.infer<typeof callAiStateSchema>;
+
+export function isCallAiRunning(state: CallAiState | undefined) {
+  return Boolean(state?.job && ['QUEUED', 'PROCESSING', 'RETRY'].includes(state.job.status));
+}
+
+/** Whether the call can be transcribed now, is being processed, or is done. */
+export async function fetchCallAiState(callId: string, signal?: AbortSignal) {
+  const request = createClient().rpc('get_call_ai_processing_state', { target_call_id: callId });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return callAiStateSchema.parse(data);
+}
+
+/**
+ * Queues transcription + summary for the call's recording. Manual uploads are
+ * processed only on this request unless the user turned on auto-processing.
+ */
+export async function requestCallAiProcessing(input: { callId: string; regenerate?: boolean }) {
+  const { data, error } = await createClient().rpc('request_call_ai_processing', {
+    target_call_id: input.callId,
+    target_regenerate: input.regenerate ?? false,
+  });
+  if (error) throw error;
+  return z.object({ job_id: z.uuid(), status: z.string(), queued: z.boolean() }).parse(data);
+}
+
+const callAiPreferencesSchema = z.object({ auto_process: z.boolean(), auto_sync: z.boolean() });
+
+export async function fetchCallAiPreferences(signal?: AbortSignal) {
+  const request = createClient().rpc('get_my_call_ai_preferences');
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return callAiPreferencesSchema.parse(data);
+}
+
+export async function saveCallAiPreferences(input: { autoProcess: boolean }) {
+  const { data, error } = await createClient().rpc('set_my_call_ai_preferences', {
+    target_auto_process: input.autoProcess,
+    target_auto_sync: null,
+  });
+  if (error) throw error;
+  return callAiPreferencesSchema.parse(data);
+}
+
+/**
+ * Creates the lead from a call the AI has processed: name, email and model are
+ * the user's confirmed values, and the call's suggestions follow it onto the
+ * new lead for review.
+ */
+export async function createLeadFromCallReview(input: {
+  callId: string;
+  customerName: string;
+  email: string;
+  interestedModel: string;
+  requestId: string;
+}) {
+  const { data, error } = await createClient().rpc('create_lead_from_call_review', {
+    target_call_id: input.callId,
+    target_customer_name: input.customerName.trim(),
+    target_email: input.email.trim() || null,
+    target_interested_model: input.interestedModel.trim() || null,
+    target_decisions: [],
+    target_request_id: input.requestId,
+  });
+  if (error) throw error;
+  return z.object({ call_id: z.uuid(), lead_id: z.uuid() }).parse(data);
+}

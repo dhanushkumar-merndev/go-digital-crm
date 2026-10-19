@@ -111,6 +111,7 @@ import {
   type CallWorkspaceView,
 } from './call-workspace-query';
 import { recordDetailHref } from '@/lib/navigation/record-links';
+import { CallAiProcessingControl } from './call-ai-processing-control';
 import { SpeakerTranscript } from './speaker-transcript';
 
 const outcomeOptions: Array<{
@@ -1013,6 +1014,10 @@ function CallDetailSheet({
                     AI summary is not available for this call.
                   </p>
                 )}
+                <CallAiProcessingControl
+                  callId={data.id}
+                  onCompleted={() => void detail.refetch()}
+                />
                 <div className="rounded-lg border bg-muted/30 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Call notes

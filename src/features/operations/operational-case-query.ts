@@ -100,6 +100,48 @@ const allowedOperationalCaseStatuses = new Set<string>([
   ...Object.values(operationalCaseStatuses).flat(),
 ]);
 
+export type OperationalCaseTab = { status: string; label: string };
+
+const commonCaseTabs: readonly OperationalCaseTab[] = [
+  { status: 'OPEN', label: 'Open' },
+  { status: 'DOCUMENTS', label: 'Documents' },
+  { status: 'ACTION_DUE', label: 'Action due' },
+  { status: 'COMPLETED', label: 'Completed' },
+  { status: 'ALL', label: 'All' },
+];
+
+// Each desk works one case list. Its queues -- pending documents, evaluations,
+// the delivery planner and so on -- are tabs of that list rather than sidebar
+// pages of their own, so the KPI row and the table render once.
+export const operationalCaseTabs: Record<OperationalCaseDepartment, readonly OperationalCaseTab[]> =
+  {
+    FINANCE: [
+      { status: 'OPEN', label: 'Open' },
+      { status: 'DOCUMENTS', label: 'Pending documents' },
+      { status: 'APPLICATION_SUBMITTED', label: 'Applications' },
+      { status: 'APPROVED', label: 'Disbursement' },
+      { status: 'COMPLETED', label: 'Completed' },
+      { status: 'ALL', label: 'All' },
+    ],
+    INSURANCE: commonCaseTabs,
+    RTO: commonCaseTabs,
+    EXCHANGE: [
+      { status: 'OPEN', label: 'Open' },
+      { status: 'INSPECTION_SCHEDULED', label: 'Evaluations' },
+      { status: 'ACCEPTED', label: 'Accepted' },
+      { status: 'COMPLETED', label: 'Completed' },
+      { status: 'ALL', label: 'All' },
+    ],
+    DELIVERY: [
+      { status: 'OPEN', label: 'Upcoming' },
+      { status: 'SCHEDULED', label: 'Planner' },
+      { status: 'CHECKLIST_PENDING', label: 'Pending checklist' },
+      { status: 'READY', label: 'Ready' },
+      { status: 'DELIVERED', label: 'Delivered' },
+      { status: 'ALL', label: 'All' },
+    ],
+  };
+
 export type OperationalCaseRoute = {
   department: OperationalCaseDepartment;
   initialStatus: string;
@@ -216,6 +258,39 @@ const executiveDesks = {
 export function operationalCaseRoute(role: RoleKey, slug: string) {
   const desk = role in executiveDesks ? executiveDesks[role as keyof typeof executiveDesks] : role;
   return routeMap[desk]?.[slug] ?? null;
+}
+
+// Desk pages folded into the case list on 2026-10-18. Their old URLs still
+// resolve: they redirect to the case list with the status they used to preset.
+const caseListSlugs: Record<OperationalCaseDepartment, string> = {
+  FINANCE: 'finance-cases',
+  INSURANCE: 'insurance-cases',
+  RTO: 'rto-cases',
+  EXCHANGE: 'exchange-requests',
+  DELIVERY: 'upcoming-deliveries',
+};
+const mergedCaseSlugs = new Set([
+  'pending-documents',
+  'applications',
+  'disbursement',
+  'evaluations',
+  'accepted-exchanges',
+  'delivery-planner',
+  'pending-checklist',
+  'ready-for-delivery',
+  'delivered',
+  'delivery-photos',
+]);
+
+export function operationalCaseCasesHref(role: RoleKey, department: OperationalCaseDepartment) {
+  return `/${role}/${caseListSlugs[department]}`;
+}
+
+export function legacyOperationalCaseHref(role: RoleKey, slug: string) {
+  if (!mergedCaseSlugs.has(slug)) return null;
+  const route = operationalCaseRoute(role, slug);
+  if (!route) return null;
+  return `/${role}/${caseListSlugs[route.department]}?status=${route.initialStatus}`;
 }
 
 export type OperationalCaseQuery = {

@@ -239,8 +239,8 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
           <PerformanceDateRangeSelector value={range} onChange={setRange} includeAllTime />
         </div>
       </div>
-      <KpiGrid metrics={metrics.slice(0, 5)} className="xl:grid-cols-5" />
-      <KpiGrid metrics={metrics.slice(5)} className="xl:grid-cols-4" />
+      <KpiGrid metrics={metrics.slice(0, 5)} className="xl:grid-cols-5" variant="classic" />
+      <KpiGrid metrics={metrics.slice(5)} className="xl:grid-cols-4" variant="classic" />
       {telecaller ? (
         <TelecallerActivityChart
           key={`${range.from}:${range.to}`}

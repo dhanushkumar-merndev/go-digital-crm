@@ -2,23 +2,18 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  BrainCircuit,
-  CheckCircle2,
-  CircleAlert,
-  FileText,
-  Sparkles,
-  WalletCards,
-} from 'lucide-react';
+import Link from 'next/link';
+import { CheckCircle2, ChevronRight, CircleAlert, FileText, WalletCards } from 'lucide-react';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import { SectionCard } from '@/components/shared/section-card';
 import { OwnerAiBusinessSummarySkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Select,
   SelectContent,
@@ -27,6 +22,20 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { fetchOwnerAiBusinessSummary } from './owner-ai-business-summary-api';
+
+function formatDay(value: string) {
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    timeZone: 'Asia/Kolkata',
+  }).format(new Date(value));
+}
+
+/** Ledger feature keys are stored as codes; show them as words. */
+function featureLabel(key: string) {
+  const words = key.replace(/[_-]+/g, ' ').toLowerCase().trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('en-IN', {
@@ -38,12 +47,20 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+/**
+ * The Business Owner has two pages over this data, so they split it: SUMMARY is
+ * what AI produced, CREDITS is what it cost. Client Admin has one page (FULL).
+ */
+export type OwnerAiView = 'FULL' | 'SUMMARY' | 'CREDITS';
+
 export function OwnerAiBusinessSummaryWorkspace({
   audience = 'OWNER',
   heading,
+  view = 'FULL',
 }: {
   audience?: 'OWNER' | 'CLIENT_ADMIN';
   heading?: string;
+  view?: OwnerAiView;
 }) {
   const session = useWorkspaceSession();
   const [days, setDays] = useState<7 | 30 | 90>(30);
@@ -67,37 +84,78 @@ export function OwnerAiBusinessSummaryWorkspace({
     );
 
   const { kpis } = query.data;
+  const showCredits = view !== 'SUMMARY';
+  const showOutput = view !== 'CREDITS';
   const metrics = [
-    { label: 'AI credits used', value: kpis.credits_used.toLocaleString(), icon: WalletCards },
-    {
-      label: 'AI credits remaining',
-      value: kpis.credits_remaining.toLocaleString(),
-      icon: WalletCards,
-    },
-    { label: 'Call summaries', value: kpis.summaries_generated.toLocaleString(), icon: FileText },
-    {
-      label: 'Completed extractions',
-      value: kpis.extractions_completed.toLocaleString(),
-      icon: CheckCircle2,
-    },
-    { label: 'Reviews pending', value: kpis.reviews_pending.toLocaleString(), icon: CircleAlert },
+    ...(showCredits
+      ? [
+          {
+            label: 'AI credits used',
+            value: kpis.credits_used.toLocaleString(),
+            helper: `Last ${days} days`,
+            icon: WalletCards,
+            tone: 'bg-violet-50 text-violet-600',
+          },
+          {
+            label: 'AI credits remaining',
+            value: kpis.credits_remaining.toLocaleString(),
+            helper: 'Current balance',
+            icon: WalletCards,
+            tone: 'bg-emerald-50 text-emerald-600',
+          },
+        ]
+      : []),
+    ...(showOutput
+      ? [
+          {
+            label: 'Call summaries',
+            value: kpis.summaries_generated.toLocaleString(),
+            helper: 'Generated in period',
+            icon: FileText,
+            tone: 'bg-blue-50 text-blue-600',
+          },
+          {
+            label: 'Completed extractions',
+            value: kpis.extractions_completed.toLocaleString(),
+            helper: 'Field suggestions produced',
+            icon: CheckCircle2,
+            tone: 'bg-cyan-50 text-cyan-600',
+          },
+          {
+            label: 'Reviews pending',
+            value: kpis.reviews_pending.toLocaleString(),
+            helper: 'Awaiting a person',
+            icon: CircleAlert,
+            tone: 'bg-amber-50 text-amber-600',
+          },
+        ]
+      : []),
   ];
 
+  const rolePath = audience === 'OWNER' ? '/business-owner' : '/client-admin';
+  const title = heading ?? (audience === 'OWNER' ? 'AI Business Summary' : 'AI Usage & Credits');
+  const description =
+    view === 'CREDITS'
+      ? 'AI credits consumed and remaining, from the immutable credit ledger. Allocations remain with the platform Super Admin.'
+      : view === 'SUMMARY'
+        ? 'Call summaries, field extractions and reviews AI produced in your organization. Nothing here is generated on the fly.'
+        : 'Tenant AI-credit consumption and recorded call-processing activity. Credit allocations remain platform Super Admin only.';
+
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6">
+    <div className="mx-auto max-w-[1800px] space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <div className="mb-2 text-xs text-muted-foreground">
-            {audience === 'OWNER' ? 'Executive workspace' : 'Administration'} › AI activity
+          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <Link href={`${rolePath}/dashboard`} className="text-blue-600 hover:underline">
+              Dashboard
+            </Link>
+            <ChevronRight className="size-3" />
+            <span>{title}</span>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">
-            {heading ?? (audience === 'OWNER' ? 'Owner AI Business Summary' : 'AI Usage & Credits')}
+          <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
+            {title}
           </h1>
-          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            {audience === 'OWNER'
-              ? 'Recorded AI usage, review work and call summaries in your organization. This screen does not generate unrecorded recommendations.'
-              : 'Review tenant AI-credit consumption and recorded call-processing activity. Credit allocations remain platform Super Admin only.'}
-          </p>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>
         </div>
         <Select
           value={String(days)}
@@ -113,48 +171,53 @@ export function OwnerAiBusinessSummaryWorkspace({
           </SelectContent>
         </Select>
       </div>
-      <KpiGrid metrics={metrics} />
-      <div className="grid gap-6 xl:grid-cols-12">
-        <Card className="shadow-none xl:col-span-7">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="size-4 text-blue-600" /> AI credit usage over time
-            </CardTitle>
-            <CardDescription>
-              Consumption entries recorded in the immutable credit ledger.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+      <KpiGrid
+        metrics={metrics}
+        className={
+          metrics.length === 5
+            ? 'xl:grid-cols-5'
+            : metrics.length === 3
+              ? 'xl:grid-cols-3'
+              : 'xl:grid-cols-2'
+        }
+      />
+      {showCredits ? (
+        <div className="grid gap-4 xl:grid-cols-12">
+          <SectionCard
+            title="AI credit usage over time"
+            description="Consumption entries recorded in the immutable credit ledger."
+            className="xl:col-span-7"
+          >
             <EChart
               kind="line"
               data={query.data.daily_usage.map((point) => ({
-                name: point.date,
+                name: formatDay(point.date),
                 value: point.credits_used,
               }))}
               seriesNames={['Credits used', '']}
             />
-          </CardContent>
-        </Card>
-        <Card className="shadow-none xl:col-span-5">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <BrainCircuit className="size-4 text-violet-600" /> Usage by feature
-            </CardTitle>
-            <CardDescription>Only features with recorded consumption are shown.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <EChart kind="donut" data={query.data.feature_usage} />
-          </CardContent>
-        </Card>
-      </div>
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle className="text-base">Recent AI call summaries</CardTitle>
-          <CardDescription>
-            Stored outputs only; customer data remains within your authorized organization scope.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
+          </SectionCard>
+          <SectionCard
+            title="Usage by feature"
+            description="Only features with recorded consumption are shown."
+            className="xl:col-span-5"
+          >
+            <EChart
+              kind="donut"
+              data={query.data.feature_usage.map((feature) => ({
+                ...feature,
+                name: featureLabel(feature.name),
+              }))}
+            />
+          </SectionCard>
+        </div>
+      ) : null}
+      {showOutput ? (
+        <SectionCard
+          title="Recent AI call summaries"
+          description="Stored outputs only; customer data remains within your authorized organization scope."
+          contentClassName="space-y-3 p-4"
+        >
           {query.data.recent_summaries.length ? (
             query.data.recent_summaries.map((summary) => (
               <article key={summary.id} className="rounded-lg border p-4">
@@ -176,8 +239,8 @@ export function OwnerAiBusinessSummaryWorkspace({
               No AI call summaries have been recorded in this organization yet.
             </div>
           )}
-        </CardContent>
-      </Card>
+        </SectionCard>
+      ) : null}
     </div>
   );
 }

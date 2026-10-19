@@ -54,7 +54,15 @@ export function MobileCallListScreen() {
   }, [load]);
 
   return (
-    <Screen title="Calls" subtitle="Your authorized call history">
+    <Screen
+      title="Calls"
+      subtitle="Your authorized call history"
+      action={
+        <Pressable onPress={() => router.push('/recordings')} accessibilityRole="button">
+          <Text style={styles.headerLink}>Recordings</Text>
+        </Pressable>
+      }
+    >
       {loading ? (
         <View style={styles.loading}>
           <ActivityIndicator color={colors.primary} />
@@ -125,6 +133,7 @@ export function MobileCallListScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerLink: { color: colors.primary, fontWeight: '700' },
   loading: { padding: 36, alignItems: 'center' },
   error: {
     borderColor: '#fecaca',

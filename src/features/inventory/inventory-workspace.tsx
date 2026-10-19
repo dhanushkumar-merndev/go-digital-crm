@@ -1184,7 +1184,10 @@ function ListWorkspace({
         retrying={page.isFetching}
         onRetry={() => void page.refetch()}
       />
-      <KpiGrid metrics={pageMetrics(page.data)} />
+      <KpiGrid
+        metrics={pageMetrics(page.data)}
+        variant={view === 'stock-check' ? 'classic' : 'metric'}
+      />
       <Card className="sales-consultant-list-card shadow-none">
         <CardHeader className="p-4">
           <Filters

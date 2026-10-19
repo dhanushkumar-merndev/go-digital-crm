@@ -365,3 +365,33 @@ export async function downloadOperationalCaseDocument(objectFileId: string) {
   if (error || !data?.ok || !data.data) throw error ?? new Error('DOCUMENT_DOWNLOAD_FAILED');
   return data.data;
 }
+
+const count = z.coerce.number().int().nonnegative();
+const performanceSchema = z.object({
+  department: z.enum(['FINANCE', 'INSURANCE', 'RTO', 'EXCHANGE', 'DELIVERY']),
+  kpis: z.object({
+    open: count,
+    overdue: count,
+    due_today: count,
+    handled: count,
+    completed: count,
+    avg_close_hours: z.coerce.number().nonnegative().nullable(),
+  }),
+  daily: z.array(z.object({ day: z.string(), handled: count, completed: count })),
+});
+export type OperationalCasePerformance = z.infer<typeof performanceSchema>;
+
+export async function fetchOperationalCasePerformance(
+  department: OperationalCaseDepartment,
+  range: { from: string; to: string },
+  signal?: AbortSignal,
+) {
+  const request = createClient().rpc('get_operational_case_performance', {
+    target_department: department,
+    target_from_date: range.from,
+    target_to_date: range.to,
+    target_timezone: 'Asia/Kolkata',
+  });
+  const data = await readRpc(request, signal);
+  return performanceSchema.parse(data);
+}

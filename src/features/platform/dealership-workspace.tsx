@@ -197,18 +197,62 @@ function ProvisionDealershipDialog({
   );
 }
 
+/** Dealerships manages tenants; Business Owners lists the person behind each one. */
+export type DealershipWorkspaceView = 'DEALERSHIPS' | 'OWNERS';
+
+const ownerColumns: ColumnDef<DealershipRecord>[] = [
+  {
+    accessorKey: 'owner_name',
+    header: 'Business Owner',
+    cell: ({ row }) => (
+      <div>
+        <p className="font-medium">{row.original.owner_name ?? 'Not assigned'}</p>
+        <p className="text-xs text-muted-foreground">{row.original.owner_email ?? '—'}</p>
+      </div>
+    ),
+  },
+  {
+    accessorKey: 'name',
+    header: 'Dealership',
+    cell: ({ row }) => (
+      <Link
+        className="font-medium text-blue-700 hover:underline"
+        href={`/super-admin/dealerships/${row.original.id}`}
+      >
+        {row.original.name}
+      </Link>
+    ),
+  },
+  {
+    accessorKey: 'status',
+    header: 'Tenant status',
+    cell: ({ getValue }) => <StatusBadge value={String(getValue())} />,
+  },
+  {
+    id: 'action',
+    header: 'Action',
+    cell: ({ row }) => (
+      <Button asChild size="sm" variant="outline">
+        <Link href={`/super-admin/dealerships/${row.original.id}`}>Open dealership</Link>
+      </Button>
+    ),
+  },
+];
+
 function DealershipTable({
   data,
   query,
   onQueryChange,
   isFetching,
+  view,
 }: {
   data: Awaited<ReturnType<typeof fetchDealerships>>;
   query: DealershipQuery;
   onQueryChange: (next: Partial<DealershipQuery>) => void;
   isFetching: boolean;
+  view: DealershipWorkspaceView;
 }) {
-  const columns = useMemo<ColumnDef<DealershipRecord>[]>(
+  const dealershipColumns = useMemo<ColumnDef<DealershipRecord>[]>(
     () => [
       {
         accessorKey: 'name',
@@ -271,6 +315,7 @@ function DealershipTable({
     ],
     [],
   );
+  const columns = view === 'OWNERS' ? ownerColumns : dealershipColumns;
   // TanStack Table returns an imperative model; React Compiler intentionally skips this hook.
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
@@ -425,7 +470,13 @@ function DealershipTable({
   );
 }
 
-export function DealershipWorkspace({ spec }: { spec: PageSpec }) {
+export function DealershipWorkspace({
+  spec,
+  view = 'DEALERSHIPS',
+}: {
+  spec: PageSpec;
+  view?: DealershipWorkspaceView;
+}) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -473,12 +524,14 @@ export function DealershipWorkspace({ spec }: { spec: PageSpec }) {
     <div className="mx-auto max-w-[1600px]">
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        <div className="shrink-0 sm:pt-7">
-          <Button onClick={() => setProvisionOpen(true)}>
-            <Plus className="size-4" />
-            Add dealership
-          </Button>
-        </div>
+        {view === 'DEALERSHIPS' ? (
+          <div className="shrink-0 sm:pt-7">
+            <Button onClick={() => setProvisionOpen(true)}>
+              <Plus className="size-4" />
+              Add dealership
+            </Button>
+          </div>
+        ) : null}
       </div>
       <div className="space-y-6">
         {inviteSent && (
@@ -490,12 +543,14 @@ export function DealershipWorkspace({ spec }: { spec: PageSpec }) {
             </AlertDescription>
           </Alert>
         )}
-        <KpiGrid metrics={toMetrics(dealerships.data.kpis)} />
+        {/* The tenant counts are Dealerships'; the owner list does not repeat them. */}
+        {view === 'DEALERSHIPS' ? <KpiGrid metrics={toMetrics(dealerships.data.kpis)} /> : null}
         <DealershipTable
           data={dealerships.data}
           query={query}
           onQueryChange={changeQuery}
           isFetching={dealerships.isFetching}
+          view={view}
         />
       </div>
       <ProvisionDealershipDialog

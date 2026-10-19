@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { roleHasNavigationSlug } from '../../src/config/navigation';
+import { legacyTabbedPageHref } from '../../src/config/navigation/legacy-redirects';
 
 function source(relativePath: string) {
   return readFileSync(join(process.cwd(), relativePath), 'utf8');
@@ -89,16 +91,36 @@ describe('GM sales analytics web contract', () => {
     expect(workspace).not.toContain("['gm-sales-analytics', view, range.from, range.to]");
   });
 
-  it('routes each GM view before the fail-closed unavailable fallback', () => {
-    for (const slug of [
+  it('routes Sales Analytics before the fail-closed unavailable fallback', () => {
+    expect(route).toContain("role === 'gm-sales' && slug[0] === 'sales-performance'");
+    expect(route.indexOf('<GmSalesAnalyticsWorkspace')).toBeLessThan(
+      route.indexOf('<ProductionDataUnavailable'),
+    );
+  });
+
+  it('shows the four views as URL-synced tabs of one page', () => {
+    for (const view of [
       'sales-performance',
       'showroom-comparison',
       'consultant-ranking',
       'model-performance',
     ])
-      expect(route).toContain(`'${slug}'`);
-    expect(route.indexOf('<GmSalesAnalyticsWorkspace')).toBeLessThan(
-      route.indexOf('<ProductionDataUnavailable'),
+      expect(workspace).toContain(`value: '${view}'`);
+    expect(workspace).toContain("searchParams.get('view')");
+    expect(workspace).toContain('replaceQueryString(pathname');
+    expect(workspace).toContain('<TabsTrigger');
+  });
+
+  it('redirects the retired per-view routes to their tab', () => {
+    for (const slug of ['showroom-comparison', 'consultant-ranking', 'model-performance']) {
+      expect(legacyTabbedPageHref('gm-sales', slug)).toBe(
+        `/gm-sales/sales-performance?view=${slug}`,
+      );
+      expect(roleHasNavigationSlug('gm-sales', slug)).toBe(false);
+    }
+    expect(legacyTabbedPageHref('gm-sales', 'sales-performance')).toBeNull();
+    expect(route.indexOf('legacyTabbedPageHref(role, slug[0])')).toBeLessThan(
+      route.indexOf('getPageSpec(role, slug[0]'),
     );
   });
 });

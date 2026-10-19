@@ -76,32 +76,28 @@ export function MobileLeadListScreen() {
       const requestId = ++requestSequence.current;
       setLoading(true);
       setError(false);
-      const term = safeSearch(search);
-      let request = supabase
-        .from('leads')
-        .select(
-          'id,customer_name,phone,source,interested_model,lifecycle_status,temperature,next_followup_at',
-          { count: 'exact' },
-        )
-        .is('deleted_at', null)
-        .order('updated_at', { ascending: false })
-        .order('id', { ascending: false })
-        .range((nextPage - 1) * pageSize, nextPage * pageSize);
-      if (filter === 'NEW') request = request.eq('lifecycle_status', 'New');
-      if (filter === 'HOT' || filter === 'WARM' || filter === 'COLD')
-        request = request.eq('temperature', filter);
-      if (term) request = request.or(`customer_name.ilike.%${term}%,phone.ilike.%${term}%`);
-      const { data, error: requestError, count } = await request;
+      // The web lead workspace RPC resolves the caller's scope once. Reading
+      // `leads` directly ran the RLS checks on every row in the organization
+      // and hit the 8 s statement timeout at ~11k leads.
+      const { data, error: requestError } = await supabase.rpc('get_lead_workspace_page_v2', {
+        target_page: nextPage,
+        target_page_size: pageSize,
+        target_search: safeSearch(search),
+        target_status: filter.toLowerCase(),
+        target_sort: 'updated:desc',
+      });
       if (requestId !== requestSequence.current) return;
-      if (requestError) {
+      if (requestError || !data) {
         setError(true);
         setLoading(false);
         return;
       }
-      setLeads(((data ?? []) as Lead[]).slice(0, pageSize));
-      setTotal(count ?? 0);
+      const result = data as { records?: Lead[] | null; total?: number | null };
+      const matching = Number(result.total ?? 0);
+      setLeads(result.records ?? []);
+      setTotal(matching);
       setPage(nextPage);
-      setHasMore((data ?? []).length > pageSize);
+      setHasMore(nextPage * pageSize < matching);
       setLoading(false);
     },
     [filter, search],

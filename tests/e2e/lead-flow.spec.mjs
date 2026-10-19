@@ -249,6 +249,17 @@ test.beforeEach(async ({ page }) => {
     if (!response.url().endsWith('/rpc/get_lead_workspace_page_v2') || response.ok()) return;
     failedLeadReads.push(response.json().catch(() => ({ code: 'UNREADABLE_ERROR' })));
   });
+  // A dropped connection has no response at all; record why, so a failure
+  // here names its cause instead of "without a retryable statement cancellation".
+  page.on('requestfailed', (request) => {
+    if (!request.url().endsWith('/rpc/get_lead_workspace_page_v2')) return;
+    const reason = request.failure()?.errorText ?? 'unknown';
+    console.log(`Lead-list read failed in transport: ${reason}`);
+    // ERR_ABORTED is also every routine cancellation (navigation, a newer
+    // search); it is logged but does not decide whether to retry.
+    if (!reason.includes('ERR_ABORTED'))
+      failedLeadReads.push(Promise.resolve({ code: `TRANSPORT:${reason}` }));
+  });
   // A cancelled SELECT has no side effects. Exercise the existing user retry
   // once when the provider cancels a read; every other failure remains fatal.
   await page.addLocatorHandler(
@@ -256,7 +267,11 @@ test.beforeEach(async ({ page }) => {
     async () => {
       const failures = await Promise.all(failedLeadReads);
       if (!failures.length || failures.some((failure) => failure.code !== '57014')) {
-        throw new Error('Lead workspace failed without a retryable statement cancellation.');
+        throw new Error(
+          `Lead workspace failed without a retryable statement cancellation: ${
+            failures.map((failure) => failure.code).join(', ') || 'no failed request recorded'
+          }.`,
+        );
       }
       console.log('Retrying one cancelled lead-list read through Try again.');
       await page.getByRole('button', { name: 'Try again', exact: true }).click();

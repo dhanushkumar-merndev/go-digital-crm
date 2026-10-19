@@ -8,6 +8,10 @@ describe('Supabase retry classification', () => {
     { code: '57P01', message: 'admin shutdown' },
     { status: 503, message: 'service unavailable' },
     { message: 'TypeError: fetch failed' },
+    // supabase-js wraps a browser network failure as `${name}: ${message}`, status 0.
+    { status: 0, code: '', message: 'TypeError: Failed to fetch' },
+    { status: 0, code: '', message: 'TypeError: Load failed' },
+    { status: 0, code: '', message: 'TypeError: NetworkError when attempting to fetch resource.' },
   ])('retries transient infrastructure failures', (error) => {
     expect(isTransientSupabaseError(error)).toBe(true);
   });

@@ -71,6 +71,11 @@ verify_jwt = false
 [functions.public-feedback-logo]
 verify_jwt = false
 
+# Customer review rephrasing on the same page. The live token is checked and one
+# of its five rephrases spent by begin_public_review_rephrase; IP rate-limited.
+[functions.public-review-rephrase]
+verify_jwt = false
+
 [functions.integration-connect-indiamart]
 verify_jwt = true
 

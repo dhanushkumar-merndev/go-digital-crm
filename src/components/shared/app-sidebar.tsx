@@ -65,7 +65,7 @@ function NavigationLink({
       aria-current={active ? 'page' : undefined}
       className={cn(
         'flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors',
-        nested && 'h-9 pl-9',
+        nested && 'h-9 pl-3',
         active
           ? 'bg-blue-500 text-white shadow-sm'
           : 'text-slate-300 hover:bg-white/7 hover:text-white',
@@ -106,7 +106,9 @@ function NavigationGroup({
         onClick={() => setExpanded(!open)}
         className={cn(
           'flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors',
-          containsActive ? 'text-white' : 'text-slate-300 hover:bg-white/7 hover:text-white',
+          containsActive
+            ? 'bg-white/5 text-white'
+            : 'text-slate-300 hover:bg-white/7 hover:text-white',
         )}
       >
         <AppIcon name={icon} className="size-[17px] shrink-0" />
@@ -116,7 +118,7 @@ function NavigationGroup({
         />
       </button>
       {open ? (
-        <div className="mt-1 space-y-1">
+        <div className="mb-1 ml-[22px] mt-1 space-y-1 border-l border-white/10 pl-2">
           {items.map((item) => (
             <NavigationLink
               key={item.slug}

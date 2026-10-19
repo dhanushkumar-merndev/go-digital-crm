@@ -58,7 +58,15 @@ export default function Home() {
   }, [load]);
 
   return (
-    <Screen title="Sales Consultant" subtitle="Go Digital Marketing CRM">
+    <Screen
+      title="Sales Consultant"
+      subtitle="Go Digital Marketing CRM"
+      action={
+        <Pressable onPress={() => router.push('/settings')} accessibilityRole="button">
+          <Text style={styles.headerLink}>Settings</Text>
+        </Pressable>
+      }
+    >
       <View style={styles.hero}>
         <View style={styles.heroHeading}>
           <View>
@@ -154,6 +162,7 @@ export default function Home() {
               label="Check stock"
               onPress={() => router.push('/sales/stock-check')}
             />
+            <QuickAction glyph="◍" label="Recordings" onPress={() => router.push('/recordings')} />
           </View>
 
           <Section
@@ -371,6 +380,7 @@ function Empty({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
+  headerLink: { color: colors.primary, fontWeight: '700' },
   hero: { backgroundColor: '#142d73', borderRadius: 22, overflow: 'hidden' },
   heroHeading: {
     flexDirection: 'row',

@@ -1,8 +1,8 @@
 'use client';
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -16,11 +16,24 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/toast';
 import { leadDetailHref } from '@/lib/navigation/record-links';
-import { createLeadFromCall, type CallRecord } from './call-workspace-api';
+import { fetchAiCallFieldReview } from './ai-call-field-review-api';
+import {
+  createLeadFromCall,
+  createLeadFromCallReview,
+  type CallRecord,
+} from './call-workspace-api';
 
-/** An inbound IVR call from a number with no lead or customer yet. */
+/**
+ * A call from a number with no lead or customer yet: an inbound IVR call, or a
+ * phone call recording synced from the mobile app.
+ */
 export function isUnknownInboundCaller(call: CallRecord) {
-  return call.direction === 'INBOUND' && !call.lead_id && !call.customer_id && Boolean(call.phone);
+  return (
+    (call.direction === 'INBOUND' || call.call_source === 'PERSONAL_MANUAL') &&
+    !call.lead_id &&
+    !call.customer_id &&
+    Boolean(call.phone)
+  );
 }
 
 /** TeleCMI sends 91XXXXXXXXXX; show and dial it as +91 XXXXX XXXXX. */
@@ -40,6 +53,8 @@ function createLeadMessage(error: unknown) {
   if (message.includes('CALL_ALREADY_HAS_LEAD'))
     return 'This call is already linked to a lead. Refresh the list to open it.';
   if (message.includes('INVALID_CUSTOMER_NAME')) return 'Enter the customer’s name.';
+  if (message.includes('INVALID_LEAD_FROM_CALL_REQUEST'))
+    return 'Check the customer’s name and email.';
   if (message.includes('PERMISSION_DENIED') || message.includes('CALL_ACCESS_DENIED'))
     return 'You do not have permission to create a lead from this call.';
   if (message.includes('SCOPE_DENIED')) return 'This call belongs to a branch outside your scope.';
@@ -60,8 +75,35 @@ export function CreateLeadFromCallDialog({
   const router = useRouter();
   const [customerName, setCustomerName] = useState('');
   const [interestedModel, setInterestedModel] = useState('');
+  const [email, setEmail] = useState('');
+  const requestId = useRef<string | null>(null);
+  // A processed call pre-fills the form from its AI suggestions; the user
+  // confirms or edits them before the lead is created.
+  const review = useQuery({
+    queryKey: ['call-lead-prefill', call?.id],
+    queryFn: ({ signal }) => fetchAiCallFieldReview(call?.id as string, signal),
+    enabled: Boolean(call),
+    retry: false,
+  });
+  const extraction = review.data?.extraction ?? null;
+  const prefilledFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!call || !extraction || prefilledFor.current === call.id) return;
+    prefilledFor.current = call.id;
+    const suggested = (key: string) => {
+      const value = extraction.fields.find((field) => field.field_key === key)?.suggested_value;
+      return typeof value === 'string' ? value : '';
+    };
+    setCustomerName((current) => current || suggested('customer_name'));
+    setInterestedModel((current) => current || suggested('interested_model'));
+    setEmail((current) => current || suggested('email'));
+  }, [call, extraction]);
   const mutation = useMutation({
-    mutationFn: createLeadFromCall,
+    mutationFn: (input: { callId: string; customerName: string; interestedModel: string }) => {
+      if (!extraction && !email.trim()) return createLeadFromCall(input);
+      requestId.current ??= crypto.randomUUID();
+      return createLeadFromCallReview({ ...input, email, requestId: requestId.current });
+    },
     onSuccess: (result) => {
       toast.add({
         type: 'success',
@@ -70,6 +112,9 @@ export function CreateLeadFromCallDialog({
       });
       setCustomerName('');
       setInterestedModel('');
+      setEmail('');
+      requestId.current = null;
+      prefilledFor.current = null;
       onCreated();
       onOpenChange(false);
       // The caller's number may already belong to a customer: the lead opens
@@ -82,6 +127,9 @@ export function CreateLeadFromCallDialog({
     if (!open) {
       setCustomerName('');
       setInterestedModel('');
+      setEmail('');
+      requestId.current = null;
+      prefilledFor.current = null;
       mutation.reset();
     }
     onOpenChange(open);
@@ -93,8 +141,11 @@ export function CreateLeadFromCallDialog({
         <DialogHeader>
           <DialogTitle>Create lead from call</DialogTitle>
           <DialogDescription>
-            {call?.phone ? formatCallerPhone(call.phone) : 'Unknown number'} called the dealership
-            number. The new lead is yours and this call is added to its history.
+            {call?.call_source === 'PERSONAL_MANUAL'
+              ? `A recorded call with ${call.phone ? formatCallerPhone(call.phone) : 'an unknown number'}.`
+              : `${call?.phone ? formatCallerPhone(call.phone) : 'Unknown number'} called the dealership number.`}{' '}
+            The new lead is yours and this call is added to its history.
+            {extraction ? ' Details are filled from the call — check them before saving.' : ''}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -114,6 +165,16 @@ export function CreateLeadFromCallDialog({
               autoFocus
               required
               onChange={(event) => setCustomerName(event.target.value)}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="lead-from-call-email">Email (optional)</Label>
+            <Input
+              id="lead-from-call-email"
+              type="email"
+              value={email}
+              maxLength={320}
+              onChange={(event) => setEmail(event.target.value)}
             />
           </div>
           <div className="grid gap-2">

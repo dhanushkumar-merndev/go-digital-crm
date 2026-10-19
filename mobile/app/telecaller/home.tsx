@@ -29,7 +29,15 @@ export default function Home() {
     void load();
   }, [load]);
   return (
-    <Screen title="Telecaller workspace" subtitle="Your live lead queue and commitments">
+    <Screen
+      title="Telecaller workspace"
+      subtitle="Your live lead queue and commitments"
+      action={
+        <Pressable onPress={() => router.push('/settings')} accessibilityRole="button">
+          <Text style={styles.link}>Settings</Text>
+        </Pressable>
+      }
+    >
       <View style={styles.hero}>
         <Text style={styles.heroTitle}>Stay ahead of every enquiry</Text>
         <Text style={styles.heroText}>Prioritize the conversations that need you now.</Text>
@@ -58,6 +66,7 @@ export default function Home() {
             <Quick label="Follow-ups" onPress={() => router.push('/telecaller/follow-ups')} />
             <Quick label="Calls" onPress={() => router.push('/telecaller/calls')} />
             <Quick label="Tasks" onPress={() => router.push('/telecaller/tasks')} />
+            <Quick label="Recordings" onPress={() => router.push('/recordings')} />
           </View>
           <View>
             <View style={styles.heading}>
@@ -191,7 +200,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
   },
-  quickAction: { alignItems: 'center', width: '24%', paddingVertical: 7 },
+  quickAction: { alignItems: 'center', width: '20%', paddingVertical: 7 },
   quickGlyph: { color: colors.primary, fontSize: 22, fontWeight: '800' },
   quickLabel: { color: colors.text, fontSize: 10, fontWeight: '700', marginTop: 3 },
   heading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

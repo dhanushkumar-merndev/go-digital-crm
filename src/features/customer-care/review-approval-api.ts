@@ -60,6 +60,8 @@ export function getReviewInviteErrorMessage(error: unknown) {
     return 'You are not allowed to send review invitations.';
   if (message.includes('FEEDBACK_SCOPE_DENIED'))
     return 'That feedback belongs to a branch outside your scope.';
+  if (message.includes('REVIEW_INVITE_CUSTOMER_REQUIRED'))
+    return 'This review came from a lead with no customer yet. Link the lead to a customer to e-mail an invitation.';
   if (message.includes('FEEDBACK_NOT_SUBMITTED'))
     return 'The customer has not submitted their feedback yet.';
   return 'The review invitation could not be queued. Try again in a moment.';

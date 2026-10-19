@@ -11,7 +11,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { CallAiPanel } from '@/components/call-ai-panel';
 import { Screen } from '@/components/screen';
+import { fetchCallAiState, type CallAiState } from '@/lib/call-ai';
 import {
   createMobileCallFollowup,
   fetchMobileCallDetail,
@@ -61,6 +63,7 @@ function initials(name: string | null) {
 export default function CallSummary() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [call, setCall] = useState<MobileCallDetail>();
+  const [aiState, setAiState] = useState<CallAiState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -78,12 +81,19 @@ export default function CallSummary() {
     [call],
   );
   const canScheduleFollowup = Boolean(call?.lead_id || call?.customer_id);
+  // A call with no lead yet (a synced phone recording) still knows its number.
+  const phone = call?.phone ?? (call && !call.lead_id ? aiState?.phone : null) ?? null;
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     setError(false);
     try {
-      setCall(await fetchMobileCallDetail(id));
+      const [detail, state] = await Promise.all([
+        fetchMobileCallDetail(id),
+        fetchCallAiState(id).catch(() => null),
+      ]);
+      setCall(detail);
+      setAiState(state);
     } catch {
       setError(true);
     } finally {
@@ -94,7 +104,7 @@ export default function CallSummary() {
     void load();
   }, [load]);
   const callCustomer = () => {
-    if (call?.phone) void Linking.openURL(`tel:${call.phone.replace(/[^+\d]/g, '')}`);
+    if (phone) void Linking.openURL(`tel:${phone.replace(/[^+\d]/g, '')}`);
   };
   const downloadRecording = async () => {
     if (!readyRecording?.object_file_id) return;
@@ -204,10 +214,12 @@ export default function CallSummary() {
                 <Text style={styles.customerAvatarText}>{initials(call.customer_name)}</Text>
               </View>
               <View style={styles.customerMain}>
-                <Text style={styles.customerName}>{call.customer_name ?? 'Restricted party'}</Text>
-                {call.phone ? (
+                <Text style={styles.customerName}>
+                  {call.customer_name ?? (call.lead_id ? 'Restricted party' : 'New number')}
+                </Text>
+                {phone ? (
                   <Pressable onPress={callCustomer}>
-                    <Text style={styles.phone}>{call.phone}</Text>
+                    <Text style={styles.phone}>{phone}</Text>
                   </Pressable>
                 ) : (
                   <Text style={styles.restricted}>Phone is not available in your scope</Text>
@@ -270,6 +282,13 @@ export default function CallSummary() {
             ) : null}
           </View>
 
+          {aiState ? (
+            <CallAiPanel
+              state={aiState}
+              onStateChange={setAiState}
+              onCompleted={() => void load()}
+            />
+          ) : null}
           <InsightCard
             title="AI call summary"
             tone="#7c3aed"
@@ -298,7 +317,7 @@ export default function CallSummary() {
               </Text>
             )}
           </View>
-          {call.phone ? (
+          {phone ? (
             <Pressable style={styles.secondary} onPress={callCustomer}>
               <Text style={styles.secondaryText}>Call customer</Text>
             </Pressable>

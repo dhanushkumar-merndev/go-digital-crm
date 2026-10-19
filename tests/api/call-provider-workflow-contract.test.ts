@@ -296,6 +296,12 @@ describe('inbound caller shown on the Calls list and turned into a lead', () => 
   it('never takes the phone number from the browser', () => {
     expect(api).toContain("rpc('create_lead_from_call'");
     expect(api).not.toMatch(/create_lead_from_call[\s\S]{0,200}lead_phone/);
-    expect(dialog).toContain("call.direction === 'INBOUND' && !call.lead_id && !call.customer_id");
+    expect(dialog).toContain(
+      "(call.direction === 'INBOUND' || call.call_source === 'PERSONAL_MANUAL') &&",
+    );
+    expect(dialog).toContain('!call.lead_id &&\n    !call.customer_id');
+    // The pre-filled path also takes the number from the call, not the form.
+    expect(api).toContain("rpc('create_lead_from_call_review'");
+    expect(api).not.toMatch(/create_lead_from_call_review[\s\S]{0,400}phone/);
   });
 });

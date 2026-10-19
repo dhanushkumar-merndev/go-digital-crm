@@ -219,36 +219,48 @@ function callRecordingFileName(value: string) {
 function callRecordingMimeType(fileName: string, reportedMimeType?: string | null) {
   const reported = reportedMimeType?.split(';', 1)[0]?.trim().toLowerCase() ?? '';
   const normalized = callRecordingMimeAliases[reported] ?? reported;
+  const extension = fileName.split('.').at(-1)?.toLowerCase() ?? '';
+  const inferred = callRecordingMimeByExtension[extension];
+  // Android's extension table maps .m4a to audio/mpeg, so every Google Phone
+  // and Samsung recording arrives labelled as MP3. The file is MPEG-4 audio.
+  if (normalized === 'audio/mpeg' && inferred === 'audio/mp4') return inferred;
   if (allowedCallRecordingMimeTypes.has(normalized)) return normalized;
 
   // Some Android document providers omit the MIME type or return the generic
   // octet-stream type. Only in that case do we use a known audio extension.
-  if (!reported || reported === 'application/octet-stream') {
-    const extension = fileName.split('.').at(-1)?.toLowerCase() ?? '';
-    const inferred = callRecordingMimeByExtension[extension];
-    if (inferred) return inferred;
-  }
+  if ((!reported || reported === 'application/octet-stream') && inferred) return inferred;
   throw new Error('RECORDING_TYPE_NOT_ALLOWED');
 }
 
-async function sha256Base64(file: File) {
-  const bytes = await file.bytes();
-  const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes);
-  return bytesToBase64(new Uint8Array(digest));
+export function bytesToHex(bytes: Uint8Array) {
+  let result = '';
+  for (const byte of bytes) result += byte.toString(16).padStart(2, '0');
+  return result;
 }
 
-export async function uploadMobileCallRecording(input: {
-  call: MobileCallDetail;
-  asset: { uri: string; name: string; mimeType?: string | null; size?: number | null };
+export async function sha256Digest(file: File) {
+  const bytes = await file.bytes();
+  const digest = new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes));
+  return { base64: bytesToBase64(digest), hex: bytesToHex(digest) };
+}
+
+// Presign -> PUT to object storage -> finalize -> attach to the manual call.
+export async function uploadCallRecordingFile(input: {
+  callId: string;
+  organizationId: string;
+  branchId: string;
+  uri: string;
+  name: string;
+  mimeType?: string | null;
+  checksumBase64?: string;
   requestId: string;
 }) {
-  if (input.call.call_source !== 'PERSONAL_MANUAL') throw new Error('MANUAL_CALL_REQUIRED');
-  const fileName = callRecordingFileName(input.asset.name);
-  const mimeType = callRecordingMimeType(fileName, input.asset.mimeType);
-  const file = new File(input.asset.uri);
+  const fileName = callRecordingFileName(input.name);
+  const mimeType = callRecordingMimeType(fileName, input.mimeType);
+  const file = new File(input.uri);
   if (!file.exists || !file.size || file.size > maximumCallRecordingBytes)
     throw new Error('RECORDING_SIZE_INVALID');
-  const checksum = await sha256Base64(file);
+  const checksum = input.checksumBase64 ?? (await sha256Digest(file)).base64;
   const presigned = await supabase.functions.invoke<
     EdgeEnvelope<{
       upload_intent_id: string;
@@ -257,10 +269,10 @@ export async function uploadMobileCallRecording(input: {
     }>
   >('presign-upload', {
     body: {
-      organization_id: input.call.organization_id,
-      branch_id: input.call.branch_id,
+      organization_id: input.organizationId,
+      branch_id: input.branchId,
       resource_type: 'call',
-      resource_id: input.call.id,
+      resource_id: input.callId,
       file_name: fileName,
       mime_type: mimeType,
       size_bytes: file.size,
@@ -282,10 +294,27 @@ export async function uploadMobileCallRecording(input: {
   if (finalized.error || !finalized.data?.ok || !finalized.data.data)
     throw finalized.error ?? new Error(finalized.data?.error?.code ?? 'RECORDING_FINALIZE_FAILED');
   const attached = await supabase.rpc('attach_manual_call_recording', {
-    target_call_id: input.call.id,
+    target_call_id: input.callId,
     target_object_file_id: finalized.data.data.object_file_id,
     target_request_id: input.requestId,
   });
   if (attached.error) throw attached.error;
   return attached.data;
+}
+
+export async function uploadMobileCallRecording(input: {
+  call: MobileCallDetail;
+  asset: { uri: string; name: string; mimeType?: string | null; size?: number | null };
+  requestId: string;
+}) {
+  if (input.call.call_source !== 'PERSONAL_MANUAL') throw new Error('MANUAL_CALL_REQUIRED');
+  return uploadCallRecordingFile({
+    callId: input.call.id,
+    organizationId: input.call.organization_id,
+    branchId: input.call.branch_id,
+    uri: input.asset.uri,
+    name: input.asset.name,
+    mimeType: input.asset.mimeType,
+    requestId: input.requestId,
+  });
 }

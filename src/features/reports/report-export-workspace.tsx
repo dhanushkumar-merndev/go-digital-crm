@@ -76,7 +76,20 @@ function metrics(page: Awaited<ReturnType<typeof fetchReportExports>>): Metric[]
   ];
 }
 
-export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
+/**
+ * FULL is the one Reports page most roles have. A System Administrator also has
+ * Backup & Data Management, so the two split the page: REQUEST asks for a
+ * report, QUEUE watches the export queue's health.
+ */
+export type ReportExportPreset = 'FULL' | 'REQUEST' | 'QUEUE';
+
+export function ReportExportWorkspace({
+  spec,
+  preset = 'FULL',
+}: {
+  spec: PageSpec;
+  preset?: ReportExportPreset;
+}) {
   const session = useWorkspaceSession();
   const useWorkspaceBootstrap = Boolean(session?.organizationId);
   const queryScope = useMemo(() => workspaceQueryScope(session), [session]);
@@ -208,10 +221,17 @@ export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
   const pages = Math.max(1, Math.ceil(page.data.total / query.pageSize));
   return (
     <div className="space-y-6">
-      <PageHeader spec={spec} primaryActionHref="#request-export" />
-      <KpiGrid metrics={metrics(page.data)} />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card className="shadow-none">
+      <PageHeader
+        spec={preset === 'QUEUE' ? { ...spec, primaryAction: undefined } : spec}
+        primaryActionHref="#request-export"
+      />
+      {preset !== 'REQUEST' ? <KpiGrid metrics={metrics(page.data)} /> : null}
+      <div
+        className={
+          preset === 'FULL' ? 'grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]' : 'grid gap-4'
+        }
+      >
+        <Card className={preset === 'REQUEST' ? 'hidden' : 'shadow-none'}>
           <CardHeader>
             <CardTitle>Export activity</CardTitle>
             <CardDescription>
@@ -222,7 +242,10 @@ export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
             <EChart kind="donut" data={page.data.status_chart} className="h-64" />
           </CardContent>
         </Card>
-        <Card id="request-export" className="scroll-mt-24 shadow-none">
+        <Card
+          id="request-export"
+          className={preset === 'QUEUE' ? 'hidden' : 'scroll-mt-24 shadow-none'}
+        >
           <CardHeader>
             <CardTitle>Request an export</CardTitle>
             <CardDescription>
@@ -230,7 +253,13 @@ export function ReportExportWorkspace({ spec }: { spec: PageSpec }) {
               customer data.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-2">
+          <CardContent
+            className={
+              preset === 'REQUEST'
+                ? 'grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4'
+                : 'grid grid-cols-2 gap-2'
+            }
+          >
             {reportKinds.map((kind) => (
               <Button
                 key={kind}

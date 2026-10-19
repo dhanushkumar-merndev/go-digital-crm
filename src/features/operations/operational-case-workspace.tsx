@@ -61,6 +61,7 @@ import {
   operationalCaseSorts,
   operationalCaseStatusLabel,
   operationalCaseStatuses,
+  operationalCaseTabs,
   parseOperationalCaseQuery,
   toOperationalCaseQueryString,
   type OperationalCaseQuery,
@@ -91,20 +92,39 @@ function formatDate(value: string | null) {
     : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
 
-function metrics(result: OperationalCaseWorkspaceResult) {
+// Each tile opens the tab whose rows it counts.
+function metrics(result: OperationalCaseWorkspaceResult, pathname: string) {
+  const tab = (status: string) => `${pathname}?status=${status}`;
   return [
-    { label: 'Open cases', value: String(result.kpis.open), helper: 'Current authorized scope' },
+    {
+      label: 'Open cases',
+      value: String(result.kpis.open),
+      helper: 'Current authorized scope',
+      href: tab('OPEN'),
+    },
     {
       label: 'Pending documents',
       value: String(result.kpis.pending_documents),
       helper: 'Needs evidence',
+      href: tab('DOCUMENTS'),
     },
-    { label: 'Overdue', value: String(result.kpis.overdue), helper: 'Due time has passed' },
-    { label: 'Due today', value: String(result.kpis.due_today), helper: 'Action required today' },
+    {
+      label: 'Overdue',
+      value: String(result.kpis.overdue),
+      helper: 'Due time has passed',
+      href: tab('ACTION_DUE'),
+    },
+    {
+      label: 'Due today',
+      value: String(result.kpis.due_today),
+      helper: 'Action required today',
+      href: tab('ACTION_DUE'),
+    },
     {
       label: 'Completed this month',
       value: String(result.kpis.completed_this_month),
       helper: 'Terminal cases',
+      href: tab('COMPLETED'),
     },
   ];
 }
@@ -342,6 +362,15 @@ export function OperationalCaseWorkspace({
   const [query, setQuery] = useState(() =>
     parseOperationalCaseQuery(searchParams, route.initialStatus),
   );
+  // A KPI tile is a link to a tab of this same page. The URL changes without a
+  // remount, so adopt its status here; this page's own replaceQueryString
+  // writes already match `query` and change nothing.
+  const urlStatus = parseOperationalCaseQuery(searchParams, route.initialStatus).status;
+  const [seenUrlStatus, setSeenUrlStatus] = useState(urlStatus);
+  if (urlStatus !== seenUrlStatus) {
+    setSeenUrlStatus(urlStatus);
+    if (urlStatus !== query.status) setQuery({ ...query, status: urlStatus, page: 1 });
+  }
   const [createOpen, setCreateOpen] = useState(false);
   const [bookingSearch, setBookingSearch] = useState('');
   const [selected, setSelected] = useState<OperationalCaseRecord>();
@@ -519,6 +548,11 @@ export function OperationalCaseWorkspace({
       </Card>
     );
 
+  // Sales Consultant Exchange keeps its original view set.
+  const caseTabs =
+    role === 'sales-consultant'
+      ? commonViews.map((status) => ({ status, label: operationalCaseStatusLabel(status) }))
+      : operationalCaseTabs[route.department];
   const canCreate =
     permissions.data.canManage ||
     (route.department === 'EXCHANGE' && permissions.data.canRequest && route.canOriginateRequest);
@@ -544,7 +578,7 @@ export function OperationalCaseWorkspace({
           retrying={workspace.isFetching}
           onRetry={() => void workspace.refetch()}
         />
-        <KpiGrid metrics={metrics(workspace.data)} />
+        <KpiGrid metrics={metrics(workspace.data, pathname)} className="xl:grid-cols-5" />
         <ConnectedOperationalOverview
           department={route.department}
           result={workspace.data}
@@ -553,39 +587,42 @@ export function OperationalCaseWorkspace({
             setSelected(record);
           }}
         />
-        <Tabs value={query.status} onValueChange={(status) => onQueryChange({ status, page: 1 })}>
-          <div className="overflow-x-auto pb-1">
-            <TabsList>
-              {commonViews.map((status) => (
-                <TabsTrigger key={status} value={status}>
-                  {operationalCaseStatusLabel(status)}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+        {/* Queue tabs and the fine-grained status picker share one row above the table. */}
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <Tabs value={query.status} onValueChange={(status) => onQueryChange({ status, page: 1 })}>
+            <div className="overflow-x-auto pb-1">
+              <TabsList>
+                {caseTabs.map((tab) => (
+                  <TabsTrigger key={tab.status} value={tab.status}>
+                    {tab.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
+          </Tabs>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-medium text-muted-foreground">Workflow status</span>
+            <Select
+              value={query.status}
+              onValueChange={(status) => onQueryChange({ status, page: 1 })}
+            >
+              <SelectTrigger className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {commonViews.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {operationalCaseStatusLabel(status)}
+                  </SelectItem>
+                ))}
+                {operationalCaseStatuses[route.department].map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {operationalCaseStatusLabel(status)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        </Tabs>
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-medium text-muted-foreground">Workflow status</span>
-          <Select
-            value={query.status}
-            onValueChange={(status) => onQueryChange({ status, page: 1 })}
-          >
-            <SelectTrigger className="w-56">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {commonViews.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {operationalCaseStatusLabel(status)}
-                </SelectItem>
-              ))}
-              {operationalCaseStatuses[route.department].map((status) => (
-                <SelectItem key={status} value={status}>
-                  {operationalCaseStatusLabel(status)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
         <OperationalCaseTable
           result={workspace.data}

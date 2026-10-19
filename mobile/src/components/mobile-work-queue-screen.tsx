@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '@/components/screen';
 import { supabase } from '@/lib/supabase';
 import { colors } from '@/theme';
 
 type QueueKind = 'followups' | 'tasks';
+type QueueTab = 'overdue' | 'today' | 'upcoming';
 type QueueRow = {
   id: string;
   title: string;
@@ -13,7 +14,28 @@ type QueueRow = {
   status: string;
   priority: string;
 };
+type QueueRecord = {
+  id: string;
+  customer_name: string | null;
+  interested_model: string | null;
+  reason?: string | null;
+  title?: string | null;
+  description?: string | null;
+  due_at: string | null;
+  status: string;
+  display_status?: string | null;
+  priority: string;
+};
 const pageSize = 25;
+const tabs: Array<{ value: QueueTab; label: string }> = [
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'today', label: 'Today' },
+  { value: 'upcoming', label: 'Upcoming' },
+];
+
+function deviceTimezone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
+}
 
 function dateTime(value: string | null) {
   if (!value) return 'No due date';
@@ -29,87 +51,72 @@ function priorityTone(priority: string) {
   return '#2563eb';
 }
 
+function toRow(kind: QueueKind, record: QueueRecord): QueueRow {
+  const customer = [record.customer_name, record.interested_model].filter(Boolean).join(' · ');
+  return kind === 'followups'
+    ? {
+        id: record.id,
+        title: record.customer_name || 'Customer follow-up',
+        detail: [record.reason, record.interested_model].filter(Boolean).join(' · '),
+        dueAt: record.due_at,
+        status: record.display_status ?? record.status,
+        priority: record.priority,
+      }
+    : {
+        id: record.id,
+        title: record.title || 'CRM task',
+        detail: customer || record.description || 'CRM task',
+        dueAt: record.due_at,
+        status: record.status,
+        priority: record.priority,
+      };
+}
+
 export function MobileWorkQueueScreen({ kind }: { kind: QueueKind }) {
   const [rows, setRows] = useState<QueueRow[]>([]);
+  const [tab, setTab] = useState<QueueTab>('overdue');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const requestSequence = useRef(0);
   const load = useCallback(
     async (nextPage: number) => {
+      const requestId = ++requestSequence.current;
       setLoading(true);
       setError(false);
-      const from = (nextPage - 1) * pageSize;
-      const to = nextPage * pageSize;
-      if (kind === 'followups') {
-        const { data, error: requestError } = await supabase
-          .from('followups')
-          .select('id,reason,due_at,status,priority')
-          .in('status', ['OPEN', 'OVERDUE'])
-          .order('due_at', { ascending: true })
-          .order('id', { ascending: true })
-          .range(from, to);
-        if (requestError) {
-          setError(true);
-          setLoading(false);
-          return;
-        }
-        const response = (data ?? []) as Array<{
-          id: string;
-          reason: string;
-          due_at: string;
-          status: string;
-          priority: string;
-        }>;
-        setRows(
-          response.slice(0, pageSize).map((item) => ({
-            id: item.id,
-            title: item.reason,
-            detail: 'Customer follow-up',
-            dueAt: item.due_at,
-            status: item.status,
-            priority: item.priority,
-          })),
-        );
-        setHasMore(response.length > pageSize);
-      } else {
-        const { data, error: requestError } = await supabase
-          .from('tasks')
-          .select('id,title,description,due_at,status,priority')
-          .is('deleted_at', null)
-          .in('status', ['OPEN', 'IN_PROGRESS'])
-          .order('due_at', { ascending: true, nullsFirst: false })
-          .order('id', { ascending: true })
-          .range(from, to);
-        if (requestError) {
-          setError(true);
-          setLoading(false);
-          return;
-        }
-        const response = (data ?? []) as Array<{
-          id: string;
-          title: string;
-          description: string | null;
-          due_at: string | null;
-          status: string;
-          priority: string;
-        }>;
-        setRows(
-          response.slice(0, pageSize).map((item) => ({
-            id: item.id,
-            title: item.title,
-            detail: item.description ?? 'CRM task',
-            dueAt: item.due_at,
-            status: item.status,
-            priority: item.priority,
-          })),
-        );
-        setHasMore(response.length > pageSize);
+      // The web workspace RPCs resolve the caller's scope once. Reading the
+      // tables directly ran the RLS checks on every row in the organization;
+      // follow-ups hit the 8 s statement timeout.
+      const { data, error: requestError } =
+        kind === 'followups'
+          ? await supabase.rpc('get_followup_workspace_filtered_page', {
+              target_status: tab,
+              target_page: nextPage,
+              target_page_size: pageSize,
+              target_sort: 'scheduled:asc',
+              target_timezone: deviceTimezone(),
+            })
+          : await supabase.rpc('get_task_workspace_page', {
+              target_status: tab.toUpperCase(),
+              target_page: nextPage,
+              target_page_size: pageSize,
+              target_sort: 'due:asc',
+              target_timezone: deviceTimezone(),
+            });
+      if (requestId !== requestSequence.current) return;
+      if (requestError || !data) {
+        setError(true);
+        setLoading(false);
+        return;
       }
+      const result = data as { records?: QueueRecord[] | null; total?: number | null };
+      setRows((result.records ?? []).map((record) => toRow(kind, record)));
+      setHasMore(nextPage * pageSize < Number(result.total ?? 0));
       setPage(nextPage);
       setLoading(false);
     },
-    [kind],
+    [kind, tab],
   );
   useEffect(() => {
     void load(1);
@@ -122,6 +129,22 @@ export function MobileWorkQueueScreen({ kind }: { kind: QueueKind }) {
 
   return (
     <Screen title={title} subtitle={subtitle}>
+      <View style={styles.tabs}>
+        {tabs.map((item) => {
+          const selected = tab === item.value;
+          return (
+            <Pressable
+              key={item.value}
+              style={[styles.tab, selected && styles.tabSelected]}
+              onPress={() => setTab(item.value)}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+            >
+              <Text style={[styles.tabText, selected && styles.tabTextSelected]}>{item.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
       {loading ? (
         <View style={styles.loading}>
           <ActivityIndicator color={colors.primary} />
@@ -140,19 +163,21 @@ export function MobileWorkQueueScreen({ kind }: { kind: QueueKind }) {
               <View key={row.id} style={styles.row}>
                 <View style={styles.main}>
                   <Text style={styles.title}>{row.title}</Text>
-                  <Text style={styles.detail}>{row.detail}</Text>
+                  {row.detail ? <Text style={styles.detail}>{row.detail}</Text> : null}
                   <Text style={styles.due}>{dateTime(row.dueAt)}</Text>
                 </View>
                 <View style={styles.badges}>
                   <Text style={[styles.priority, { color: priorityTone(row.priority) }]}>
                     {row.priority}
                   </Text>
-                  <Text style={styles.status}>{row.status.replace('_', ' ')}</Text>
+                  <Text style={styles.status}>{row.status.replaceAll('_', ' ')}</Text>
                 </View>
               </View>
             ))
           ) : (
-            <Text style={styles.empty}>No open {kind} in your current scope.</Text>
+            <Text style={styles.empty}>
+              No {tab} {kind === 'followups' ? 'follow-ups' : 'tasks'} in your current scope.
+            </Text>
           )}
         </View>
       ) : null}
@@ -180,6 +205,19 @@ export function MobileWorkQueueScreen({ kind }: { kind: QueueKind }) {
 }
 
 const styles = StyleSheet.create({
+  tabs: { flexDirection: 'row', gap: 8 },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    borderRadius: 999,
+    paddingVertical: 8,
+  },
+  tabSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
+  tabText: { color: colors.text, fontSize: 12, fontWeight: '700' },
+  tabTextSelected: { color: '#ffffff' },
   loading: { padding: 36, alignItems: 'center' },
   error: {
     borderColor: '#fecaca',

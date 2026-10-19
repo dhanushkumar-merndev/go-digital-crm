@@ -1,6 +1,7 @@
 'use client';
 
-import { CarFront, CheckCircle2, Target, TriangleAlert, Trophy } from 'lucide-react';
+import { CarFront, CheckCircle2, ChevronRight, Target, TriangleAlert, Trophy } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import {
@@ -17,7 +18,8 @@ import {
 import { usePersistedQuery } from '@/lib/query/persisted-query';
 import { TeamManagerPerformanceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { SectionCard } from '@/components/shared/section-card';
 import { performanceRangeForLastDays } from '@/lib/performance-date-range';
 import {
   Table,
@@ -124,12 +126,16 @@ export function TeamManagerPerformance({
     <div className="mx-auto max-w-[1800px] space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="mb-2 text-xs">
-            <span className="text-primary">Dashboard</span>
-            <span className="mx-2 text-muted-foreground">›</span>
-            <span className="text-muted-foreground">Team performance</span>
+          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <Link href="/team-manager/dashboard" className="text-blue-600 hover:underline">
+              Dashboard
+            </Link>
+            <ChevronRight className="size-3" />
+            <span>{heading}</span>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">{heading}</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
+            {heading}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Compare your managed consultants using their actual, authorized activity.
           </p>
@@ -138,124 +144,106 @@ export function TeamManagerPerformance({
       </div>
       <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
       <div className="grid gap-4 xl:grid-cols-[1.05fr_1.35fr]">
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle className="text-base">Performance trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <EChart
-              kind="line"
-              data={data.daily.map((day) => ({
-                name: day.name,
-                value: day.calls,
-                secondary: day.test_drives,
-              }))}
-              seriesNames={['Calls', 'Test drives']}
-            />
-          </CardContent>
-        </Card>
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle className="text-base">Top performers</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-3">
-            {leaders.length ? (
-              leaders.map((member, index) => (
-                <div key={member.user_id} className="rounded-lg border p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="grid size-8 place-items-center rounded-full bg-amber-50 text-xs font-bold text-amber-700">
-                      {index + 1}
-                    </span>
-                    <Badge variant={index === 0 ? 'success' : 'outline'}>
-                      {member.conversion.toFixed(1)}%
-                    </Badge>
-                  </div>
-                  <div className="mt-4 flex items-center gap-2">
-                    <span className="grid size-9 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700">
+        <SectionCard title="Performance trend">
+          <EChart
+            kind="line"
+            data={data.daily.map((day) => ({
+              name: day.name,
+              value: day.calls,
+              secondary: day.test_drives,
+            }))}
+            seriesNames={['Calls', 'Test drives']}
+          />
+        </SectionCard>
+        <SectionCard title="Top performers" contentClassName="grid gap-3 md:grid-cols-3">
+          {leaders.length ? (
+            leaders.map((member, index) => (
+              <div key={member.user_id} className="rounded-lg border p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="grid size-8 place-items-center rounded-full bg-amber-50 text-xs font-bold text-amber-700">
+                    {index + 1}
+                  </span>
+                  <Badge variant={index === 0 ? 'success' : 'outline'}>
+                    {member.conversion.toFixed(1)}%
+                  </Badge>
+                </div>
+                <div className="mt-4 flex items-center gap-2">
+                  <span className="grid size-9 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700">
+                    {initials(member.full_name)}
+                  </span>
+                  <p className="min-w-0 truncate text-sm font-semibold">{member.full_name}</p>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                  <span>
+                    Leads <b className="ml-1 text-foreground">{member.leads}</b>
+                  </span>
+                  <span>
+                    Bookings <b className="ml-1 text-foreground">{member.bookings}</b>
+                  </span>
+                  <span>
+                    Calls <b className="ml-1 text-foreground">{member.calls}</b>
+                  </span>
+                  <span>
+                    Drives <b className="ml-1 text-foreground">{member.test_drives}</b>
+                  </span>
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">No active consultants are assigned.</p>
+          )}
+        </SectionCard>
+      </div>
+      <SectionCard title="Consultant leaderboard" flush contentClassName="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Rank</TableHead>
+              <TableHead>Consultant</TableHead>
+              <TableHead>Leads</TableHead>
+              <TableHead>Calls</TableHead>
+              <TableHead>Connected</TableHead>
+              <TableHead>Test drives</TableHead>
+              <TableHead>Quotations</TableHead>
+              <TableHead>Bookings</TableHead>
+              <TableHead>Conversion</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.leaderboard.map((member, index) => (
+              <TableRow key={member.user_id}>
+                <TableCell className="font-semibold">{index + 1}</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <span className="grid size-8 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700">
                       {initials(member.full_name)}
                     </span>
-                    <p className="min-w-0 truncate text-sm font-semibold">{member.full_name}</p>
+                    <span className="font-medium">{member.full_name}</span>
                   </div>
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                    <span>
-                      Leads <b className="ml-1 text-foreground">{member.leads}</b>
-                    </span>
-                    <span>
-                      Bookings <b className="ml-1 text-foreground">{member.bookings}</b>
-                    </span>
-                    <span>
-                      Calls <b className="ml-1 text-foreground">{member.calls}</b>
-                    </span>
-                    <span>
-                      Drives <b className="ml-1 text-foreground">{member.test_drives}</b>
-                    </span>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">No active consultants are assigned.</p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-      <Card className="overflow-hidden shadow-none">
-        <CardHeader>
-          <CardTitle className="text-base">Consultant leaderboard</CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Rank</TableHead>
-                <TableHead>Consultant</TableHead>
-                <TableHead>Leads</TableHead>
-                <TableHead>Calls</TableHead>
-                <TableHead>Connected</TableHead>
-                <TableHead>Test drives</TableHead>
-                <TableHead>Quotations</TableHead>
-                <TableHead>Bookings</TableHead>
-                <TableHead>Conversion</TableHead>
+                </TableCell>
+                <TableCell>{member.leads}</TableCell>
+                <TableCell>{member.calls}</TableCell>
+                <TableCell>{member.connected_calls}</TableCell>
+                <TableCell>{member.test_drives}</TableCell>
+                <TableCell>{member.quotations}</TableCell>
+                <TableCell>{member.bookings}</TableCell>
+                <TableCell>
+                  <Badge variant={member.conversion >= 10 ? 'success' : 'outline'}>
+                    {member.conversion.toFixed(1)}%
+                  </Badge>
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.leaderboard.map((member, index) => (
-                <TableRow key={member.user_id}>
-                  <TableCell className="font-semibold">{index + 1}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <span className="grid size-8 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700">
-                        {initials(member.full_name)}
-                      </span>
-                      <span className="font-medium">{member.full_name}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>{member.leads}</TableCell>
-                  <TableCell>{member.calls}</TableCell>
-                  <TableCell>{member.connected_calls}</TableCell>
-                  <TableCell>{member.test_drives}</TableCell>
-                  <TableCell>{member.quotations}</TableCell>
-                  <TableCell>{member.bookings}</TableCell>
-                  <TableCell>
-                    <Badge variant={member.conversion >= 10 ? 'success' : 'outline'}>
-                      {member.conversion.toFixed(1)}%
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {!data.leaderboard.length && (
-                <TableRow>
-                  <TableCell
-                    colSpan={9}
-                    className="py-10 text-center text-sm text-muted-foreground"
-                  >
-                    No active consultants are assigned to your managed team.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+            ))}
+            {!data.leaderboard.length && (
+              <TableRow>
+                <TableCell colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
+                  No active consultants are assigned to your managed team.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </SectionCard>
       {showHandoffs ? (
         <SalesHandoffReport preset="TEAM" range={range} leadBasePath="/team-manager/leads" />
       ) : null}

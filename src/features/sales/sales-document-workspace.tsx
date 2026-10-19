@@ -35,7 +35,7 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
-import { KpiGrid } from '@/components/shared/kpi-grid';
+import { KpiGrid, kpiVariantForRole } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import {
@@ -1105,6 +1105,7 @@ export function SalesDocumentWorkspace({
           </div>
         )}
         <KpiGrid
+          variant={kpiVariantForRole(role)}
           metrics={
             kind === 'quotations'
               ? quotationMetrics(result as QuotationWorkspaceResult)

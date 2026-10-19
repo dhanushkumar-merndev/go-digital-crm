@@ -40,7 +40,7 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
-import { KpiGrid } from '@/components/shared/kpi-grid';
+import { KpiGrid, kpiVariantForRole } from '@/components/shared/kpi-grid';
 import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import { TestDrivesSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -809,7 +809,7 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
             );
           })}
         </div>
-        <KpiGrid metrics={testDriveMetrics(workspace.data)} />
+        <KpiGrid metrics={testDriveMetrics(workspace.data)} variant={kpiVariantForRole(role)} />
         <TestDriveTable
           result={workspace.data}
           query={query}

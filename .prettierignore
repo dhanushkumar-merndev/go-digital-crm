@@ -10,3 +10,5 @@ services/whatsapp-gateway/dist
 next-env.d.ts
 pnpm-lock.yaml
 supabase/migrations
+mobile/android
+mobile/expo-env.d.ts

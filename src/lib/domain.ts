@@ -31,6 +31,8 @@ export type Metric = {
   icon?: ComponentType<{ className?: string }>;
   /** Tailwind background/text classes for the icon badge, e.g. "bg-blue-50 text-blue-600". */
   tone?: string;
+  /** Where the tile leads, when the number maps to a filtered list. */
+  href?: string;
 };
 
 export type PageColumn = {

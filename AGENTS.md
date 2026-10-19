@@ -1789,6 +1789,68 @@ Super Admin is platform-level and does not normally work dealership leads.
 
 ---
 
+### 24.10 Grouped sidebars and tabbed pages (product decision 2026-10-18)
+
+Long sidebars are grouped into collapsible sections, and pages that showed the
+same workspace with a different preset are one page with URL-synced tabs. Slugs
+are unchanged; only the grouping and the retired preset pages differ from the
+lists above. The groups live in `src/config/navigation/index.ts`
+(`group(title, icon, [...])`). `roleNavigation[role].items` stays a flat list, so
+`roleHasNavigationSlug` and the dashboard quick actions are unaffected.
+Telecaller and Sales Consultant are not grouped.
+
+- **Team Manager:** Leads (Team Leads, Duplicate Approvals, Lead Assignment, Lost
+  Leads) · Activity (Follow-ups, Team Calls, Team Activity, Appointments, Test
+  Drives) · Sales (Quotations, Bookings).
+- **Sales Manager:** Leads · Activity · Sales (Quotations, Bookings, Approvals) ·
+  Team (Sales Teams, Showroom Targets, Performance).
+- **GM Sales:** Analytics (Sales Analytics, Lead Source Performance) · Sales (Sales
+  Leads, Bookings Overview, Lost Leads) · Management (Targets, Approvals,
+  Escalations). Sales Performance, Showroom Comparison, Sales Consultant Ranking
+  and Model Performance are the four tabs of **Sales Analytics**
+  (`/gm-sales/sales-performance?view=…`).
+- **Client Admin:** Organization · Sales Setup · Competitors · Platform ·
+  Governance.
+- **System Administrator:** Access · Configuration · Integrations · Monitoring.
+- **Business Owner:** Performance · Insights · Administration.
+- **Super Admin:** Tenants · Commercial · Operations · Governance.
+- **Operations desks:** each desk has one case list whose queues are tabs
+  (`?status=`), and the KPI row renders once:
+  - Finance Cases: Open · Pending documents · Applications · Disbursement ·
+    Completed · All.
+  - Exchange Requests: Open · Evaluations · Accepted · Completed · All.
+  - Deliveries (`upcoming-deliveries`): Upcoming · Planner · Pending checklist ·
+    Ready · Delivered · All. Delivery Photos is the Delivered tab.
+
+  **My Performance** is the user's own numbers from
+  `get_operational_case_performance`, not the case list again.
+
+Retired slugs redirect to their tab via `legacyTabbedPageHref`
+(`src/config/navigation/legacy-redirects.ts`), so saved links keep working.
+
+### 24.11 Reviews for Telecaller and Sales Consultant (product decision 2026-10-18)
+
+Both roles get a **Reviews** page (`/telecaller/reviews`, `/sales-consultant/reviews`)
+and an **Ask for a review** action on My Leads rows. A request is a
+`feedback_requests` row with `lead_id` and `requested_by`, sent through the same
+signed, single-use public form (`/feedback/[token]`), so a low rating still opens
+a customer-care case and the Google review link is offered for every rating
+(no review gating). Any lead can be asked, including a new one not yet linked
+to a customer (`feedback_requests.customer_id` is then null and `lead_id` set).
+A low rating opens a customer-care case only when there is a customer; otherwise
+it is audited (`feedback.rating_without_customer`) and shown on the sender's
+Reviews page, and the e-mail review invitation is refused until a customer is linked.
+
+- `create_lead_review_request` reuses the lead's open request and reissues its
+  token rather than adding a second row. Sending is manual (WhatsApp / SMS / copy),
+  so the CRM records that a link was issued, not that it was delivered.
+- The page reads only the caller's own requests (`get_my_review_requests`):
+  sent, filled, awaiting, expired, average stars, five-star, sent to Google.
+- On the form the customer picks keywords and writes a line; `public-review-rephrase`
+  can rewrite it from their words only (one AI credit, five per link, refunded on
+  failure). Submitting copies the review and opens the branch's Google review URL.
+  The CRM cannot see whether they posted; "sent to Google" means the page was opened.
+
 ## 25. Operational department presets
 
 Operational UI is intentionally simpler than Sales.

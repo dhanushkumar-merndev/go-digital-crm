@@ -171,7 +171,9 @@ function workspaceMetrics(result: MarketingWorkspaceResult) {
     { label: 'Qualified leads', value: String(kpis.qualified_leads), helper: 'Lead lifecycle' },
     { label: 'Bookings', value: String(kpis.bookings), helper: 'Attributed source leads' },
     { label: 'Conversion', value: `${kpis.conversion_percent}%`, helper: 'Booking / lead' },
-    ...spendMetrics(kpis, 'Record spend under Campaigns'),
+    // Campaigns is where spend is recorded and shows these tiles either way;
+    // elsewhere four "—" tiles only repeated that page, so they wait for data.
+    ...(kpis.ad_spend !== null ? spendMetrics(kpis, 'Record spend under Campaigns') : []),
     {
       label: 'Active campaigns',
       value: String(kpis.active_campaigns),

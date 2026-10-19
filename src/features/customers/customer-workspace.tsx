@@ -19,7 +19,7 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
-import { KpiGrid } from '@/components/shared/kpi-grid';
+import { KpiGrid, kpiVariantForRole } from '@/components/shared/kpi-grid';
 import { CustomerWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
@@ -418,7 +418,7 @@ export function CustomerWorkspace({ role }: { role: string }) {
           in your current tenant, branch, team, or own-record scope.
         </p>
       </div>
-      <KpiGrid metrics={toMetrics(workspace.data.kpis)} />
+      <KpiGrid metrics={toMetrics(workspace.data.kpis)} variant={kpiVariantForRole(role)} />
       <Card className="border-blue-100 bg-blue-50/40 shadow-none">
         <CardHeader className="py-4">
           <CardTitle className="text-sm">Reviewed matching only</CardTitle>

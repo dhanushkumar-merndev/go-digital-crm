@@ -12,6 +12,12 @@ const formSchema = z.discriminatedUnion('status', [
       .nullable()
       .catch(null),
     has_logo: z.boolean().catch(false),
+    // Added by 202610182000. Before it is applied the keys are absent and the
+    // form falls back to the rating-and-comment version.
+    sender_first_name: z.string().nullable().catch(null),
+    keywords: z.array(z.string()).catch([]),
+    ai_available: z.boolean().catch(false),
+    ai_remaining: z.coerce.number().int().nonnegative().catch(0),
   }),
   z.object({ status: z.literal('INVALID') }),
   z.object({ status: z.literal('EXPIRED') }),
@@ -70,4 +76,67 @@ export async function submitPublicFeedback(input: {
   });
   if (error) throw error;
   return submitSchema.parse(data);
+}
+
+export async function submitPublicFeedbackReview(input: {
+  token: string;
+  rating: number;
+  review: string;
+  keywords: string[];
+}) {
+  const { data, error } = await createClient().rpc('submit_public_feedback_review', {
+    target_token: input.token,
+    target_rating: input.rating,
+    target_review: input.review,
+    target_keywords: input.keywords,
+  });
+  if (error) throw error;
+  return submitSchema.parse(data);
+}
+
+export class ReviewRephraseError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+const rephraseEnvelopeSchema = z.object({
+  ok: z.literal(true),
+  data: z.object({ review: z.string().min(1) }),
+});
+
+/**
+ * Turns the customer's own keywords and notes into a short review. Each call
+ * spends one of the link's five rephrases; a failed one is refunded.
+ */
+export async function rephrasePublicReview(input: {
+  token: string;
+  rating: number;
+  keywords: string[];
+  notes: string;
+}) {
+  const { data, error } = await createClient().functions.invoke('public-review-rephrase', {
+    body: { ...input, request_id: globalThis.crypto.randomUUID() },
+  });
+  if (error) {
+    // supabase-js never parses a non-2xx body; the reason is in the Response.
+    const context = (error as { context?: unknown }).context;
+    const body =
+      context instanceof Response
+        ? await context
+            .clone()
+            .json()
+            .catch(() => null)
+        : null;
+    const failure = z
+      .object({ error: z.object({ code: z.string(), message: z.string() }) })
+      .safeParse(body);
+    throw failure.success
+      ? new ReviewRephraseError(failure.data.error.code, failure.data.error.message)
+      : new ReviewRephraseError('REPHRASE_FAILED', 'Writing help did not work this time.');
+  }
+  return rephraseEnvelopeSchema.parse(data).data.review;
 }

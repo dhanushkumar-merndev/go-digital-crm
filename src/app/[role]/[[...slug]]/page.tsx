@@ -30,6 +30,7 @@ import { AssetLibraryWorkspace } from '@/features/marketing/asset-library-worksp
 import { ReportExportWorkspace } from '@/features/reports/report-export-workspace';
 import { TenantDashboard } from '@/features/dashboards/tenant-dashboard';
 import { ReviewApprovalWorkspace } from '@/features/customer-care/review-approval-workspace';
+import { ReviewRequestsWorkspace } from '@/features/reviews/review-requests-workspace';
 import {
   BusinessOperationsOverview,
   BusinessSalesOverview,
@@ -59,10 +60,13 @@ import { LeadAssignmentWorkspace } from '@/features/leads/lead-assignment-worksp
 import { DuplicateLeadDeletionWorkspace } from '@/features/leads/duplicate-lead-deletion-workspace';
 import { LeadWorkspace } from '@/features/leads/lead-workspace';
 import { OperationalCaseWorkspace } from '@/features/operations/operational-case-workspace';
+import { OperationalCasePerformance } from '@/features/operations/operational-case-performance';
 import { SalesExchangeWorkspace } from '@/features/operations/sales-exchange-workspace';
 import { operationalCaseRoute } from '@/features/operations/operational-case-query';
+import { PageHeader } from '@/components/shared/page-header';
 import { ProductionDataUnavailable } from '@/components/shared/production-data-unavailable';
 import { isRoleKey } from '@/config/navigation';
+import { legacyTabbedPageHref } from '@/config/navigation/legacy-redirects';
 import { DealershipWorkspace } from '@/features/platform/dealership-workspace';
 import { DealershipDetailWorkspace } from '@/features/platform/dealership-detail-workspace';
 import { OnboardingReviewWorkspace } from '@/features/platform/onboarding-review-workspace';
@@ -143,6 +147,9 @@ export default async function RolePage({ params }: Props) {
   // Targets & Performance merged into Showroom Performance; keep saved links working.
   if (role === 'business-owner' && slug[0] === 'targets-performance')
     redirect('/business-owner/showroom-performance');
+  // Pages folded into tabs of one page on 2026-10-18; keep saved links working.
+  const tabbedPageHref = legacyTabbedPageHref(role, slug[0]);
+  if (tabbedPageHref) redirect(tabbedPageHref);
   const spec = getPageSpec(role, slug[0] ?? 'dashboard');
   if (!spec) notFound();
   if (role === 'super-admin' && slug[0] === 'dashboard' && !isLocalPreviewMode())
@@ -160,7 +167,7 @@ export default async function RolePage({ params }: Props) {
   if (role === 'super-admin' && slug[0] === 'dealerships' && !isLocalPreviewMode())
     return <DealershipWorkspace spec={spec} />;
   if (role === 'super-admin' && slug[0] === 'business-owners' && !isLocalPreviewMode())
-    return <DealershipWorkspace spec={spec} />;
+    return <DealershipWorkspace spec={spec} view="OWNERS" />;
   if (role === 'super-admin' && slug[0] === 'onboarding-reviews' && !isLocalPreviewMode())
     return <OnboardingReviewWorkspace spec={spec} />;
   if (role === 'super-admin' && slug[0] === 'data-retention' && !isLocalPreviewMode())
@@ -178,9 +185,11 @@ export default async function RolePage({ params }: Props) {
   if (role === 'business-owner' && slug[0] === 'client-admins' && !isLocalPreviewMode())
     return <UserWorkspace spec={spec} mode="CLIENT_ADMIN_BOOTSTRAP" />;
   if (role === 'business-owner' && slug[0] === 'ai-business-summary' && !isLocalPreviewMode())
-    return <OwnerAiBusinessSummaryWorkspace />;
+    return <OwnerAiBusinessSummaryWorkspace view="SUMMARY" heading="AI Business Summary" />;
   if (role === 'business-owner' && slug[0] === 'credits-usage' && !isLocalPreviewMode())
-    return <OwnerAiBusinessSummaryWorkspace audience="OWNER" heading="Credits & Usage" />;
+    return (
+      <OwnerAiBusinessSummaryWorkspace audience="OWNER" heading="Credits & Usage" view="CREDITS" />
+    );
   if (role === 'business-owner' && slug[0] === 'security-access' && !isLocalPreviewMode())
     return <SecurityWorkspace spec={spec} />;
   if (role === 'business-owner' && slug[0] === 'company-compliance' && !isLocalPreviewMode())
@@ -196,7 +205,7 @@ export default async function RolePage({ params }: Props) {
   if (role === 'client-admin' && slug[0] === 'teams' && !isLocalPreviewMode())
     return <BranchTeamWorkspace kind="teams" role={role} spec={spec} />;
   if (role === 'client-admin' && slug[0] === 'lead-assignment-settings' && !isLocalPreviewMode())
-    return <BranchTeamWorkspace kind="teams" role={role} spec={spec} />;
+    return <BranchTeamWorkspace kind="teams" teamPreset="ASSIGNMENT" role={role} spec={spec} />;
   if (role === 'client-admin' && slug[0] === 'custom-fields' && !isLocalPreviewMode())
     return <CustomFieldWorkspace spec={spec} />;
   if (role === 'client-admin' && slug[0] === 'crm-configuration' && !isLocalPreviewMode())
@@ -248,7 +257,7 @@ export default async function RolePage({ params }: Props) {
   if (role === 'system-administrator' && slug[0] === 'templates' && !isLocalPreviewMode())
     return <TemplateWorkspace spec={spec} />;
   if (role === 'system-administrator' && slug[0] === 'backup-data' && !isLocalPreviewMode())
-    return <ReportExportWorkspace spec={spec} />;
+    return <ReportExportWorkspace spec={spec} preset="QUEUE" />;
   if (role === 'system-administrator' && slug[0] === 'system-health' && !isLocalPreviewMode())
     return <SystemHealthWorkspace spec={spec} />;
   if (
@@ -325,22 +334,15 @@ export default async function RolePage({ params }: Props) {
   // Owner sees rather than a dashboard of its own.
   if (role === 'gm-sales' && slug[0] === 'bookings-overview' && !isLocalPreviewMode())
     return <SalesDocumentWorkspace kind="bookings" spec={spec} role={role} />;
-  if (
-    role === 'gm-sales' &&
-    [
-      'sales-performance',
-      'showroom-comparison',
-      'consultant-ranking',
-      'model-performance',
-    ].includes(slug[0]) &&
-    !isLocalPreviewMode()
-  )
+  if (role === 'gm-sales' && slug[0] === 'sales-performance' && !isLocalPreviewMode())
+    return <GmSalesAnalyticsWorkspace />;
+  if (slug[0] === 'reports' && !isLocalPreviewMode())
     return (
-      <GmSalesAnalyticsWorkspace
-        view={slug[0] as Parameters<typeof GmSalesAnalyticsWorkspace>[0]['view']}
+      <ReportExportWorkspace
+        spec={spec}
+        preset={role === 'system-administrator' ? 'REQUEST' : 'FULL'}
       />
     );
-  if (slug[0] === 'reports' && !isLocalPreviewMode()) return <ReportExportWorkspace spec={spec} />;
   if (role === 'sales-consultant' && slug[0] === 'dashboard')
     return <SalesConsultantDashboard spec={spec} />;
   if (role === 'telecaller' && slug[0] === 'dashboard') return <TelecallerDashboard spec={spec} />;
@@ -356,12 +358,22 @@ export default async function RolePage({ params }: Props) {
     !isLocalPreviewMode()
   )
     return <CompetitorComparisonWorkspace spec={spec} />;
+  // Review requests the person sent and what customers answered. The Customer
+  // Care "Reviews" page is the approval queue for every submission instead.
+  if (
+    (role === 'sales-consultant' || role === 'telecaller') &&
+    slug[0] === 'reviews' &&
+    !isLocalPreviewMode()
+  )
+    return <ReviewRequestsWorkspace role={role} />;
   if ((role === 'sales-consultant' || role === 'telecaller') && slug[0] === 'performance')
     return <SalesConsultantPerformance role={role} />;
   if (role === 'team-manager' && slug[0] === 'team-performance' && !isLocalPreviewMode())
     return <TeamManagerPerformance showHandoffs />;
+  // The dashboard is today's queue; Team Performance is the period analysis.
+  // They used to be the same component, so both pages showed one screen.
   if (role === 'team-manager' && slug[0] === 'dashboard' && !isLocalPreviewMode())
-    return <TeamManagerPerformance heading="Team Manager Workspace" />;
+    return <TenantDashboard spec={spec} role={role} />;
   if (role === 'team-manager' && slug[0] === 'lead-assignment' && !isLocalPreviewMode())
     return <LeadAssignmentWorkspace />;
   if (role === 'team-manager' && slug[0] === 'duplicate-leads' && !isLocalPreviewMode())
@@ -376,11 +388,14 @@ export default async function RolePage({ params }: Props) {
     return <ShowroomTargetWorkspace />;
   if (role === 'showroom-manager' && slug[0] === 'sales-teams' && !isLocalPreviewMode())
     return <ShowroomSalesTeamWorkspace />;
+  // Performance re-rendered the whole dashboard above its report; it now shows
+  // only what the dashboard does not: conversion through the handoff stages.
   if (role === 'showroom-manager' && slug[0] === 'performance' && !isLocalPreviewMode())
     return (
-      <TenantDashboard spec={spec} role={role} heading="Showroom Performance">
+      <div className="mx-auto max-w-[1800px] space-y-6">
+        <PageHeader spec={spec} className="mb-0" />
         <SalesHandoffReport preset="SHOWROOM" leadBasePath="/showroom-manager/leads" />
-      </TenantDashboard>
+      </div>
     );
   if (
     (role === 'showroom-manager' || role === 'gm-sales') &&
@@ -414,6 +429,12 @@ export default async function RolePage({ params }: Props) {
     return <InboxWorkspace role={role} />;
   if (role === 'delivery' && slug[0] === 'feedback' && !isLocalPreviewMode())
     return <DeliveryFeedbackWorkspace spec={spec} />;
+  // A department dashboard summarises the queue; the case pages list it. The
+  // dashboard was the case list itself, so the two pages were identical.
+  if (slug[0] === 'dashboard' && operationalCaseRoute(role, slug[0]) && !isLocalPreviewMode())
+    return <TenantDashboard spec={spec} role={role} />;
+  if (slug[0] === 'my-performance' && operationalCaseRoute(role, slug[0]) && !isLocalPreviewMode())
+    return <OperationalCasePerformance spec={spec} role={role} />;
   if (operationalCaseRoute(role, slug[0]) && !isLocalPreviewMode())
     return <OperationalCaseWorkspace spec={spec} role={role} slug={slug[0]} />;
   if (slug[0] === 'dashboard' && !isLocalPreviewMode())

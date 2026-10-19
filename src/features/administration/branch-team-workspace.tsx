@@ -97,6 +97,8 @@ function branchMetrics(result: BranchAdministrationWorkspace): Metric[] {
   ];
 }
 
+export type TeamWorkspacePreset = 'STRUCTURE' | 'ASSIGNMENT';
+
 function teamMetrics(result: TeamAdministrationWorkspace): Metric[] {
   return [
     { label: 'Total teams', value: result.kpis.total.toLocaleString() },
@@ -477,6 +479,7 @@ function TeamTable({
   onQueryChange,
   onEdit,
   onMembers,
+  teamPreset,
 }: {
   result: TeamAdministrationWorkspace;
   query: AdministrationQuery;
@@ -485,9 +488,11 @@ function TeamTable({
   onQueryChange: (next: Partial<AdministrationQuery>) => void;
   onEdit: (record: TeamAdministrationRecord) => void;
   onMembers: (record: TeamAdministrationRecord) => void;
+  teamPreset: TeamWorkspacePreset;
 }) {
-  const columns = useMemo<ColumnDef<TeamAdministrationRecord>[]>(
-    () => [
+  const columns = useMemo<ColumnDef<TeamAdministrationRecord>[]>(() => {
+    // A column tagged with a preset appears on that page only.
+    const all: Array<ColumnDef<TeamAdministrationRecord> & { preset?: TeamWorkspacePreset }> = [
       {
         accessorKey: 'name',
         header: 'Team',
@@ -519,6 +524,7 @@ function TeamTable({
       },
       {
         id: 'members',
+        preset: 'STRUCTURE',
         header: 'Members',
         cell: ({ row }) => (
           <div className="min-w-32">
@@ -530,19 +536,34 @@ function TeamTable({
         ),
       },
       {
-        id: 'assignment',
-        header: 'Assignment modes',
+        id: 'fresh_assignment',
+        preset: 'ASSIGNMENT',
+        header: 'Fresh leads',
         cell: ({ row }) => (
-          <div className="min-w-44">
-            <p>Fresh: {assignmentModeLabel(row.original.fresh_assignment_mode)}</p>
+          <div className="min-w-36">
+            <p>{assignmentModeLabel(row.original.fresh_assignment_mode)}</p>
             <p className="text-xs text-muted-foreground">
-              Qualified: {assignmentModeLabel(row.original.qualified_assignment_mode)}
+              {row.original.telecaller_count} eligible BDC
+            </p>
+          </div>
+        ),
+      },
+      {
+        id: 'qualified_assignment',
+        preset: 'ASSIGNMENT',
+        header: 'Qualified leads',
+        cell: ({ row }) => (
+          <div className="min-w-36">
+            <p>{assignmentModeLabel(row.original.qualified_assignment_mode)}</p>
+            <p className="text-xs text-muted-foreground">
+              {row.original.consultant_count} eligible consultants
             </p>
           </div>
         ),
       },
       {
         id: 'workload',
+        preset: 'ASSIGNMENT',
         header: 'Open workload',
         cell: ({ row }) => (
           <div>
@@ -555,6 +576,7 @@ function TeamTable({
       },
       {
         accessorKey: 'active',
+        preset: 'STRUCTURE',
         header: 'Status',
         cell: ({ row }) => <StatusBadge value={row.original.active ? 'ACTIVE' : 'INACTIVE'} />,
       },
@@ -572,9 +594,9 @@ function TeamTable({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => onEdit(row.original)}>
                   <Pencil className="size-4" />
-                  Edit team
+                  {teamPreset === 'ASSIGNMENT' ? 'Change assignment' : 'Edit team'}
                 </DropdownMenuItem>
-                {permissions.canManageUsers && (
+                {teamPreset === 'STRUCTURE' && permissions.canManageUsers && (
                   <DropdownMenuItem onSelect={() => onMembers(row.original)}>
                     <UserRoundCog className="size-4" />
                     Manage members
@@ -584,9 +606,11 @@ function TeamTable({
             </DropdownMenu>
           ) : null,
       },
-    ],
-    [onEdit, onMembers, permissions.canManageTeams, permissions.canManageUsers],
-  );
+    ];
+    return all
+      .filter((column) => !column.preset || column.preset === teamPreset)
+      .map(({ preset, ...column }) => (void preset, column));
+  }, [onEdit, onMembers, permissions.canManageTeams, permissions.canManageUsers, teamPreset]);
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: result.records,
@@ -655,11 +679,14 @@ function TeamTable({
 export function BranchTeamWorkspace({
   kind,
   preset = 'MANAGE',
+  teamPreset = 'STRUCTURE',
   role,
   spec,
 }: {
   kind: AdministrationKind;
   preset?: BranchWorkspacePreset;
+  /** Teams lists who is in a team; Lead & Assignment Settings lists how it routes leads. */
+  teamPreset?: TeamWorkspacePreset;
   role: string;
   spec: PageSpec;
 }) {
@@ -787,7 +814,7 @@ export function BranchTeamWorkspace({
       ? preset === 'MANAGE' &&
         ['ALL_BRANCHES', 'ORGANIZATION'].includes(permissions.dataScope) &&
         permissions.canManageBranches
-      : permissions.canManageTeams;
+      : teamPreset === 'STRUCTURE' && permissions.canManageTeams;
   return (
     <div className="mx-auto max-w-[1600px]">
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
@@ -805,7 +832,12 @@ export function BranchTeamWorkspace({
         )}
       </div>
       <div className="space-y-6">
-        <KpiGrid metrics={branchResult ? branchMetrics(branchResult) : teamMetrics(teamResult!)} />
+        {/* The team counts belong to Teams; the assignment page does not repeat them. */}
+        {branchResult ? (
+          <KpiGrid metrics={branchMetrics(branchResult)} />
+        ) : teamPreset === 'STRUCTURE' ? (
+          <KpiGrid metrics={teamMetrics(teamResult!)} />
+        ) : null}
         {branchResult ? (
           <BranchTable
             result={branchResult}
@@ -827,6 +859,7 @@ export function BranchTeamWorkspace({
             onQueryChange={onQueryChange}
             onEdit={setTeamEditor}
             onMembers={setTeamMembers}
+            teamPreset={teamPreset}
           />
         )}
       </div>

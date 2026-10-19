@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
   CalendarDays,
@@ -12,9 +13,10 @@ import {
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import { SectionCard } from '@/components/shared/section-card';
 import { GmTargetSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
   Table,
@@ -114,7 +116,12 @@ export function GmTargetWorkspace() {
     <div className="mx-auto max-w-[1800px] space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="mb-2 text-xs text-muted-foreground">GM Sales Executive › Targets</div>
+          <nav aria-label="Breadcrumb" className="mb-2 text-xs text-muted-foreground">
+            <Link href="/gm-sales/dashboard" className="hover:text-foreground hover:underline">
+              Dashboard
+            </Link>{' '}
+            › Targets
+          </nav>
           <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">Sales targets</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Configured branch targets and live booked outcomes in your authorized scope.
@@ -132,109 +139,95 @@ export function GmTargetWorkspace() {
       </div>
       <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
       <div className="grid gap-4 xl:grid-cols-2">
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle className="text-base">Booked sales by showroom</CardTitle>
-            <CardDescription>
-              Actual sales value against the configured revenue target.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <EChart
-              kind="bar"
-              data={data.branches.map((branch) => ({
-                name: branch.name,
-                value: branch.sales_value,
-                secondary: branch.sales_target,
-              }))}
-              seriesNames={['Booked sales', 'Target']}
-            />
-          </CardContent>
-        </Card>
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle className="text-base">Booking and test-drive progress</CardTitle>
-            <CardDescription>Counts are displayed separately from revenue targets.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <EChart
-              kind="bar"
-              data={data.branches.map((branch) => ({
-                name: branch.name,
-                value: branch.bookings,
-                secondary: branch.booking_target,
-              }))}
-              seriesNames={['Bookings', 'Booking target']}
-            />
-            <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-              <CalendarDays className="size-3.5" /> Test drives:{' '}
-              {data.kpis.test_drives.toLocaleString()} /{' '}
-              {data.kpis.drive_target ? data.kpis.drive_target.toLocaleString() : 'not configured'}
-            </div>
-          </CardContent>
-        </Card>
+        <SectionCard
+          title="Booked sales by showroom"
+          description="Actual sales value against the configured revenue target."
+        >
+          <EChart
+            kind="bar"
+            data={data.branches.map((branch) => ({
+              name: branch.name,
+              value: branch.sales_value,
+              secondary: branch.sales_target,
+            }))}
+            seriesNames={['Booked sales', 'Target']}
+          />
+        </SectionCard>
+        <SectionCard
+          title="Booking and test-drive progress"
+          description="Counts are displayed separately from revenue targets."
+        >
+          <EChart
+            kind="bar"
+            data={data.branches.map((branch) => ({
+              name: branch.name,
+              value: branch.bookings,
+              secondary: branch.booking_target,
+            }))}
+            seriesNames={['Bookings', 'Booking target']}
+          />
+          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+            <CalendarDays className="size-3.5" /> Test drives:{' '}
+            {data.kpis.test_drives.toLocaleString()} /{' '}
+            {data.kpis.drive_target ? data.kpis.drive_target.toLocaleString() : 'not configured'}
+          </div>
+        </SectionCard>
       </div>
-      <Card className="overflow-hidden shadow-none">
-        <CardHeader>
-          <CardTitle className="text-base">Showroom target attainment</CardTitle>
-          <CardDescription>
-            Only branch-level targets are included; individual and team targets remain separate.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="overflow-x-auto p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Showroom</TableHead>
-                <TableHead className="text-right">Sales target</TableHead>
-                <TableHead className="text-right">Booked sales</TableHead>
-                <TableHead>Attainment</TableHead>
-                <TableHead className="text-right">Bookings</TableHead>
-                <TableHead className="text-right">Test drives</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.branches.map((branch) => {
-                const attainment = progress(branch.sales_value, branch.sales_target);
-                return (
-                  <TableRow key={branch.id}>
-                    <TableCell className="font-medium">{branch.name}</TableCell>
-                    <TableCell className="text-right">
-                      {branch.sales_target ? currency(branch.sales_target) : '—'}
-                    </TableCell>
-                    <TableCell className="text-right">{currency(branch.sales_value)}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={attainment !== null && attainment >= 100 ? 'success' : 'outline'}
-                      >
-                        {attainment === null ? 'No target' : `${attainment.toFixed(1)}%`}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {branch.bookings}
-                      {branch.booking_target ? ` / ${branch.booking_target}` : ''}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {branch.test_drives}
-                      {branch.drive_target ? ` / ${branch.drive_target}` : ''}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              {!data.branches.length ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={6}
-                    className="py-10 text-center text-sm text-muted-foreground"
-                  >
-                    No accessible active showrooms are available.
+      <SectionCard
+        title="Showroom target attainment"
+        description="Only branch-level targets are included; individual and team targets remain separate."
+        flush
+        contentClassName="overflow-x-auto"
+      >
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Showroom</TableHead>
+              <TableHead className="text-right">Sales target</TableHead>
+              <TableHead className="text-right">Booked sales</TableHead>
+              <TableHead>Attainment</TableHead>
+              <TableHead className="text-right">Bookings</TableHead>
+              <TableHead className="text-right">Test drives</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.branches.map((branch) => {
+              const attainment = progress(branch.sales_value, branch.sales_target);
+              return (
+                <TableRow key={branch.id}>
+                  <TableCell className="font-medium">{branch.name}</TableCell>
+                  <TableCell className="text-right">
+                    {branch.sales_target ? currency(branch.sales_target) : '—'}
+                  </TableCell>
+                  <TableCell className="text-right">{currency(branch.sales_value)}</TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={attainment !== null && attainment >= 100 ? 'success' : 'outline'}
+                    >
+                      {attainment === null ? 'No target' : `${attainment.toFixed(1)}%`}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {branch.bookings}
+                    {branch.booking_target ? ` / ${branch.booking_target}` : ''}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {branch.test_drives}
+                    {branch.drive_target ? ` / ${branch.drive_target}` : ''}
                   </TableCell>
                 </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              );
+            })}
+            {!data.branches.length ? (
+              <TableRow>
+                <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
+                  No accessible active showrooms are available.
+                </TableCell>
+              </TableRow>
+            ) : null}
+          </TableBody>
+        </Table>
+      </SectionCard>
     </div>
   );
 }

@@ -2,9 +2,11 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Linking,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -14,12 +16,28 @@ import { Screen } from '@/components/screen';
 import {
   createMobileLeadFollowup,
   createMobileTestDriveAppointment,
+  fetchCustomerMatches,
+  fetchHandoffCandidates,
   fetchMobileLeadDetail,
+  fetchMobileRole,
+  leadActionMessage,
+  recordMobileLeadContact,
+  resolveMobileLeadCustomer,
+  transferMobileLeadToSales,
+  type CustomerMatch,
+  type HandoffCandidate,
   type MobileLeadDetail,
+  type MobileRole,
 } from '@/lib/lead-detail';
 import { colors } from '@/theme';
 
 type ModalKind = 'followup' | 'testDrive' | null;
+
+// Same audited defaults as the web customer-match dialog: editable, never silent.
+const LINK_REASON = 'Same phone number; confirmed this is the same customer.';
+const NO_MATCH_REASON = 'No exact phone or email match was found for this lead.';
+const TRANSFER_NOTE = 'Qualified on call; customer ready for Sales.';
+const intakeClosed = new Set(['Lost', 'Transferred to Sales']);
 
 function dateTime(value: string | null) {
   if (!value) return 'Not scheduled';
@@ -42,6 +60,13 @@ function requestId() {
     const random = Math.floor(Math.random() * 16);
     return (character === 'x' ? random : (random & 0x3) | 0x8).toString(16);
   });
+}
+
+// Some activity rows carry only their event code (FOLLOWUP_COMPLETED).
+function timelineTitle(title: string) {
+  if (!/^[A-Z][A-Z0-9_]+$/.test(title)) return title;
+  const words = title.toLowerCase().replaceAll('_', ' ').replace('followup', 'follow-up');
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 function initials(name: string) {
@@ -70,11 +95,18 @@ export default function LeadDetail() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string>();
   const [success, setSuccess] = useState<string>();
+  const [role, setRole] = useState<MobileRole>(null);
+  const [notice, setNotice] = useState<string>();
   const load = useCallback(async () => {
     if (!id) return;
     setError(false);
     try {
-      setDetail(await fetchMobileLeadDetail(id));
+      const [nextDetail, nextRole] = await Promise.all([
+        fetchMobileLeadDetail(id),
+        fetchMobileRole(),
+      ]);
+      setDetail(nextDetail);
+      setRole(nextRole);
     } catch {
       setError(true);
     }
@@ -82,9 +114,21 @@ export default function LeadDetail() {
   useEffect(() => {
     void load();
   }, [load]);
-  const callCustomer = () => {
-    if (detail) void Linking.openURL(`tel:${detail.lead.phone.replace(/[^+\d]/g, '')}`);
+  // The dialer opens first; the contact is then recorded exactly as the web
+  // Call button records it, so a phone call moves a New lead to Contacted.
+  const callCustomer = async () => {
+    if (!detail) return;
+    void Linking.openURL(`tel:${detail.lead.phone.replace(/[^+\d]/g, '')}`);
+    if (role === 'telecaller' && intakeClosed.has(detail.lead.lifecycle_status)) return;
+    try {
+      await recordMobileLeadContact(role, detail.lead.id);
+      setNotice(undefined);
+      void load();
+    } catch (contactError) {
+      setNotice(leadActionMessage(contactError, 'The call could not be recorded on the lead.'));
+    }
   };
+  const [transferOpen, setTransferOpen] = useState(false);
   const submit = async () => {
     if (!detail || !modal) return;
     const scheduled = new Date(dueAt.replace(' ', 'T'));
@@ -164,7 +208,7 @@ export default function LeadDetail() {
                     </Text>
                   ) : null}
                 </View>
-                <Pressable onPress={callCustomer}>
+                <Pressable onPress={() => void callCustomer()}>
                   <Text style={styles.phone}>{lead.phone}</Text>
                 </Pressable>
                 <Text style={styles.interested}>
@@ -191,7 +235,7 @@ export default function LeadDetail() {
           </View>
 
           <View style={styles.actions}>
-            <Action label="Call" enabled onPress={callCustomer} />
+            <Action label="Call" enabled onPress={() => void callCustomer()} />
             <Action
               label="Follow-up"
               enabled={detail.access.can_followups}
@@ -204,12 +248,21 @@ export default function LeadDetail() {
                 lastCall && router.push({ pathname: '/call/[id]', params: { id: lastCall.id } })
               }
             />
-            <Action
-              label="Test drive"
-              enabled={detail.access.can_appointments && Boolean(lead.customer_id)}
-              onPress={() => setModal('testDrive')}
-            />
+            {role === 'telecaller' ? (
+              <Action
+                label="Transfer"
+                enabled={detail.access.can_update && !intakeClosed.has(lead.lifecycle_status)}
+                onPress={() => setTransferOpen(true)}
+              />
+            ) : (
+              <Action
+                label="Test drive"
+                enabled={detail.access.can_appointments && Boolean(lead.customer_id)}
+                onPress={() => setModal('testDrive')}
+              />
+            )}
           </View>
+          {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Customer requirement</Text>
@@ -255,6 +308,33 @@ export default function LeadDetail() {
             {success ? <Text style={styles.success}>{success}</Text> : null}
           </View>
 
+          {detail.calls.length ? (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Recent calls</Text>
+              {detail.calls.slice(0, 5).map((call) => (
+                <Pressable
+                  key={call.id}
+                  style={styles.timelineRow}
+                  onPress={() => router.push({ pathname: '/call/[id]', params: { id: call.id } })}
+                >
+                  <View style={styles.timelineDot} />
+                  <View style={styles.grow}>
+                    <Text style={styles.timelineTitle}>
+                      {(call.outcome ?? call.status).replaceAll('_', ' ')}
+                    </Text>
+                    <Text style={styles.timelineDetail}>
+                      {call.duration_seconds
+                        ? `${Math.floor(call.duration_seconds / 60)}m ${(call.duration_seconds % 60).toString().padStart(2, '0')}s · `
+                        : ''}
+                      Transcript & summary
+                    </Text>
+                  </View>
+                  <Text style={styles.timelineTime}>{dateTime(call.started_at)}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Timeline</Text>
             {detail.timeline.length ? (
@@ -262,7 +342,7 @@ export default function LeadDetail() {
                 <View key={item.id} style={styles.timelineRow}>
                   <View style={styles.timelineDot} />
                   <View style={styles.grow}>
-                    <Text style={styles.timelineTitle}>{item.title}</Text>
+                    <Text style={styles.timelineTitle}>{timelineTitle(item.title)}</Text>
                     {item.detail ? <Text style={styles.timelineDetail}>{item.detail}</Text> : null}
                   </View>
                   <Text style={styles.timelineTime}>{dateTime(item.occurred_at)}</Text>
@@ -324,7 +404,224 @@ export default function LeadDetail() {
           </View>
         </View>
       </Modal>
+      {detail && transferOpen ? (
+        <TransferSheet
+          detail={detail}
+          onClose={() => setTransferOpen(false)}
+          onReload={load}
+          onTransferred={(name) => {
+            setTransferOpen(false);
+            setSuccess(`Transferred to ${name}.`);
+            void load();
+          }}
+        />
+      ) : null}
     </Screen>
+  );
+}
+
+// Qualify & Transfer: link the customer first when the lead has none (the
+// handoff requires one), then pick the Sales Consultant.
+function TransferSheet({
+  detail,
+  onClose,
+  onReload,
+  onTransferred,
+}: {
+  detail: MobileLeadDetail;
+  onClose: () => void;
+  onReload: () => Promise<void>;
+  onTransferred: (consultant: string) => void;
+}) {
+  const needsCustomer = !detail.lead.customer_id;
+  const [matches, setMatches] = useState<CustomerMatch[]>();
+  const [choice, setChoice] = useState<string>('NEW');
+  const [reason, setReason] = useState(NO_MATCH_REASON);
+  const [candidates, setCandidates] = useState<HandoffCandidate[]>();
+  const [consultant, setConsultant] = useState<string | null>(null);
+  const [note, setNote] = useState(TRANSFER_NOTE);
+  const [busy, setBusy] = useState(false);
+  const [sheetError, setSheetError] = useState<string>();
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        if (needsCustomer) {
+          const found = await fetchCustomerMatches(detail.lead.id);
+          if (!active) return;
+          setMatches(found);
+          if (found[0]) {
+            setChoice(found[0].customer_id);
+            setReason(LINK_REASON);
+          }
+        } else {
+          const found = await fetchHandoffCandidates(detail.lead.id);
+          if (!active) return;
+          setCandidates(found);
+          setConsultant(
+            found.find((item) => item.recommended)?.user_id ?? found[0]?.user_id ?? null,
+          );
+        }
+      } catch (loadError) {
+        if (active) setSheetError(leadActionMessage(loadError, 'Could not load the next step.'));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [detail.lead.id, needsCustomer]);
+  const choose = (value: string) => {
+    setChoice(value);
+    setReason(value === 'NEW' ? (matches?.length ? '' : NO_MATCH_REASON) : LINK_REASON);
+  };
+  const linkCustomer = async () => {
+    if (reason.trim().length < 3) {
+      setSheetError('Enter a reason of at least 3 characters.');
+      return;
+    }
+    setBusy(true);
+    setSheetError(undefined);
+    try {
+      await resolveMobileLeadCustomer({
+        detail,
+        customerId: choice === 'NEW' ? null : choice,
+        reason: reason.trim(),
+        requestId: requestId(),
+      });
+      await onReload();
+    } catch (linkError) {
+      setSheetError(leadActionMessage(linkError, 'The customer could not be linked.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const transfer = async () => {
+    if (note.trim().length < 3) {
+      setSheetError('Enter a transfer note.');
+      return;
+    }
+    setBusy(true);
+    setSheetError(undefined);
+    try {
+      await transferMobileLeadToSales({
+        leadId: detail.lead.id,
+        consultantId: consultant,
+        note: note.trim(),
+        requestId: requestId(),
+      });
+      onTransferred(candidates?.find((item) => item.user_id === consultant)?.full_name ?? 'Sales');
+    } catch (transferError) {
+      setSheetError(leadActionMessage(transferError, 'The lead could not be transferred.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const loading = needsCustomer ? !matches : !candidates;
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior="padding" style={styles.modalBackdrop}>
+        <View style={styles.modal}>
+          <Text style={styles.modalTitle}>
+            {needsCustomer ? 'Link the customer' : 'Transfer to Sales'}
+          </Text>
+          <Text style={styles.modalText}>
+            {needsCustomer
+              ? 'Sales needs the customer record. Link a matching customer or create a new one.'
+              : 'Choose the Sales Consultant who takes over this lead.'}
+          </Text>
+          {loading && !sheetError ? <ActivityIndicator color={colors.primary} /> : null}
+          {needsCustomer && matches ? (
+            <ScrollView style={styles.choices}>
+              {matches.map((match) => (
+                <Choice
+                  key={match.customer_id}
+                  selected={choice === match.customer_id}
+                  title={match.full_name}
+                  detail={[
+                    match.masked_phone,
+                    `${match.lead_count} enquir${match.lead_count === 1 ? 'y' : 'ies'}`,
+                    match.latest_interested_model,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                  onPress={() => choose(match.customer_id)}
+                />
+              ))}
+              <Choice
+                selected={choice === 'NEW'}
+                title="Create a new customer"
+                detail={`${detail.lead.customer_name} · ${detail.lead.phone}`}
+                onPress={() => choose('NEW')}
+              />
+            </ScrollView>
+          ) : null}
+          {!needsCustomer && candidates ? (
+            <ScrollView style={styles.choices}>
+              {candidates.map((candidate) => (
+                <Choice
+                  key={candidate.user_id}
+                  selected={consultant === candidate.user_id}
+                  title={`${candidate.full_name}${candidate.recommended ? ' · Recommended' : ''}`}
+                  detail={`${candidate.open_leads} open · ${candidate.hot_leads} hot`}
+                  onPress={() => setConsultant(candidate.user_id)}
+                />
+              ))}
+            </ScrollView>
+          ) : null}
+          {!loading ? (
+            <>
+              <Text style={styles.inputLabel}>{needsCustomer ? 'Reason' : 'Transfer note'}</Text>
+              <TextInput
+                value={needsCustomer ? reason : note}
+                onChangeText={needsCustomer ? setReason : setNote}
+                style={styles.input}
+                maxLength={500}
+                placeholder={needsCustomer ? 'Why this customer' : 'Note for Sales'}
+              />
+            </>
+          ) : null}
+          {sheetError ? <Text style={styles.formError}>{sheetError}</Text> : null}
+          <View style={styles.modalActions}>
+            <Pressable style={styles.cancel} onPress={onClose} disabled={busy}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.save, (busy || loading) && styles.actionDisabled]}
+              onPress={() => void (needsCustomer ? linkCustomer() : transfer())}
+              disabled={busy || loading}
+            >
+              <Text style={styles.saveText}>
+                {busy ? 'Saving…' : needsCustomer ? 'Link and continue' : 'Transfer'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function Choice({
+  selected,
+  title,
+  detail,
+  onPress,
+}: {
+  selected: boolean;
+  title: string;
+  detail: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={[styles.choice, selected && styles.choiceSelected]}
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+    >
+      <Text style={styles.choiceTitle}>{title}</Text>
+      {detail ? <Text style={styles.choiceDetail}>{detail}</Text> : null}
+    </Pressable>
   );
 }
 
@@ -483,4 +780,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   saveText: { color: 'white', fontWeight: '800' },
+  notice: { color: colors.danger, fontSize: 12, fontWeight: '700' },
+  choices: { maxHeight: 260 },
+  choice: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 11,
+    marginBottom: 8,
+  },
+  choiceSelected: { borderColor: colors.primary, backgroundColor: '#eff6ff' },
+  choiceTitle: { color: colors.text, fontSize: 13, fontWeight: '800' },
+  choiceDetail: { color: colors.muted, fontSize: 11, marginTop: 3 },
 });

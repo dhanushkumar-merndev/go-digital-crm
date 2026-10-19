@@ -4,23 +4,21 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useRef, useState } from 'react';
 import {
-  ArrowRight,
   CalendarCheck2,
   CalendarClock,
-  CarFront,
   CircleAlert,
   Clock3,
-  FileText,
-  PackageSearch,
   PhoneCall,
-  Plus,
   RefreshCw,
   Route,
   UserCheck,
-  UserRoundPlus,
   UsersRound,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
+import { AppIcon } from '@/components/shared/icon';
+import { MetricCard } from '@/components/shared/metric-card';
+import { SectionCard } from '@/components/shared/section-card';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -29,7 +27,8 @@ import { AGGREGATE_REALTIME_MIN_INTERVAL_MS } from '@/lib/query/cache-policy';
 import { TenantDashboardSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Table,
   TableBody,
@@ -38,7 +37,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { roleNavigation } from '@/config/navigation';
+import { roleHasNavigationSlug, roleNavigation } from '@/config/navigation';
 import type { RoleKey } from '@/config/navigation/types';
 import type { PageSpec } from '@/lib/domain';
 import { cn } from '@/lib/utils';
@@ -47,6 +46,8 @@ import {
   useTenantRealtimeInvalidation,
   type TenantRealtimeResource,
 } from '@/lib/realtime/use-realtime-invalidation';
+import { leadStageVariant } from '@/features/leads/lead-stage-variant';
+import { toneStyles, type Tone } from './dashboard-tone';
 import {
   tenantDashboardKey,
   type TenantDashboardLeadPreview,
@@ -54,12 +55,25 @@ import {
 } from './tenant-dashboard-api';
 import { useTenantDashboard } from './use-tenant-dashboard';
 
+/** One tile per column on wide screens, whatever the role's tile count. */
+const kpiColumns: Record<number, string> = {
+  5: 'xl:grid-cols-5',
+  6: 'xl:grid-cols-6',
+  7: 'xl:grid-cols-7',
+  8: 'xl:grid-cols-8',
+};
+
+/** The dashboard RPC buckets its days in this zone, so times are read back in it. */
+const DASHBOARD_TIMEZONE = 'Asia/Kolkata';
+
 type KpiCard = {
+  key: string;
   label: string;
   value: number;
-  helper: string;
-  icon: typeof UsersRound;
-  tone: string;
+  caption: string;
+  icon: LucideIcon;
+  tone: Tone;
+  href?: string;
 };
 
 function leadDestination(role: RoleKey) {
@@ -70,125 +84,161 @@ function leadDestination(role: RoleKey) {
   return null;
 }
 
-function operationalDestination(role: RoleKey) {
-  if (role === 'finance') return 'finance-cases';
-  if (role === 'insurance') return 'insurance-cases';
-  if (role === 'rto') return 'rto-cases';
-  if (role === 'delivery') return 'upcoming-deliveries';
-  if (role === 'exchange') return 'exchange-requests';
-  return null;
+/** The first of `slugs` this role actually has a page for, as a link. */
+function firstPage(role: RoleKey, slugs: string[], query = '') {
+  const slug = slugs.find((candidate) => roleHasNavigationSlug(role, candidate));
+  return slug ? `/${role}/${slug}${query}` : undefined;
 }
 
-function dashboardKpis(data: TenantDashboardResult): KpiCard[] {
+/**
+ * One tile per number. Each tile opens the list that number counts, so the
+ * page never has to print the same count a second time to make it actionable.
+ */
+function dashboardKpis(data: TenantDashboardResult, role: RoleKey): KpiCard[] {
   const { capabilities, kpis } = data;
+  const leadPage = leadDestination(role);
+  const leads =
+    leadPage && roleHasNavigationSlug(role, leadPage) ? `/${role}/${leadPage}` : undefined;
+  // Managers and their executive desks share the case list's slug.
+  const caseList = firstPage(role, [
+    'finance-cases',
+    'insurance-cases',
+    'rto-cases',
+    'upcoming-deliveries',
+    'exchange-requests',
+    'customer-cases',
+  ]);
   const cards: KpiCard[] = [];
-  if (capabilities.leads) {
+  if (capabilities.leads)
     cards.push(
       {
+        key: 'new_leads_today',
         label: 'New leads today',
         value: kpis.new_leads_today,
-        helper: 'Created today',
+        caption: 'Created today',
         icon: UserCheck,
-        tone: 'bg-blue-50 text-blue-600',
+        tone: 'blue',
+        href: leads ? `${leads}?status=new-today` : undefined,
       },
       {
+        key: 'open_leads',
         label: 'Open leads',
         value: kpis.open_leads,
-        helper: 'In your current scope',
+        caption: 'In your current scope',
         icon: UsersRound,
-        tone: 'bg-indigo-50 text-indigo-600',
+        tone: 'violet',
+        href: leads,
       },
     );
-  }
   if (capabilities.calls)
     cards.push({
+      key: 'calls_today',
       label: 'Calls today',
       value: kpis.calls_today,
-      helper: 'Logged calls',
+      caption: 'Logged calls',
       icon: PhoneCall,
-      tone: 'bg-emerald-50 text-emerald-600',
+      tone: 'emerald',
+      href: firstPage(role, ['team-calls', 'calls']),
     });
-  if (capabilities.work) {
+  if (capabilities.work)
     cards.push(
       {
+        key: 'followups_due_today',
         label: 'Follow-ups today',
         value: kpis.followups_due_today,
-        helper: 'Due today',
+        caption: 'Due today',
         icon: CalendarClock,
-        tone: 'bg-amber-50 text-amber-600',
+        tone: 'orange',
+        href: firstPage(role, ['follow-ups'], '?status=today'),
       },
       {
+        key: 'followups_overdue',
         label: 'Overdue follow-ups',
         value: kpis.followups_overdue,
-        helper: 'Needs attention',
-        icon: CircleAlert,
-        tone: 'bg-rose-50 text-rose-600',
+        caption: 'Needs attention',
+        icon: Clock3,
+        tone: 'rose',
+        href: firstPage(role, ['follow-ups'], '?status=overdue'),
       },
       {
+        key: 'appointments_today',
         label: 'Appointments today',
         value: kpis.appointments_today,
-        helper: 'Scheduled or confirmed',
+        caption: 'Scheduled or confirmed',
         icon: CalendarCheck2,
-        tone: 'bg-cyan-50 text-cyan-600',
+        tone: 'cyan',
+        href: firstPage(role, ['appointments']),
       },
     );
-  }
   if (capabilities.test_drives)
     cards.push({
+      key: 'test_drives_today',
       label: 'Test drives today',
       value: kpis.test_drives_today,
-      helper: 'Scheduled and active',
+      caption: 'Scheduled and active',
       icon: Route,
-      tone: 'bg-violet-50 text-violet-600',
+      tone: 'violet',
+      href: firstPage(role, ['test-drives']),
     });
   if (capabilities.bookings)
     cards.push({
+      key: 'bookings_month',
       label: 'Bookings this month',
       value: kpis.bookings_month,
-      helper: 'Non-cancelled bookings',
+      caption: 'Non-cancelled bookings',
       icon: CalendarCheck2,
-      tone: 'bg-orange-50 text-orange-600',
+      tone: 'amber',
+      href: firstPage(role, ['bookings', 'bookings-overview', 'bookings-delivery']),
     });
   if (capabilities.inventory && !cards.length)
     cards.push({
+      key: 'available_stock',
       label: 'Available stock',
       value: kpis.available_stock,
-      helper: 'Authorized branches',
+      caption: 'Authorized branches',
       icon: UsersRound,
-      tone: 'bg-blue-50 text-blue-600',
+      tone: 'blue',
+      href: firstPage(role, ['vehicle-inventory', 'stock-check']),
     });
-  if (capabilities.operations) {
+  if (capabilities.operations)
     cards.push(
       {
+        key: 'open_cases',
         label: 'Open cases',
         value: kpis.open_cases,
-        helper: 'Current authorized scope',
+        caption: 'Current authorized scope',
         icon: CircleAlert,
-        tone: 'bg-amber-50 text-amber-600',
+        tone: 'amber',
+        href: caseList ? `${caseList}?status=OPEN` : undefined,
       },
       {
+        key: 'overdue_cases',
         label: 'Overdue cases',
         value: kpis.overdue_cases,
-        helper: 'Needs attention',
-        icon: CircleAlert,
-        tone: 'bg-rose-50 text-rose-600',
+        caption: 'Past due, not closed',
+        icon: Clock3,
+        tone: 'rose',
+        href: caseList ? `${caseList}?status=ACTION_DUE` : undefined,
       },
       {
+        key: 'cases_due_today',
         label: 'Due today',
         value: kpis.cases_due_today,
-        helper: 'Open case commitments',
+        caption: 'Open case commitments',
         icon: CalendarClock,
-        tone: 'bg-cyan-50 text-cyan-600',
+        tone: 'cyan',
+        href: caseList ? `${caseList}?status=ACTION_DUE` : undefined,
       },
       {
-        label: 'Completed MTD',
+        key: 'cases_completed_month',
+        label: 'Completed this month',
         value: kpis.cases_completed_month,
-        helper: 'Closed operational work',
+        caption: 'Closed operational work',
         icon: CalendarCheck2,
-        tone: 'bg-emerald-50 text-emerald-600',
+        tone: 'emerald',
+        href: caseList ? `${caseList}?status=COMPLETED` : undefined,
       },
     );
-  }
   return cards.slice(0, 8);
 }
 
@@ -209,6 +259,15 @@ function subscriptions(data: TenantDashboardResult | undefined) {
   }));
 }
 
+function formatTime(value: string) {
+  return new Intl.DateTimeFormat('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: DASHBOARD_TIMEZONE,
+  }).format(new Date(value));
+}
+
 function formatDateTime(value: string | null) {
   if (!value) return 'Not scheduled';
   return new Intl.DateTimeFormat('en-IN', {
@@ -216,14 +275,9 @@ function formatDateTime(value: string | null) {
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: true,
+    timeZone: DASHBOARD_TIMEZONE,
   }).format(new Date(value));
-}
-
-function statusVariant(status: string): 'info' | 'success' | 'warning' | 'destructive' | 'outline' {
-  if (status === 'Lost' || status === 'SLA_RISK') return 'destructive';
-  if (status === 'Qualified' || status === 'Transferred to Sales') return 'success';
-  if (status === 'Contacted' || status === 'PENDING') return 'warning';
-  return 'info';
 }
 
 function temperatureVariant(temperature: TenantDashboardLeadPreview['temperature']) {
@@ -256,103 +310,37 @@ function DashboardHeader({
   manualRefreshMessage?: string;
 }) {
   const navigation = roleNavigation[role];
-  const isTelecaller = role === 'telecaller';
   return (
-    <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+    <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
       <div>
-        {!isTelecaller && (
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <span>Workspace</span>
-            <span>›</span>
-            <span>Dashboard</span>
-          </div>
-        )}
-        <h1
-          className={cn(
-            'text-2xl font-bold tracking-tight text-[#17233d] md:text-[28px]',
-            !isTelecaller && 'mt-2',
-          )}
-        >
-          {heading ?? `${navigation.shortLabel} Dashboard`}
+        <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
+          {heading ?? `${navigation.shortLabel} Workspace`}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {isTelecaller
-            ? "Welcome back. Here's what's happening with your leads today."
-            : spec.description}
-        </p>
-        {!isTelecaller && (
-          <p className="mt-2 text-xs font-medium text-blue-500">
-            {navigation.label} · {navigation.scope}
-          </p>
-        )}
+        <p className="mt-1 text-sm text-muted-foreground">{spec.description}</p>
       </div>
-      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        {generatedAt && <span>Last updated: {formatDateTime(generatedAt)}</span>}
-        <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
-          <RefreshCw className={refreshing ? 'size-3.5 animate-spin' : 'size-3.5'} />
-          Refresh
+      <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onRefresh}
+          disabled={refreshing || manualRefreshRemaining === 0}
+        >
+          <RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />
+          {generatedAt ? `Last synced ${formatTime(generatedAt)}` : 'Refresh'}
         </Button>
-        <span>{manualRefreshMessage ?? `${manualRefreshRemaining}/3 manual refreshes left`}</span>
+        <span>{manualRefreshRemaining}/3 manual refreshes left</span>
+        {manualRefreshMessage && <span className="text-rose-600">{manualRefreshMessage}</span>}
       </div>
     </div>
-  );
-}
-
-function PriorityCard({
-  label,
-  value,
-  description,
-  icon: Icon,
-  tone,
-  href,
-}: {
-  label: string;
-  value: number;
-  description: string;
-  icon: typeof UsersRound;
-  tone: string;
-  href?: string;
-}) {
-  const content = (
-    <div className="flex h-full flex-col items-center p-4 text-center">
-      <span className={`grid size-10 place-items-center rounded-xl ${tone}`}>
-        <Icon className="size-5" />
-      </span>
-      {/* The label and description wrap to different line counts per card, so
-          they share one growing block. Without it the numbers below sat at a
-          different height in every card and the row read as ragged. */}
-      <div className="mt-3 flex flex-1 flex-col items-center">
-        <p className="text-sm font-semibold text-[#17233d]">{label}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-      </div>
-      <p className="mt-3 text-2xl font-bold tracking-tight text-[#17233d]">{value}</p>
-      {href && (
-        <span className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-600">
-          View list <ArrowRight className="size-3.5" />
-        </span>
-      )}
-    </div>
-  );
-  return href ? (
-    <Link
-      href={href}
-      className="block h-full rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-    >
-      {content}
-    </Link>
-  ) : (
-    content
   );
 }
 
 function LeadPreviewTable({
   records,
   leadHref,
-  title = 'Leads at a glance',
 }: {
   records: TenantDashboardLeadPreview[];
   leadHref: string | null;
-  title?: string;
 }) {
   const router = useRouter();
   const openLead = (lead: TenantDashboardLeadPreview) => {
@@ -360,132 +348,221 @@ function LeadPreviewTable({
     router.push(`${leadHref}?q=${encodeURIComponent(lead.phone)}`);
   };
   return (
-    <Card className="overflow-hidden shadow-none">
-      <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
-        <div>
-          <CardTitle className="text-base">{title}</CardTitle>
-          <CardDescription className="mt-1">
-            Five most recently updated leads in your scope
-          </CardDescription>
-        </div>
-        {leadHref && (
-          <Button asChild variant="link" size="sm" className="h-auto px-0 text-blue-600">
-            <Link href={leadHref}>
-              View all leads <ArrowRight className="size-3.5" />
-            </Link>
-          </Button>
-        )}
-      </CardHeader>
-      <CardContent className="p-0">
-        {records.length ? (
-          <Table>
-            <TableHeader className="bg-slate-50/80">
-              <TableRow>
-                <TableHead>Customer</TableHead>
-                <TableHead className="hidden lg:table-cell">Mobile</TableHead>
-                <TableHead className="hidden xl:table-cell">Source</TableHead>
-                <TableHead className="hidden xl:table-cell">Interested model</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="hidden md:table-cell">Temperature</TableHead>
-                <TableHead className="hidden md:table-cell">Next follow-up</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {records.map((lead) => (
-                <TableRow
-                  key={lead.id}
-                  onClick={() => openLead(lead)}
-                  tabIndex={leadHref ? 0 : undefined}
-                  role={leadHref ? 'link' : undefined}
-                  onKeyDown={(event) => {
-                    if (leadHref && (event.key === 'Enter' || event.key === ' ')) {
-                      event.preventDefault();
-                      openLead(lead);
-                    }
-                  }}
-                  className={leadHref ? 'cursor-pointer hover:bg-slate-50' : undefined}
-                >
-                  <TableCell className="font-medium text-[#17233d]">{lead.customer_name}</TableCell>
-                  <TableCell className="hidden lg:table-cell">{lead.phone}</TableCell>
-                  <TableCell className="hidden xl:table-cell">{lead.source}</TableCell>
-                  <TableCell className="hidden xl:table-cell">
-                    {lead.interested_model ?? '—'}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={statusVariant(lead.work_state ?? lead.lifecycle_status)}>
-                      {lead.work_state === 'NEW_TODAY'
-                        ? 'New today'
-                        : lead.work_state === 'SLA_RISK'
-                          ? 'SLA risk'
+    <SectionCard
+      title="Recently updated leads"
+      description="Five most recently updated leads in your scope"
+      actionHref={leadHref ?? undefined}
+      actionLabel="View all leads"
+      flush
+      className="h-full"
+    >
+      {records.length ? (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Customer</TableHead>
+              <TableHead className="hidden lg:table-cell">Mobile</TableHead>
+              <TableHead className="hidden xl:table-cell">Source</TableHead>
+              <TableHead className="hidden xl:table-cell">Interested model</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="hidden md:table-cell">Temperature</TableHead>
+              <TableHead className="hidden md:table-cell">Next follow-up</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {records.map((lead) => (
+              <TableRow
+                key={lead.id}
+                onClick={() => openLead(lead)}
+                tabIndex={leadHref ? 0 : undefined}
+                role={leadHref ? 'link' : undefined}
+                onKeyDown={(event) => {
+                  if (leadHref && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    openLead(lead);
+                  }
+                }}
+                className={leadHref ? 'cursor-pointer hover:bg-slate-50' : undefined}
+              >
+                <TableCell className="text-xs font-semibold text-blue-700">
+                  {lead.customer_name}
+                </TableCell>
+                <TableCell className="hidden text-xs lg:table-cell">{lead.phone}</TableCell>
+                <TableCell className="hidden text-xs xl:table-cell">{lead.source}</TableCell>
+                <TableCell className="hidden text-xs xl:table-cell">
+                  {lead.interested_model ?? '—'}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={leadStageVariant(lead.work_state ?? lead.lifecycle_status)}>
+                    {lead.work_state === 'NEW_TODAY'
+                      ? 'New today'
+                      : lead.work_state === 'SLA_RISK'
+                        ? 'SLA risk'
+                        : lead.work_state === 'PENDING'
+                          ? 'Pending'
                           : lead.lifecycle_status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell">
-                    {lead.temperature ? (
-                      <Badge variant={temperatureVariant(lead.temperature)}>
-                        {lead.temperature}
-                      </Badge>
-                    ) : (
-                      '—'
-                    )}
-                  </TableCell>
-                  <TableCell className="hidden whitespace-nowrap text-xs text-muted-foreground md:table-cell">
-                    {formatDateTime(lead.next_followup_at)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : (
-          <div className="p-8 text-center text-sm text-muted-foreground">
-            No leads are currently visible in your assigned scope.
-          </div>
-        )}
-      </CardContent>
-    </Card>
+                  </Badge>
+                </TableCell>
+                <TableCell className="hidden md:table-cell">
+                  {lead.temperature ? (
+                    <Badge variant={temperatureVariant(lead.temperature)}>{lead.temperature}</Badge>
+                  ) : (
+                    '—'
+                  )}
+                </TableCell>
+                <TableCell className="hidden whitespace-nowrap text-xs text-muted-foreground md:table-cell">
+                  {formatDateTime(lead.next_followup_at)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      ) : (
+        <p className="p-8 text-center text-sm text-muted-foreground">
+          No leads are currently visible in your assigned scope.
+        </p>
+      )}
+    </SectionCard>
   );
 }
 
-function OperationalQueueOverview({
-  data,
-  href,
-}: {
-  data: TenantDashboardResult;
-  href: string | null;
-}) {
-  const items = [
-    ['Open cases', data.kpis.open_cases, 'Active work in your authorized scope'],
-    ['Overdue cases', data.kpis.overdue_cases, 'Past due and not terminal'],
-    ['Due today', data.kpis.cases_due_today, 'Case commitments due today'],
-    ['Completed this month', data.kpis.cases_completed_month, 'Terminal cases updated this month'],
-  ] as const;
+/**
+ * The individual follow-ups behind the overdue count: who, and how late. The
+ * count itself is already a tile, so this panel lists records rather than
+ * restating the number.
+ */
+function OverdueFollowups({ data, role }: { data: TenantDashboardResult; role: RoleKey }) {
+  const href = firstPage(role, ['follow-ups'], '?status=overdue');
+  const items = [...data.attention].sort(
+    (left, right) =>
+      new Date(left.sort_at).getTime() - new Date(right.sort_at).getTime() ||
+      left.id.localeCompare(right.id),
+  );
   return (
-    <Card className="overflow-hidden shadow-none">
-      <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
-        <div>
-          <CardTitle className="text-base">Operational case overview</CardTitle>
-          <CardDescription>
-            Live cases, calculated within your permitted department scope.
-          </CardDescription>
-        </div>
-        {href && (
-          <Button asChild variant="link" size="sm" className="h-auto px-0 text-blue-600">
-            <Link href={href}>
-              View cases <ArrowRight className="size-3.5" />
-            </Link>
-          </Button>
-        )}
-      </CardHeader>
-      <CardContent className="grid gap-2.5 p-3 sm:grid-cols-2">
-        {items.map(([label, value, description]) => (
-          <div key={label} className="rounded-lg border bg-white p-4">
-            <p className="text-xs font-medium text-muted-foreground">{label}</p>
-            <p className="mt-2 text-2xl font-bold tracking-tight text-[#17233d]">{value}</p>
-            <p className="mt-2 text-xs text-muted-foreground">{description}</p>
+    <SectionCard
+      title="Needs a follow-up now"
+      actionHref={href}
+      actionLabel="View follow-ups"
+      className="flex h-[22rem] flex-col xl:h-full"
+      contentClassName="min-h-0 flex-1 p-3"
+    >
+      {items.length ? (
+        <ScrollArea type="always" className="h-full pr-1" aria-label="Overdue follow-ups">
+          <div className="space-y-2 pr-2">
+            {items.map((item) => (
+              <Link
+                key={item.id}
+                href={href ?? '#'}
+                className="flex items-start gap-2.5 rounded-lg border bg-white p-2.5 transition-colors hover:border-blue-200 hover:bg-blue-50/30"
+              >
+                <span
+                  className={cn(
+                    'grid size-7 shrink-0 place-items-center rounded-md',
+                    toneStyles[item.severity === 'HIGH' ? 'rose' : 'orange'].icon,
+                  )}
+                >
+                  <PhoneCall className="size-3.5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-medium text-muted-foreground">
+                      {formatTime(item.sort_at)}
+                    </p>
+                    <Badge
+                      variant={item.severity === 'HIGH' ? 'destructive' : 'warning'}
+                      className="px-1.5 py-0 text-[9px] normal-case"
+                    >
+                      {item.severity === 'HIGH' ? 'overdue 1 day+' : 'overdue'}
+                    </Badge>
+                  </div>
+                  <p className="mt-0.5 truncate text-xs font-semibold text-[#17233d]">
+                    {item.title}
+                  </p>
+                  <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{item.detail}</p>
+                </div>
+              </Link>
+            ))}
           </div>
+        </ScrollArea>
+      ) : (
+        <p className="grid h-full place-items-center text-center text-xs text-muted-foreground">
+          Nothing is overdue in your scope.
+        </p>
+      )}
+    </SectionCard>
+  );
+}
+
+/** Stage names and counts beside the funnel, with each step's conversion. */
+function PipelineStages({ stages }: { stages: TenantDashboardResult['pipeline'] }) {
+  const shown = stages.slice(0, 6);
+  return (
+    <div
+      className="grid h-[260px] w-44 shrink-0 text-[10px]"
+      style={{ gridTemplateRows: `25px repeat(${shown.length}, minmax(0, 1fr))` }}
+    >
+      <div className="flex items-center justify-between border-b font-medium text-muted-foreground">
+        <span>Stage</span>
+        <span>Count</span>
+      </div>
+      {shown.map((stage, index) => {
+        const previous = shown[index - 1]?.value ?? stage.value;
+        const conversion = previous > 0 ? (stage.value / previous) * 100 : 0;
+        return (
+          <div
+            key={stage.name}
+            className="flex items-center justify-between gap-2 border-b border-slate-100 last:border-0"
+          >
+            <span className="min-w-0">
+              <span className="block truncate font-medium text-[#263550]" title={stage.name}>
+                {stage.name}
+              </span>
+              <span className="block text-[9px] text-emerald-600">
+                {index === 0 ? 'Starting stage' : `${conversion.toFixed(1)}% conversion`}
+              </span>
+            </span>
+            <span className="shrink-0 rounded bg-slate-50 px-1.5 py-0.5 font-semibold text-[#263550]">
+              {stage.value}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const shortcutTones: Tone[] = ['blue', 'violet', 'emerald', 'orange', 'cyan', 'amber'];
+
+/** Pages this role owns, so a shortcut can never lead somewhere it has no access. */
+function QuickActions({ role }: { role: RoleKey }) {
+  const items = roleNavigation[role].items
+    .filter((item) => item.slug !== 'dashboard' && !item.optional)
+    .slice(0, 6);
+  if (!items.length) return null;
+  return (
+    <SectionCard title="Quick actions" contentClassName="p-3">
+      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+        {items.map((item, index) => (
+          <Link
+            key={item.slug}
+            href={`/${role}/${item.slug}`}
+            className="group flex min-w-0 flex-col items-center rounded-lg p-1.5 text-center hover:bg-slate-50"
+          >
+            <span
+              className={cn(
+                'grid size-8 place-items-center rounded-lg transition-transform group-hover:-translate-y-0.5',
+                toneStyles[shortcutTones[index % shortcutTones.length]!].icon,
+              )}
+            >
+              <AppIcon name={item.icon} className="size-4" />
+            </span>
+            <span className="mt-1.5 text-[10px] font-medium leading-3 text-[#263550]">
+              {item.title}
+            </span>
+          </Link>
         ))}
-      </CardContent>
-    </Card>
+      </div>
+    </SectionCard>
   );
 }
 
@@ -534,19 +611,24 @@ export function TenantDashboard({
     }
   };
 
+  const header = (generatedAt?: string) => (
+    <DashboardHeader
+      spec={spec}
+      role={role}
+      heading={heading}
+      generatedAt={generatedAt}
+      onRefresh={() => void refresh()}
+      refreshing={dashboard.isFetching}
+      manualRefreshRemaining={manualRefreshRemaining}
+      manualRefreshMessage={manualRefreshMessage}
+    />
+  );
+
   if (dashboard.isPending) return <TenantDashboardSkeleton role={role} />;
   if (dashboard.isError || !dashboard.data)
     return (
       <div className="mx-auto max-w-[1800px] space-y-4">
-        <DashboardHeader
-          spec={spec}
-          role={role}
-          heading={heading}
-          onRefresh={refresh}
-          refreshing={dashboard.isFetching}
-          manualRefreshRemaining={manualRefreshRemaining}
-          manualRefreshMessage={manualRefreshMessage}
-        />
+        {header()}
         <Card className="shadow-none">
           <CardContent className="p-8 text-center">
             <p className="font-semibold">Dashboard data is unavailable</p>
@@ -559,321 +641,81 @@ export function TenantDashboard({
     );
 
   const data = dashboard.data;
-  const isTelecaller = role === 'telecaller';
-  const navigation = roleNavigation[role];
   const leadPage = leadDestination(role);
-  const leadsHref = leadPage ? `/${role}/${leadPage}` : null;
-  const operationPage = operationalDestination(role);
-  const operationsHref = operationPage ? `/${role}/${operationPage}` : null;
-  const priorityCards = [
-    data.capabilities.leads
-      ? {
-          label: 'New leads',
-          value: data.kpis.new_leads_today,
-          description: 'Created today',
-          icon: UserCheck,
-          tone: 'bg-blue-50 text-blue-600',
-          href: leadsHref ? `${leadsHref}?status=new-today` : undefined,
-        }
-      : null,
-    data.capabilities.leads
-      ? {
-          label: 'Open lead queue',
-          value: data.kpis.open_leads,
-          description: 'Awaiting progress',
-          icon: UsersRound,
-          tone: 'bg-indigo-50 text-indigo-600',
-          href: leadsHref ?? undefined,
-        }
-      : null,
-    data.capabilities.work
-      ? {
-          label: 'Follow-ups today',
-          value: data.kpis.followups_due_today,
-          description: 'Customer commitments',
-          icon: CalendarClock,
-          tone: 'bg-amber-50 text-amber-600',
-          href: `/${role}/follow-ups`,
-        }
-      : null,
-    data.capabilities.operations
-      ? {
-          label: 'Open operational cases',
-          value: data.kpis.open_cases,
-          description: 'Current department queue',
-          icon: CircleAlert,
-          tone: 'bg-amber-50 text-amber-600',
-          href: operationsHref ?? undefined,
-        }
-      : null,
-    data.capabilities.operations
-      ? {
-          label: 'Overdue cases',
-          value: data.kpis.overdue_cases,
-          description: 'Requires a case update',
-          icon: CalendarClock,
-          tone: 'bg-rose-50 text-rose-600',
-          href: operationsHref ? `${operationsHref}?status=overdue` : undefined,
-        }
-      : null,
-    data.capabilities.work
-      ? {
-          label: 'Overdue follow-ups',
-          value: data.kpis.followups_overdue,
-          description: 'Needs attention',
-          icon: CircleAlert,
-          tone: 'bg-rose-50 text-rose-600',
-          href: `/${role}/follow-ups?status=overdue`,
-        }
-      : null,
-  ].filter((item): item is NonNullable<typeof item> => Boolean(item));
-  const telecallerKpis: KpiCard[] = [
-    {
-      label: 'New leads today',
-      value: data.kpis.new_leads_today,
-      helper: 'Fresh enquiries',
-      icon: UserCheck,
-      tone: 'bg-blue-50 text-blue-600',
-    },
-    {
-      label: 'Leads assigned',
-      value: data.kpis.open_leads,
-      helper: 'Own active queue',
-      icon: UsersRound,
-      tone: 'bg-indigo-50 text-indigo-600',
-    },
-    {
-      label: 'Calls logged today',
-      value: data.kpis.calls_today,
-      helper: 'Tracked calls',
-      icon: PhoneCall,
-      tone: 'bg-emerald-50 text-emerald-600',
-    },
-    {
-      label: 'Follow-ups today',
-      value: data.kpis.followups_due_today,
-      helper: 'Due today',
-      icon: CalendarClock,
-      tone: 'bg-amber-50 text-amber-600',
-    },
-    {
-      label: 'Overdue follow-ups',
-      value: data.kpis.followups_overdue,
-      helper: 'Needs attention',
-      icon: CircleAlert,
-      tone: 'bg-rose-50 text-rose-600',
-    },
-    {
-      label: 'Appointments',
-      value: data.kpis.appointments_today,
-      helper: 'Created today',
-      icon: CalendarCheck2,
-      tone: 'bg-cyan-50 text-cyan-600',
-    },
-  ];
-  const visibleKpis = isTelecaller ? telecallerKpis : dashboardKpis(data);
-  const workload = visibleKpis.slice(0, 6);
-  const workloadMaximum = Math.max(...workload.map((item) => item.value), 1);
+  const leadsHref =
+    leadPage && roleHasNavigationSlug(role, leadPage) ? `/${role}/${leadPage}` : null;
+  const kpis = dashboardKpis(data, role);
+  // Roles with a sales analytics page read the funnel there, not twice.
+  const ownsFunnelElsewhere = ['sales-overview', 'sales-performance'].some((slug) =>
+    roleHasNavigationSlug(role, slug),
+  );
+  const showPipeline =
+    data.capabilities.leads &&
+    !ownsFunnelElsewhere &&
+    data.pipeline.some((stage) => stage.value > 0);
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-4">
-      <DashboardHeader
-        spec={spec}
-        role={role}
-        heading={heading}
-        generatedAt={data.generated_at}
-        onRefresh={refresh}
-        refreshing={dashboard.isFetching}
-        manualRefreshRemaining={manualRefreshRemaining}
-        manualRefreshMessage={manualRefreshMessage}
-      />
+    <div className="mx-auto max-w-[1800px] space-y-4 pb-8">
+      {header(data.generated_at)}
 
-      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-8">
-        {visibleKpis.map((metric) => {
-          const Icon = metric.icon;
-          return (
-            <Card
-              key={metric.label}
-              className="min-w-0 overflow-hidden shadow-none transition-shadow hover:shadow-md"
-            >
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="truncate text-[11px] font-semibold tracking-wide text-muted-foreground">
-                    {metric.label}
-                  </p>
-                  <span
-                    className={`grid size-8 shrink-0 place-items-center rounded-full ${metric.tone}`}
-                  >
-                    <Icon className="size-4" />
-                  </span>
-                </div>
-                <p className="mt-2 text-[28px] font-bold leading-none tracking-tight text-[#17233d]">
-                  {metric.value}
-                </p>
-                <p className="mt-2.5 inline-flex max-w-full items-center truncate rounded-full bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  {metric.helper}
-                </p>
-              </CardContent>
-            </Card>
-          );
-        })}
+      <div className={cn('grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4', kpiColumns[kpis.length])}>
+        {kpis.map(({ key, ...metric }) => (
+          <MetricCard key={key} {...metric} />
+        ))}
       </div>
 
       <div className="grid gap-4 xl:grid-cols-12">
-        <Card className="shadow-none xl:col-span-5">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Today&apos;s priority</CardTitle>
-            <CardDescription>Start with the work that needs attention now.</CardDescription>
-          </CardHeader>
-          <CardContent
-            className={cn(
-              'grid gap-2.5 sm:grid-cols-2',
-              isTelecaller ? 'xl:grid-cols-4' : 'xl:grid-cols-2',
-            )}
-          >
-            {priorityCards.length ? (
-              priorityCards.map((item) => (
-                <div
-                  key={item.label}
-                  className="rounded-lg border bg-white transition-shadow hover:shadow-sm"
-                >
-                  <PriorityCard {...item} />
-                </div>
-              ))
-            ) : (
-              <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground sm:col-span-2">
-                There are no priority queues available for this role yet.
-              </div>
-            )}
-          </CardContent>
-          {data.capabilities.leads && (
-            <div className="border-t p-3">
-              <p className="mb-2 text-xs font-semibold text-muted-foreground">Quick actions</p>
-              <div className="grid grid-cols-4 sm:grid-cols-5 gap-1.5">
-                {[
-                  [
-                    'Add lead',
-                    UserRoundPlus,
-                    `${leadsHref || `/${role}/leads`}?action=create`,
-                    'bg-blue-50 text-blue-600',
-                  ],
-                  ['Test drives', CarFront, `/${role}/test-drives`, 'bg-violet-50 text-violet-600'],
-                  ['Quotations', FileText, `/${role}/quotations`, 'bg-indigo-50 text-indigo-600'],
-                  [
-                    'Stock check',
-                    PackageSearch,
-                    `/${role}/stock-check`,
-                    'bg-emerald-50 text-emerald-600',
-                  ],
-                  ['Bookings', Plus, `/${role}/bookings`, 'bg-orange-50 text-orange-600'],
-                ].map(([label, Icon, href, tone]) => (
-                  <Link
-                    key={label as string}
-                    href={href as string}
-                    className="group flex min-w-0 flex-col items-center rounded-lg p-1.5 text-center hover:bg-slate-50"
-                  >
-                    <span
-                      className={cn(
-                        'grid size-8 place-items-center rounded-lg transition-transform group-hover:-translate-y-0.5',
-                        tone as string,
-                      )}
-                    >
-                      <Icon className="size-4" />
-                    </span>
-                    <span className="mt-1.5 text-[10px] font-medium leading-3 text-[#263550]">
-                      {label as string}
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-        </Card>
-
-        <Card className="shadow-none xl:col-span-7">
-          <CardHeader className="flex-row items-start justify-between space-y-0 pb-2">
-            <div>
-              <CardTitle className="text-base">Activity trend</CardTitle>
-              <CardDescription>Authorized activity over the last {data.days} days</CardDescription>
-            </div>
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Clock3 className="size-3.5" /> Last {data.days} days
+        <SectionCard
+          title="Activity trend"
+          className={showPipeline ? 'xl:col-span-7' : 'xl:col-span-12'}
+          action={
+            <span className="rounded-md border px-2 py-1 text-[10px] text-muted-foreground">
+              Last {data.days} days
             </span>
-          </CardHeader>
-          <CardContent>
-            <EChart
-              kind="line"
-              data={data.activity}
-              seriesNames={[data.activity_primary, data.activity_secondary]}
-              className="h-[275px]"
-            />
-          </CardContent>
-        </Card>
+          }
+        >
+          <EChart
+            kind="line"
+            data={data.activity}
+            seriesNames={[data.activity_primary, data.activity_secondary]}
+            className="h-[260px]"
+          />
+        </SectionCard>
+        {showPipeline ? (
+          <SectionCard
+            title="Lead pipeline"
+            className="xl:col-span-5"
+            actionHref={leadsHref ?? undefined}
+            actionLabel="View leads"
+          >
+            <div className="flex gap-3">
+              <EChart
+                kind="funnel"
+                funnelMode="staged"
+                data={data.pipeline}
+                className="h-[260px] min-w-0 flex-1"
+              />
+              <PipelineStages stages={data.pipeline} />
+            </div>
+          </SectionCard>
+        ) : null}
       </div>
 
       <div className="grid gap-4 xl:grid-cols-12">
-        <div className="xl:col-span-8">
-          {data.capabilities.leads ? (
-            <LeadPreviewTable
-              records={data.lead_preview}
-              leadHref={leadsHref}
-              title={isTelecaller ? 'My leads – at a glance' : undefined}
-            />
-          ) : data.capabilities.operations ? (
-            <OperationalQueueOverview data={data} href={operationsHref} />
-          ) : (
+        {data.capabilities.leads ? (
+          <div className="xl:col-span-8">
             <LeadPreviewTable records={data.lead_preview} leadHref={leadsHref} />
+          </div>
+        ) : null}
+        <div
+          className={cn(
+            'flex flex-col gap-4',
+            data.capabilities.leads ? 'xl:col-span-4' : 'xl:col-span-12',
           )}
+        >
+          {data.capabilities.work ? <OverdueFollowups data={data} role={role} /> : null}
+          <QuickActions role={role} />
         </div>
-        <Card className="shadow-none xl:col-span-4">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">
-              {isTelecaller ? "Today's performance" : "Today's workload"}
-            </CardTitle>
-            <CardDescription>
-              {isTelecaller
-                ? 'Live progress in your assigned queue'
-                : 'Live volume in your authorized scope'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {workload.map((metric) => {
-              const Icon = metric.icon;
-              const relativeVolume = (metric.value / workloadMaximum) * 100;
-              return (
-                <div key={metric.label}>
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
-                      <span
-                        className={`grid size-7 shrink-0 place-items-center rounded-md ${metric.tone}`}
-                      >
-                        <Icon className="size-3.5" />
-                      </span>
-                      <span className="truncate">{metric.label}</span>
-                    </span>
-                    <span className="font-semibold text-[#17233d]">{metric.value}</span>
-                  </div>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className="h-full rounded-full bg-blue-500 transition-[width]"
-                      style={{ width: `${relativeVolume}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-            <p className="border-t pt-4 text-xs text-muted-foreground">
-              Bars show relative live queue volume, not a performance target.
-            </p>
-            {navigation.items.some((item) => item.slug === 'performance') && (
-              <Button asChild variant="outline" className="w-full">
-                <Link href={`/${role}/performance`}>
-                  View detailed performance <ArrowRight className="size-4" />
-                </Link>
-              </Button>
-            )}
-          </CardContent>
-        </Card>
       </div>
       {children}
     </div>
