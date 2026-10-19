@@ -82,8 +82,11 @@ export async function createMobileLeadFollowup(input: {
 
 export type MobileRole = 'telecaller' | 'sales-consultant' | null;
 
+// Throws on a failed read: a role silently read as null would make Call skip
+// recording the contact with no message.
 export async function fetchMobileRole(): Promise<MobileRole> {
-  const { data } = await supabase.rpc('get_access_context');
+  const { data, error } = await supabase.rpc('get_access_context');
+  if (error) throw error;
   const role = (data as { role_key?: string } | null)?.role_key;
   return role === 'telecaller' || role === 'sales-consultant' ? role : null;
 }
@@ -205,6 +208,13 @@ const leadActionMessages: Record<string, string> = {
   SALES_HANDOFF_REQUIRED: 'The call was placed; contact is recorded once the lead is with Sales.',
   PERMISSION_DENIED: 'Your role cannot do this.',
   SCOPE_DENIED: 'This lead is outside your scope.',
+  INVALID_TEST_DRIVE_INPUT: 'Check the vehicle, registration and a future date/time.',
+  TEST_DRIVE_VEHICLE_UNAVAILABLE: 'That vehicle is no longer available. Pick another.',
+  TEST_DRIVE_VEHICLE_SCHEDULE_CONFLICT: 'That vehicle is already booked at this time.',
+  TEST_DRIVE_CONSULTANT_SCHEDULE_CONFLICT: 'You already have a test drive at this time.',
+  TEST_DRIVE_MANAGE_PERMISSION_REQUIRED: 'Your role cannot schedule test drives.',
+  TEST_DRIVE_SCOPE_DENIED: 'This lead is outside your scope.',
+  TEST_DRIVE_RELATION_DENIED: 'This lead is not assigned to you.',
 };
 
 export function leadActionMessage(error: unknown, fallback: string) {
@@ -216,20 +226,54 @@ export function leadActionMessage(error: unknown, fallback: string) {
   return leadActionMessages[code] ?? fallback;
 }
 
-export async function createMobileTestDriveAppointment(input: {
-  detail: MobileLeadDetail;
+export type TestDriveVehicle = {
+  stock_unit_id: string;
+  brand_name: string;
+  model_name: string;
+  variant_name: string;
+  color: string | null;
+  vin: string;
+};
+
+export async function fetchTestDriveVehicles(branchId: string, search = '') {
+  const { data, error } = await supabase.rpc('get_test_drive_vehicle_options', {
+    target_branch_id: branchId,
+    target_search: search.trim().slice(0, 120),
+    target_limit: 25,
+  });
+  if (error) throw error;
+  return (data ?? []) as TestDriveVehicle[];
+}
+
+// Same rule as the web form (test-drive-registration.ts).
+export function sanitizeRegistration(value: string) {
+  return value
+    .toUpperCase()
+    .replace(/[^A-Z0-9 -]/g, '')
+    .slice(0, 24);
+}
+
+export function isValidRegistration(value: string) {
+  return /^[A-Z0-9 -]{4,24}$/.test(value.trim().toUpperCase());
+}
+
+// Test drives are their own record with a vehicle; `create_appointment` no
+// longer accepts the Test Drive type.
+export async function createMobileTestDrive(input: {
+  leadId: string;
+  stockUnitId: string;
   scheduledAt: string;
+  registration: string;
   requestId: string;
 }) {
-  const { error } = await supabase.rpc('create_appointment', {
-    target_lead_id: input.detail.lead.id,
-    target_customer_id: input.detail.lead.customer_id,
-    target_branch_id: input.detail.lead.branch_id,
-    target_team_id: input.detail.lead.team_id,
-    target_assigned_user_id: null,
-    target_appointment_type: 'Test Drive',
+  const { error } = await supabase.rpc('create_test_drive', {
+    target_lead_id: input.leadId,
+    target_stock_unit_id: input.stockUnitId,
     target_scheduled_at: input.scheduledAt,
-    target_notes: null,
+    target_expected_duration_minutes: 60,
+    target_vehicle_registration: input.registration.trim().toUpperCase(),
+    target_start_location: null,
+    target_destination: null,
     target_request_id: input.requestId,
   });
   if (error) throw error;

@@ -58,6 +58,7 @@ import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
 import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import { DateRangeDialog } from '@/components/shared/date-range-dialog';
 import { retryRpcRead } from '@/lib/supabase/read-rpc';
+import { isTransientSupabaseError } from '@/lib/supabase/transient-error';
 import { AUTO_SALES_HANDOFF, SalesConsultantSelector } from './sales-consultant-selector';
 import {
   hasWorkspacePermission,
@@ -4293,6 +4294,7 @@ export function LeadWorkspace({
     data: records.data && meta.data ? { ...records.data, ...meta.data } : undefined,
     isPending: records.isPending || meta.isPending,
     isError: records.isError || meta.isError,
+    error: records.error ?? meta.error,
     isFetching: records.isFetching || meta.isFetching,
     refetch: () => Promise.all([records.refetch(), meta.refetch()]),
   };
@@ -4576,16 +4578,24 @@ export function LeadWorkspace({
   if (
     (workspace.isError && !workspace.data) ||
     (!useWorkspaceBootstrap && legacyPermissions.isError)
-  )
+  ) {
+    // A timed-out or cancelled read recovers on retry; it is not a session or
+    // migration problem, so it must not be reported as one.
+    const slowRead =
+      !legacyPermissions.isError && isTransientSupabaseError(workspace.error ?? undefined);
     return (
       <Card className="mx-auto max-w-xl">
         <CardContent className="flex flex-col items-center p-10 text-center">
           <div className="grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
             <TriangleAlert />
           </div>
-          <h2 className="mt-4 font-semibold">Leads are not available yet</h2>
+          <h2 className="mt-4 font-semibold">
+            {slowRead ? 'Leads are taking longer than usual' : 'Leads are not available yet'}
+          </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Your session, database access, or the required lead workspace migration needs attention.
+            {slowRead
+              ? 'The server did not answer in time. Nothing was lost; try again in a moment.'
+              : 'Your session, database access, or the required lead workspace migration needs attention.'}{' '}
             Reference: GDM-LEADS-QUERY.
           </p>
           <Button
@@ -4602,6 +4612,7 @@ export function LeadWorkspace({
         </CardContent>
       </Card>
     );
+  }
   if (!workspace.data) return null;
 
   return (

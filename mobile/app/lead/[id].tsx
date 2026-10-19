@@ -15,23 +15,27 @@ import {
 import { Screen } from '@/components/screen';
 import {
   createMobileLeadFollowup,
-  createMobileTestDriveAppointment,
+  createMobileTestDrive,
   fetchCustomerMatches,
   fetchHandoffCandidates,
   fetchMobileLeadDetail,
   fetchMobileRole,
+  fetchTestDriveVehicles,
+  isValidRegistration,
   leadActionMessage,
   recordMobileLeadContact,
   resolveMobileLeadCustomer,
+  sanitizeRegistration,
   transferMobileLeadToSales,
   type CustomerMatch,
   type HandoffCandidate,
   type MobileLeadDetail,
   type MobileRole,
+  type TestDriveVehicle,
 } from '@/lib/lead-detail';
 import { colors } from '@/theme';
 
-type ModalKind = 'followup' | 'testDrive' | null;
+type ModalKind = 'followup' | null;
 
 // Same audited defaults as the web customer-match dialog: editable, never silent.
 const LINK_REASON = 'Same phone number; confirmed this is the same customer.';
@@ -119,9 +123,12 @@ export default function LeadDetail() {
   const callCustomer = async () => {
     if (!detail) return;
     void Linking.openURL(`tel:${detail.lead.phone.replace(/[^+\d]/g, '')}`);
-    if (role === 'telecaller' && intakeClosed.has(detail.lead.lifecycle_status)) return;
     try {
-      await recordMobileLeadContact(role, detail.lead.id);
+      const callerRole = role ?? (await fetchMobileRole());
+      if (!callerRole) throw new Error('PERMISSION_DENIED');
+      if (callerRole !== role) setRole(callerRole);
+      if (callerRole === 'telecaller' && intakeClosed.has(detail.lead.lifecycle_status)) return;
+      await recordMobileLeadContact(callerRole, detail.lead.id);
       setNotice(undefined);
       void load();
     } catch (contactError) {
@@ -129,32 +136,24 @@ export default function LeadDetail() {
     }
   };
   const [transferOpen, setTransferOpen] = useState(false);
+  const [testDriveOpen, setTestDriveOpen] = useState(false);
   const submit = async () => {
     if (!detail || !modal) return;
     const scheduled = new Date(dueAt.replace(' ', 'T'));
-    if (Number.isNaN(scheduled.getTime()) || (modal === 'followup' && reason.trim().length < 3)) {
+    if (Number.isNaN(scheduled.getTime()) || reason.trim().length < 3) {
       setFormError('Enter the required information and a valid local date/time.');
       return;
     }
     setSaving(true);
     setFormError(undefined);
     try {
-      if (modal === 'followup') {
-        await createMobileLeadFollowup({
-          detail,
-          reason: reason.trim(),
-          dueAt: scheduled.toISOString(),
-          requestId: requestId(),
-        });
-        setSuccess('Follow-up scheduled successfully.');
-      } else {
-        await createMobileTestDriveAppointment({
-          detail,
-          scheduledAt: scheduled.toISOString(),
-          requestId: requestId(),
-        });
-        setSuccess('Test drive appointment scheduled successfully.');
-      }
+      await createMobileLeadFollowup({
+        detail,
+        reason: reason.trim(),
+        dueAt: scheduled.toISOString(),
+        requestId: requestId(),
+      });
+      setSuccess('Follow-up scheduled successfully.');
       setModal(null);
       void load();
     } catch {
@@ -188,7 +187,7 @@ export default function LeadDetail() {
         <Pressable style={styles.error} onPress={() => void load()}>
           <Text style={styles.errorTitle}>Customer detail is unavailable</Text>
           <Text style={styles.errorText}>
-            It may have moved outside your authorized scope. Tap to retry.
+            It did not load, or it is outside your scope. Tap to retry.
           </Text>
         </Pressable>
       ) : null}
@@ -258,7 +257,7 @@ export default function LeadDetail() {
               <Action
                 label="Test drive"
                 enabled={detail.access.can_appointments && Boolean(lead.customer_id)}
-                onPress={() => setModal('testDrive')}
+                onPress={() => setTestDriveOpen(true)}
               />
             )}
           </View>
@@ -362,29 +361,19 @@ export default function LeadDetail() {
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modal}>
-            <Text style={styles.modalTitle}>
-              {modal === 'testDrive' ? 'Schedule test drive' : 'Schedule follow-up'}
-            </Text>
+            <Text style={styles.modalTitle}>Schedule follow-up</Text>
             <Text style={styles.modalText}>
-              {modal === 'testDrive'
-                ? 'This creates an authorized Test Drive appointment.'
-                : 'This creates an audited CRM follow-up assigned to you.'}
+              This creates an audited CRM follow-up assigned to you.
             </Text>
-            {modal === 'followup' ? (
-              <>
-                <Text style={styles.inputLabel}>Reason</Text>
-                <TextInput
-                  value={reason}
-                  onChangeText={setReason}
-                  style={styles.input}
-                  maxLength={240}
-                  placeholder="Reason for follow-up"
-                />
-              </>
-            ) : null}
-            <Text style={styles.inputLabel}>
-              {modal === 'testDrive' ? 'Appointment date and time' : 'Due date and time'}
-            </Text>
+            <Text style={styles.inputLabel}>Reason</Text>
+            <TextInput
+              value={reason}
+              onChangeText={setReason}
+              style={styles.input}
+              maxLength={240}
+              placeholder="Reason for follow-up"
+            />
+            <Text style={styles.inputLabel}>Due date and time</Text>
             <TextInput
               value={dueAt}
               onChangeText={setDueAt}
@@ -416,7 +405,142 @@ export default function LeadDetail() {
           }}
         />
       ) : null}
+      {detail && testDriveOpen ? (
+        <TestDriveSheet
+          detail={detail}
+          onClose={() => setTestDriveOpen(false)}
+          onScheduled={() => {
+            setTestDriveOpen(false);
+            setSuccess('Test drive scheduled successfully.');
+            void load();
+          }}
+        />
+      ) : null}
     </Screen>
+  );
+}
+
+// Mirrors the web Schedule test drive dialog: an available vehicle from the
+// lead's branch, its registration, and the time. Duration defaults to 60 min.
+function TestDriveSheet({
+  detail,
+  onClose,
+  onScheduled,
+}: {
+  detail: MobileLeadDetail;
+  onClose: () => void;
+  onScheduled: () => void;
+}) {
+  const [vehicles, setVehicles] = useState<TestDriveVehicle[]>();
+  const [vehicle, setVehicle] = useState<string | null>(null);
+  const [registration, setRegistration] = useState('');
+  const [scheduledAt, setScheduledAt] = useState(localDateInput);
+  const [busy, setBusy] = useState(false);
+  const [sheetError, setSheetError] = useState<string>();
+  const [request] = useState(requestId);
+  useEffect(() => {
+    let active = true;
+    fetchTestDriveVehicles(detail.lead.branch_id)
+      .then((found) => {
+        if (!active) return;
+        setVehicles(found);
+        setVehicle(found[0]?.stock_unit_id ?? null);
+      })
+      .catch((loadError) => {
+        if (active) setSheetError(leadActionMessage(loadError, 'Vehicles could not load.'));
+      });
+    return () => {
+      active = false;
+    };
+  }, [detail.lead.branch_id]);
+  const save = async () => {
+    const scheduled = new Date(scheduledAt.replace(' ', 'T'));
+    if (!vehicle) {
+      setSheetError('Pick a vehicle.');
+      return;
+    }
+    if (!isValidRegistration(registration)) {
+      setSheetError('Enter the registration: 4–24 letters, numbers, spaces or hyphens.');
+      return;
+    }
+    if (Number.isNaN(scheduled.getTime())) {
+      setSheetError('Enter a valid local date/time.');
+      return;
+    }
+    setBusy(true);
+    setSheetError(undefined);
+    try {
+      await createMobileTestDrive({
+        leadId: detail.lead.id,
+        stockUnitId: vehicle,
+        scheduledAt: scheduled.toISOString(),
+        registration,
+        requestId: request,
+      });
+      onScheduled();
+    } catch (saveError) {
+      setSheetError(leadActionMessage(saveError, 'The test drive could not be scheduled.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior="padding" style={styles.modalBackdrop}>
+        <View style={styles.modal}>
+          <Text style={styles.modalTitle}>Schedule test drive</Text>
+          <Text style={styles.modalText}>
+            Pick an available vehicle from {detail.lead.branch_name}.
+          </Text>
+          {!vehicles && !sheetError ? <ActivityIndicator color={colors.primary} /> : null}
+          {vehicles && !vehicles.length ? (
+            <Text style={styles.muted}>No vehicle is available for test drives here.</Text>
+          ) : null}
+          {vehicles?.length ? (
+            <ScrollView style={styles.choices}>
+              {vehicles.map((item) => (
+                <Choice
+                  key={item.stock_unit_id}
+                  selected={vehicle === item.stock_unit_id}
+                  title={`${item.brand_name} ${item.model_name}`}
+                  detail={[item.variant_name, item.color, item.vin].filter(Boolean).join(' · ')}
+                  onPress={() => setVehicle(item.stock_unit_id)}
+                />
+              ))}
+            </ScrollView>
+          ) : null}
+          <Text style={styles.inputLabel}>Vehicle registration</Text>
+          <TextInput
+            value={registration}
+            onChangeText={(value) => setRegistration(sanitizeRegistration(value))}
+            style={styles.input}
+            autoCapitalize="characters"
+            placeholder="KA 01 TD 1234"
+          />
+          <Text style={styles.inputLabel}>Date and time</Text>
+          <TextInput
+            value={scheduledAt}
+            onChangeText={setScheduledAt}
+            style={styles.input}
+            autoCapitalize="none"
+            placeholder="YYYY-MM-DD HH:mm"
+          />
+          {sheetError ? <Text style={styles.formError}>{sheetError}</Text> : null}
+          <View style={styles.modalActions}>
+            <Pressable style={styles.cancel} onPress={onClose} disabled={busy}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.save, (busy || !vehicle) && styles.actionDisabled]}
+              onPress={() => void save()}
+              disabled={busy || !vehicle}
+            >
+              <Text style={styles.saveText}>{busy ? 'Saving…' : 'Schedule'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 

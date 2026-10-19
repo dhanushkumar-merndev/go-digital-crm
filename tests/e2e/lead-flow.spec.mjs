@@ -278,6 +278,16 @@ test.beforeEach(async ({ page }) => {
     },
     { times: 1 },
   );
+  // The page names a read that timed out in the browser (no response, so
+  // nothing above records it) as transient itself. Retry that once as well.
+  await page.addLocatorHandler(
+    page.getByRole('heading', { name: 'Leads are taking longer than usual', exact: true }),
+    async () => {
+      console.log('Retrying one timed-out lead-list read through Try again.');
+      await page.getByRole('button', { name: 'Try again', exact: true }).click();
+    },
+    { times: 1 },
+  );
   await page.addLocatorHandler(
     page.getByRole('dialog', { name: 'Follow-up due now' }),
     async (reminder) => {
