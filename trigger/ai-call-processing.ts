@@ -2,8 +2,16 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createClient } from '@supabase/supabase-js';
+import { analyzeCall, translateCallTurns } from './providers/groq-text';
+import { downloadSarvamResult, getSarvamJobStatus, submitSarvamJob } from './providers/sarvam-stt';
+
+// Call recordings are transcribed on the platform's Sarvam account (speaker
+// separation on), then translated and summarised on the platform's Groq
+// account. Tenants pay in AI credits: Sarvam's cost plus the platform margin,
+// priced in SQL (`quote_ai_call_credits`) so the UI estimate and the charge
+// agree. A Sarvam job runs asynchronously, so a pass either submits it and
+// parks the job, or collects a finished one; it never waits on the provider.
 
 type Job = {
   id: string;
@@ -16,8 +24,33 @@ type Job = {
   object_bucket: string;
   object_key: string;
   mime_type: string;
+  size_bytes: number | string | null;
+  known_duration_seconds: number | null;
+  provider_job_id: string | null;
+  provider_submitted_at: string | null;
+  provider_poll_count: number;
+  credits_held: number | null;
+  generation: number;
 };
-type GroqCredential = { api_key: string };
+
+type Supabase = ReturnType<typeof createClient>;
+
+// Sarvam accepts files of up to two hours; a job still running after three
+// hours is treated as lost and its hold is returned.
+const maxAudioSeconds = 2 * 60 * 60;
+const providerTimeoutMs = 3 * 60 * 60 * 1000;
+// With no known length, the hold assumes a low phone-recorder bitrate, which
+// over-estimates the length; the charge is settled on the real length.
+const conservativeBitsPerSecond = 32_000;
+
+// Failures that another attempt cannot fix end the job at once.
+const terminalCodes = new Set([
+  'INSUFFICIENT_CREDITS',
+  'SARVAM_JOB_FAILED',
+  'SARVAM_TIMEOUT',
+  'SARVAM_AUDIO_TOO_LONG',
+  'SARVAM_EMPTY_TRANSCRIPT',
+]);
 
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
@@ -25,42 +58,13 @@ function requiredEnvironment(name: string) {
   return value;
 }
 
-function configuredCredits(name: string) {
-  const value = Number(process.env[name] ?? '1');
-  if (!Number.isSafeInteger(value) || value < 1 || value > 10_000)
-    throw new Error(`${name}_INVALID`);
-  return value;
-}
-
-function fromBase64Url(value: string) {
-  const padded = value
-    .replaceAll('-', '+')
-    .replaceAll('_', '/')
-    .padEnd(Math.ceil(value.length / 4) * 4, '=');
-  return Uint8Array.from(Buffer.from(padded, 'base64'));
-}
-
-async function decryptCredential<T>(value: unknown): Promise<T> {
-  if (typeof value !== 'string') throw new Error('INTEGRATION_CREDENTIAL_INVALID');
-  const bytes = value.startsWith('\\x')
-    ? Uint8Array.from(Buffer.from(value.slice(2), 'hex'))
-    : fromBase64Url(value);
-  const envelope = JSON.parse(new TextDecoder().decode(bytes)) as {
-    version: string;
-    iv: string;
-    ciphertext: string;
+function platformProviders() {
+  return {
+    sarvamKey: requiredEnvironment('SARVAM_API_KEY'),
+    sarvamModel: process.env.SARVAM_STT_MODEL?.trim() || 'saaras:v3',
+    groqKey: requiredEnvironment('GROQ_API_KEY'),
+    groqModel: requiredEnvironment('GROQ_ANALYSIS_MODEL'),
   };
-  if (envelope.version !== 'AES-256-GCM-v1')
-    throw new Error('INTEGRATION_CREDENTIAL_VERSION_UNSUPPORTED');
-  const keyBytes = fromBase64Url(requiredEnvironment('INTEGRATION_ENCRYPTION_KEY'));
-  if (keyBytes.byteLength !== 32) throw new Error('INTEGRATION_ENCRYPTION_KEY_INVALID');
-  const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']);
-  const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: fromBase64Url(envelope.iv) },
-    key,
-    fromBase64Url(envelope.ciphertext),
-  );
-  return JSON.parse(new TextDecoder().decode(plaintext)) as T;
 }
 
 function storageClient() {
@@ -74,303 +78,260 @@ function storageClient() {
   });
 }
 
-async function findTenantGroq(supabase: ReturnType<typeof createClient>, job: Job) {
-  const { data: connections, error } = await supabase
-    .from('connected_accounts')
-    .select('id,scope_mode,connection_config')
-    .eq('organization_id', job.organization_id)
-    .eq('provider_key', 'groq')
-    .eq('status', 'CONNECTED')
-    .is('deleted_at', null)
-    .order('updated_at', { ascending: false });
-  if (error) throw error;
-  for (const connection of connections ?? []) {
-    const config = connection.connection_config as {
-      capabilities?: string[];
-      models?: { transcription_model?: string; analysis_model?: string };
-    } | null;
-    if (
-      !config?.capabilities?.includes('AUDIO_TRANSCRIPTION') ||
-      !config.capabilities.includes('AI_CALL_ANALYSIS') ||
-      !config.models?.transcription_model ||
-      !config.models?.analysis_model
-    )
-      continue;
-    if (connection.scope_mode !== 'ALL_BRANCHES') {
-      const { data: mapping, error: mappingError } = await supabase
-        .from('integration_branch_mappings')
-        .select('branch_id')
-        .eq('organization_id', job.organization_id)
-        .eq('connected_account_id', connection.id)
-        .eq('branch_id', job.branch_id)
-        .eq('external_resource_type', 'CONNECTION_SCOPE')
-        .is('deleted_at', null)
-        .maybeSingle();
-      if (mappingError) throw mappingError;
-      if (!mapping) continue;
-    }
-    const { data: secret, error: secretError } = await supabase
-      .from('integration_credentials')
-      .select('encrypted_payload')
-      .eq('organization_id', job.organization_id)
-      .eq('connected_account_id', connection.id)
-      .maybeSingle();
-    if (secretError || !secret) throw secretError ?? new Error('GROQ_CREDENTIAL_NOT_CONFIGURED');
-    return {
-      apiKey: (await decryptCredential<GroqCredential>(secret.encrypted_payload)).api_key,
-      transcriptionModel: config.models.transcription_model,
-      analysisModel: config.models.analysis_model,
-      billingMode: 'TENANT_CONNECTION',
-      transcriptionCredits: configuredCredits('AI_CALL_TRANSCRIPTION_CREDITS'),
-      analysisCredits: configuredCredits('AI_CALL_ANALYSIS_CREDITS'),
-    };
-  }
-  return null;
+function referencePrefix(job: Job) {
+  return `ai-call:${job.id}:${job.recording_id}:g${job.generation}`;
 }
 
-async function platformGroq() {
-  return {
-    apiKey: requiredEnvironment('GROQ_API_KEY'),
-    transcriptionModel: requiredEnvironment('GROQ_TRANSCRIPTION_MODEL'),
-    analysisModel: requiredEnvironment('GROQ_ANALYSIS_MODEL'),
-    billingMode: 'PLATFORM_CREDITS',
-    transcriptionCredits: configuredCredits('AI_CALL_TRANSCRIPTION_CREDITS'),
-    analysisCredits: configuredCredits('AI_CALL_ANALYSIS_CREDITS'),
-  };
-}
-
-async function transcribe(input: { apiKey: string; model: string; audioUrl: string }) {
-  const form = new FormData();
-  form.set('url', input.audioUrl);
-  form.set('model', input.model);
-  form.set('response_format', 'verbose_json');
-  form.set('timestamp_granularities[]', 'segment');
-  form.set('temperature', '0');
-  const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: { authorization: `Bearer ${input.apiKey}` },
-    body: form,
-    signal: AbortSignal.timeout(4 * 60_000),
+async function quoteCredits(supabase: Supabase, seconds: number) {
+  const { data, error } = await supabase.rpc('quote_ai_call_credits', {
+    target_seconds: Math.max(1, Math.min(86_400, Math.ceil(seconds))),
   });
-  const payload = (await response.json().catch(() => null)) as {
-    text?: string;
-    segments?: Array<{ start?: number; end?: number; text?: string }>;
-  } | null;
-  if (!response.ok || !payload?.text?.trim())
-    throw new Error(
-      response.status === 429 ? 'GROQ_TRANSCRIPTION_RATE_LIMITED' : 'GROQ_TRANSCRIPTION_FAILED',
-    );
-  return {
-    text: payload.text.trim(),
-    segments: (payload.segments ?? []).flatMap((segment) =>
-      typeof segment.text === 'string' && segment.text.trim()
-        ? [{ start: segment.start ?? null, end: segment.end ?? null, text: segment.text.trim() }]
-        : [],
-    ),
-  };
-}
-
-async function analyze(input: { apiKey: string; model: string; transcript: string }) {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { authorization: `Bearer ${input.apiKey}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: input.model,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You review automobile dealership call transcripts. Return JSON only with normalized_transcript, speaker_turns, summary, and fields. speaker_turns is an ordered array of {speaker:"AGENT"|"CUSTOMER"|"UNKNOWN",text:string}; keep user 1 (dealership agent) and user 2 (customer) separate and never merge or swap their statements. If a mixed mono recording makes identity uncertain, use UNKNOWN instead of guessing. Preserve uncertain wording rather than inventing details. fields may include customer_name, phone, email, interested_model, lifecycle_status, temperature, next_followup_at, and lost_reason only when directly supported by the call. Only suggest lost_reason when the customer clearly gives a reason and lifecycle_status is Lost. next_followup_at must be ISO 8601 or null. All fields are suggestions requiring human approval.',
-        },
-        { role: 'user', content: input.transcript.slice(0, 100_000) },
-      ],
-    }),
-    signal: AbortSignal.timeout(90_000),
-  });
-  const payload = (await response.json().catch(() => null)) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  } | null;
-  const content = payload?.choices?.[0]?.message?.content;
-  if (!response.ok || !content)
-    throw new Error(
-      response.status === 429 ? 'GROQ_ANALYSIS_RATE_LIMITED' : 'GROQ_ANALYSIS_FAILED',
-    );
-  const parsed = JSON.parse(content) as {
-    normalized_transcript?: unknown;
-    summary?: unknown;
-    fields?: unknown;
-    speaker_turns?: unknown;
-  };
-  const normalizedTranscript =
-    typeof parsed.normalized_transcript === 'string' && parsed.normalized_transcript.trim()
-      ? parsed.normalized_transcript.trim()
-      : input.transcript;
-  const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 12_000) : '';
-  const candidateFields =
-    parsed.fields && typeof parsed.fields === 'object' && !Array.isArray(parsed.fields)
-      ? (parsed.fields as Record<string, unknown>)
-      : {};
-  const fields: Record<string, unknown> = {};
-  const boundedTextFields = new Map([
-    ['customer_name', 200],
-    ['phone', 40],
-    ['email', 320],
-    ['interested_model', 200],
-    ['lost_reason', 500],
-  ]);
-  for (const [key, maximum] of boundedTextFields) {
-    const value = candidateFields[key];
-    if (typeof value === 'string' && value.trim()) fields[key] = value.trim().slice(0, maximum);
-  }
-  if (
-    typeof candidateFields.lifecycle_status === 'string' &&
-    [
-      'New',
-      'Contacted',
-      'Qualified',
-      'Appointment Scheduled',
-      'Transferred to Sales',
-      'Lost',
-    ].includes(candidateFields.lifecycle_status)
-  )
-    fields.lifecycle_status = candidateFields.lifecycle_status;
-  if (
-    typeof candidateFields.temperature === 'string' &&
-    ['HOT', 'WARM', 'COLD', 'DORMANT'].includes(candidateFields.temperature)
-  )
-    fields.temperature = candidateFields.temperature;
-  if (
-    typeof candidateFields.next_followup_at === 'string' &&
-    Number.isFinite(Date.parse(candidateFields.next_followup_at))
-  )
-    fields.next_followup_at = new Date(candidateFields.next_followup_at).toISOString();
-  if (fields.lost_reason && fields.lifecycle_status !== 'Lost') delete fields.lost_reason;
-  const speakerTurns = Array.isArray(parsed.speaker_turns)
-    ? parsed.speaker_turns.flatMap((turn) => {
-        if (!turn || typeof turn !== 'object') return [];
-        const record = turn as { speaker?: unknown; text?: unknown };
-        const speaker =
-          record.speaker === 'AGENT' || record.speaker === 'CUSTOMER' ? record.speaker : 'UNKNOWN';
-        return typeof record.text === 'string' && record.text.trim()
-          ? [{ speaker, text: record.text.trim().slice(0, 12000) }]
-          : [];
-      })
-    : [];
-  return { normalizedTranscript, summary, fields, speakerTurns };
+  if (error || typeof data !== 'number') throw new Error('AI_CREDIT_QUOTE_FAILED');
+  return data;
 }
 
 async function reserveCredits(
-  supabase: ReturnType<typeof createClient>,
+  supabase: Supabase,
   organizationId: string,
   amount: number,
-  feature: string,
   referenceId: string,
 ) {
   const reservation = await supabase.rpc('reserve_ai_credits', {
     target_organization_id: organizationId,
     target_amount: amount,
-    target_feature: feature,
+    target_feature: 'call_transcription',
     target_reference_id: referenceId,
   });
   if (reservation.error || !reservation.data)
     throw new Error(
       reservation.error?.message.includes('INSUFFICIENT_CREDITS')
         ? 'INSUFFICIENT_CREDITS'
-        : 'AI_CREDIT_RESERVATION_FAILED',
+        : reservation.error?.message.includes('AI_CREDIT_REFERENCE_REVERSED')
+          ? 'AI_CREDIT_REFERENCE_REVERSED'
+          : 'AI_CREDIT_RESERVATION_FAILED',
     );
   return reservation.data as string;
 }
 
-async function commitCredits(supabase: ReturnType<typeof createClient>, reservationId: string) {
-  const result = await supabase.rpc('commit_ai_credit_reservation', {
-    target_reservation_id: reservationId,
-  });
-  if (result.error || !result.data) throw new Error('AI_CREDIT_COMMIT_FAILED');
+async function rpcTrue(
+  supabase: Supabase,
+  name: string,
+  args: Record<string, unknown>,
+  code: string,
+) {
+  const { data, error } = await supabase.rpc(name, args);
+  if (error || data !== true) throw new Error(code);
 }
 
-async function processJob(supabase: ReturnType<typeof createClient>, storage: S3Client, job: Job) {
-  const tenantProvider = await findTenantGroq(supabase, job);
-  const provider = tenantProvider ?? (await platformGroq());
-  const { data: existingTranscript, error: existingError } = await supabase
-    .from('call_transcripts')
-    .select('id,raw_transcript_text,transcript_text,status')
-    .eq('organization_id', job.organization_id)
-    .eq('processing_job_id', job.id)
-    .maybeSingle();
-  if (existingError) throw existingError;
-  let rawTranscript =
-    existingTranscript?.raw_transcript_text ?? existingTranscript?.transcript_text ?? null;
-  const transcriptionReference = `ai-call:${job.id}:${job.recording_id}:transcription`;
-  const analysisReference = `ai-call:${job.id}:${job.recording_id}:analysis`;
-  const transcriptionReservation = await reserveCredits(
-    supabase,
-    job.organization_id,
-    provider.transcriptionCredits,
-    'call_transcription',
-    transcriptionReference,
+/** Pass 1: hold the estimated credits, then hand the recording to Sarvam. */
+async function submit(
+  supabase: Supabase,
+  storage: S3Client,
+  job: Job,
+  providers: ReturnType<typeof platformProviders>,
+) {
+  const sizeBytes = Number(job.size_bytes ?? 0);
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) throw new Error('CALL_RECORDING_EMPTY');
+  const estimatedSeconds =
+    job.known_duration_seconds ?? Math.ceil((sizeBytes * 8) / conservativeBitsPerSecond);
+  if (job.known_duration_seconds && job.known_duration_seconds > maxAudioSeconds)
+    throw new Error('SARVAM_AUDIO_TOO_LONG');
+  const held = await quoteCredits(supabase, Math.min(estimatedSeconds, maxAudioSeconds));
+  await reserveCredits(supabase, job.organization_id, held, `${referencePrefix(job)}:hold`);
+
+  const object = await storage.send(
+    new GetObjectCommand({ Bucket: job.object_bucket, Key: job.object_key }),
   );
-  if (!rawTranscript) {
-    const audioUrl = await getSignedUrl(
-      storage,
-      new GetObjectCommand({ Bucket: job.object_bucket, Key: job.object_key }),
-      { expiresIn: 600 },
-    );
-    const transcription = await transcribe({
-      apiKey: provider.apiKey,
-      model: provider.transcriptionModel,
-      audioUrl,
-    });
-    rawTranscript = transcription.text;
-    const saved = await supabase.rpc('save_ai_call_transcription', {
+  if (!object.Body) throw new Error('CALL_RECORDING_UNREADABLE');
+  const extension =
+    job.object_key
+      .split('.')
+      .pop()
+      ?.replace(/[^a-z0-9]/gi, '') || 'audio';
+  const providerJobId = await submitSarvamJob({
+    apiKey: providers.sarvamKey,
+    model: providers.sarvamModel,
+    audio: {
+      body: object.Body.transformToWebStream(),
+      sizeBytes,
+      fileName: `call-${job.call_id}.${extension.toLowerCase()}`,
+      mimeType: job.mime_type,
+    },
+  });
+  await rpcTrue(
+    supabase,
+    'record_ai_call_provider_submission',
+    {
       target_job_id: job.id,
       target_lease_token: job.lease_token,
-      target_raw_transcript: rawTranscript,
-      target_provider_reference: `groq:${provider.transcriptionModel}`,
-    });
-    if (saved.error || !saved.data) throw new Error('AI_TRANSCRIPTION_SAVE_FAILED');
-  }
-  await commitCredits(supabase, transcriptionReservation);
-  const analysisReservation = await reserveCredits(
-    supabase,
-    job.organization_id,
-    provider.analysisCredits,
-    'call_summary_and_extraction',
-    analysisReference,
+      target_provider_job_id: providerJobId,
+      target_credits_held: held,
+    },
+    'AI_CALL_PROCESSING_LEASE_LOST',
   );
-  if (existingTranscript?.status === 'COMPLETED') {
-    await commitCredits(supabase, analysisReservation);
+  return 'submitted' as const;
+}
+
+/**
+ * Charges the real length: the hold is committed when it already matches,
+ * otherwise released and replaced by the exact amount. If the exact amount no
+ * longer fits the balance, the job is charged what was held.
+ */
+async function settleCredits(supabase: Supabase, job: Job, actualSeconds: number) {
+  const held = job.credits_held;
+  if (!held) throw new Error('AI_CREDIT_HOLD_MISSING');
+  const holdReference = `${referencePrefix(job)}:hold`;
+  const actual = await quoteCredits(supabase, actualSeconds);
+  let reservationId: string;
+  if (actual === held) {
+    reservationId = await reserveCredits(supabase, job.organization_id, held, holdReference);
   } else {
-    const analysis = await analyze({
-      apiKey: provider.apiKey,
-      model: provider.analysisModel,
-      transcript: rawTranscript,
-    });
-    const saved = await supabase.rpc('save_ai_call_analysis_result', {
+    try {
+      const holdId = await reserveCredits(supabase, job.organization_id, held, holdReference);
+      const { error } = await supabase.rpc('reverse_ai_credit_reservation', {
+        target_reservation_id: holdId,
+      });
+      if (error) throw new Error('AI_CREDIT_RELEASE_FAILED');
+    } catch (error) {
+      // Already released by an earlier pass of this job.
+      if (!(error instanceof Error) || error.message !== 'AI_CREDIT_REFERENCE_REVERSED')
+        throw error;
+    }
+    try {
+      reservationId = await reserveCredits(
+        supabase,
+        job.organization_id,
+        actual,
+        `${referencePrefix(job)}:charge`,
+      );
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== 'INSUFFICIENT_CREDITS') throw error;
+      reservationId = await reserveCredits(
+        supabase,
+        job.organization_id,
+        held,
+        `${referencePrefix(job)}:charge-held`,
+      );
+      return { reservationId, charged: held };
+    }
+    return { reservationId, charged: actual };
+  }
+  return { reservationId, charged: held };
+}
+
+/** Pass 2+: collect Sarvam's result, translate, summarise, charge, complete. */
+async function collect(
+  supabase: Supabase,
+  job: Job,
+  providers: ReturnType<typeof platformProviders>,
+) {
+  const providerJobId = job.provider_job_id as string;
+  const submittedAt = Date.parse(job.provider_submitted_at ?? '');
+  if (Number.isFinite(submittedAt) && Date.now() - submittedAt > providerTimeoutMs)
+    throw new Error('SARVAM_TIMEOUT');
+  const status = await getSarvamJobStatus({ apiKey: providers.sarvamKey, jobId: providerJobId });
+  if (status.state === 'RUNNING') {
+    await rpcTrue(
+      supabase,
+      'defer_ai_call_provider_poll',
+      { target_job_id: job.id, target_lease_token: job.lease_token },
+      'AI_CALL_PROCESSING_LEASE_LOST',
+    );
+    return 'waiting' as const;
+  }
+  if (status.state === 'FAILED') throw new Error('SARVAM_JOB_FAILED');
+
+  const result = await downloadSarvamResult({
+    apiKey: providers.sarvamKey,
+    jobId: providerJobId,
+    outputFile: status.outputFile,
+  });
+  const durationSeconds = Math.max(
+    1,
+    Math.min(86_400, result.durationSeconds ?? job.known_duration_seconds ?? 1),
+  );
+  await rpcTrue(
+    supabase,
+    'save_ai_call_provider_transcript',
+    {
       target_job_id: job.id,
       target_lease_token: job.lease_token,
-      target_normalized_transcript: analysis.normalizedTranscript,
-      target_speaker_turns: analysis.speakerTurns,
-      target_separation_method: 'AI_INFERRED_OR_UNKNOWN',
+      target_raw_transcript: result.transcript,
+      target_language: result.languageCode,
+      target_speaker_turns: result.turns.map((turn) => ({
+        speaker: 'UNKNOWN',
+        text: turn.text,
+        original_text: turn.text,
+        start: turn.start,
+        end: turn.end,
+      })),
+      target_audio_duration_seconds: durationSeconds,
+      target_provider_reference: `sarvam:${providers.sarvamModel}:${providerJobId}`.slice(0, 200),
+    },
+    'AI_TRANSCRIPTION_SAVE_FAILED',
+  );
+
+  const translation = await translateCallTurns({
+    apiKey: providers.groqKey,
+    model: providers.groqModel,
+    languageCode: result.languageCode,
+    turns: result.turns.map((turn) => ({ speakerId: turn.speakerId, text: turn.text })),
+  });
+  const turns = result.turns.map((turn, index) => ({
+    speaker: translation.roles[turn.speakerId] ?? 'UNKNOWN',
+    text: translation.english[index] ?? turn.text,
+    original_text: turn.text,
+    start: turn.start,
+    end: turn.end,
+  }));
+  const englishTranscript = turns
+    .map((turn) => `${turn.speaker === 'UNKNOWN' ? 'SPEAKER' : turn.speaker}: ${turn.text}`)
+    .join('\n');
+  const analysis = await analyzeCall({
+    apiKey: providers.groqKey,
+    model: providers.groqModel,
+    transcript: englishTranscript,
+  });
+  await rpcTrue(
+    supabase,
+    'save_ai_call_analysis_result',
+    {
+      target_job_id: job.id,
+      target_lease_token: job.lease_token,
+      target_normalized_transcript: englishTranscript,
+      target_speaker_turns: turns,
+      target_separation_method: 'PROVIDER_DIARIZATION',
       target_summary: analysis.summary,
       target_suggestions: analysis.fields,
-      target_analysis_model_reference: provider.analysisModel,
-    });
-    if (saved.error || !saved.data) throw new Error('AI_ANALYSIS_SAVE_FAILED');
-    await commitCredits(supabase, analysisReservation);
-  }
-  const { data: completed, error: completeError } = await supabase.rpc(
+      target_analysis_model_reference: `groq:${providers.groqModel}`,
+    },
+    'AI_ANALYSIS_SAVE_FAILED',
+  );
+
+  const { reservationId, charged } = await settleCredits(supabase, job, durationSeconds);
+  const commit = await supabase.rpc('commit_ai_credit_reservation', {
+    target_reservation_id: reservationId,
+  });
+  if (commit.error || !commit.data) throw new Error('AI_CREDIT_COMMIT_FAILED');
+  await rpcTrue(
+    supabase,
     'complete_ai_call_processing_job',
     {
       target_job_id: job.id,
       target_lease_token: job.lease_token,
-      target_billing_mode: provider.billingMode,
-      target_credits_consumed: provider.transcriptionCredits + provider.analysisCredits,
+      target_billing_mode: 'PLATFORM_CREDITS',
+      target_credits_consumed: charged,
     },
+    'AI_CALL_PROCESSING_LEASE_LOST',
   );
-  if (completeError || !completed)
-    throw completeError ?? new Error('AI_CALL_PROCESSING_LEASE_LOST');
+  return 'completed' as const;
+}
+
+async function processJob(supabase: Supabase, storage: S3Client, job: Job) {
+  const providers = platformProviders();
+  return job.provider_job_id
+    ? collect(supabase, job, providers)
+    : submit(supabase, storage, job, providers);
 }
 
 /** One step of the per-minute pass. Scheduling lives in
@@ -383,25 +344,27 @@ export async function runAiCallProcessing(supabase: ReturnType<typeof createClie
   });
   if (error) throw error;
   const storage = storageClient();
-  let completed = 0;
-  let retried = 0;
+  const outcomes = { submitted: 0, waiting: 0, completed: 0, retried: 0, failed: 0 };
   for (const job of data ?? []) {
     try {
-      await processJob(supabase, storage, job);
-      completed += 1;
+      outcomes[await processJob(supabase, storage, job)] += 1;
     } catch (error) {
       const safeCode =
         error instanceof Error && /^[A-Z0-9_]{3,100}$/.test(error.message)
           ? error.message
           : 'AI_CALL_PROCESSING_RETRY';
-      const { error: retryError } = await supabase.rpc('retry_ai_call_processing_job', {
-        target_job_id: job.id,
-        target_lease_token: job.lease_token,
-        target_safe_error_code: safeCode,
-      });
-      if (retryError) throw retryError;
-      retried += 1;
+      const terminal = terminalCodes.has(safeCode);
+      const { error: settleError } = await supabase.rpc(
+        terminal ? 'fail_ai_call_processing_job' : 'retry_ai_call_processing_job',
+        {
+          target_job_id: job.id,
+          target_lease_token: job.lease_token,
+          target_safe_error_code: safeCode,
+        },
+      );
+      if (settleError) throw settleError;
+      outcomes[terminal ? 'failed' : 'retried'] += 1;
     }
   }
-  return { claimed: data?.length ?? 0, completed, retried };
+  return { claimed: data?.length ?? 0, ...outcomes };
 }

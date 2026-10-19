@@ -23,9 +23,10 @@ describe('OpenRouter image generation contract', () => {
     expect(edge).toContain("eq('provider_key', 'openrouter')");
   });
 
-  it('keeps Groq for transcription because OpenRouter cannot do speech-to-text', () => {
+  it('transcribes calls on Sarvam, since OpenRouter cannot do speech-to-text', () => {
     expect(provider).toContain("type AiProviderKey = 'openrouter' | 'groq'");
-    expect(callWorker).toContain('https://api.groq.com/openai/v1/audio/transcriptions');
+    expect(callWorker).toContain("from './providers/sarvam-stt'");
+    expect(callWorker).not.toContain('openrouter.ai');
   });
 
   it('charges credits, which image generation never did before', () => {

@@ -113,6 +113,7 @@ import {
 import { recordDetailHref } from '@/lib/navigation/record-links';
 import { CallAiProcessingControl } from './call-ai-processing-control';
 import { SpeakerTranscript } from './speaker-transcript';
+import { spokenLanguageName } from './spoken-language';
 
 const outcomeOptions: Array<{
   value: FinalizeManualCallInput['outcome'];
@@ -982,7 +983,7 @@ function CallDetailSheet({
                 <CardTitle className="text-base">Transcript</CardTitle>
                 <CardDescription>
                   {data.transcript
-                    ? `${data.transcript.language ?? 'Language unavailable'} · ${data.transcript.status}`
+                    ? `${data.transcript.language ? spokenLanguageName(data.transcript.language) : 'Language unavailable'} · ${data.transcript.status}`
                     : 'Transcript has not been processed for this call.'}
                 </CardDescription>
               </CardHeader>
@@ -991,6 +992,7 @@ function CallDetailSheet({
                   turns={data.transcript?.speaker_turns ?? []}
                   fallbackText={data.transcript?.text ?? null}
                   separationMethod={data.transcript?.speaker_separation_method ?? null}
+                  language={data.transcript?.language ?? null}
                   truncated={data.transcript?.truncated}
                 />
               </CardContent>

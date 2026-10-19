@@ -16,6 +16,8 @@ const nullableUuid = z.uuid().nullable();
 const callSpeakerTurnSchema = z.object({
   speaker: z.enum(['AGENT', 'CUSTOMER', 'UNKNOWN']),
   text: z.string(),
+  // The spoken-language words when `text` is the English translation.
+  original_text: z.string().nullish(),
 });
 
 export const callRecordSchema = z.object({
@@ -495,6 +497,7 @@ export type CallDetail = z.infer<typeof callDetailSchema>;
 const callSpeakerTranscriptSchema = z.object({
   speaker_turns: z.array(callSpeakerTurnSchema),
   speaker_separation_method: nullableString,
+  language: nullableString.default(null),
   truncated: z.boolean(),
 });
 
@@ -640,6 +643,8 @@ const callAiStateSchema = z.object({
   can_regenerate: z.boolean(),
   can_create_lead: z.boolean(),
   auto_process: z.boolean(),
+  // Price of the known call length; null when the length is not known yet.
+  estimated_credits: z.number().int().positive().nullable().default(null),
 });
 
 export type CallAiState = z.infer<typeof callAiStateSchema>;

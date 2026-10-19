@@ -21,6 +21,7 @@ import {
   uploadMobileCallRecording,
   type MobileCallDetail,
 } from '@/lib/calls';
+import { spokenLanguageName } from '@/lib/spoken-language';
 import { colors } from '@/theme';
 
 function duration(value: number | null) {
@@ -418,6 +419,7 @@ function InsightCard({
 }
 
 function SpeakerTranscriptCard({ transcript }: { transcript: MobileCallDetail['transcript'] }) {
+  const [showOriginal, setShowOriginal] = useState(false);
   if (!transcript?.speaker_turns.length)
     return (
       <InsightCard
@@ -433,9 +435,23 @@ function SpeakerTranscriptCard({ transcript }: { transcript: MobileCallDetail['t
     );
 
   const channelSeparated = /STEREO|CHANNEL/i.test(transcript.speaker_separation_method ?? '');
+  const diarized = transcript.speaker_separation_method === 'PROVIDER_DIARIZATION';
+  const translated = transcript.speaker_turns.some(
+    (turn) => turn.original_text && turn.original_text.trim() !== turn.text.trim(),
+  );
+  const spoken = spokenLanguageName(transcript.language);
   return (
     <View style={styles.card}>
       <Text style={[styles.insightTitle, { color: colors.primary }]}>Transcript</Text>
+      {translated ? (
+        <Pressable onPress={() => setShowOriginal((value) => !value)} accessibilityRole="button">
+          <Text style={styles.languageToggle}>
+            {showOriginal
+              ? `Spoken in ${spoken} · Show English`
+              : `Translated from ${spoken} · Show original`}
+          </Text>
+        </Pressable>
+      ) : null}
       <View style={styles.speakerTurns}>
         {transcript.speaker_turns.map((turn, index) => {
           const label =
@@ -468,7 +484,9 @@ function SpeakerTranscriptCard({ transcript }: { transcript: MobileCallDetail['t
               >
                 {label}
               </Text>
-              <Text style={styles.speakerText}>{turn.text}</Text>
+              <Text style={styles.speakerText}>
+                {showOriginal && turn.original_text ? turn.original_text : turn.text}
+              </Text>
             </View>
           );
         })}
@@ -477,7 +495,9 @@ function SpeakerTranscriptCard({ transcript }: { transcript: MobileCallDetail['t
         <Text style={styles.insightNote}>
           {channelSeparated
             ? 'Speaker labels are based on separated call channels.'
-            : 'Speaker labels were inferred by AI and may be imperfect. Unclear means the speaker could not be identified safely.'}
+            : diarized
+              ? 'Voices were separated from the recording; AI decided which voice is the agent.'
+              : 'Speaker labels were inferred by AI and may be imperfect. Unclear means the speaker could not be identified safely.'}
         </Text>
       ) : null}
       {transcript.truncated ? (
@@ -490,6 +510,7 @@ function SpeakerTranscriptCard({ transcript }: { transcript: MobileCallDetail['t
 }
 
 const styles = StyleSheet.create({
+  languageToggle: { color: colors.primary, fontSize: 12, fontWeight: '700' },
   back: { color: colors.primary, fontWeight: '700' },
   loading: { padding: 36, alignItems: 'center' },
   error: {

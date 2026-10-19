@@ -1,6 +1,14 @@
+'use client';
+
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { spokenLanguageName } from './spoken-language';
+
 export type SpeakerTurn = {
   speaker: 'AGENT' | 'CUSTOMER' | 'UNKNOWN';
   text: string;
+  /** The words as spoken, when `text` is the English translation. */
+  original_text?: string | null;
 };
 
 function speakerPresentation(speaker: SpeakerTurn['speaker']) {
@@ -28,28 +36,54 @@ function speakerPresentation(speaker: SpeakerTurn['speaker']) {
 
 function separationNote(method: string | null) {
   if (!method) return null;
-  return /STEREO|CHANNEL/i.test(method)
-    ? 'Speaker labels are based on the separated call channels.'
-    : 'Speaker labels were inferred by AI and may be imperfect. Unclear means the speaker could not be identified safely.';
+  if (/STEREO|CHANNEL/i.test(method))
+    return 'Speaker labels are based on the separated call channels.';
+  if (method === 'PROVIDER_DIARIZATION')
+    return 'Voices were separated from the recording; AI decided which voice is the agent. Unclear means it could not tell safely.';
+  return 'Speaker labels were inferred by AI and may be imperfect. Unclear means the speaker could not be identified safely.';
 }
 
 export function SpeakerTranscript({
   turns,
   fallbackText,
   separationMethod,
+  language = null,
   truncated = false,
   compact = false,
 }: {
   turns: SpeakerTurn[];
   fallbackText: string | null;
   separationMethod: string | null;
+  /** The spoken language code (e.g. ta-IN); turns are shown in English by default. */
+  language?: string | null;
   truncated?: boolean;
   compact?: boolean;
 }) {
+  const [showOriginal, setShowOriginal] = useState(false);
   const note = turns.length ? separationNote(separationMethod) : null;
+  const translated = turns.some(
+    (turn) => turn.original_text && turn.original_text.trim() !== turn.text.trim(),
+  );
+  const spoken = spokenLanguageName(language);
 
   return (
     <div className="space-y-3">
+      {translated && !compact && (
+        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span>
+            {showOriginal ? `Spoken in ${spoken}` : `Translated to English from ${spoken}`}
+          </span>
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="h-auto p-0 text-xs"
+            onClick={() => setShowOriginal((value) => !value)}
+          >
+            {showOriginal ? 'Show English' : `Show original (${spoken})`}
+          </Button>
+        </div>
+      )}
       {turns.length ? (
         <div className="space-y-2">
           {turns.map((turn, index) => {
@@ -67,7 +101,7 @@ export function SpeakerTranscript({
                   <p
                     className={`${compact ? 'line-clamp-3 text-xs leading-5' : 'text-sm leading-6'} mt-1 whitespace-pre-wrap text-slate-700`}
                   >
-                    {turn.text}
+                    {showOriginal && turn.original_text ? turn.original_text : turn.text}
                   </p>
                 </div>
               </div>

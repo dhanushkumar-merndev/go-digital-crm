@@ -1,8 +1,8 @@
 // Text, image and analysis now run through OpenRouter, which fronts many model
-// families behind one OpenAI-compatible API and one tenant key. Groq stays for
-// audio: OpenRouter exposes chat completions and image modalities only, it does
-// not proxy speech-to-text, so routing transcription through it would break the
-// call pipeline in trigger/ai-call-processing.ts.
+// families behind one OpenAI-compatible API and one tenant key. A tenant Groq
+// connection remains for text features. Call recordings no longer use tenant
+// keys: trigger/ai-call-processing.ts runs on the platform's Sarvam (speech to
+// text) and Groq (translation, summary) accounts and bills AI credits.
 export type AiProviderKey = 'openrouter' | 'groq';
 
 export type AiProviderCredential = { api_key: string };

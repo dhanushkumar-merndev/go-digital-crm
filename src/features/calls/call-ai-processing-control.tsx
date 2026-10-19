@@ -15,9 +15,14 @@ import {
 } from './call-workspace-api';
 
 const failureMessages: Record<string, string> = {
-  INSUFFICIENT_CREDITS: 'The dealership has run out of AI credits.',
+  INSUFFICIENT_CREDITS: 'The dealership does not have enough AI credits for this call.',
+  SARVAM_API_KEY_MISSING: 'AI transcription is not configured yet.',
   GROQ_API_KEY_MISSING: 'AI transcription is not configured yet.',
-  GROQ_CREDENTIAL_NOT_CONFIGURED: 'AI transcription is not configured yet.',
+  GROQ_ANALYSIS_MODEL_MISSING: 'AI transcription is not configured yet.',
+  SARVAM_AUDIO_TOO_LONG: 'Recordings longer than two hours cannot be transcribed.',
+  SARVAM_EMPTY_TRANSCRIPT: 'No speech was found in this recording.',
+  SARVAM_JOB_FAILED: 'The recording could not be transcribed. Credits were returned.',
+  SARVAM_TIMEOUT: 'Transcription took too long. Credits were returned.',
 };
 
 function requestMessage(error: unknown) {
@@ -75,7 +80,7 @@ export function CallAiProcessingControl({
       {running ? (
         <p className="flex items-center gap-2 text-sm text-slate-700">
           <Loader2 className="size-4 animate-spin text-violet-600" />
-          Transcribing and summarising. This usually takes a minute.
+          Transcribing, translating and summarising. This usually takes a few minutes.
         </p>
       ) : failed ? (
         <p className="text-sm text-destructive">
@@ -94,6 +99,13 @@ export function CallAiProcessingControl({
           <Sparkles className="size-3.5" />
           {request.isPending ? 'Starting…' : failed ? 'Try again' : 'Transcribe & summarise'}
         </Button>
+      )}
+      {data.can_request && (
+        <p className="text-xs text-muted-foreground">
+          {data.estimated_credits
+            ? `About ${data.estimated_credits} AI credit${data.estimated_credits === 1 ? '' : 's'} for this call, charged on its real length.`
+            : 'Charged by call length: about 1 AI credit per minute.'}
+        </p>
       )}
       {data.can_regenerate && (
         <Button

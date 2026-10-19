@@ -18,6 +18,8 @@ export type MobileCallRecord = {
 export type MobileSpeakerTurn = {
   speaker: 'AGENT' | 'CUSTOMER' | 'UNKNOWN';
   text: string;
+  /** The words as spoken, when `text` is the English translation. */
+  original_text: string | null;
 };
 
 export type MobileCallDetail = MobileCallRecord & {
@@ -118,6 +120,8 @@ function parseMobileSpeakerTranscript(value: unknown) {
     return {
       speaker: speakerTurn.speaker as MobileSpeakerTurn['speaker'],
       text: speakerTurn.text,
+      original_text:
+        typeof speakerTurn.original_text === 'string' ? speakerTurn.original_text : null,
     };
   });
   return {

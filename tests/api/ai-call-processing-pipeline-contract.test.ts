@@ -27,6 +27,7 @@ const telecmi = source('supabase/functions/integration-connect-telecmi/index.ts'
 const telecmiAdapter = source('supabase/functions/_shared/telecmi.ts');
 const aiVoiceWebhook = source('supabase/functions/provider-webhook-ai-voice/index.ts');
 const creditRoadmap = source('docs/ai-credit-roadmap.md');
+const sarvamMigration = source('supabase/migrations/202610192000_sarvam_call_transcription.sql');
 
 describe('IVR recording AI processing contract', () => {
   it('leases finalized provider or manual recordings and safely reclaims the final attempt', () => {
@@ -41,33 +42,30 @@ describe('IVR recording AI processing contract', () => {
     expect(completionMigration).toContain('attempt_count = least(7, job_row.attempt_count + 1)');
   });
 
-  it('meters both tenant and platform AI providers and reverses only terminal uncommitted work', () => {
+  it('meters platform Sarvam + Groq processing and reverses only terminal uncommitted work', () => {
     expect(worker).toContain(
       'new GetObjectCommand({ Bucket: job.object_bucket, Key: job.object_key })',
     );
-    expect(worker).toContain('{ expiresIn: 600 }');
-    expect(worker).toContain('https://api.groq.com/openai/v1/audio/transcriptions');
-    expect(worker).toContain('https://api.groq.com/openai/v1/chat/completions');
+    expect(worker).toContain('transformToWebStream()');
+    expect(worker).toContain("requiredEnvironment('SARVAM_API_KEY')");
+    expect(worker).toContain("requiredEnvironment('GROQ_API_KEY')");
+    expect(worker).not.toContain('audio/transcriptions');
+    expect(worker).not.toContain('connected_accounts');
     expect(worker).toContain("rpc('reserve_ai_credits'");
     expect(worker).toContain("rpc('commit_ai_credit_reservation'");
-    expect(worker).not.toMatch(/provider\.billingMode\s*===\s*['"]PLATFORM_CREDITS/);
+    expect(worker).toContain("'quote_ai_call_credits'");
+    expect(worker).toContain("target_billing_mode: 'PLATFORM_CREDITS'");
+    expect(worker).toContain("target_separation_method: 'PROVIDER_DIARIZATION'");
     expect(telecmiAiMigration).toContain('pg_advisory_xact_lock');
     expect(telecmiAiMigration).toContain("status in ('RESERVED', 'COMMITTED', 'REVERSED')");
     expect(telecmiAiMigration).toContain("reservation.status = 'RESERVED'");
-    expect(telecmiAiMigration).toContain("'AI call processing exhausted its bounded retries'");
-    expect(worker).toContain(".eq('processing_job_id', job.id)");
-    expect(worker).toContain('target_job_id: job.id');
+    expect(sarvamMigration).toContain("'AI call processing exhausted its bounded retries'");
+    expect(sarvamMigration).toContain('app_private.reverse_ai_call_job_reservations');
     expect(telecmiAiMigration).toContain(
       'select job_row.organization_id, job_row.call_id, call_row.lead_id',
     );
-    expect(worker).toContain("billingMode: 'TENANT_CONNECTION'");
-    expect(worker).toContain("billingMode: 'PLATFORM_CREDITS'");
-    expect(worker).toContain('speaker_turns: analysis.speakerTurns');
     expect(worker).not.toContain('NEXT_PUBLIC_');
-    expect(creditRoadmap).toContain('does not bypass the CRM credit meter');
-    expect(creditRoadmap).not.toContain(
-      "A tenant's own Groq connection does not consume platform credits",
-    );
+    expect(creditRoadmap).toContain('the CRM credit meter is never bypassed');
   });
 
   it('lets only a Client Admin configure TeleCMI within an exact branch scope', () => {

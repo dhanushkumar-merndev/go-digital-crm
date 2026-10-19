@@ -70,7 +70,7 @@ export function CallAiPanel({
           <Text style={styles.text}>
             {state.job?.status === 'RETRY'
               ? 'Retrying shortly…'
-              : 'Transcribing and summarising. This usually takes a minute.'}
+              : 'Transcribing, translating and summarising. This usually takes a few minutes.'}
           </Text>
         </View>
       ) : done ? (
@@ -101,7 +101,11 @@ export function CallAiPanel({
         </Pressable>
       ) : null}
       {state.can_request ? (
-        <Text style={styles.note}>Uses the dealership's AI credits.</Text>
+        <Text style={styles.note}>
+          {state.estimated_credits
+            ? `About ${state.estimated_credits} AI credit${state.estimated_credits === 1 ? '' : 's'}, charged on the real call length.`
+            : 'Charged by call length: about 1 AI credit per minute.'}
+        </Text>
       ) : null}
       {done && state.can_create_lead ? (
         <Pressable

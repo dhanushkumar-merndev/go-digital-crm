@@ -27,6 +27,8 @@ export type CallAiState = {
   can_regenerate: boolean;
   can_create_lead: boolean;
   auto_process: boolean;
+  /** Price of the known call length; null until the length is known. */
+  estimated_credits?: number | null;
 };
 
 export type CallAiFieldKey =
@@ -176,8 +178,13 @@ const friendlyErrors: Record<string, string> = {
   CALL_ALREADY_HAS_LEAD: 'This call is already linked to a lead.',
   INVALID_LEAD_FROM_CALL_REQUEST: 'Check the name and email.',
   LEAD_UPDATE_PERMISSION_REQUIRED: 'You cannot update this lead.',
-  GROQ_API_KEY_MISSING: 'AI transcription is not configured for this dealership yet.',
-  INSUFFICIENT_CREDITS: 'The dealership has run out of AI credits.',
+  SARVAM_API_KEY_MISSING: 'AI transcription is not configured yet.',
+  GROQ_API_KEY_MISSING: 'AI transcription is not configured yet.',
+  INSUFFICIENT_CREDITS: 'The dealership does not have enough AI credits for this call.',
+  SARVAM_AUDIO_TOO_LONG: 'Recordings longer than two hours cannot be transcribed.',
+  SARVAM_EMPTY_TRANSCRIPT: 'No speech was found in this recording.',
+  SARVAM_JOB_FAILED: 'The recording could not be transcribed. Credits were returned.',
+  SARVAM_TIMEOUT: 'Transcription took too long. Credits were returned.',
 };
 
 export function callAiErrorMessage(error: unknown) {
