@@ -1,7 +1,13 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { EmptyState, ErrorState } from '@/components/shared/page-states';
+import { SectionCard } from '@/components/shared/section-card';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { PageSpec } from '@/lib/domain';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, CircleDot, UsersRound } from 'lucide-react';
+import { CircleDot, UsersRound } from 'lucide-react';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import {
@@ -12,7 +18,6 @@ import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PerformanceDateRangeSelector } from '@/components/shared/performance-date-range-selector';
 import { ShowroomSalesTeamSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select,
@@ -30,6 +35,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { Metric } from '@/lib/domain';
+import { formatNumber } from '@/lib/format';
 import { performanceRangeForLastDays, performanceRangeLabel } from '@/lib/performance-date-range';
 import { fetchShowroomSalesTeam } from './showroom-sales-team-api';
 
@@ -41,7 +47,7 @@ function roleLabel(value: 'SALES_CONSULTANT' | 'TELECALLER_BDC') {
   return value === 'SALES_CONSULTANT' ? 'Sales consultant' : 'Telecaller / BDC';
 }
 
-export function ShowroomSalesTeamWorkspace() {
+export function ShowroomSalesTeamWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
   const queryScope = workspaceQueryScope(session);
   const [range, setRange] = useState(() => performanceRangeForLastDays(7));
@@ -55,18 +61,17 @@ export function ShowroomSalesTeamWorkspace() {
   if (query.isPending) return <ShowroomSalesTeamSkeleton />;
   if (query.isError || !query.data)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <h1 className="font-semibold">Showroom team data is unavailable</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            This page requires a single authorized branch and manager sales permissions.
-          </p>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Showroom team data is unavailable"
+          description="This page requires a single authorized branch and manager sales permissions."
+          onRetry={() => void query.refetch()}
+        />
+      </PageShell>
     );
 
   const data = query.data;
-  const pages = Math.max(1, Math.ceil(data.total / pageSize));
   const metrics: Metric[] = [
     {
       label: 'Total consultants',
@@ -119,28 +124,23 @@ export function ShowroomSalesTeamWorkspace() {
   ] as const;
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="mb-2 text-xs">
-            <span className="text-primary">Dashboard</span>
-            <span className="mx-2 text-muted-foreground">›</span>
-            <span className="text-muted-foreground">Sales teams</span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">Showroom Sales Team</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Monitor consultant workload and real sales activity at {data.branch.name}.
-          </p>
-        </div>
-        <PerformanceDateRangeSelector
-          value={range}
-          onChange={(nextRange) => {
-            setRange(nextRange);
-            setPage(1);
-          }}
-        />
-      </div>
-      <KpiGrid metrics={metrics} className="xl:grid-cols-6" />
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description={`Consultant workload and sales activity at ${data.branch.name}.`}
+        actions={
+          <>
+            <PerformanceDateRangeSelector
+              value={range}
+              onChange={(nextRange) => {
+                setRange(nextRange);
+                setPage(1);
+              }}
+            />
+          </>
+        }
+      />
+      <KpiGrid metrics={metrics} />
       <Card className="overflow-hidden shadow-none">
         <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
           <CardTitle className="text-base">Consultant performance</CardTitle>
@@ -221,37 +221,12 @@ export function ShowroomSalesTeamWorkspace() {
             </TableBody>
           </Table>
         </CardContent>
-        <div className="flex items-center justify-between border-t px-4 py-3">
-          <p className="text-xs text-muted-foreground">
-            Showing {data.total ? (page - 1) * pageSize + 1 : 0}–
-            {Math.min(page * pageSize, data.total)} of {data.total}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              aria-label="Previous page"
-              className="size-8"
-              disabled={page === 1}
-              onClick={() => setPage((current) => current - 1)}
-              size="icon"
-              variant="outline"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              Page {page} of {pages}
-            </span>
-            <Button
-              aria-label="Next page"
-              className="size-8"
-              disabled={page >= pages}
-              onClick={() => setPage((current) => current + 1)}
-              size="icon"
-              variant="outline"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          total={data.total}
+          onPageChange={setPage}
+        />
       </Card>
       <div className="grid gap-4 xl:grid-cols-2">
         <Card className="shadow-none">
@@ -294,5 +269,82 @@ export function ShowroomSalesTeamWorkspace() {
         </Card>
       </div>
     </div>
+  );
+}
+
+/**
+ * The Sales Manager dashboard's team overview (PRD 54.4 §9): the showroom's
+ * consultants and telecallers for the last 7 days, busiest first. It is the
+ * first page of Sales Teams under the same query key, so either page warms the
+ * other.
+ */
+export function ShowroomTeamOverviewCard() {
+  const session = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(session);
+  const [range] = useState(() => performanceRangeForLastDays(7));
+  const query = useQuery({
+    queryKey: ['showroom-sales-team', ...queryScope, range.from, range.to, 1, 25],
+    queryFn: ({ signal }) => fetchShowroomSalesTeam({ range, page: 1, pageSize: 25 }, signal),
+    staleTime: 60_000,
+  });
+  const rows = query.data?.records.slice(0, 8) ?? [];
+  return (
+    <SectionCard
+      title="Team overview"
+      description="Last 7 days, top of the showroom"
+      actionHref="/showroom-manager/sales-teams"
+      actionLabel="Sales teams"
+      flush
+      contentClassName="overflow-x-auto"
+    >
+      {query.isPending ? (
+        <div className="space-y-2 p-4">
+          {Array.from({ length: 4 }, (_, index) => (
+            <Skeleton key={index} className="h-8 w-full" />
+          ))}
+        </div>
+      ) : query.isError || !query.data ? (
+        <ErrorState
+          className="border-0"
+          title="Team overview is unavailable"
+          onRetry={() => void query.refetch()}
+        />
+      ) : rows.length ? (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Member</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead className="text-right">Active leads</TableHead>
+              <TableHead className="text-right">Calls</TableHead>
+              <TableHead className="text-right">Test drives</TableHead>
+              <TableHead className="text-right">Quotations</TableHead>
+              <TableHead className="text-right">Bookings</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((member) => (
+              <TableRow key={member.user_id}>
+                <TableCell className="font-medium">{member.full_name}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {member.member_type === 'TELECALLER_BDC' ? 'Telecaller' : 'Sales Consultant'}
+                </TableCell>
+                <TableCell className="text-right">{formatNumber(member.active_leads)}</TableCell>
+                <TableCell className="text-right">{formatNumber(member.calls)}</TableCell>
+                <TableCell className="text-right">{formatNumber(member.test_drives)}</TableCell>
+                <TableCell className="text-right">{formatNumber(member.quotations)}</TableCell>
+                <TableCell className="text-right">{formatNumber(member.bookings)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      ) : (
+        <EmptyState
+          bare
+          title="No active team members in this showroom"
+          description="Members appear once they are assigned to a team here."
+        />
+      )}
+    </SectionCard>
   );
 }

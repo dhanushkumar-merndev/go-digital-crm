@@ -55,7 +55,7 @@ export function BranchFeedbackBrandingDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>{branch.name} feedback page</DialogTitle>
           <DialogDescription>

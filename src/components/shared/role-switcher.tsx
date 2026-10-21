@@ -129,15 +129,17 @@ export function RoleSwitcher({
     });
   }
 
-  // The website chat runs inside a dealer's page; it is not a CRM workspace.
-  if (pathname.startsWith('/embed/')) return null;
+  // Customer-facing pages are not a CRM workspace: the website chat runs inside
+  // a dealer's page, and a customer must never see the staff demo login over
+  // their review form.
+  if (pathname.startsWith('/embed/') || pathname.startsWith('/feedback/')) return null;
 
   return (
     <>
       <Button
         type="button"
         onClick={openSwitcher}
-        className="fixed bottom-5 right-5 z-[35] h-auto rounded-full border border-blue-300/30 bg-[#17233d] px-3 py-2.5 text-white shadow-xl hover:bg-[#223252] sm:px-4"
+        className="fixed bottom-5 right-5 z-[35] h-auto rounded-full border border-blue-300/30 bg-sidebar px-3 py-2.5 text-white shadow-xl hover:bg-[#223252] sm:px-4"
         aria-label={`Open development role switcher. ${currentRole ? `Viewing as ${currentRole.label}` : 'Choose a role preview'}`}
       >
         <span className="grid size-8 place-items-center rounded-full bg-blue-500">

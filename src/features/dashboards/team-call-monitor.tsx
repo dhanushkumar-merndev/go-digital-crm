@@ -1,6 +1,9 @@
 'use client';
 
-import { CheckCircle2, Clock3, PhoneCall, TriangleAlert } from 'lucide-react';
+import { ErrorState } from '@/components/shared/page-states';
+import type { PageSpec } from '@/lib/domain';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
+import { CheckCircle2, Clock3, PhoneCall } from 'lucide-react';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import {
@@ -44,7 +47,7 @@ function initials(name: string) {
     .join('');
 }
 
-export function TeamCallMonitor() {
+export function TeamCallMonitor({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
   const queryScope = workspaceQueryScope(session);
   const [range, setRange] = useState(() => performanceRangeForLastDays(7));
@@ -58,15 +61,14 @@ export function TeamCallMonitor() {
   if (query.isPending) return <TeamCallMonitorSkeleton />;
   if (query.isError || !query.data)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <TriangleAlert className="mx-auto size-8 text-destructive" />
-          <h1 className="mt-4 font-semibold">Team calls are unavailable</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Confirm that you manage an active team and can view calls.
-          </p>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Team calls are unavailable"
+          description="Confirm that you manage an active team and can view calls."
+          onRetry={() => void query.refetch()}
+        />
+      </PageShell>
     );
   const data = query.data;
   const connectionRate = data.kpis.calls
@@ -76,14 +78,14 @@ export function TeamCallMonitor() {
   const metrics: Metric[] = [
     {
       label: 'Calls',
-      value: data.kpis.calls.toLocaleString(),
+      value: data.kpis.calls.toLocaleString('en-IN'),
       helper: performanceRangeLabel(range),
       icon: PhoneCall,
       tone: 'bg-blue-50 text-blue-600',
     },
     {
       label: 'Connected',
-      value: data.kpis.connected_calls.toLocaleString(),
+      value: data.kpis.connected_calls.toLocaleString('en-IN'),
       helper: `${connectionRate}% connection rate`,
       icon: CheckCircle2,
       tone: 'bg-emerald-50 text-emerald-600',
@@ -104,22 +106,13 @@ export function TeamCallMonitor() {
     },
   ];
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="mb-2 text-xs">
-            <span className="text-primary">Dashboard</span>
-            <span className="mx-2 text-muted-foreground">›</span>
-            <span className="text-muted-foreground">Team Calls</span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">Team Call Monitor</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Monitor your team&apos;s call activity and connection quality in the selected period.
-          </p>
-        </div>
-        <PerformanceDateRangeSelector value={range} onChange={setRange} />
-      </div>
-      <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Your team's call activity and connection quality in the selected period."
+        actions={<PerformanceDateRangeSelector value={range} onChange={setRange} />}
+      />
+      <KpiGrid metrics={metrics} />
       <div className="grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
         <Card className="shadow-none">
           <CardHeader>

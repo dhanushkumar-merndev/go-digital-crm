@@ -1,5 +1,6 @@
 import type { RoleKey } from '@/config/navigation/types';
 import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
+import { humanizeEnum } from '../../lib/format';
 
 export const operationalCaseDepartments = [
   'FINANCE',
@@ -76,11 +77,7 @@ export function operationalCaseNextStatuses(
 }
 
 export function operationalCaseStatusLabel(value: string) {
-  return value
-    .toLowerCase()
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+  return humanizeEnum(value);
 }
 
 export const operationalCasePageSizes = [25, 50, 100] as const;
@@ -94,7 +91,14 @@ export const operationalCaseSorts = [
 ] as const;
 export type OperationalCaseSort = (typeof operationalCaseSorts)[number];
 
-const operationalCaseViews = ['ALL', 'OPEN', 'DOCUMENTS', 'ACTION_DUE', 'COMPLETED'] as const;
+const operationalCaseViews = [
+  'ALL',
+  'OPEN',
+  'DOCUMENTS',
+  'ACTION_DUE',
+  'DUE_TODAY',
+  'COMPLETED',
+] as const;
 const allowedOperationalCaseStatuses = new Set<string>([
   ...operationalCaseViews,
   ...Object.values(operationalCaseStatuses).flat(),

@@ -1,10 +1,5 @@
+import { fetchAccessContext, forgetAccessContext } from './access-context';
 import { supabase } from './supabase';
-
-type SessionPolicyContext = {
-  destination?: string;
-  reason?: string;
-  session_expires_at?: string;
-};
 
 export type MobileSessionPolicy = {
   expired: boolean;
@@ -15,10 +10,9 @@ export async function enforceMobileSessionPolicy(): Promise<MobileSessionPolicy>
   const { data: auth } = await supabase.auth.getSession();
   if (!auth.session) return { expired: false, expiresAt: null };
 
-  const { data, error } = await supabase.rpc('get_access_context');
-  if (error || !data) return { expired: false, expiresAt: null };
+  const context = await fetchAccessContext().catch(() => null);
+  if (!context) return { expired: false, expiresAt: null };
 
-  const context = data as SessionPolicyContext;
   const expiresAt = context.session_expires_at
     ? Date.parse(context.session_expires_at)
     : Number.NaN;
@@ -27,6 +21,7 @@ export async function enforceMobileSessionPolicy(): Promise<MobileSessionPolicy>
     (Number.isFinite(expiresAt) && expiresAt <= Date.now());
 
   if (expired) {
+    forgetAccessContext();
     await supabase.auth.signOut({ scope: 'local' });
     return { expired: true, expiresAt: null };
   }

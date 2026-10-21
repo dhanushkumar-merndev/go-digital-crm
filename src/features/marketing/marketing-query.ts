@@ -1,3 +1,4 @@
+import { humanizeEnum } from '../../lib/format';
 export const marketingViews = ['SOURCES', 'CAMPAIGNS', 'SOCIAL_POSTS'] as const;
 export type MarketingView = (typeof marketingViews)[number];
 export const marketingPageSizes = [25, 50, 100] as const;
@@ -14,19 +15,16 @@ export type MarketingQuery = {
 };
 
 export function marketingInitialView(slug: string): MarketingView | null {
-  if (slug === 'dashboard' || slug === 'lead-sources' || slug === 'performance') return 'SOURCES';
-  if (slug === 'campaigns') return 'CAMPAIGNS';
+  if (slug === 'dashboard' || slug === 'lead-sources' || slug === 'lead-source-performance')
+    return 'SOURCES';
+  // Performance reads campaign results (spend, cost per lead); Campaigns manages them.
+  if (slug === 'campaigns' || slug === 'performance') return 'CAMPAIGNS';
   if (slug === 'social-posts') return 'SOCIAL_POSTS';
   return null;
 }
 
 export function marketingLabel(value: string) {
-  return value
-    .replace(':', ' ')
-    .toLowerCase()
-    .split(/[_\s]+/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+  return humanizeEnum(value.includes(':') ? value.toUpperCase() : value);
 }
 
 export function parseMarketingQuery(

@@ -75,7 +75,7 @@ export function CampaignFormDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent size="lg">
         {/* Keyed so reopening for another campaign seeds a fresh form. */}
         {open ? (
           <CampaignForm
@@ -350,7 +350,7 @@ export function CampaignSpendDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent size="sm">
         {open && campaign ? (
           <CampaignSpendForm
             key={campaign.id}

@@ -119,10 +119,9 @@ export function CompetitorCatalogWorkspace({ spec }: { spec: PageSpec }) {
     return <div className="p-6 text-destructive">Competitor catalog is unavailable.</div>;
   const profiles = query.data;
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader spec={{ ...spec, primaryAction: undefined }} />
       <KpiGrid
-        className="xl:grid-cols-3"
         metrics={[
           { label: 'Profiles', value: String(profiles.length), icon: CarFront },
           {
@@ -204,7 +203,7 @@ export function CompetitorCatalogWorkspace({ spec }: { spec: PageSpec }) {
         open={selected !== undefined}
         onOpenChange={(openState) => !openState && !save.isPending && setSelected(undefined)}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>
               {selected ? 'Edit competitor profile' : 'Add competitor profile'}

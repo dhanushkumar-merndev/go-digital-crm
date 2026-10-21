@@ -141,7 +141,7 @@ export function PersonalWhatsAppDialog({ scope }: { scope: readonly unknown[] })
           }
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>
               Connect my WhatsApp{' '}

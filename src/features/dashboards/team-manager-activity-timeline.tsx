@@ -1,6 +1,10 @@
 'use client';
 
-import Link from 'next/link';
+import { UsersRound } from 'lucide-react';
+import { KpiGrid } from '@/components/shared/kpi-grid';
+import { formatNumber } from '@/lib/format';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
+import type { PageSpec } from '@/lib/domain';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -73,8 +77,8 @@ const overviewColumns: Array<{ key: SalesActivityKind; label: string }> = [
   { key: 'MESSAGE', label: 'Messages' },
   { key: 'FOLLOW_UP', label: 'Follow-ups' },
   { key: 'TASK', label: 'Tasks' },
-  { key: 'APPOINTMENT', label: 'Appts' },
-  { key: 'QUOTATION', label: 'Quotes' },
+  { key: 'APPOINTMENT', label: 'Appointments' },
+  { key: 'QUOTATION', label: 'Quotations' },
 ];
 
 function overviewValue(member: TeamMemberActivityOverview, kind: SalesActivityKind) {
@@ -146,30 +150,24 @@ function TeamRoster({
 
   return (
     <>
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
-        <Card className="shadow-none">
-          <CardContent className="p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Team
-            </p>
-            <p className="mt-1 text-xl font-bold text-[#12213f]">{members.length}</p>
-          </CardContent>
-        </Card>
-        {overviewColumns.map((column) => {
-          const definition = activityKindDefinitions[column.key];
-          const Icon = definition.icon;
-          return (
-            <Card key={column.key} className="shadow-none">
-              <CardContent className="p-3">
-                <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  <Icon className="size-3" /> {column.label}
-                </p>
-                <p className="mt-1 text-xl font-bold text-[#12213f]">{totals[column.key]}</p>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+      <KpiGrid
+        className="mb-4"
+        metrics={[
+          {
+            label: 'Team members',
+            value: formatNumber(members.length),
+            icon: UsersRound,
+            tone: 'cyan',
+            helper: 'Telecallers and consultants',
+          },
+          ...overviewColumns.map((column) => ({
+            label: column.label,
+            value: formatNumber(totals[column.key]),
+            icon: activityKindDefinitions[column.key].icon,
+            helper: 'Logged on this day',
+          })),
+        ]}
+      />
 
       <Card className="overflow-hidden shadow-none">
         <CardHeader className="border-b px-4 py-3 sm:px-5">
@@ -213,7 +211,7 @@ function TeamRoster({
                             {initials(member.full_name)}
                           </AvatarFallback>
                         </Avatar>
-                        <span className="font-semibold text-[#17233d]">{member.full_name}</span>
+                        <span className="font-semibold text-heading">{member.full_name}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -226,7 +224,7 @@ function TeamRoster({
                         {overviewValue(member, column.key)}
                       </TableCell>
                     ))}
-                    <TableCell className="text-right text-sm font-bold tabular-nums text-[#12213f]">
+                    <TableCell className="text-right text-sm font-bold tabular-nums text-heading">
                       {member.total}
                     </TableCell>
                     <TableCell className="text-right">
@@ -429,7 +427,7 @@ function MemberDrilldown({
                     <span className="block text-[10px] text-muted-foreground">
                       {definition.label.replace(' logged', '').replace(' activity', '')}
                     </span>
-                    <span className="block text-sm font-bold text-[#17233d]">{value}</span>
+                    <span className="block text-sm font-bold text-heading">{value}</span>
                   </span>
                 </div>
               );
@@ -449,7 +447,7 @@ function MemberDrilldown({
                     <CalendarClock className="size-3" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[11px] font-semibold text-[#17233d]">
+                    <span className="block truncate text-[11px] font-semibold text-heading">
                       {item.customer_name}
                     </span>
                     <span className="block truncate text-[10px] text-muted-foreground">
@@ -459,7 +457,7 @@ function MemberDrilldown({
                       {activityFullDate(item.due_at)}
                     </span>
                   </span>
-                  <Badge variant="secondary" className="px-1.5 py-0 text-[9px]">
+                  <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
                     {item.priority}
                   </Badge>
                 </div>
@@ -482,7 +480,9 @@ function MemberDrilldown({
                 <div key={note.id} className="flex gap-2">
                   <NotebookPen className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
                   <div className="min-w-0">
-                    <p className="line-clamp-2 text-[11px] leading-4 text-[#263550]">{note.body}</p>
+                    <p className="line-clamp-2 text-[11px] leading-4 text-heading-soft">
+                      {note.body}
+                    </p>
                     <p className="mt-1 text-[10px] text-muted-foreground">
                       {note.customer_name} · {activityFullDate(note.created_at)}
                     </p>
@@ -501,36 +501,23 @@ function MemberDrilldown({
   );
 }
 
-export function TeamManagerActivityTimeline() {
+export function TeamManagerActivityTimeline({ spec }: { spec: PageSpec }) {
   const [date, setDate] = useState(istToday());
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
 
   return (
-    <div className="mx-auto max-w-[1800px]">
-      <div className="mb-4">
-        <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-          <Link href="/team-manager/dashboard" className="text-blue-600 hover:underline">
-            Home
-          </Link>
-          <span>›</span>
-          <span>Team</span>
-          <span>›</span>
-          <span>Team Activity</span>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-[#12213f]">Team Activity</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              See what each Telecaller and Sales Consultant on your team did, day by day.
-            </p>
-          </div>
+    <PageShell>
+      <PageHeader
+        spec={spec}
+        description="What each Telecaller and Sales Consultant on your team did, day by day."
+        actions={
           <DayPicker
             value={date}
             onChange={(value) => setDate(value || istToday())}
             max={istToday()}
           />
-        </div>
-      </div>
+        }
+      />
 
       {selectedMemberId ? (
         <MemberDrilldown
@@ -541,6 +528,6 @@ export function TeamManagerActivityTimeline() {
       ) : (
         <TeamRoster date={date} onSelectMember={setSelectedMemberId} />
       )}
-    </div>
+    </PageShell>
   );
 }

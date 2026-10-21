@@ -2,7 +2,16 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, CircleCheck, Mail, MessageCircle, Plus, Send, Star } from 'lucide-react';
+import {
+  CalendarClock,
+  CircleCheck,
+  CirclePause,
+  Mail,
+  MessageCircle,
+  Plus,
+  Send,
+  Star,
+} from 'lucide-react';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
@@ -39,7 +48,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
@@ -130,7 +138,7 @@ function CreateReviewRequestDialog({ onComplete }: { onComplete: () => void }) {
         <Send className="size-4" /> Request review
       </Button>
       <Dialog open={open} onOpenChange={(next) => !mutation.isPending && setOpen(next)}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Request a Google review</DialogTitle>
             <DialogDescription>
@@ -236,7 +244,8 @@ export function MarketingAutomationWorkspace({
   const bootstrapPermissions = useWorkspaceBootstrap
     ? { canManage: hasWorkspacePermission(session, 'marketing.automation.manage') }
     : undefined;
-  const [tab, setTab] = useState<'DRIP' | 'REVIEWS'>(initialTab);
+  // Drip campaigns and Reviews are separate sidebar pages; the page is the tab.
+  const tab = initialTab;
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const queryClient = useQueryClient();
@@ -278,7 +287,7 @@ export function MarketingAutomationWorkspace({
               label: 'Paused',
               value: String(workspace.data.drip_kpis.paused),
               helper: 'Requires review',
-              icon: CircleCheck,
+              icon: CirclePause,
               tone: 'bg-amber-50 text-amber-600',
             },
             {
@@ -345,7 +354,7 @@ export function MarketingAutomationWorkspace({
     );
   const data = workspace.data;
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader
         spec={{
           ...spec,
@@ -354,12 +363,6 @@ export function MarketingAutomationWorkspace({
           primaryAction: undefined,
         }}
       />
-      <Tabs value={tab} onValueChange={(value) => setTab(value as typeof tab)}>
-        <TabsList>
-          <TabsTrigger value="DRIP">Drip campaigns</TabsTrigger>
-          <TabsTrigger value="REVIEWS">Google reviews</TabsTrigger>
-        </TabsList>
-      </Tabs>
       {tab === 'DRIP' ? (
         <>
           {permissions?.canManage ? (

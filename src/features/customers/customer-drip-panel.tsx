@@ -309,7 +309,7 @@ function StartDripDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Start a drip sequence</DialogTitle>
           <DialogDescription>

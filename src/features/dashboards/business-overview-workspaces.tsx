@@ -1,5 +1,9 @@
 'use client';
 
+import { ArrowRightLeft, CircleOff, UsersRound } from 'lucide-react';
+import { KpiGrid } from '@/components/shared/kpi-grid';
+import { formatNumber, formatPercent } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ClipboardList, TrendingUp } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -118,25 +122,43 @@ export function BusinessSalesOverview({ spec }: { spec: PageSpec }) {
   const data = overview.data;
   const totals = data?.totals;
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        <WindowPicker days={days} onChange={setDays} />
-      </div>
-      <div className="grid gap-4 md:grid-cols-3">
-        {[
-          ['Leads created', totals?.leads ?? 0],
-          ['Moved to sales', totals?.transferred ?? 0],
-          ['Lost', totals?.lost ?? 0],
-        ].map(([label, value]) => (
-          <Card key={String(label)} className="shadow-none">
-            <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground">{label}</p>
-              <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        actions={<WindowPicker days={days} onChange={setDays} />}
+      />
+      <KpiGrid
+        metrics={[
+          {
+            label: 'Leads created',
+            value: formatNumber(totals?.leads ?? 0),
+            helper: `In the last ${days} days`,
+            icon: UsersRound,
+            tone: 'blue',
+          },
+          {
+            label: 'Moved to sales',
+            value: formatNumber(totals?.transferred ?? 0),
+            helper: 'Handed to a Sales Consultant',
+            icon: ArrowRightLeft,
+            tone: 'emerald',
+          },
+          {
+            label: 'Conversion to sales',
+            value: formatPercent(percent(totals?.transferred ?? 0, totals?.leads ?? 0)),
+            helper: 'Moved to sales of leads created',
+            icon: TrendingUp,
+            tone: 'cyan',
+          },
+          {
+            label: 'Lost',
+            value: formatNumber(totals?.lost ?? 0),
+            helper: `${formatPercent(percent(totals?.lost ?? 0, totals?.leads ?? 0))} of leads created`,
+            icon: CircleOff,
+            tone: 'rose',
+          },
+        ]}
+      />
       <div className="grid gap-5 lg:grid-cols-2">
         <Card className="shadow-none">
           <CardHeader>
@@ -266,6 +288,17 @@ export function BusinessSalesOverview({ spec }: { spec: PageSpec }) {
 }
 
 const allShowrooms = 'all';
+
+// One row per department count, so five departments sit 5-across instead of
+// three over two; at two columns an odd last card spans the row.
+const departmentColumns: Record<number, string> = {
+  1: '',
+  2: 'md:grid-cols-2',
+  3: 'md:grid-cols-3',
+  4: 'md:grid-cols-2 xl:grid-cols-4',
+  5: 'md:grid-cols-2 xl:grid-cols-5 md:[&>*:last-child]:col-span-2 xl:[&>*:last-child]:col-span-1',
+  6: 'md:grid-cols-3',
+};
 
 function percent(part: number, whole: number) {
   return whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0;
@@ -538,42 +571,38 @@ export function BusinessShowroomPerformance({ spec }: { spec: PageSpec }) {
   ];
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        <div className="flex flex-wrap items-center gap-2">
-          <Select
-            value={branchId ?? allShowrooms}
-            onValueChange={(value) => setBranchId(value === allShowrooms ? null : value)}
-          >
-            <SelectTrigger className="w-56" aria-label="Showroom">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={allShowrooms}>All showrooms</SelectItem>
-              {data.per_branch.map((branch) => (
-                <SelectItem key={branch.branch_id} value={branch.branch_id}>
-                  {branch.branch}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <WindowPicker days={days} onChange={setDays} />
-        </div>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        actions={
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={branchId ?? allShowrooms}
+                onValueChange={(value) => setBranchId(value === allShowrooms ? null : value)}
+              >
+                <SelectTrigger className="w-56" aria-label="Showroom">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={allShowrooms}>All showrooms</SelectItem>
+                  {data.per_branch.map((branch) => (
+                    <SelectItem key={branch.branch_id} value={branch.branch_id}>
+                      {branch.branch}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <WindowPicker days={days} onChange={setDays} />
+            </div>
+          </>
+        }
+      />
 
-      <div
-        className={`grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6 ${analytics.isPlaceholderData ? 'opacity-60' : ''}`}
-      >
-        {kpis.map(([label, value]) => (
-          <Card key={label} className="shadow-none">
-            <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground">{label}</p>
-              <p className="mt-1 text-xl font-bold tabular-nums">{value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <KpiGrid
+        className={analytics.isPlaceholderData ? 'opacity-60' : undefined}
+        metrics={kpis.map(([label, value]) => ({ label, value: String(value) }))}
+      />
       <p className="text-xs text-muted-foreground">
         Cards and single-showroom charts show <span className="font-medium">{focusLabel}</span> for
         the last {data.window_days} days. Showroom-by-showroom charts always compare every showroom
@@ -795,9 +824,9 @@ export function BusinessOperationsOverview({ spec }: { spec: PageSpec }) {
   if (overview.isError) return <Unavailable what="Operations overview" />;
   const departments = overview.data?.departments ?? [];
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className={cn('grid gap-4', departmentColumns[departments.length] ?? 'md:grid-cols-3')}>
         {departments.map((department) => (
           <Card key={department.department} className="shadow-none">
             <CardHeader className="pb-3">

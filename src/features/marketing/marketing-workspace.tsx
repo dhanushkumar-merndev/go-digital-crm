@@ -1,26 +1,22 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
 import { useCallback, useMemo, useState } from 'react';
+import { sortLabel } from '@/lib/format';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import {
-  ChevronLeft,
-  ChevronRight,
-  IndianRupee,
-  MoreHorizontal,
-  Pencil,
-  Search,
-  TriangleAlert,
-} from 'lucide-react';
+import { IndianRupee, MoreHorizontal, Pencil, Search } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
+import { EmptyState, ErrorState } from '@/components/shared/page-states';
+import { SectionCard } from '@/components/shared/section-card';
 import { MarketingWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,7 +39,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
@@ -67,7 +62,6 @@ import {
   marketingLabel,
   marketingPageSizes,
   marketingSorts,
-  marketingViews,
   parseMarketingQuery,
   toMarketingQueryString,
   type MarketingQuery,
@@ -414,7 +408,6 @@ function MarketingTable({
     manualPagination: true,
     rowCount: result.total,
   });
-  const pages = Math.max(1, Math.ceil(result.total / query.pageSize));
   return (
     <Card className="overflow-hidden shadow-none">
       <CardHeader className="border-b p-4">
@@ -441,7 +434,7 @@ function MarketingTable({
             <SelectContent>
               {marketingSorts.map((sort) => (
                 <SelectItem key={sort} value={sort}>
-                  {marketingLabel(sort)}
+                  {sortLabel(sort)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -505,40 +498,28 @@ function MarketingTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {result.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, result.total)} of {result.total}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-            >
-              <ChevronLeft className="size-4" />
-              <span className="sr-only">Previous page</span>
-            </Button>
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-            >
-              <ChevronRight className="size-4" />
-              <span className="sr-only">Next page</span>
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={result.total}
+          onPageChange={(page) => onQueryChange({ page })}
+        />
       </CardContent>
     </Card>
   );
+}
+
+// Tiles about marketing's own work (posts, review invites) mean nothing on the
+// GM's sales view of the same sources.
+const marketingOnlyMetrics = new Set(['Active campaigns', 'Review requests', 'Posts published']);
+
+function marketingPageLayout(slug: string) {
+  return {
+    charts: slug === 'dashboard' || slug === 'performance' || slug === 'lead-source-performance',
+    table: slug !== 'dashboard' && slug !== 'performance',
+    mapping: slug === 'lead-sources',
+    salesOnly: slug === 'lead-source-performance',
+  };
 }
 
 export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: string }) {
@@ -575,72 +556,65 @@ export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: strin
   if (workspace.isPending) return <MarketingWorkspaceSkeleton />;
   if (workspace.isError || !workspace.data)
     return (
-      <div className="space-y-6">
+      <PageShell>
         <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        <Card className="shadow-none">
-          <CardContent className="flex flex-col items-center gap-2 p-10 text-center">
-            <TriangleAlert className="size-6 text-amber-600" />
-            <p className="font-semibold">Marketing is unavailable</p>
-            <p className="max-w-xl text-sm text-muted-foreground">
-              Marketing permissions and a configured tenant scope are required.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+        <ErrorState
+          title="Marketing is unavailable"
+          description="Marketing permissions and a configured tenant scope are required."
+          onRetry={() => void workspace.refetch()}
+          retrying={workspace.isFetching}
+        />
+      </PageShell>
     );
 
   const data = workspace.data;
-  const metrics = workspaceMetrics(data);
+  // Each sidebar page shows its own slice of the same data instead of one
+  // screen behind three entries: the dashboard and Performance read the charts,
+  // Lead sources / Campaigns / Social posts work the table. The sidebar is the
+  // navigation, so the in-page tabs that repeated it are gone.
+  const layout = marketingPageLayout(slug);
+  const metrics = workspaceMetrics(data).filter(
+    (metric) => !layout.salesOnly || !marketingOnlyMetrics.has(metric.label),
+  );
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6">
+    <PageShell>
       <PageHeader spec={{ ...spec, primaryAction: undefined }} />
       {metrics.length > 0 && <KpiGrid metrics={metrics} />}
-      {slug === 'lead-sources' ? <MarketingAdFieldMapping /> : null}
-      {data.view === 'CAMPAIGNS' && data.campaign_chart && data.campaign_chart.length > 0 ? (
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle className="text-base">Cost per lead by campaign</CardTitle>
-            <CardDescription>Campaigns with recorded spend, highest spend first</CardDescription>
-          </CardHeader>
-          <CardContent>
+      {layout.mapping ? <MarketingAdFieldMapping /> : null}
+      {layout.charts && data.view === 'CAMPAIGNS' ? (
+        <SectionCard
+          title="Cost per lead by campaign"
+          description="Campaigns with recorded spend, highest spend first"
+        >
+          {data.campaign_chart && data.campaign_chart.length > 0 ? (
             <EChart kind="bar" data={data.campaign_chart} seriesNames={['Cost per lead', '']} />
-          </CardContent>
-        </Card>
+          ) : (
+            <EmptyState
+              bare
+              title="No campaign spend recorded yet"
+              description="Record spend on a campaign to compare cost per lead."
+            />
+          )}
+        </SectionCard>
       ) : null}
-      {data.source_chart && data.funnel_chart && (
-        <div className="grid gap-6 xl:grid-cols-12">
-          <Card className="shadow-none xl:col-span-7">
-            <CardHeader>
-              <CardTitle className="text-base">Source performance</CardTitle>
-              <CardDescription>Leads and bookings by canonical source</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <EChart kind="bar" data={data.source_chart} seriesNames={['Leads', 'Bookings']} />
-            </CardContent>
-          </Card>
-          <Card className="shadow-none xl:col-span-5">
-            <CardHeader>
-              <CardTitle className="text-base">Lead conversion funnel</CardTitle>
-              <CardDescription>Lead to booking in your scope</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <EChart kind="funnel" data={data.funnel_chart} />
-            </CardContent>
-          </Card>
+      {layout.charts && data.source_chart && data.funnel_chart && (
+        <div className="grid gap-4 xl:grid-cols-12">
+          <SectionCard
+            title="Source performance"
+            description="Leads and bookings by canonical source"
+            className="xl:col-span-7"
+          >
+            <EChart kind="bar" data={data.source_chart} seriesNames={['Leads', 'Bookings']} />
+          </SectionCard>
+          <SectionCard
+            title="Lead conversion funnel"
+            description="Lead to booking in your scope"
+            className="xl:col-span-5"
+          >
+            <EChart kind="funnel" data={data.funnel_chart} />
+          </SectionCard>
         </div>
       )}
-      <Tabs
-        value={routeQuery.view}
-        onValueChange={(view) => replaceQuery({ view: view as MarketingQuery['view'], page: 1 })}
-      >
-        <TabsList className="h-auto max-w-full flex-wrap justify-start">
-          {marketingViews.map((view) => (
-            <TabsTrigger key={view} value={view}>
-              {marketingLabel(view)}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
       {routeQuery.view === 'CAMPAIGNS' && data.can_manage ? (
         <div className="flex justify-end">
           <NewCampaignButton />
@@ -654,13 +628,15 @@ export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: strin
           <SocialContentCalendar />
         </>
       ) : null}
-      <MarketingTable
-        result={data}
-        query={routeQuery}
-        fetching={workspace.isFetching}
-        onQueryChange={replaceQuery}
-        onCampaignAction={setCampaignAction}
-      />
+      {layout.table ? (
+        <MarketingTable
+          result={data}
+          query={routeQuery}
+          fetching={workspace.isFetching}
+          onQueryChange={replaceQuery}
+          onCampaignAction={setCampaignAction}
+        />
+      ) : null}
       <CampaignFormDialog
         campaign={campaignAction?.kind === 'edit' ? campaignAction.campaign : null}
         open={campaignAction?.kind === 'edit'}
@@ -671,6 +647,6 @@ export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: strin
         open={campaignAction?.kind === 'spend'}
         onOpenChange={(open) => (open ? undefined : setCampaignAction(null))}
       />
-    </div>
+    </PageShell>
   );
 }

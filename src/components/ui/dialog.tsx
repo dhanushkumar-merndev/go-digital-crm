@@ -7,17 +7,34 @@ import { cn } from '@/lib/utils';
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
 const DialogClose = DialogPrimitive.Close;
+
+// The four widths a dialog comes in, so a form is not 2xl on one page and xl
+// on the next. A className max-w still wins for the rare one-off.
+const dialogSizes = {
+  sm: 'max-w-md',
+  md: 'max-w-lg',
+  lg: 'max-w-2xl',
+  xl: 'max-w-4xl',
+} as const;
+
+export type DialogSize = keyof typeof dialogSizes;
+
 function DialogContent({
   className,
   children,
+  size = 'md',
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content>) {
+}: React.ComponentProps<typeof DialogPrimitive.Content> & { size?: DialogSize }) {
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45" />
       <DialogPrimitive.Content
         className={cn(
-          'fixed left-1/2 top-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto [&>*]:mt-0 rounded-xl border bg-background p-6 shadow-xl outline-none',
+          // A grid track sizes to its widest child, so one unbroken URL or token
+          // used to widen the whole dialog and push its buttons off-screen. The
+          // single minmax(0,1fr) track and min-w-0 children keep it to the width.
+          'fixed left-1/2 top-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto overflow-x-hidden [&>*]:mt-0 [&>*]:min-w-0 rounded-xl border bg-background p-6 shadow-xl outline-none',
+          dialogSizes[size],
           className,
         )}
         {...props}

@@ -1,13 +1,16 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { ErrorState } from '@/components/shared/page-states';
 import { useCallback, useMemo, useState } from 'react';
+import { formatCurrency, sortLabel } from '@/lib/format';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, Plus, RotateCcw, Search, TriangleAlert } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import { OperationalCaseWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -72,7 +75,7 @@ import {
 } from './operational-case-dialogs';
 import { ConnectedOperationalOverview } from './connected-operational-overview';
 
-const commonViews = ['ALL', 'OPEN', 'DOCUMENTS', 'ACTION_DUE', 'COMPLETED'] as const;
+const commonViews = ['ALL', 'OPEN', 'DOCUMENTS', 'ACTION_DUE', 'DUE_TODAY', 'COMPLETED'] as const;
 
 function safeActionMessage(error: unknown) {
   if (
@@ -118,7 +121,7 @@ function metrics(result: OperationalCaseWorkspaceResult, pathname: string) {
       label: 'Due today',
       value: String(result.kpis.due_today),
       helper: 'Action required today',
-      href: tab('ACTION_DUE'),
+      href: tab('DUE_TODAY'),
     },
     {
       label: 'Completed this month',
@@ -128,6 +131,84 @@ function metrics(result: OperationalCaseWorkspaceResult, pathname: string) {
     },
   ];
 }
+
+function detailText(record: OperationalCaseRecord, key: string) {
+  const value = record.details[key];
+  return typeof value === 'string' && value.trim() ? value : '—';
+}
+
+function detailAmount(record: OperationalCaseRecord, key: string) {
+  const value = Number(record.details[key]);
+  return record.details[key] === undefined ||
+    record.details[key] === null ||
+    !Number.isFinite(value)
+    ? '—'
+    : formatCurrency(value);
+}
+
+function detailDate(record: OperationalCaseRecord, key: string) {
+  const value = record.details[key];
+  return typeof value === 'string' ? formatDate(value) : '—';
+}
+
+function detailColumn(
+  id: string,
+  header: string,
+  read: (record: OperationalCaseRecord) => string,
+): ColumnDef<OperationalCaseRecord> {
+  return { id, header, cell: ({ row }) => read(row.original) };
+}
+
+/**
+ * The columns each desk works from (AGENTS.md 52.7 CaseWorkspace presets): the
+ * shared case, owner and status columns stay, and these say what the desk is
+ * actually waiting on. Values come from the row's `details`, already returned
+ * by the page RPC, so a preset adds no query.
+ */
+const departmentColumns: Record<
+  OperationalCaseWorkspaceResult['department'],
+  ColumnDef<OperationalCaseRecord>[]
+> = {
+  FINANCE: [
+    detailColumn('lender', 'Lender', (record) => detailText(record, 'lender')),
+    detailColumn('approved_amount', 'Approved', (record) =>
+      detailAmount(record, 'approved_amount'),
+    ),
+    detailColumn('disbursed_at', 'Disbursed', (record) => detailDate(record, 'disbursed_at')),
+  ],
+  INSURANCE: [
+    detailColumn('insurer', 'Insurer', (record) => detailText(record, 'insurer')),
+    detailColumn('policy_number', 'Policy no.', (record) => detailText(record, 'policy_number')),
+    detailColumn('policy_end', 'Policy ends', (record) => detailDate(record, 'policy_end')),
+  ],
+  RTO: [
+    detailColumn('registration_number', 'Registration no.', (record) =>
+      detailText(record, 'registration_number'),
+    ),
+    detailColumn('submitted_at', 'Submitted', (record) => detailDate(record, 'submitted_at')),
+  ],
+  EXCHANGE: [
+    detailColumn('estimated_value', 'Expected', (record) =>
+      detailAmount(record, 'estimated_value'),
+    ),
+    detailColumn('quoted_value', 'Evaluated', (record) => {
+      const evaluation = record.details.evaluation as { quoted_value?: unknown } | undefined;
+      const value = Number(evaluation?.quoted_value);
+      return evaluation?.quoted_value == null || !Number.isFinite(value)
+        ? '—'
+        : formatCurrency(value);
+    }),
+    detailColumn('accepted_value', 'Accepted', (record) => detailAmount(record, 'accepted_value')),
+  ],
+  DELIVERY: [
+    detailColumn('scheduled_at', 'Delivery date', (record) => detailDate(record, 'scheduled_at')),
+    detailColumn('checklist', 'Checklist', (record) => {
+      const total = Number(record.details.checklist_total ?? 0);
+      const done = Number(record.details.checklist_completed ?? 0);
+      return total ? `${done} of ${total}` : '—';
+    }),
+  ],
+};
 
 function OperationalCaseTable({
   result,
@@ -177,19 +258,15 @@ function OperationalCaseTable({
         header: 'Status',
         cell: ({ getValue }) => <StatusBadge value={String(getValue())} />,
       },
+      ...departmentColumns[result.department],
       { accessorKey: 'document_count', header: 'Documents' },
       {
         accessorKey: 'due_at',
         header: 'Due',
         cell: ({ getValue }) => formatDate((getValue() as string | null) ?? null),
       },
-      {
-        accessorKey: 'updated_at',
-        header: 'Updated',
-        cell: ({ getValue }) => formatDate(String(getValue())),
-      },
     ],
-    [onOpen],
+    [onOpen, result.department],
   );
   // TanStack Table exposes an imperative row model; React Compiler intentionally skips it.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -200,7 +277,6 @@ function OperationalCaseTable({
     manualPagination: true,
     rowCount: result.total,
   });
-  const pages = Math.max(1, Math.ceil(result.total / query.pageSize));
   return (
     <Card className="overflow-hidden shadow-none">
       <CardHeader className="border-b p-4">
@@ -241,7 +317,7 @@ function OperationalCaseTable({
             <SelectContent>
               {operationalCaseSorts.map((sort) => (
                 <SelectItem key={sort} value={sort}>
-                  {operationalCaseStatusLabel(sort.replace(':', '_'))}
+                  {sortLabel(sort)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -308,37 +384,12 @@ function OperationalCaseTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {result.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, result.total)} of {result.total}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-            >
-              <ChevronLeft className="size-4" />
-              <span className="sr-only">Previous page</span>
-            </Button>
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-            >
-              <ChevronRight className="size-4" />
-              <span className="sr-only">Next page</span>
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={result.total}
+          onPageChange={(page) => onQueryChange({ page })}
+        />
       </CardContent>
     </Card>
   );
@@ -524,28 +575,18 @@ export function OperationalCaseWorkspace({
   // notice); the full error state is only for a page that never loaded.
   if (permissions.isError || !permissions.data || !workspace.data)
     return (
-      <Card className="mx-auto max-w-xl">
-        <CardContent className="flex flex-col items-center p-10 text-center">
-          <div className="grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
-            <TriangleAlert />
-          </div>
-          <h2 className="mt-4 font-semibold">Operational cases are not available yet</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your department permission, scope, or workspace migration needs attention. Reference:
-            GDM-OPERATIONS.
-          </p>
-          <Button
-            className="mt-5"
-            variant="outline"
-            onClick={() => {
-              void permissions.refetch();
-              void workspace.refetch();
-            }}
-          >
-            <RotateCcw className="size-4" /> Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Operational cases are not available yet"
+          description="Your department permission, scope, or workspace migration needs attention."
+          reference="GDM-OPERATIONS"
+          onRetry={() => {
+            void permissions.refetch();
+            void workspace.refetch();
+          }}
+        />
+      </PageShell>
     );
 
   // Sales Consultant Exchange keeps its original view set.
@@ -557,28 +598,30 @@ export function OperationalCaseWorkspace({
     permissions.data.canManage ||
     (route.department === 'EXCHANGE' && permissions.data.canRequest && route.canOriginateRequest);
   return (
-    <div className="mx-auto max-w-[1800px]">
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        {canCreate ? (
-          <Button
-            className="shrink-0 sm:mt-7"
-            onClick={() => {
-              setActionError(undefined);
-              setCreateOpen(true);
-            }}
-          >
-            <Plus className="size-4" /> Create case
-          </Button>
-        ) : null}
-      </div>
-      <div className="space-y-6">
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        actions={
+          canCreate ? (
+            <Button
+              className="shrink-0"
+              onClick={() => {
+                setActionError(undefined);
+                setCreateOpen(true);
+              }}
+            >
+              <Plus className="size-4" /> Create case
+            </Button>
+          ) : undefined
+        }
+      />
+      <div className="space-y-5">
         <RefreshFailedNotice
           show={workspace.isError}
           retrying={workspace.isFetching}
           onRetry={() => void workspace.refetch()}
         />
-        <KpiGrid metrics={metrics(workspace.data, pathname)} className="xl:grid-cols-5" />
+        <KpiGrid metrics={metrics(workspace.data, pathname)} />
         <ConnectedOperationalOverview
           department={route.department}
           result={workspace.data}

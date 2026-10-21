@@ -1,5 +1,8 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { KpiGrid, kpiVariantForRole } from '@/components/shared/kpi-grid';
+import { formatNumber } from '@/lib/format';
 import { useQuery } from '@tanstack/react-query';
 import {
   Building2,
@@ -489,35 +492,21 @@ export function AppointmentWorkspaceView({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map(({ type, value }) => {
-          const visual = typeVisual(type);
-          const Icon = visual.icon;
-          return (
-            <Card key={type} className="shadow-none">
-              <CardContent className="flex items-center gap-4 p-4">
-                <div className={`grid size-12 place-items-center rounded-full ${visual.tone}`}>
-                  <Icon className="size-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">{type}</p>
-                  <p className="mt-1 text-2xl font-bold">{value}</p>
-                  <p className="mt-1 text-[11px] text-emerald-600">Today in your scope</p>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+      <KpiGrid
+        variant={kpiVariantForRole(role)}
+        metrics={cards.map(({ type, value }) => ({
+          label: type,
+          value: formatNumber(value),
+          icon: typeVisual(type).icon,
+          tone: typeVisual(type).tone,
+          helper: 'Today in your scope',
+        }))}
+      />
       {filters}
       <div className="grid gap-4 xl:grid-cols-12">
         <Card className="sales-consultant-list-card overflow-hidden shadow-none xl:col-span-9">
           <CardHeader className="flex-row items-center justify-between border-b p-4">
-            <CardTitle className="text-sm">Appointments ({result.total})</CardTitle>
-            <span className="text-xs text-muted-foreground">
-              Showing {result.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-              {Math.min(query.page * query.pageSize, result.total)}
-            </span>
+            <CardTitle className="text-sm">Appointments ({formatNumber(result.total)})</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className={isFetching ? 'overflow-x-auto opacity-60' : 'overflow-x-auto'}>
@@ -597,35 +586,12 @@ export function AppointmentWorkspaceView({
                 </TableBody>
               </Table>
             </div>
-            <div className="flex items-center justify-between border-t px-4 py-3 text-xs text-muted-foreground">
-              <span>
-                Showing {result.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-                {Math.min(query.page * query.pageSize, result.total)} of {result.total}
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-8"
-                  disabled={query.page <= 1}
-                  onClick={() => onQueryChange({ page: query.page - 1 })}
-                >
-                  <ChevronLeft className="size-4" />
-                </Button>
-                <span>
-                  Page {query.page} of {Math.max(1, Math.ceil(result.total / query.pageSize))}
-                </span>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-8"
-                  disabled={query.page >= Math.ceil(result.total / query.pageSize)}
-                  onClick={() => onQueryChange({ page: query.page + 1 })}
-                >
-                  <ChevronRight className="size-4" />
-                </Button>
-              </div>
-            </div>
+            <TablePagination
+              page={query.page}
+              pageSize={query.pageSize}
+              total={result.total}
+              onPageChange={(page) => onQueryChange({ page })}
+            />
           </CardContent>
         </Card>
         <div className="space-y-4 xl:col-span-3">
@@ -636,7 +602,7 @@ export function AppointmentWorkspaceView({
                 {weekdays.map((day) => (
                   <span
                     key={day}
-                    className="py-1 text-center text-[9px] font-semibold text-muted-foreground"
+                    className="py-1 text-center text-[10px] font-semibold text-muted-foreground"
                   >
                     {day.slice(0, 2)}
                   </span>

@@ -1,5 +1,6 @@
 'use client';
 
+import { PageHeader } from '@/components/shared/page-header';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useRef, useState } from 'react';
@@ -383,11 +384,11 @@ function MetricCard({
             >
               <Icon className="size-4" />
             </span>
-            <p className="min-w-0 text-[11px] font-semibold leading-4 text-[#263550]">
+            <p className="min-w-0 text-[11px] font-semibold leading-4 text-heading-soft">
               {definition.label}
             </p>
           </div>
-          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-[#12213f]">
+          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-heading">
             {metric.value}
             {definition.suffix}
           </p>
@@ -468,12 +469,12 @@ function TodaySchedule({
                             </p>
                             <Badge
                               variant={scheduleStatusVariant(item.status)}
-                              className="px-1.5 py-0 text-[9px] normal-case"
+                              className="px-1.5 py-0 text-[10px] normal-case"
                             >
                               {item.status.replaceAll('_', ' ').toLocaleLowerCase()}
                             </Badge>
                           </div>
-                          <p className="mt-0.5 truncate text-xs font-semibold text-[#17233d]">
+                          <p className="mt-0.5 truncate text-xs font-semibold text-heading">
                             {item.customer_name}
                           </p>
                           {item.detail && (
@@ -543,10 +544,10 @@ function TopModels({ models }: { models: SalesConsultantDashboardResult['top_mod
                 }}
               />
               <span className="min-w-0">
-                <span className="block truncate text-xs font-semibold text-[#263550]">
+                <span className="block truncate text-xs font-semibold text-heading-soft">
                   {model.name}
                 </span>
-                <span className="block text-[9px] text-muted-foreground">
+                <span className="block text-[10px] text-muted-foreground">
                   {model.available_stock} in stock
                 </span>
               </span>
@@ -604,31 +605,31 @@ function RecentLeads({
           <Table>
             <TableHeader className="bg-slate-50/80">
               <TableRow>
-                <TableHead className="h-9 px-3 text-[9px] normal-case tracking-normal">
+                <TableHead className="h-9 px-3 text-[10px] normal-case tracking-normal">
                   Lead ID
                 </TableHead>
-                <TableHead className="h-9 px-3 text-[9px] normal-case tracking-normal">
+                <TableHead className="h-9 px-3 text-[10px] normal-case tracking-normal">
                   Customer
                 </TableHead>
-                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal lg:table-cell">
+                <TableHead className="hidden h-9 px-3 text-[10px] normal-case tracking-normal lg:table-cell">
                   Mobile
                 </TableHead>
-                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal lg:table-cell">
+                <TableHead className="hidden h-9 px-3 text-[10px] normal-case tracking-normal lg:table-cell">
                   Interested model
                 </TableHead>
-                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal lg:table-cell">
+                <TableHead className="hidden h-9 px-3 text-[10px] normal-case tracking-normal lg:table-cell">
                   Next follow-up
                 </TableHead>
-                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal lg:table-cell">
+                <TableHead className="hidden h-9 px-3 text-[10px] normal-case tracking-normal lg:table-cell">
                   Lead source
                 </TableHead>
-                <TableHead className="h-9 px-3 text-[9px] normal-case tracking-normal">
+                <TableHead className="h-9 px-3 text-[10px] normal-case tracking-normal">
                   Status
                 </TableHead>
-                <TableHead className="h-9 px-3 text-[9px] normal-case tracking-normal">
+                <TableHead className="h-9 px-3 text-[10px] normal-case tracking-normal">
                   Priority
                 </TableHead>
-                <TableHead className="h-9 px-3 text-right text-[9px] normal-case tracking-normal">
+                <TableHead className="h-9 px-3 text-right text-[10px] normal-case tracking-normal">
                   Actions
                 </TableHead>
               </TableRow>
@@ -675,7 +676,7 @@ function RecentLeads({
                   <TableCell className="px-3 py-2">
                     <Badge
                       variant={leadStageVariant(lead.lifecycle_status)}
-                      className="rounded px-1.5 py-0 text-[9px]"
+                      className="rounded px-1.5 py-0 text-[10px]"
                     >
                       {lead.lifecycle_status}
                     </Badge>
@@ -691,7 +692,7 @@ function RecentLeads({
                               ? 'secondary'
                               : 'info'
                       }
-                      className="rounded px-1.5 py-0 text-[9px]"
+                      className="rounded px-1.5 py-0 text-[10px]"
                     >
                       {lead.temperature ?? 'COLD'}
                     </Badge>
@@ -760,11 +761,11 @@ function AiPipelineSummary({
               <Sparkles className="size-3.5" />
             </span>
             <div>
-              <p className="text-xs font-semibold text-[#263550]">AI sales summary</p>
+              <p className="text-xs font-semibold text-heading-soft">AI sales summary</p>
               <p className="text-[10px] text-muted-foreground">Open for the full summary</p>
             </div>
           </div>
-          <Badge variant="info" className="text-[9px]">
+          <Badge variant="info" className="text-[10px]">
             {summary.data
               ? summary.data.provider === 'AI'
                 ? 'AI cached'
@@ -775,7 +776,7 @@ function AiPipelineSummary({
         <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-[#334155]">{summaryText}</p>
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent size="lg">
           <DialogHeader>
             <DialogTitle>AI sales summary</DialogTitle>
             <DialogDescription>
@@ -783,7 +784,7 @@ function AiPipelineSummary({
               it.
             </DialogDescription>
           </DialogHeader>
-          <p className="rounded-lg bg-slate-50 p-3 text-sm leading-6 text-[#263550]">
+          <p className="rounded-lg bg-slate-50 p-3 text-sm leading-6 text-heading-soft">
             {summaryText}
           </p>
           {summary.isError && (
@@ -915,15 +916,13 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
   // previous data to keep visible.
   if (!data)
     return (
-      <div className="mx-auto max-w-[1800px]">
+      <div className="mx-auto w-full">
         <Card className="border-rose-100 shadow-none">
           <CardContent className="flex min-h-56 flex-col items-center justify-center p-8 text-center">
             <span className="grid size-11 place-items-center rounded-full bg-rose-50 text-rose-600">
               <BellRing className="size-5" />
             </span>
-            <h2 className="mt-4 font-semibold text-[#17233d]">
-              Sales dashboard could not be loaded
-            </h2>
+            <h2 className="mt-4 font-semibold text-heading">Sales dashboard could not be loaded</h2>
             <p className="mt-1 max-w-lg text-sm text-muted-foreground">
               The live dashboard requires the Sales Consultant dashboard migration and an active
               scoped role assignment.
@@ -943,31 +942,32 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
     );
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-4">
-      <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
-            Sales Consultant Workspace
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">{spec.description}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void refresh()}
-            disabled={dashboard.isFetching || manualRefreshRemaining === 0}
-          >
-            <RefreshCw className={cn('size-3.5', dashboard.isFetching && 'animate-spin')} />
-            Last synced {formatTime(data.cache.synced_at ?? data.generated_at, data.timezone)}
-          </Button>
-          <span>{manualRefreshRemaining}/3 manual refreshes left</span>
-          {data.cache.status === 'STALE' && (
-            <span className="text-muted-foreground">Updating&hellip;</span>
-          )}
-          {refreshMessage && <span className="text-rose-600">{refreshMessage}</span>}
-        </div>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={spec}
+        title="Sales Consultant Workspace"
+        description={spec.description}
+        actions={
+          <>
+            <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void refresh()}
+                disabled={dashboard.isFetching || manualRefreshRemaining === 0}
+              >
+                <RefreshCw className={cn('size-3.5', dashboard.isFetching && 'animate-spin')} />
+                Last synced {formatTime(data.cache.synced_at ?? data.generated_at, data.timezone)}
+              </Button>
+              <span>{manualRefreshRemaining}/3 manual refreshes left</span>
+              {data.cache.status === 'STALE' && (
+                <span className="text-muted-foreground">Updating&hellip;</span>
+              )}
+              {refreshMessage && <span className="text-rose-600">{refreshMessage}</span>}
+            </div>
+          </>
+        }
+      />
 
       <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-8">
         {metricDefinitions.map((definition) => (
@@ -1008,9 +1008,9 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
                       >
                         <Icon className="size-4" />
                       </span>
-                      <span className="text-xl font-bold text-[#17233d]">{item.value}</span>
+                      <span className="text-xl font-bold text-heading">{item.value}</span>
                     </div>
-                    <p className="mt-3 text-[11px] font-medium leading-4 text-[#263550]">
+                    <p className="mt-3 text-[11px] font-medium leading-4 text-heading-soft">
                       {definition.label}
                     </p>
                     <span className="mt-auto flex items-center gap-1 pt-3 text-[10px] font-semibold text-blue-600">
@@ -1051,18 +1051,18 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
                         >
                           <span className="min-w-0">
                             <span
-                              className="block truncate font-medium text-[#263550]"
+                              className="block truncate font-medium text-heading-soft"
                               title={stage.name}
                             >
                               {stage.name}
                             </span>
-                            <span className="block text-[9px] text-emerald-600">
+                            <span className="block text-[10px] text-emerald-600">
                               {index === 0
                                 ? 'Starting stage'
                                 : `${conversion.toFixed(1)}% conversion`}
                             </span>
                           </span>
-                          <span className="shrink-0 rounded bg-slate-50 px-1.5 py-0.5 font-semibold text-[#263550]">
+                          <span className="shrink-0 rounded bg-slate-50 px-1.5 py-0.5 font-semibold text-heading-soft">
                             {stage.value}
                           </span>
                         </div>
@@ -1072,7 +1072,7 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
                 </div>
                 <div className="mt-1 flex items-center justify-between rounded-lg bg-slate-50 px-4 py-2.5 text-xs">
                   <span className="text-muted-foreground">Overall conversion rate</span>
-                  <span className="font-bold text-[#17233d]">{conversionRate.toFixed(1)}%</span>
+                  <span className="font-bold text-heading">{conversionRate.toFixed(1)}%</span>
                   <span className="flex items-center gap-1 text-emerald-600">
                     <TrendingUp className="size-3.5" />
                     Live
@@ -1118,7 +1118,7 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
                       >
                         <Icon className="size-4" />
                       </span>
-                      <span className="mt-1.5 text-[9px] font-medium leading-3 text-[#263550]">
+                      <span className="mt-1.5 text-[10px] font-medium leading-3 text-heading-soft">
                         {label as string}
                       </span>
                     </Link>
@@ -1129,8 +1129,13 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
           </div>
           <RecentLeads leads={data.recent_leads} timezone={data.timezone} />
         </div>
-        <div className="space-y-4 xl:col-span-4">
-          <TodaySchedule data={data} className="xl:h-[690px]" />
+        <div className="flex flex-col gap-4 xl:col-span-4">
+          {/* The schedule takes whatever height the left column sets and
+              scrolls inside it; positioned absolutely so a long day cannot
+              stretch the row past the cards beside it. */}
+          <div className="relative xl:min-h-[22rem] xl:flex-1">
+            <TodaySchedule data={data} className="xl:absolute xl:inset-0 xl:h-auto" />
+          </div>
           <Card className="overflow-hidden shadow-none">
             <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
               <CardTitle className="text-sm">Tasks & alerts</CardTitle>
@@ -1163,10 +1168,10 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
                     >
                       <Icon className="size-3.5" />
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-[#263550]">
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-heading-soft">
                       {definition.label}
                     </span>
-                    <span className="text-xs font-bold text-[#17233d]">{item.value}</span>
+                    <span className="text-xs font-bold text-heading">{item.value}</span>
                   </Link>
                 );
               })}

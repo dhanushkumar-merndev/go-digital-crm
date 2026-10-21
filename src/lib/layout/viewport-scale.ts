@@ -24,6 +24,27 @@
  * type on a small laptop than the exact 1920 arrangement.
  */
 export const DESIGN_WIDTH = 1920;
+
+/**
+ * Pages that are not the CRM workspace and must not be put on its canvas: the
+ * sign-in screens, and the customer-facing review form and website widget. A
+ * customer's phone or laptop reads those as an ordinary web page; zooming them
+ * to the 1920 canvas threw off their full-height centring, so the review card
+ * sat low on a page that scrolled for no reason. VIEWPORT_ZOOM_SCRIPT repeats
+ * this list because it runs before any module loads.
+ */
+export function isUnscaledPath(pathname: string | null) {
+  if (!pathname) return false;
+  return (
+    pathname === '/login' ||
+    pathname === '/forgot-password' ||
+    pathname === '/reset-password' ||
+    pathname === '/auth/invite' ||
+    pathname.startsWith('/access/mfa') ||
+    pathname.startsWith('/feedback/') ||
+    pathname.startsWith('/embed/')
+  );
+}
 export const MAX_ZOOM = 1.5;
 
 /** Below this the small-screen stack takes over and no scaling is applied. */
@@ -103,4 +124,4 @@ export function applyViewportZoom(root: HTMLElement, enabled = true) {
  * Run before first paint so a wide screen does not show one unscaled frame.
  * Kept as a string because it has to be inlined into the document head.
  */
-export const VIEWPORT_ZOOM_SCRIPT = `(function(){try{var p=window.location.pathname||'';if(p==='/login'||p==='/forgot-password'||p==='/reset-password'||p==='/auth/invite'||p.indexOf('/access/mfa')!==-1)return;var r=document.documentElement;var off=false;try{off=window.localStorage.getItem('${CANVAS_STORAGE_KEY}')==='${CANVAS_DISABLED_VALUE}';}catch(e){}r.style.zoom='1';var w=r.clientWidth;var z=off||w<${DESKTOP_MIN_WIDTH}?1:Math.min(Math.max(w/${DESIGN_WIDTH},${MIN_ZOOM}),${MAX_ZOOM});r.style.zoom=z!==1?String(z):'';r.style.setProperty('--canvas-zoom',String(z));}catch(e){}})();`;
+export const VIEWPORT_ZOOM_SCRIPT = `(function(){try{var p=window.location.pathname||'';if(p==='/login'||p==='/forgot-password'||p==='/reset-password'||p==='/auth/invite'||p.indexOf('/access/mfa')!==-1||p.indexOf('/feedback/')===0||p.indexOf('/embed/')===0)return;var r=document.documentElement;var off=false;try{off=window.localStorage.getItem('${CANVAS_STORAGE_KEY}')==='${CANVAS_DISABLED_VALUE}';}catch(e){}r.style.zoom='1';var w=r.clientWidth;var z=off||w<${DESKTOP_MIN_WIDTH}?1:Math.min(Math.max(w/${DESIGN_WIDTH},${MIN_ZOOM}),${MAX_ZOOM});r.style.zoom=z!==1?String(z):'';r.style.setProperty('--canvas-zoom',String(z));}catch(e){}})();`;

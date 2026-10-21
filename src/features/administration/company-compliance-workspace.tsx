@@ -1,14 +1,13 @@
 'use client';
 
+import { ErrorState } from '@/components/shared/page-states';
 import { useQuery } from '@tanstack/react-query';
 import {
   Building2,
   CalendarClock,
   FileCheck2,
   Landmark,
-  LockKeyhole,
   MapPinned,
-  RefreshCw,
   ShieldCheck,
 } from 'lucide-react';
 import {
@@ -16,10 +15,9 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { CompanyComplianceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import type { Metric, PageSpec } from '@/lib/domain';
@@ -66,19 +64,14 @@ export function CompanyComplianceWorkspace({ spec }: { spec: PageSpec }) {
   if (query.isPending) return <CompanyComplianceSkeleton />;
   if (query.isError || !query.data)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <LockKeyhole className="mx-auto size-6 text-amber-600" />
-          <p className="mt-3 font-semibold">Company compliance is unavailable</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            This read-only record requires an MFA-assured, organization-wide Business Owner or
-            Client Admin session.
-          </p>
-          <Button className="mt-5" variant="outline" onClick={() => void query.refetch()}>
-            <RefreshCw className="size-4" /> Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Company compliance is unavailable"
+          description="This read-only record requires an MFA-assured, organization-wide Business Owner or Client Admin session."
+          onRetry={() => void query.refetch()}
+        />
+      </PageShell>
     );
 
   const { organization, branch_summary: branchSummary, latest_submission: submission } = query.data;
@@ -97,7 +90,7 @@ export function CompanyComplianceWorkspace({ spec }: { spec: PageSpec }) {
     },
     {
       label: 'Compliance evidence',
-      value: submission?.evidence.length.toLocaleString() ?? '0',
+      value: submission?.evidence.length.toLocaleString('en-IN') ?? '0',
       icon: FileCheck2,
       helper: 'Latest onboarding submission only',
     },
@@ -110,9 +103,9 @@ export function CompanyComplianceWorkspace({ spec }: { spec: PageSpec }) {
   ];
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-5">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader spec={{ ...spec, primaryAction: undefined, readOnly: true }} />
-      <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
+      <KpiGrid metrics={metrics} />
       <CatalogSharingCard />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]">

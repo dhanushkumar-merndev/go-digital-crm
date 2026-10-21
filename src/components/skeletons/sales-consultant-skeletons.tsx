@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 // ==========================================
 export function SalesConsultantDashboardSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-4">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
         <div>
@@ -258,7 +258,7 @@ export function SalesConsultantDashboardSkeleton() {
 // ==========================================
 export function TelecallerDashboardSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-4">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
         <div>
@@ -495,7 +495,7 @@ export function TelecallerDashboardSkeleton() {
 // ==========================================
 export function LeadWorkspaceSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
@@ -591,7 +591,7 @@ export function LeadWorkspaceSkeleton() {
 // ==========================================
 export function FollowupsSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
@@ -669,7 +669,7 @@ export function FollowupsSkeleton() {
 // ==========================================
 export function TasksSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
@@ -748,7 +748,7 @@ export function TasksSkeleton() {
 // ==========================================
 export function CallsSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Top Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
@@ -862,7 +862,7 @@ export function CallsSkeleton() {
 export function InboxSkeleton({ embedded = false }: { embedded?: boolean } = {}) {
   return (
     <div
-      className={`mx-auto max-w-[1800px] ${embedded ? 'space-y-4' : 'flex h-[calc(100dvh-106px)] flex-col gap-3'}`}
+      className={`mx-auto w-full ${embedded ? 'space-y-4' : 'flex h-[calc(100dvh-106px)] flex-col gap-3'}`}
     >
       {/* Header */}
       <div className="shrink-0">
@@ -971,7 +971,7 @@ export function InboxSkeleton({ embedded = false }: { embedded?: boolean } = {})
 // ==========================================
 export function AppointmentsSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
@@ -1050,7 +1050,7 @@ export function AppointmentsSkeleton() {
 // ==========================================
 export function TestDrivesSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
@@ -1126,7 +1126,7 @@ export function TestDrivesSkeleton() {
 // ==========================================
 export function CompetitorCompareSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div>
         <div className="mb-2 flex items-center gap-2">
@@ -1231,7 +1231,7 @@ export function CompetitorCompareSkeleton() {
 // ==========================================
 export function QuotationsSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
@@ -1315,7 +1315,7 @@ export function QuotationsSkeleton() {
 // ==========================================
 export function StockCheckSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
@@ -1404,7 +1404,7 @@ export function StockCheckSkeleton() {
 // ==========================================
 export function SalesExchangeSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div>
         <div className="mb-2 flex items-center gap-2">
@@ -1525,7 +1525,7 @@ export function SalesExchangeSkeleton() {
 // ==========================================
 export function BookingsSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
@@ -1610,7 +1610,7 @@ export function BookingsSkeleton() {
 // ==========================================
 export function SalesConsultantPerformanceSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
@@ -1723,7 +1723,7 @@ export function SalesConsultantPerformanceSkeleton() {
 // ==========================================
 export function SalesConsultantTimelineSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div>
         <div className="mb-2 flex items-center gap-2">

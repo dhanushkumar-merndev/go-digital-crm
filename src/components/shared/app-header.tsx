@@ -86,6 +86,20 @@ function notificationTime(value: string) {
   );
 }
 
+const scopeLabels: Record<string, string> = {
+  PLATFORM: 'Platform-wide',
+  ORGANIZATION: 'All branches',
+  ALL_BRANCHES: 'All branches',
+  SELECTED_BRANCHES: 'Selected branches',
+  ONE_BRANCH: 'One branch',
+  OWN_TEAM: 'Own team',
+  OWN_RECORDS: 'Own records',
+};
+
+function scopeLabel(scope: string | null | undefined) {
+  return (scope && scopeLabels[scope]) || 'Assigned scope';
+}
+
 export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: boolean }) {
   const router = useRouter();
   const workspaceSession = useWorkspaceSession();
@@ -150,7 +164,9 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
     notifications.data?.filter((notification) => !notification.read_at).length ?? 0;
   const dealershipName = previewMode
     ? 'Apex Motors Pvt. Ltd.'
-    : (workspaceSession?.workspaceName ?? 'Assigned dealership');
+    : (workspaceSession?.workspaceName ??
+      workspaceSession?.organizationName ??
+      (role === 'super-admin' ? 'Go Digital Marketing platform' : 'Assigned dealership'));
   const currentDate = new Intl.DateTimeFormat('en-IN', {
     day: '2-digit',
     month: 'short',
@@ -197,11 +213,11 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
               <Building2 className="size-4" />
             </div>
             <div>
-              <p className="text-xs font-semibold">
-                {previewMode ? 'Apex Motors Pvt. Ltd.' : 'Dealership workspace'}
+              <p className="max-w-[260px] truncate text-xs font-semibold" title={dealershipName}>
+                {dealershipName}
               </p>
               <p className="text-[11px] text-muted-foreground">
-                {previewMode ? roleNavigation[role].scope : 'Assigned data scope'}
+                {previewMode ? roleNavigation[role].scope : scopeLabel(workspaceSession?.dataScope)}
               </p>
             </div>
           </div>
@@ -213,13 +229,13 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
           {salesWorkspace && (
             <>
               <span
-                className="hidden h-9 max-w-[220px] items-center gap-2 rounded-lg border bg-white px-3 text-[11px] font-medium text-[#263550] xl:flex"
+                className="hidden h-9 max-w-[220px] items-center gap-2 rounded-lg border bg-white px-3 text-[11px] font-medium text-heading-soft xl:flex"
                 title={dealershipName}
               >
                 <Building2 className="size-3.5 shrink-0 text-blue-600" />
                 <span className="truncate">{dealershipName}</span>
               </span>
-              <span className="hidden h-9 items-center gap-2 rounded-lg border bg-white px-3 text-[11px] font-medium text-[#263550] xl:flex">
+              <span className="hidden h-9 items-center gap-2 rounded-lg border bg-white px-3 text-[11px] font-medium text-heading-soft xl:flex">
                 <CalendarDays className="size-3.5 text-blue-600" /> {currentDate}
               </span>
               <DropdownMenu>
@@ -266,7 +282,7 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
               <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
                 <Bell className="size-5" />
                 {unreadCount > 0 && (
-                  <span className="absolute right-1.5 top-1.5 grid min-w-4 place-items-center rounded-full border-2 border-white bg-red-500 px-0.5 text-[9px] font-bold leading-4 text-white">
+                  <span className="absolute right-1.5 top-1.5 grid min-w-4 place-items-center rounded-full border-2 border-white bg-red-500 px-0.5 text-[10px] font-bold leading-4 text-white">
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
@@ -275,7 +291,7 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
             <DropdownMenuContent align="end" className="w-[min(24rem,calc(100vw-2rem))] p-0">
               <div className="flex items-center justify-between border-b px-3 py-2.5">
                 <div>
-                  <p className="text-sm font-semibold text-[#17233d]">Notifications</p>
+                  <p className="text-sm font-semibold text-heading">Notifications</p>
                   <p className="text-xs text-muted-foreground">
                     {unreadCount ? `${unreadCount} unread` : 'You are up to date'}
                   </p>
@@ -316,7 +332,7 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-3">
-                            <p className="truncate text-sm font-semibold text-[#17233d]">
+                            <p className="truncate text-sm font-semibold text-heading">
                               {notification.title}
                             </p>
                             <span className="shrink-0 text-[11px] text-muted-foreground">
@@ -335,7 +351,7 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
                     <span className="grid size-10 place-items-center rounded-full bg-blue-50 text-blue-600">
                       <CheckCheck className="size-5" />
                     </span>
-                    <p className="mt-3 text-sm font-semibold text-[#17233d]">All caught up</p>
+                    <p className="mt-3 text-sm font-semibold text-heading">All caught up</p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       New lead and work updates will appear here.
                     </p>

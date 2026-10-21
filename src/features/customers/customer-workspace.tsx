@@ -1,15 +1,11 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { ErrorState } from '@/components/shared/page-states';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import {
-  ChevronLeft,
-  ChevronRight,
-  RotateCcw,
-  Search,
-  TriangleAlert,
-  UsersRound,
-} from 'lucide-react';
+import { Search, UsersRound } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
@@ -69,22 +65,22 @@ function toMetrics(kpis: CustomerWorkspaceResult['kpis']): Metric[] {
   return [
     {
       label: 'Customers in scope',
-      value: kpis.customers.toLocaleString(),
+      value: kpis.customers.toLocaleString('en-IN'),
       helper: 'Distinct customer UUIDs',
     },
     {
       label: 'Active opportunities',
-      value: kpis.active_opportunities.toLocaleString(),
+      value: kpis.active_opportunities.toLocaleString('en-IN'),
       helper: 'Visible non-lost leads',
     },
     {
       label: 'With bookings',
-      value: kpis.customers_with_bookings.toLocaleString(),
+      value: kpis.customers_with_bookings.toLocaleString('en-IN'),
       helper: 'Customers with visible bookings',
     },
     {
       label: 'Known vehicles',
-      value: kpis.vehicles.toLocaleString(),
+      value: kpis.vehicles.toLocaleString('en-IN'),
       helper: 'Multiple vehicles per customer supported',
     },
   ];
@@ -200,7 +196,6 @@ function CustomerTable({
     manualSorting: true,
     rowCount: data.total,
   });
-  const pages = Math.max(1, Math.ceil(data.total / query.pageSize));
 
   return (
     <Card className="overflow-hidden shadow-none">
@@ -293,37 +288,12 @@ function CustomerTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {data.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, data.total)} of {data.total}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="mr-2 text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={data.total}
+          onPageChange={(page) => onQueryChange({ page })}
+        />
       </CardContent>
     </Card>
   );
@@ -384,40 +354,31 @@ export function CustomerWorkspace({ role }: { role: string }) {
     !permissions?.canView
   )
     return (
-      <Card className="mx-auto max-w-xl">
-        <CardContent className="flex flex-col items-center p-10 text-center">
-          <div className="grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
-            <TriangleAlert />
-          </div>
-          <h2 className="mt-4 font-semibold">Customers are not available</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            This route requires an active CRM session, customer.view permission, the current data
-            scope, and the customer workspace migration. Reference: GDM-CUSTOMERS-QUERY.
-          </p>
-          <Button
-            className="mt-5"
-            variant="outline"
-            onClick={() => {
-              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
-              void workspace.refetch();
-            }}
-          >
-            <RotateCcw className="size-4" /> Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader
+          title="Customers"
+          breadcrumbs={[{ label: 'Dashboard', href: `/${role}/dashboard` }, { label: 'Customers' }]}
+        />
+        <ErrorState
+          title="Customers are not available"
+          description="This route requires an active CRM session, customer.view permission, the current data scope, and the customer workspace migration."
+          reference="GDM-CUSTOMERS-QUERY"
+          onRetry={() => {
+            if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
+            void workspace.refetch();
+          }}
+        />
+      </PageShell>
     );
   if (!workspace.data) return null;
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Customers</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Customer UUIDs are the long-term source of truth. This list contains only records visible
-          in your current tenant, branch, team, or own-record scope.
-        </p>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        title="Customers"
+        breadcrumbs={[{ label: 'Dashboard', href: `/${role}/dashboard` }, { label: 'Customers' }]}
+        description="Customers visible in your scope. Each customer can hold several enquiries, bookings and vehicles."
+      />
       <KpiGrid metrics={toMetrics(workspace.data.kpis)} variant={kpiVariantForRole(role)} />
       <Card className="border-blue-100 bg-blue-50/40 shadow-none">
         <CardHeader className="py-4">

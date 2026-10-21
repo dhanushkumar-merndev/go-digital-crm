@@ -142,11 +142,31 @@ const analysisPrompt =
   'You review an English automobile dealership call transcript with AGENT and CUSTOMER lines. ' +
   'Return JSON only: {"summary":string,"fields":object}. The summary is a short factual recap ' +
   '(what the customer wants, budget, timeline, objections, agreed next step). fields may include ' +
-  'customer_name, phone, email, interested_model, lifecycle_status, temperature, ' +
-  'next_followup_at and lost_reason only when the call directly supports them. Only suggest ' +
-  'lost_reason when the customer clearly gives a reason and lifecycle_status is Lost. ' +
-  'next_followup_at must be ISO 8601 or null. Preserve uncertain wording rather than inventing ' +
-  'details. All fields are suggestions requiring human approval.';
+  'customer_name, phone, email, interested_model, variant, budget_max, purchase_timeline, ' +
+  'finance_required, exchange_required, test_drive_required, competitors, lifecycle_status, ' +
+  'temperature, next_followup_at and lost_reason only when the call directly supports them. ' +
+  'budget_max is the top of the stated budget as a number of rupees (15 lakh = 1500000). ' +
+  'purchase_timeline is short text such as "This month" or "Within 3 months". ' +
+  'finance_required, exchange_required and test_drive_required are true or false. ' +
+  'competitors is an array of other brands or models the customer is considering. ' +
+  'temperature is HOT (ready to buy, intent confirmed), WARM (interested, not committed) or ' +
+  'COLD (little engagement). Only suggest lost_reason when the customer clearly gives a reason ' +
+  'and lifecycle_status is Lost. next_followup_at is the agreed next contact or visit as ISO ' +
+  '8601 with the offset of the call time given in the user message, or null; resolve relative ' +
+  'days such as "this Saturday" from that call time. Preserve uncertain wording rather than ' +
+  'inventing details. All fields are suggestions requiring human approval.';
+
+// Dealerships are in India; the CRM's date-range RPCs default to the same zone.
+const callTimeZone = 'Asia/Kolkata';
+const callTimeFormat = new Intl.DateTimeFormat('en-IN', {
+  timeZone: callTimeZone,
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
 
 const lifecycleStatuses = [
   'New',
@@ -162,14 +182,21 @@ export async function analyzeCall(input: {
   apiKey: string;
   model: string;
   transcript: string;
+  /** When the call happened, so "this Saturday" becomes a date. */
+  callStartedAt?: string | null;
   fetchImpl?: FetchLike;
 }): Promise<CallAnalysis> {
+  const startedAt = input.callStartedAt ? new Date(input.callStartedAt) : null;
+  const callTime =
+    startedAt && Number.isFinite(startedAt.getTime())
+      ? `Call time: ${callTimeFormat.format(startedAt)} (India, UTC+05:30)\n\n`
+      : '';
   const parsed = await completeJson({
     apiKey: input.apiKey,
     model: input.model,
     fetchImpl: input.fetchImpl ?? fetch,
     system: analysisPrompt,
-    user: input.transcript.slice(0, 100_000),
+    user: callTime + input.transcript.slice(0, 100_000),
   });
   const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 12_000) : '';
   const candidate =
@@ -183,21 +210,35 @@ export async function analyzeCall(input: {
     ['email', 320],
     ['interested_model', 200],
     ['lost_reason', 500],
+    // Lengths match the lead_requirements check constraint.
+    ['variant', 120],
+    ['purchase_timeline', 60],
   ]);
   for (const [key, maximum] of boundedText) {
     const value = candidate[key];
     if (typeof value === 'string' && value.trim()) fields[key] = value.trim().slice(0, maximum);
+  }
+  const budget = Number(candidate.budget_max);
+  if (candidate.budget_max !== null && Number.isFinite(budget) && budget > 0 && budget <= 1e9)
+    fields.budget_max = Math.round(budget);
+  for (const key of ['finance_required', 'exchange_required', 'test_drive_required']) {
+    if (typeof candidate[key] === 'boolean') fields[key] = candidate[key];
+  }
+  if (Array.isArray(candidate.competitors)) {
+    const competitors = candidate.competitors
+      .filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+      .map((item) => item.trim().slice(0, 80))
+      .slice(0, 12);
+    if (competitors.length) fields.competitors = competitors;
   }
   if (
     typeof candidate.lifecycle_status === 'string' &&
     lifecycleStatuses.includes(candidate.lifecycle_status)
   )
     fields.lifecycle_status = candidate.lifecycle_status;
-  if (
-    typeof candidate.temperature === 'string' &&
-    ['HOT', 'WARM', 'COLD', 'DORMANT'].includes(candidate.temperature)
-  )
-    fields.temperature = candidate.temperature;
+  const temperature =
+    typeof candidate.temperature === 'string' ? candidate.temperature.toUpperCase() : '';
+  if (['HOT', 'WARM', 'COLD', 'DORMANT'].includes(temperature)) fields.temperature = temperature;
   if (
     typeof candidate.next_followup_at === 'string' &&
     Number.isFinite(Date.parse(candidate.next_followup_at))

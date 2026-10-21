@@ -20,7 +20,7 @@ export type MetricCardProps = {
   className?: string;
 };
 
-function chipClass(tone: MetricCardProps['tone']) {
+export function chipClass(tone: MetricCardProps['tone']) {
   if (!tone) return toneStyles.blue.icon;
   return tone in toneStyles ? toneStyles[tone as Tone].icon : tone;
 }
@@ -61,9 +61,9 @@ export function MetricCard({
               <Icon className="size-4" />
             </span>
           ) : null}
-          <p className="min-w-0 text-[11px] font-semibold leading-4 text-[#263550]">{label}</p>
+          <p className="min-w-0 text-[11px] font-semibold leading-4 text-heading-soft">{label}</p>
         </div>
-        <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-[#12213f]">
+        <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-heading">
           {value}
         </p>
         {change ? (

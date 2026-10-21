@@ -18,7 +18,7 @@ function TooltipContent({
       <TooltipPrimitive.Content
         sideOffset={sideOffset}
         className={cn(
-          'z-50 rounded-md bg-[#17233d] px-3 py-1.5 text-xs font-medium text-white shadow-md',
+          'z-50 rounded-md bg-sidebar px-3 py-1.5 text-xs font-medium text-white shadow-md',
           className,
         )}
         {...props}

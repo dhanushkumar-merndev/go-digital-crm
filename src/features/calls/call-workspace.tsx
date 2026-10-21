@@ -1,5 +1,13 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { ErrorState } from '@/components/shared/page-states';
+import { EChart } from '@/components/charts/e-chart';
+import { SectionCard } from '@/components/shared/section-card';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
+import { KpiGrid, kpiVariantForRole } from '@/components/shared/kpi-grid';
+import { formatNumber, formatPercent } from '@/lib/format';
+import type { Metric } from '@/lib/domain';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
@@ -21,7 +29,6 @@ import {
   PhoneCall,
   Play,
   Plus,
-  RotateCcw,
   Search,
   Sparkles,
   TriangleAlert,
@@ -50,6 +57,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -164,57 +172,56 @@ function CallDirectionIcon({ direction }: { direction: string }) {
   return <PhoneOutgoing className="size-4 text-emerald-600" />;
 }
 
-function CallKpis({ data }: { data: CallWorkspaceResult }) {
-  const cards = [
+function CallKpis({ data, role }: { data: CallWorkspaceResult; role: string }) {
+  const { kpis } = data;
+  const rate = kpis.total_today ? (kpis.connected_today / kpis.total_today) * 100 : 0;
+  // Every count here is today's, so each label says so; "Total calls" used to
+  // read as all-time while showing only today.
+  const metrics: Metric[] = [
     {
-      label: 'Total calls',
-      value: data.kpis.total_today.toLocaleString('en-IN'),
+      label: 'Calls today',
+      value: formatNumber(kpis.total_today),
       icon: PhoneCall,
-      tone: 'bg-blue-50 text-blue-600',
+      tone: 'blue',
+      helper: 'Outgoing and incoming',
     },
     {
-      label: 'Connected',
-      value: data.kpis.connected_today.toLocaleString('en-IN'),
+      label: 'Connected today',
+      value: formatNumber(kpis.connected_today),
       icon: Phone,
-      tone: 'bg-emerald-50 text-emerald-600',
+      tone: 'emerald',
+      helper: 'Customer answered',
     },
     {
-      label: 'Not connected',
-      value: data.kpis.not_connected_today.toLocaleString('en-IN'),
+      label: 'Connection rate',
+      value: formatPercent(rate),
+      icon: Phone,
+      tone: 'cyan',
+      helper: 'Connected of all calls today',
+    },
+    {
+      label: 'Not connected today',
+      value: formatNumber(kpis.not_connected_today),
       icon: PhoneMissed,
-      tone: 'bg-orange-50 text-orange-500',
+      tone: 'orange',
+      helper: 'No answer, busy or failed',
     },
     {
-      label: 'Talk time',
-      value: formatDuration(data.kpis.talk_time_seconds),
+      label: 'Talk time today',
+      value: formatDuration(kpis.talk_time_seconds),
       icon: Clock3,
-      tone: 'bg-violet-50 text-violet-600',
+      tone: 'violet',
+      helper: 'Total connected time',
     },
     {
       label: 'Average duration',
-      value: formatDuration(data.kpis.average_duration_seconds),
+      value: formatDuration(kpis.average_duration_seconds),
       icon: Clock3,
-      tone: 'bg-blue-50 text-blue-600',
+      tone: 'blue',
+      helper: 'Per connected call',
     },
   ];
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-      {cards.map((card) => (
-        <Card key={card.label} className="shadow-none">
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className={`grid size-11 shrink-0 place-items-center rounded-full ${card.tone}`}>
-              <card.icon className="size-5" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">{card.label}</p>
-              <p className="mt-1 text-xl font-bold tracking-tight">{card.value}</p>
-              <p className="mt-1 text-[11px] text-emerald-600">Live from your assigned scope</p>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
+  return <KpiGrid metrics={metrics} variant={kpiVariantForRole(role)} />;
 }
 
 function ManualCallDialog({
@@ -329,7 +336,7 @@ function ManualCallDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Call customer</DialogTitle>
           <DialogDescription>
@@ -636,7 +643,7 @@ function ManualCallDialog({
                   </div>
                 </Alert>
               )}
-              <div className="flex justify-end gap-2 pt-2">
+              <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => close(false)}>
                   Cancel
                 </Button>
@@ -646,7 +653,7 @@ function ManualCallDialog({
                 >
                   {mutation.isPending ? 'Saving…' : 'Log call'}
                 </Button>
-              </div>
+              </DialogFooter>
             </>
           )}
         </form>
@@ -729,7 +736,7 @@ function CallDetailSheet({
 
   if (!callId) return null;
   return (
-    <div className="mx-auto max-w-[1800px] space-y-4">
+    <div className="mx-auto w-full space-y-5">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
         <div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -742,7 +749,9 @@ function CallDetailSheet({
             <ChevronRight className="size-3" />
             <span>Call with {data?.customer_name ?? 'customer'}</span>
           </div>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight">Sales Consultant Call</h1>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight text-heading">
+            Sales Consultant Call
+          </h1>
         </div>
         <Button
           variant="outline"
@@ -1382,7 +1391,6 @@ function CallTable({
     manualSorting: true,
     rowCount: data.total,
   });
-  const pages = Math.max(1, Math.ceil(data.total / query.pageSize));
 
   return (
     <Card className="sales-consultant-list-card overflow-hidden shadow-none">
@@ -1548,37 +1556,12 @@ function CallTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {data.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, data.total)} of {data.total}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="mr-2 text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={data.total}
+          onPageChange={(page) => onQueryChange({ page })}
+        />
       </CardContent>
     </Card>
   );
@@ -1665,28 +1648,18 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
     (workspace.isError && !workspace.data)
   )
     return (
-      <Card className="mx-auto max-w-xl">
-        <CardContent className="flex flex-col items-center p-10 text-center">
-          <div className="grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
-            <TriangleAlert />
-          </div>
-          <h2 className="mt-4 font-semibold">Calls are not available yet</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your session, data scope, or the required Calls workspace migration needs attention.
-            Reference: GDM-CALLS-QUERY.
-          </p>
-          <Button
-            className="mt-5"
-            variant="outline"
-            onClick={() => {
-              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
-              void workspace.refetch();
-            }}
-          >
-            <RotateCcw className="size-4" /> Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Calls are not available yet"
+          description="Your session, data scope, or the required Calls workspace migration needs attention."
+          reference="GDM-CALLS-QUERY"
+          onRetry={() => {
+            if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
+            void workspace.refetch();
+          }}
+        />
+      </PageShell>
     );
   if (!workspace.data || !permissions) return null;
 
@@ -1730,50 +1703,45 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
   ];
 
   return (
-    <div className="mx-auto max-w-[1800px]">
+    <PageShell>
       <RefreshFailedNotice
-        className="mb-4"
         show={workspace.isError}
         retrying={workspace.isFetching}
         onRetry={() => void workspace.refetch()}
       />
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Link href={`/${role}/dashboard`} className="font-medium text-blue-600 hover:underline">
-              Dashboard
-            </Link>
-            <ChevronRight className="size-3" /> <span>Calls</span>
-          </div>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight">Calls</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Manage and monitor your outgoing and incoming customer calls in one place.
-          </p>
-        </div>
-        {!spec.readOnly && permissions.canCreate && (
-          <Button
-            className="shrink-0"
-            onClick={() => {
-              const now = new Date();
-              setManualTimes({
-                startedAt: dateTimeLocal(new Date(now.getTime() - 5 * 60_000)),
-                endedAt: dateTimeLocal(now),
-              });
-              setCreateOpen(true);
-            }}
-          >
-            <Plus className="size-4" /> Call / log
-          </Button>
-        )}
-      </div>
-      <div className="mt-6 flex h-10 border-b">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description={
+          role === 'telecaller' || role === 'sales-consultant'
+            ? 'Manage and monitor your outgoing and incoming customer calls in one place.'
+            : 'Calls made and received across your scope, with recordings and AI summaries.'
+        }
+        actions={
+          !spec.readOnly && permissions.canCreate ? (
+            <Button
+              className="shrink-0"
+              onClick={() => {
+                const now = new Date();
+                setManualTimes({
+                  startedAt: dateTimeLocal(new Date(now.getTime() - 5 * 60_000)),
+                  endedAt: dateTimeLocal(now),
+                });
+                setCreateOpen(true);
+              }}
+            >
+              <Plus className="size-4" /> Call / log
+            </Button>
+          ) : null
+        }
+      />
+      <div className="flex h-10 border-b">
         <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               className={`relative h-full shrink-0 px-3 text-xs font-semibold ${
-                activeTab === tab.id ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
+                activeTab === tab.id ? 'text-blue-700' : 'text-heading-soft hover:text-blue-700'
               }`}
               style={activeTab === tab.id ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
               onClick={() => {
@@ -1792,9 +1760,22 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
           label="call summary"
         />
       </div>
-      <div className="mt-6 space-y-6">
-        <div id="call-summary-kpis" hidden={!summaryOpen}>
-          <CallKpis data={workspace.data} />
+      <div className="space-y-5">
+        <div id="call-summary-kpis" hidden={!summaryOpen} className="space-y-5">
+          <CallKpis data={workspace.data} role={role} />
+          {workspace.data.trend.length ? (
+            <SectionCard
+              title="Calls this week"
+              description="Calls made and connected per day, last 7 days"
+            >
+              <EChart
+                kind="line"
+                className="h-64"
+                data={workspace.data.trend}
+                seriesNames={['Calls', 'Connected']}
+              />
+            </SectionCard>
+          ) : null}
         </div>
         <CallTable
           data={displayedWorkspace}
@@ -1823,6 +1804,6 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
           onCreated={invalidate}
         />
       )}
-    </div>
+    </PageShell>
   );
 }

@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { createClient } from '@supabase/supabase-js';
-import { schedules } from '@trigger.dev/sdk';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 type ReportExport = {
   id: string;
@@ -133,46 +132,43 @@ async function processExport(supabase: ReportServiceClient, storage: S3Client, i
   if (!completed) throw new Error('REPORT_EXPORT_LEASE_LOST');
 }
 
-export const reportExport = schedules.task({
-  id: 'report-export',
-  // Five minute batches keep free-tier polling low while a user-visible query polls only pending jobs.
-  cron: { pattern: '*/5 * * * *', timezone: 'UTC' },
-  queue: { concurrencyLimit: 1 },
-  retry: { maxAttempts: 3, factor: 2, minTimeoutInMs: 1000, maxTimeoutInMs: 30_000 },
-  run: async () => {
-    const supabase = createClient(
-      requiredEnvironment('SUPABASE_URL'),
-      requiredEnvironment('SUPABASE_SERVICE_ROLE_KEY'),
-      { auth: { persistSession: false, autoRefreshToken: false } },
-    );
-    const database = supabase as unknown as ReportServiceClient;
-    const workerId = `trigger:report-export:${crypto.randomUUID()}`;
-    const { data, error } = await database.rpc<ReportExport[]>('claim_report_exports', {
-      target_worker_id: workerId,
-      target_batch_size: 5,
-    });
-    if (error) throw error;
-    const storage = storageClient();
-    let completed = 0;
-    let retried = 0;
-    for (const item of (data ?? []) as ReportExport[]) {
-      try {
-        await processExport(database, storage, item);
-        completed += 1;
-      } catch (error) {
-        const safeCode =
-          error instanceof Error && error.message === 'REPORT_EXPORT_SIZE_LIMIT'
-            ? 'REPORT_EXPORT_SIZE_LIMIT'
-            : 'REPORT_EXPORT_RETRY';
-        const { error: retryError } = await database.rpc('retry_report_export', {
-          target_export_id: item.id,
-          target_lease_token: item.lease_token,
-          target_safe_error_code: safeCode,
-        });
-        if (retryError) throw retryError;
-        retried += 1;
-      }
+/**
+ * One step of the per-minute pass. Exports are requested by hand and render a
+ * small aggregate CSV, so an idle pass is one empty claim. This was its own
+ * five-minute schedule; as a step it costs no extra run and a requested export
+ * is ready within a minute instead of five. Two per pass keeps a burst of
+ * requests from holding up the other queues in the same pass.
+ */
+export async function runReportExport(supabase: SupabaseClient) {
+  const database = supabase as unknown as ReportServiceClient;
+  const workerId = `trigger:report-export:${crypto.randomUUID()}`;
+  const { data, error } = await database.rpc<ReportExport[]>('claim_report_exports', {
+    target_worker_id: workerId,
+    target_batch_size: 2,
+  });
+  if (error) throw error;
+  const claimed = (data ?? []) as ReportExport[];
+  if (claimed.length === 0) return { claimed: 0, completed: 0, retried: 0 };
+  const storage = storageClient();
+  let completed = 0;
+  let retried = 0;
+  for (const item of claimed) {
+    try {
+      await processExport(database, storage, item);
+      completed += 1;
+    } catch (error) {
+      const safeCode =
+        error instanceof Error && error.message === 'REPORT_EXPORT_SIZE_LIMIT'
+          ? 'REPORT_EXPORT_SIZE_LIMIT'
+          : 'REPORT_EXPORT_RETRY';
+      const { error: retryError } = await database.rpc('retry_report_export', {
+        target_export_id: item.id,
+        target_lease_token: item.lease_token,
+        target_safe_error_code: safeCode,
+      });
+      if (retryError) throw retryError;
+      retried += 1;
     }
-    return { claimed: data?.length ?? 0, completed, retried };
-  },
-});
+  }
+  return { claimed: claimed.length, completed, retried };
+}

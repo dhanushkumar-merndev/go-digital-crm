@@ -6,19 +6,9 @@ import {
   applyViewportZoom,
   CANVAS_ZOOM_CHANGED_EVENT,
   canvasEnabled,
+  isUnscaledPath,
   storeCanvasEnabled,
 } from '@/lib/layout/viewport-scale';
-
-function isAuthRoute(pathname: string | null) {
-  if (!pathname) return false;
-  return (
-    pathname === '/login' ||
-    pathname === '/forgot-password' ||
-    pathname === '/reset-password' ||
-    pathname === '/auth/invite' ||
-    pathname.startsWith('/access/mfa')
-  );
-}
 
 /**
  * One preference, read by both the component that applies the zoom and the
@@ -69,7 +59,7 @@ export function ViewportScale() {
   useEffect(() => {
     const root = document.documentElement;
 
-    if (isAuthRoute(pathname)) {
+    if (isUnscaledPath(pathname)) {
       root.style.zoom = '';
       root.style.removeProperty('--canvas-zoom');
       return;

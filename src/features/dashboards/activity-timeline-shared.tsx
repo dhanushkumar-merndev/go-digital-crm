@@ -154,7 +154,7 @@ function TimelineRecordRow({ record }: { record: ActivityTimelineRecord }) {
         </span>
       </span>
       <div className="min-w-0 pt-1">
-        <p className="text-xs font-semibold text-[#17233d]">{definition.label}</p>
+        <p className="text-xs font-semibold text-heading">{definition.label}</p>
         <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
           {record.detail ?? record.activity_type.replaceAll('_', ' ')}
         </p>
@@ -220,7 +220,7 @@ export function ActivityTimelineList({
     <div className="relative px-4 pb-3 pt-4 before:absolute before:bottom-5 before:left-[87px] before:top-11 before:w-px before:bg-slate-200 sm:px-5">
       {groups.map((records) => (
         <section key={records[0]?.id} className="mb-4 last:mb-0">
-          <p className="mb-2 text-[11px] font-semibold text-[#263550]">
+          <p className="mb-2 text-[11px] font-semibold text-heading-soft">
             {dateHeading(records[0]?.occurred_at ?? '')}
           </p>
           {records.map((record) => (
@@ -260,7 +260,7 @@ export function ActivityTabStrip<TValue extends string>({
             style={isActive ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
             className={cn(
               'relative flex h-10 shrink-0 items-center gap-1.5 px-2.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset',
-              isActive ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700',
+              isActive ? 'text-blue-700' : 'text-heading-soft hover:text-blue-700',
             )}
           >
             <span>{tab.label}</span>

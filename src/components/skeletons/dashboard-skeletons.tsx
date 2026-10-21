@@ -21,7 +21,7 @@ export function TenantDashboardSkeleton({ role = 'general' }: { role?: string })
   );
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-4">
+    <div className="mx-auto w-full space-y-5">
       <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
         <div>
           <Skeleton className="h-8 w-64" />

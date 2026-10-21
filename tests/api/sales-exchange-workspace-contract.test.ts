@@ -45,13 +45,12 @@ describe('sales exchange page contract', () => {
     // The workspace links out to a customer, so it needs the active role. It
     // previously hardcoded /sales-consultant/, which sent every other role that
     // can open Exchange to a path they have no access to.
-    expect(route).toContain('<SalesExchangeWorkspace role={role} />');
+    expect(route).toContain('<SalesExchangeWorkspace spec={spec} role={role} />');
     expect(workspace).not.toContain('/sales-consultant/customers/');
   });
 
   it('exposes the reference workflow and real actions', () => {
     for (const text of [
-      'Exchange Vehicle',
       'Existing Vehicle',
       'Request evaluation',
       'Submit exchange',

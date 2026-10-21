@@ -223,9 +223,11 @@ async function recordRetry(
 
 export const retentionPurge = schedules.task({
   id: 'retention-purge',
-  // This hourly schedule is timezone-independent; UTC avoids relying on a
-  // provider-specific alias for India Standard Time.
-  cron: { pattern: '17 * * * *', timezone: 'UTC' },
+  // Daily: purge_after is days after a soft delete, so an hourly check found
+  // nothing 23 times out of 24. A failed purge waits at most a day for its
+  // retry, which the retention policy allows. 21:17 UTC is 02:47 IST, outside
+  // dealership hours; UTC avoids a provider-specific India timezone alias.
+  cron: { pattern: '17 21 * * *', timezone: 'UTC' },
   retry: {
     maxAttempts: 3,
     factor: 2,

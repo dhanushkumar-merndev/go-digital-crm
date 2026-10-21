@@ -10,6 +10,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -108,7 +109,7 @@ export function CustomerMatchDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-2xl overflow-y-auto">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>
             {nothingToReview ? 'Create customer' : 'Review possible customer match'}
@@ -345,7 +346,7 @@ export function CustomerMatchDialog({
                 again.
               </p>
             )}
-            <div className="flex justify-end gap-2">
+            <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
@@ -374,7 +375,7 @@ export function CustomerMatchDialog({
                   </>
                 )}
               </Button>
-            </div>
+            </DialogFooter>
           </form>
         )}
       </DialogContent>

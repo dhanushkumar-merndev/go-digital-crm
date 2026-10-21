@@ -1,5 +1,6 @@
 'use client';
 
+import { PageHeader } from '@/components/shared/page-header';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useRef, useState } from 'react';
@@ -67,6 +68,7 @@ import {
   type TenantDashboardResult,
 } from './tenant-dashboard-api';
 import { useTenantDashboard } from './use-tenant-dashboard';
+import { leadTemperatureVariant } from '@/features/leads/lead-temperature-variant';
 
 /** Every link on this page is scoped to the telecaller workspace. */
 const DASHBOARD_ROLE = 'telecaller';
@@ -114,16 +116,6 @@ function formatDateTime(value: string | null) {
     hour12: true,
     timeZone: DASHBOARD_TIMEZONE,
   }).format(new Date(value));
-}
-
-function temperatureVariant(temperature: TenantDashboardLeadPreview['temperature']) {
-  if (temperature === 'HOT') return 'destructive' as const;
-  if (temperature === 'WARM') return 'warning' as const;
-  // DORMANT is do-not-disturb, not a colder COLD, so it must not share the
-  // COLD styling: someone scanning the column has to see that this lead is
-  // suppressed from outbound messaging. See AGENTS.md 9.7.
-  if (temperature === 'DORMANT') return 'secondary' as const;
-  return 'info' as const;
 }
 
 function leadStatusLabel(lead: TenantDashboardLeadPreview) {
@@ -408,11 +400,11 @@ function MetricCard({ metric }: { metric: MetricCardModel }) {
             >
               <Icon className="size-4" />
             </span>
-            <p className="min-w-0 text-[11px] font-semibold leading-4 text-[#263550]">
+            <p className="min-w-0 text-[11px] font-semibold leading-4 text-heading-soft">
               {metric.label}
             </p>
           </div>
-          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-[#12213f]">
+          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-heading">
             {metric.value}
             {metric.suffix}
           </p>
@@ -501,12 +493,12 @@ function OverdueQueue({ data, className }: { data: TenantDashboardResult; classN
                             </p>
                             <Badge
                               variant={item.severity === 'HIGH' ? 'destructive' : 'warning'}
-                              className="px-1.5 py-0 text-[9px] normal-case"
+                              className="px-1.5 py-0 text-[10px] normal-case"
                             >
                               {item.severity === 'HIGH' ? 'overdue 1 day+' : 'overdue'}
                             </Badge>
                           </div>
-                          <p className="mt-0.5 truncate text-xs font-semibold text-[#17233d]">
+                          <p className="mt-0.5 truncate text-xs font-semibold text-heading">
                             {item.title}
                           </p>
                           <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
@@ -574,28 +566,28 @@ function RecentLeads({
           <Table>
             <TableHeader className="bg-slate-50/80">
               <TableRow>
-                <TableHead className="h-9 px-3 text-[9px] normal-case tracking-normal">
+                <TableHead className="h-9 px-3 text-[10px] normal-case tracking-normal">
                   Customer
                 </TableHead>
-                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal lg:table-cell">
+                <TableHead className="hidden h-9 px-3 text-[10px] normal-case tracking-normal lg:table-cell">
                   Mobile
                 </TableHead>
-                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal lg:table-cell">
+                <TableHead className="hidden h-9 px-3 text-[10px] normal-case tracking-normal lg:table-cell">
                   Source
                 </TableHead>
-                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal lg:table-cell">
+                <TableHead className="hidden h-9 px-3 text-[10px] normal-case tracking-normal lg:table-cell">
                   Interested model
                 </TableHead>
-                <TableHead className="hidden h-9 px-3 text-[9px] normal-case tracking-normal lg:table-cell">
+                <TableHead className="hidden h-9 px-3 text-[10px] normal-case tracking-normal lg:table-cell">
                   Next follow-up
                 </TableHead>
-                <TableHead className="h-9 px-3 text-[9px] normal-case tracking-normal">
+                <TableHead className="h-9 px-3 text-[10px] normal-case tracking-normal">
                   Status
                 </TableHead>
-                <TableHead className="h-9 px-3 text-[9px] normal-case tracking-normal">
+                <TableHead className="h-9 px-3 text-[10px] normal-case tracking-normal">
                   Temperature
                 </TableHead>
-                <TableHead className="h-9 px-3 text-right text-[9px] normal-case tracking-normal">
+                <TableHead className="h-9 px-3 text-right text-[10px] normal-case tracking-normal">
                   Actions
                 </TableHead>
               </TableRow>
@@ -637,15 +629,15 @@ function RecentLeads({
                   <TableCell className="px-3 py-2">
                     <Badge
                       variant={leadStageVariant(lead.work_state ?? lead.lifecycle_status)}
-                      className="rounded px-1.5 py-0 text-[9px]"
+                      className="rounded px-1.5 py-0 text-[10px]"
                     >
                       {leadStatusLabel(lead)}
                     </Badge>
                   </TableCell>
                   <TableCell className="px-3 py-2">
                     <Badge
-                      variant={temperatureVariant(lead.temperature)}
-                      className="rounded px-1.5 py-0 text-[9px]"
+                      variant={leadTemperatureVariant(lead.temperature)}
+                      className="rounded px-1.5 py-0 text-[10px]"
                     >
                       {lead.temperature ?? 'COLD'}
                     </Badge>
@@ -805,13 +797,13 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
   // previous data to keep visible.
   if (!data)
     return (
-      <div className="mx-auto max-w-[1800px]">
+      <div className="mx-auto w-full">
         <Card className="border-rose-100 shadow-none">
           <CardContent className="flex min-h-56 flex-col items-center justify-center p-8 text-center">
             <span className="grid size-11 place-items-center rounded-full bg-rose-50 text-rose-600">
               <BellRing className="size-5" />
             </span>
-            <h2 className="mt-4 font-semibold text-[#17233d]">
+            <h2 className="mt-4 font-semibold text-heading">
               Telecaller dashboard could not be loaded
             </h2>
             <p className="mt-1 max-w-lg text-sm text-muted-foreground">
@@ -837,29 +829,30 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
   const conversionRate = pipelineConversionRate(data);
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-4 pb-8">
-      <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
-            Telecaller Workspace
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">{spec.description}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void refresh()}
-            disabled={refreshing || manualRefreshRemaining === 0}
-          >
-            <RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />
-            Last synced {formatTime(data.generated_at)}
-          </Button>
-          <span>{manualRefreshRemaining}/3 manual refreshes left</span>
-          {data.cache?.status === 'STALE' && <span>Updating&hellip;</span>}
-          {refreshMessage && <span className="text-rose-600">{refreshMessage}</span>}
-        </div>
-      </div>
+    <div className="mx-auto w-full space-y-5 pb-8">
+      <PageHeader
+        spec={spec}
+        title="Telecaller Workspace"
+        description={spec.description}
+        actions={
+          <>
+            <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void refresh()}
+                disabled={refreshing || manualRefreshRemaining === 0}
+              >
+                <RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />
+                Last synced {formatTime(data.generated_at)}
+              </Button>
+              <span>{manualRefreshRemaining}/3 manual refreshes left</span>
+              {data.cache?.status === 'STALE' && <span>Updating&hellip;</span>}
+              {refreshMessage && <span className="text-rose-600">{refreshMessage}</span>}
+            </div>
+          </>
+        }
+      />
 
       <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-8">
         {metrics.map((metric) => (
@@ -895,9 +888,9 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
                       >
                         <Icon className="size-4" />
                       </span>
-                      <span className="text-xl font-bold text-[#17233d]">{item.value}</span>
+                      <span className="text-xl font-bold text-heading">{item.value}</span>
                     </div>
-                    <p className="mt-3 text-[11px] font-medium leading-4 text-[#263550]">
+                    <p className="mt-3 text-[11px] font-medium leading-4 text-heading-soft">
                       {item.label}
                     </p>
                     <span className="mt-auto flex items-center gap-1 pt-3 text-[10px] font-semibold text-blue-600">
@@ -938,18 +931,18 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
                         >
                           <span className="min-w-0">
                             <span
-                              className="block truncate font-medium text-[#263550]"
+                              className="block truncate font-medium text-heading-soft"
                               title={stage.name}
                             >
                               {stage.name}
                             </span>
-                            <span className="block text-[9px] text-emerald-600">
+                            <span className="block text-[10px] text-emerald-600">
                               {index === 0
                                 ? 'Starting stage'
                                 : `${conversion.toFixed(1)}% conversion`}
                             </span>
                           </span>
-                          <span className="shrink-0 rounded bg-slate-50 px-1.5 py-0.5 font-semibold text-[#263550]">
+                          <span className="shrink-0 rounded bg-slate-50 px-1.5 py-0.5 font-semibold text-heading-soft">
                             {stage.value}
                           </span>
                         </div>
@@ -959,7 +952,7 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
                 </div>
                 <div className="mt-auto flex items-center justify-between rounded-lg bg-slate-50 px-4 py-2.5 text-xs">
                   <span className="text-muted-foreground">Lead to handoff conversion</span>
-                  <span className="font-bold text-[#17233d]">{conversionRate.toFixed(1)}%</span>
+                  <span className="font-bold text-heading">{conversionRate.toFixed(1)}%</span>
                   <span className="flex items-center gap-1 text-emerald-600">
                     <TrendingUp className="size-3.5" />
                     Live
@@ -1036,7 +1029,7 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
                       >
                         <Icon className="size-4" />
                       </span>
-                      <span className="mt-1.5 text-[9px] font-medium leading-3 text-[#263550]">
+                      <span className="mt-1.5 text-[10px] font-medium leading-3 text-heading-soft">
                         {label}
                       </span>
                     </Link>
@@ -1084,10 +1077,10 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
                     >
                       <Icon className="size-3.5" />
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-[#263550]">
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-heading-soft">
                       {item.label}
                     </span>
-                    <span className="text-xs font-bold text-[#17233d]">{item.value}</span>
+                    <span className="text-xs font-bold text-heading">{item.value}</span>
                   </Link>
                 );
               })}

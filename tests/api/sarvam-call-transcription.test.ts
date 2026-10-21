@@ -290,6 +290,101 @@ describe('Groq translation and call analysis', () => {
       next_followup_at: '2026-10-21T04:30:00.000Z',
     });
   });
+
+  it('suggests the lead requirements with their stored types', async () => {
+    const { fetchImpl } = mockFetch([
+      groqReply({
+        summary: 'Nexon EV, 15 lakh, loan, exchanging an i20.',
+        fields: {
+          variant: ' Empowered Plus ',
+          budget_max: 1500000.4,
+          purchase_timeline: 'This month',
+          finance_required: true,
+          exchange_required: true,
+          test_drive_required: 'yes',
+          competitors: ['MG ZS EV', '', 42],
+          temperature: 'hot',
+        },
+      }),
+    ]);
+    const analysis = await analyzeCall({ apiKey: 'g', model: 'm', transcript: 'x', fetchImpl });
+    expect(analysis.fields).toEqual({
+      variant: 'Empowered Plus',
+      budget_max: 1500000,
+      purchase_timeline: 'This month',
+      finance_required: true,
+      exchange_required: true,
+      competitors: ['MG ZS EV'],
+      temperature: 'HOT',
+    });
+  });
+
+  it('drops a budget that is not a positive number', async () => {
+    const { fetchImpl } = mockFetch([
+      groqReply({ summary: 's', fields: { budget_max: '15 lakh' } }),
+      groqReply({ summary: 's', fields: { budget_max: -5 } }),
+    ]);
+    for (let round = 0; round < 2; round += 1) {
+      const analysis = await analyzeCall({ apiKey: 'g', model: 'm', transcript: 'x', fetchImpl });
+      expect(analysis.fields).toEqual({});
+    }
+  });
+
+  it('gives the model the call time so relative days can be resolved', async () => {
+    const { fetchImpl, calls } = mockFetch([groqReply({ summary: 's', fields: {} })]);
+    await analyzeCall({
+      apiKey: 'g',
+      model: 'm',
+      transcript: 'AGENT: See you this Saturday.',
+      callStartedAt: '2026-10-21T08:49:00Z',
+      fetchImpl,
+    });
+    const body = JSON.parse(String(calls[0]?.init?.body)) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const user = body.messages.find((message) => message.role === 'user')?.content ?? '';
+    expect(user).toMatch(
+      /^Call time: Wednesday[, ]+21 October 2026.*2:19 pm \(India, UTC\+05:30\)/,
+    );
+    expect(user).toContain('AGENT: See you this Saturday.');
+  });
+});
+
+describe('AI call requirement suggestions migration', () => {
+  const migration = readFileSync(
+    join(process.cwd(), 'supabase/migrations/202610210001_ai_call_requirement_suggestions.sql'),
+    'utf8',
+  );
+  const requirementKeys = [
+    'variant',
+    'budget_max',
+    'purchase_timeline',
+    'finance_required',
+    'exchange_required',
+    'test_drive_required',
+    'competitors',
+  ];
+
+  it('accepts the requirement keys from the worker and in a review', () => {
+    for (const key of requirementKeys) {
+      // Allowed in save_ai_call_analysis_result and review_ai_call_fields, routed in review.
+      expect(migration.split(`'${key}'`).length - 1).toBeGreaterThanOrEqual(3);
+    }
+    expect(migration).toContain('not between 1 and 15');
+    expect(migration).toContain('jsonb_array_length(decisions) > 15');
+  });
+
+  it('writes approved requirements through update_lead_requirements, merged over the current row', () => {
+    expect(migration).toContain('perform public.update_lead_requirements(');
+    expect(migration).toContain(
+      "coalesce(current_requirements - 'version' - 'updated_at', '{}'::jsonb) || requirements_patch",
+    );
+    expect(migration).toContain("md5(target_request_id::text || ':requirements')::uuid");
+  });
+
+  it('shows the current requirement value beside each suggestion', () => {
+    expect(migration).toContain('app_private.lead_requirements_json(lead_row.id) -> suggested.key');
+  });
 });
 
 describe('call transcription pricing and job contract', () => {
@@ -325,5 +420,38 @@ describe('call transcription pricing and job contract', () => {
       expect(migration).toContain(`grant execute on function public.${name} to service_role;`);
     }
     expect(migration).toContain('generation = job_row.generation + 1');
+  });
+});
+
+describe('AI call retry backoff migration', () => {
+  const migration = readFileSync(
+    join(process.cwd(), 'supabase/migrations/202610210002_ai_call_retry_backoff.sql'),
+    'utf8',
+  );
+
+  it('delays each automatic retry exponentially and the claim respects it', () => {
+    expect(migration).toContain('add column if not exists retry_after timestamptz');
+    expect(migration).toContain(
+      'now() + make_interval(mins => power(2, greatest(job_row.attempt_count, 1) - 1)::integer)',
+    );
+    expect(migration).toContain(
+      "(job_row.status = 'RETRY' and coalesce(job_row.retry_after, now()) <= now())",
+    );
+  });
+
+  it('patches the live definitions instead of re-emitting old bodies', () => {
+    expect(migration).toContain("'public.retry_ai_call_processing_job(uuid,uuid,text)'");
+    expect(migration).toContain("'public.claim_ai_call_processing_jobs(text,integer)'");
+    expect(migration).not.toContain('create or replace function');
+  });
+
+  it('fills an empty call duration from the transcribed audio length', () => {
+    expect(migration).toContain(
+      "'public.save_ai_call_provider_transcript(uuid,uuid,text,text,jsonb,integer,text)'",
+    );
+    expect(migration).toContain(
+      'update public.calls set duration_seconds = target_audio_duration_seconds',
+    );
+    expect(migration).toMatch(/where id = job_row\.call_id[\s\S]*and duration_seconds is null;/);
   });
 });

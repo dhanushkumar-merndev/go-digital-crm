@@ -417,7 +417,7 @@ export function FollowupCalendar({
                           className={`block w-full rounded border px-2 py-1.5 text-left transition-colors ${priorityClasses(record)}`}
                           onClick={() => setSelectedRecord(record)}
                         >
-                          <span className="flex items-center gap-1 text-[9px] font-semibold">
+                          <span className="flex items-center gap-1 text-[10px] font-semibold">
                             <Clock3 className="size-3" /> {formatTime(record.due_at)}
                           </span>
                           <span className="mt-0.5 block truncate text-[10px] font-semibold">

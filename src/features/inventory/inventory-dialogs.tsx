@@ -14,6 +14,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -116,7 +117,7 @@ export function StockIntakeDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Intake stock unit</DialogTitle>
           <DialogDescription>
@@ -241,14 +242,14 @@ export function StockIntakeDialog({
               </div>
             </Alert>
           )}
-          <div className="flex justify-end gap-2 pt-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => close(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={!branchId || !variantId || mutation.isPending}>
               <Plus className="size-4" /> {mutation.isPending ? 'Saving…' : 'Intake unit'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

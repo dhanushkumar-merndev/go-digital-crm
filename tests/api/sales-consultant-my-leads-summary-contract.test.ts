@@ -24,7 +24,7 @@ describe('Sales Consultant My Leads summary cards', () => {
     }
     expect(cardFactory.match(/status: '/g)).toHaveLength(5);
     expect(workspace).toContain("role === 'sales-consultant' && slug === 'my-leads'");
-    expect(workspace).toContain('xl:grid-cols-5');
+    expect(workspace).toContain('kpiGridColumns(5)');
   });
 
   it('uses the existing server-scoped KPI bundle without another query', () => {

@@ -227,7 +227,7 @@ function ApiKeysSection({
       )}
 
       <Dialog open={createOpen} onOpenChange={(open) => !open && closeCreate()}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{issuedKey ? 'Copy your API key now' : 'Create Lead API key'}</DialogTitle>
             <DialogDescription>
@@ -290,7 +290,7 @@ function ApiKeysSection({
       </Dialog>
 
       <Dialog open={Boolean(revoking)} onOpenChange={(open) => !open && setRevoking(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Revoke “{revoking?.name}”?</DialogTitle>
             <DialogDescription>

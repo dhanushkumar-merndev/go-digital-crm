@@ -3,17 +3,20 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Send, Star } from 'lucide-react';
 import { useState } from 'react';
-import { PageHeader } from '@/components/shared/page-header';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
+import { EmptyState, ErrorState } from '@/components/shared/page-states';
+import { TablePagination } from '@/components/shared/table-pagination';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -117,14 +120,14 @@ function InviteDialog({ record, onClose }: { record: ReviewApprovalRecord; onClo
               defaultValue={`Thank you for your feedback, ${record.customer}. If you have a moment, would you share your experience on Google? It genuinely helps our team.`}
             />
           </label>
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button disabled={approve.isPending}>
               <Send /> {approve.isPending ? 'Queueing…' : 'Send invitation'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -142,23 +145,24 @@ export function ReviewApprovalWorkspace({ spec }: { spec: PageSpec }) {
     staleTime: 30_000,
   });
 
-  if (queue.isError)
+  if (queue.isError && !queue.data)
     return (
-      <div className="space-y-5">
+      <PageShell>
         <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        <Alert>
-          <AlertTitle>Reviews are unavailable</AlertTitle>
-          <AlertDescription>Confirm customer-care access, then refresh.</AlertDescription>
-        </Alert>
-      </div>
+        <ErrorState
+          title="Reviews are unavailable"
+          description="Confirm customer-care access, then try again."
+          onRetry={() => void queue.refetch()}
+          retrying={queue.isFetching}
+        />
+      </PageShell>
     );
 
   const records = queue.data?.records ?? [];
   const total = queue.data?.total ?? 0;
   const counts = queue.data?.counts;
-  const pages = Math.max(1, Math.ceil(total / 25));
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader spec={{ ...spec, primaryAction: undefined }} />
       <Card className="shadow-none">
         <CardHeader className="border-b p-4">
@@ -198,7 +202,15 @@ export function ReviewApprovalWorkspace({ spec }: { spec: PageSpec }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {records.length ? (
+              {queue.isPending ? (
+                Array.from({ length: 6 }, (_, index) => (
+                  <TableRow key={index}>
+                    <TableCell colSpan={6}>
+                      <Skeleton className="h-6 w-full" />
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : records.length ? (
                 records.map((record) => (
                   <TableRow key={record.feedback_id}>
                     <TableCell className="font-medium">{record.customer}</TableCell>
@@ -225,38 +237,20 @@ export function ReviewApprovalWorkspace({ spec }: { spec: PageSpec }) {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-28 text-center text-muted-foreground">
-                    No submitted feedback in this view yet.
+                  <TableCell colSpan={6} className="p-0">
+                    <EmptyState
+                      bare
+                      icon={Star}
+                      title="No submitted feedback in this view yet"
+                      description="Feedback appears here once a customer fills the form."
+                    />
                   </TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
         </CardContent>
-        <div className="flex items-center justify-between border-t p-3 text-sm text-muted-foreground">
-          <span>{total} submissions</span>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={page <= 1}
-              onClick={() => setPage((current) => current - 1)}
-            >
-              Previous
-            </Button>
-            <span>
-              Page {page} / {pages}
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={page >= pages}
-              onClick={() => setPage((current) => current + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
+        <TablePagination page={page} pageSize={25} total={total} onPageChange={setPage} />
       </Card>
       {inviting && <InviteDialog record={inviting} onClose={() => setInviting(null)} />}
     </div>

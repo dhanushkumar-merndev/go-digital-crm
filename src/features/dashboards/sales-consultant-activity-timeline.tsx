@@ -1,19 +1,20 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { ErrorState } from '@/components/shared/page-states';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
+import type { PageSpec } from '@/lib/domain';
 import Link from 'next/link';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   CalendarClock,
   CarFront,
-  ChevronLeft,
-  ChevronRight,
   FileText,
   MessageCircle,
   NotebookPen,
   Phone,
   Search,
   Send,
-  TriangleAlert,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { SalesConsultantTimelineSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
@@ -104,7 +105,7 @@ function SideRail({
                       <span className="block text-[10px] text-muted-foreground">
                         {definition.label.replace(' logged', '').replace(' activity', '')}
                       </span>
-                      <span className="block text-sm font-bold text-[#17233d]">
+                      <span className="block text-sm font-bold text-heading">
                         {dayTotals?.[kind] ?? 0}
                       </span>
                     </span>
@@ -118,7 +119,7 @@ function SideRail({
                   </span>
                   <span>
                     <span className="block text-[10px] text-muted-foreground">{label}</span>
-                    <span className="block text-sm font-bold text-[#17233d]">{value}</span>
+                    <span className="block text-sm font-bold text-heading">{value}</span>
                   </span>
                 </div>
               ))}
@@ -144,7 +145,7 @@ function SideRail({
                   <CalendarClock className="size-3" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[11px] font-semibold text-[#17233d]">
+                  <span className="block truncate text-[11px] font-semibold text-heading">
                     {item.customer_name}
                   </span>
                   <span className="block truncate text-[10px] text-muted-foreground">
@@ -154,7 +155,7 @@ function SideRail({
                     {activityFullDate(item.due_at)}
                   </span>
                 </span>
-                <Badge variant="secondary" className="px-1.5 py-0 text-[9px]">
+                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
                   {item.priority}
                 </Badge>
               </Link>
@@ -180,7 +181,9 @@ function SideRail({
               <div key={note.id} className="flex gap-2">
                 <NotebookPen className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
                 <div className="min-w-0">
-                  <p className="line-clamp-2 text-[11px] leading-4 text-[#263550]">{note.body}</p>
+                  <p className="line-clamp-2 text-[11px] leading-4 text-heading-soft">
+                    {note.body}
+                  </p>
                   <p className="mt-1 text-[10px] text-muted-foreground">
                     {note.customer_name} · {activityFullDate(note.created_at)}
                   </p>
@@ -197,8 +200,10 @@ function SideRail({
 }
 
 export function SalesConsultantActivityTimeline({
+  spec,
   role = 'sales-consultant',
 }: {
+  spec: PageSpec;
   role?: ActivityTimelineRole;
 }) {
   const workspaceSession = useWorkspaceSession();
@@ -251,7 +256,6 @@ export function SalesConsultantActivityTimeline({
     },
   ]);
 
-  const pages = Math.max(1, Math.ceil((timeline.data?.total ?? 0) / query.pageSize));
   const updateQuery = (next: Partial<SalesActivityQuery>) =>
     setQuery((current) => ({ ...current, ...next }));
 
@@ -281,22 +285,14 @@ export function SalesConsultantActivityTimeline({
   if (isLoading) return <SalesConsultantTimelineSkeleton />;
   if (isError)
     return (
-      <Card className="mx-auto max-w-xl border-rose-100 shadow-none">
-        <CardContent className="flex flex-col items-center p-10 text-center">
-          <TriangleAlert className="size-6 text-rose-600" />
-          <p className="mt-3 font-semibold">Activity timeline is unavailable</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Your scoped activity data could not be loaded. Try again in a moment.
-          </p>
-          <Button
-            className="mt-5"
-            variant="outline"
-            onClick={() => void (date ? dayFeed.refetch() : timeline.refetch())}
-          >
-            Retry
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Activity timeline is unavailable"
+          description="Your scoped activity data could not be loaded. Try again in a moment."
+          onRetry={() => void (date ? dayFeed.refetch() : timeline.refetch())}
+        />
+      </PageShell>
     );
 
   const consultantName = date ? day?.consultant_name : timeline.data?.consultant_name;
@@ -304,31 +300,18 @@ export function SalesConsultantActivityTimeline({
   const isFetching = date ? dayFeed.isFetching : timeline.isFetching;
 
   return (
-    <div className="mx-auto max-w-[1800px]">
-      <div className="mb-4">
-        <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-          <Link href={`${rolePath}/dashboard`} className="text-blue-600 hover:underline">
-            Home
-          </Link>
-          <span>›</span>
-          <span>Tasks</span>
-          <span>›</span>
-          <span>Activity timeline</span>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-[#12213f]">Activity Timeline</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Track every customer interaction across your assigned leads.
-            </p>
-          </div>
-          <Button asChild size="sm" className="shrink-0">
+    <PageShell>
+      <PageHeader
+        spec={spec}
+        description="Every customer interaction across your assigned leads, day by day."
+        actions={
+          <Button asChild size="sm">
             <Link href={`${rolePath}/my-leads`}>
               <Send className="size-3.5" /> Open my leads
             </Link>
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
         <Card className="overflow-hidden shadow-none">
@@ -411,31 +394,12 @@ export function SalesConsultantActivityTimeline({
             />
           </div>
           {!date && (
-            <div className="flex items-center justify-between border-t px-4 py-3">
-              <span className="text-[11px] text-muted-foreground">
-                Page {query.page} of {pages}
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-8"
-                  disabled={query.page === 1}
-                  onClick={() => updateQuery({ page: query.page - 1 })}
-                >
-                  <ChevronLeft className="size-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-8"
-                  disabled={query.page >= pages}
-                  onClick={() => updateQuery({ page: query.page + 1 })}
-                >
-                  <ChevronRight className="size-4" />
-                </Button>
-              </div>
-            </div>
+            <TablePagination
+              page={query.page}
+              pageSize={query.pageSize}
+              total={timeline.data?.total ?? 0}
+              onPageChange={(page) => updateQuery({ page })}
+            />
           )}
         </Card>
         {(timeline.data || day) && (
@@ -464,6 +428,6 @@ export function SalesConsultantActivityTimeline({
           />
         )}
       </div>
-    </div>
+    </PageShell>
   );
 }

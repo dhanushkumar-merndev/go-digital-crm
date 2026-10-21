@@ -24,6 +24,7 @@ import { LeadJourney } from '@/features/leads/lead-journey';
 import { LeadBuyerCard } from '@/features/leads/lead-company-card';
 import { LeadRequirementsCards } from '@/features/leads/lead-requirements-panel';
 import { useMemo, useState, type ReactNode } from 'react';
+import { CustomerOperationsPanel, useCustomerOperationalCases } from './customer-operational-cases';
 import { CustomerDripPanel } from './customer-drip-panel';
 import { CustomerAdditionalFields } from './customer-additional-fields';
 import { CustomerPhoneEnquiries } from './customer-phone-enquiries';
@@ -86,6 +87,7 @@ const customer360Tabs = [
   'test-drives',
   'quotations',
   'bookings',
+  'operations',
   'vehicles',
   'documents',
   'drip',
@@ -657,6 +659,8 @@ function Customer360Content({
   // built by the Customer 360 RPC and would need that RPC changed to carry a
   // key the panel does not otherwise use.
   const canViewDrip = hasWorkspacePermission(useWorkspaceSession(), 'customer.drip.view');
+  const operations = useCustomerOperationalCases(data.customer.id);
+  const canViewOperations = Boolean(operations.data?.departments.length);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const download = useMutation({
     mutationFn: createCustomerDocumentDownload,
@@ -707,6 +711,7 @@ function Customer360Content({
               <TabsTrigger value="quotations">Quotations</TabsTrigger>
             )}
             {data.section_access.bookings && <TabsTrigger value="bookings">Bookings</TabsTrigger>}
+            {canViewOperations && <TabsTrigger value="operations">Operations</TabsTrigger>}
             {data.section_access.vehicles && <TabsTrigger value="vehicles">Vehicles</TabsTrigger>}
             {data.section_access.documents && (
               <TabsTrigger value="documents">Documents</TabsTrigger>
@@ -1017,6 +1022,11 @@ function Customer360Content({
               )}
             </TabsContent>
           )}
+          {canViewOperations && (
+            <TabsContent value="operations">
+              <CustomerOperationsPanel query={operations} />
+            </TabsContent>
+          )}
           {canViewDrip && (
             <TabsContent value="drip">
               <CustomerDripPanel customerId={data.customer.id} leadId={data.leads[0]?.id ?? null} />
@@ -1036,7 +1046,7 @@ function Customer360Content({
               <p className="text-muted-foreground">
                 {showLazyStatus.total === 0
                   ? 'No records'
-                  : `${((showLazyStatus.page - 1) * showLazyStatus.pageSize + 1).toLocaleString()}–${Math.min(showLazyStatus.page * showLazyStatus.pageSize, showLazyStatus.total).toLocaleString()} of ${showLazyStatus.total.toLocaleString()}`}
+                  : `${((showLazyStatus.page - 1) * showLazyStatus.pageSize + 1).toLocaleString('en-IN')}–${Math.min(showLazyStatus.page * showLazyStatus.pageSize, showLazyStatus.total).toLocaleString('en-IN')} of ${showLazyStatus.total.toLocaleString('en-IN')}`}
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <Select
@@ -1318,7 +1328,7 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
   }
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       <div>
         <Button variant="ghost" size="sm" className="-ml-3 mb-3" onClick={returnToPreviousPage}>
           <ArrowLeft className="size-4" /> Back
@@ -1328,7 +1338,7 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
             <div className="grid gap-5 p-5 sm:grid-cols-2 xl:grid-cols-[1.45fr_repeat(4,minmax(0,1fr))]">
               <div className="min-w-0 xl:border-r xl:pr-5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="truncate text-2xl font-bold tracking-tight">
+                  <h1 className="truncate text-2xl font-bold tracking-tight text-heading">
                     {data.customer.full_name}
                   </h1>
                   {data.current_opportunity?.work_state && (

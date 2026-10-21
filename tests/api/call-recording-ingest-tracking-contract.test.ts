@@ -53,6 +53,6 @@ describe('provider recording ingest failure tracking', () => {
 
   it('re-triggers with a per-sweep idempotency key from the per-minute dispatch', () => {
     expect(ingest).toContain('`telecmi-recording:${row.recording_id}:sweep:${row.sweep_count}`');
-    expect(minute).toContain('recording_sweep: runStuckRecordingSweep');
+    expect(minute).toContain('? runStuckRecordingSweep : idle');
   });
 });

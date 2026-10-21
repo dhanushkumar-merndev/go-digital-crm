@@ -1,8 +1,15 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { CircleAlert, CircleCheck, Flag, Inbox, UserX } from 'lucide-react';
+import { KpiGrid } from '@/components/shared/kpi-grid';
+import { formatNumber } from '@/lib/format';
+import { ErrorState } from '@/components/shared/page-states';
+import type { PageSpec } from '@/lib/domain';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, Check, Search, TriangleAlert } from 'lucide-react';
+import { Check, Search } from 'lucide-react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
@@ -52,7 +59,6 @@ import {
 } from './sales-escalation-api';
 import {
   parseSalesEscalationQuery,
-  salesEscalationPageSizes,
   salesEscalationSeverities,
   salesEscalationSorts,
   salesEscalationStatuses,
@@ -148,7 +154,7 @@ function ResolveEscalationDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Escalation details</DialogTitle>
           <DialogDescription>
@@ -217,7 +223,7 @@ function ResolveEscalationDialog({
   );
 }
 
-export function SalesEscalationWorkspace({ role }: { role: RoleKey }) {
+export function SalesEscalationWorkspace({ spec, role }: { spec: PageSpec; role: RoleKey }) {
   const session = useWorkspaceSession();
   const useWorkspaceBootstrap = Boolean(session?.organizationId);
   const queryScope = useMemo(
@@ -347,7 +353,6 @@ export function SalesEscalationWorkspace({ role }: { role: RoleKey }) {
     manualPagination: true,
     rowCount: workspace.data?.total ?? 0,
   });
-  const pages = Math.max(1, Math.ceil((workspace.data?.total ?? 0) / query.pageSize));
   const roleLabel =
     role === 'gm-sales' ? 'GM Sales' : role === 'showroom-manager' ? 'Showroom' : 'Team';
 
@@ -360,59 +365,66 @@ export function SalesEscalationWorkspace({ role }: { role: RoleKey }) {
     !workspace.data
   )
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <TriangleAlert className="mx-auto size-8 text-destructive" />
-          <h1 className="mt-4 font-semibold">Escalations are unavailable</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your role may not have escalation access, or the latest data could not be loaded.
-          </p>
-          <Button
-            className="mt-5"
-            variant="outline"
-            onClick={() => {
-              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
-              void workspace.refetch();
-            }}
-          >
-            Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Escalations are unavailable"
+          description="Your role may not have escalation access, or the latest data could not be loaded."
+          onRetry={() => {
+            if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
+            void workspace.refetch();
+          }}
+        />
+      </PageShell>
     );
 
   const kpis = workspace.data.kpis;
   const canResolve = permissions.canResolve;
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div>
-        <div className="mb-2 text-xs">
-          <span className="text-primary">Dashboard</span>
-          <span className="mx-2 text-muted-foreground">›</span>
-          <span className="text-muted-foreground">Escalations</span>
-        </div>
-        <h1 className="text-2xl font-bold tracking-tight">Sales escalations</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {roleLabel} exceptions that need a named manager decision, in your authorized scope.
-        </p>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {[
-          ['Open', kpis.open, 'Awaiting a manager decision'],
-          ['Critical', kpis.critical, 'Immediate attention'],
-          ['High priority', kpis.high, 'Needs same-day review'],
-          ['Unassigned', kpis.unassigned, 'No accountable owner'],
-          ['Resolved today', kpis.resolved_today, 'Completed in this scope'],
-        ].map(([label, value, helper]) => (
-          <Card key={String(label)} className="shadow-none">
-            <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground">{label}</p>
-              <p className="mt-1 text-2xl font-bold">{value}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{helper}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description={`${roleLabel} exceptions that need a named manager decision, in your scope.`}
+      />
+      <KpiGrid
+        metrics={[
+          {
+            label: 'Open',
+            value: formatNumber(kpis.open),
+            helper: 'Awaiting a manager decision',
+            icon: Inbox,
+            tone: 'blue',
+          },
+          {
+            label: 'Critical',
+            value: formatNumber(kpis.critical),
+            helper: 'Immediate attention',
+            icon: CircleAlert,
+            tone: 'rose',
+          },
+          {
+            label: 'High priority',
+            value: formatNumber(kpis.high),
+            helper: 'Needs same-day review',
+            icon: Flag,
+            tone: 'amber',
+          },
+          {
+            label: 'Unassigned',
+            value: formatNumber(kpis.unassigned),
+            helper: 'No accountable owner',
+            icon: UserX,
+            tone: 'orange',
+          },
+          {
+            label: 'Resolved today',
+            value: formatNumber(kpis.resolved_today),
+            helper: 'Completed in this scope',
+            icon: CircleCheck,
+            tone: 'emerald',
+          },
+        ]}
+      />
       <Card className="overflow-hidden shadow-none">
         <CardHeader className="gap-3 border-b p-4 lg:flex-row lg:items-center">
           <CardTitle className="mr-auto text-base">Escalation queue</CardTitle>
@@ -520,54 +532,13 @@ export function SalesEscalationWorkspace({ role }: { role: RoleKey }) {
             </TableBody>
           </Table>
         </CardContent>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center">
-          <span className="text-muted-foreground">
-            {workspace.data.total} escalation{workspace.data.total === 1 ? '' : 's'} in scope
-          </span>
-          <div className="ml-auto flex items-center gap-2">
-            <Select
-              value={String(query.pageSize)}
-              onValueChange={(value) =>
-                updateQuery({
-                  pageSize: Number(value) as SalesEscalationQuery['pageSize'],
-                  page: 1,
-                })
-              }
-            >
-              <SelectTrigger className="w-20">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {salesEscalationPageSizes.map((size) => (
-                  <SelectItem key={size} value={String(size)}>
-                    {size}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <span className="whitespace-nowrap text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              disabled={query.page <= 1}
-              onClick={() => updateQuery({ page: query.page - 1 })}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              disabled={query.page >= pages}
-              onClick={() => updateQuery({ page: query.page + 1 })}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={workspace.data.total}
+          onPageChange={(page) => updateQuery({ page })}
+          onPageSizeChange={(pageSize) => updateQuery({ pageSize, page: 1 })}
+        />
       </Card>
       <ResolveEscalationDialog
         record={selected}

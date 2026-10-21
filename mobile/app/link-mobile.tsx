@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { exchangeMobileLink } from '@/lib/mobile-link';
 import { routeForCurrentSession } from '@/lib/session-route';
-import { colors } from '@/theme';
+import { colors, font } from '@/theme';
 
 export default function LinkMobile() {
   const [permission, requestPermission] = useCameraPermissions();
@@ -47,13 +47,15 @@ export default function LinkMobile() {
       <View style={styles.content}>
         <Text style={styles.title}>Link mobile app</Text>
         <Text style={styles.body}>Scan the QR shown in your authenticated web profile.</Text>
-        <CameraView
-          style={styles.camera}
-          barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-          onBarcodeScanned={({ data }) => void scanned(data)}
-        >
-          <View style={styles.frame} />
-        </CameraView>
+        {/* CameraView takes no children; the frame sits over it instead. */}
+        <View style={styles.camera}>
+          <CameraView
+            style={StyleSheet.absoluteFill}
+            barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+            onBarcodeScanned={({ data }) => void scanned(data)}
+          />
+          <View pointerEvents="none" style={styles.frame} />
+        </View>
         {processing ? <Text style={styles.status}>Linking securely…</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable onPress={() => router.back()}>
@@ -67,7 +69,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, justifyContent: 'center', padding: 28, alignItems: 'center' },
   content: { flex: 1, padding: 22 },
-  title: { color: colors.text, fontSize: 24, fontWeight: '800' },
+  title: { color: colors.text, fontSize: font.display, fontWeight: '700' },
   body: {
     color: colors.muted,
     textAlign: 'center',
@@ -79,10 +81,11 @@ const styles = StyleSheet.create({
     height: 420,
     borderRadius: 18,
     overflow: 'hidden',
+    backgroundColor: colors.scrim,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  frame: { width: 230, height: 230, borderWidth: 3, borderColor: 'white', borderRadius: 18 },
+  frame: { width: 230, height: 230, borderWidth: 3, borderColor: colors.onColor, borderRadius: 18 },
   primary: {
     backgroundColor: colors.primary,
     borderRadius: 12,
@@ -90,7 +93,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'stretch',
   },
-  primaryText: { color: 'white', fontWeight: '800' },
+  primaryText: { color: colors.onColor, fontWeight: '600' },
   back: { color: colors.primary, fontWeight: '700', textAlign: 'center', marginTop: 20 },
   status: { color: colors.primary, textAlign: 'center', fontWeight: '700', marginTop: 16 },
   error: { color: colors.danger, textAlign: 'center', lineHeight: 18, marginTop: 16 },

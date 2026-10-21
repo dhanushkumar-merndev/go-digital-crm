@@ -15,7 +15,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import type { RoleKey } from '@/config/navigation/types';
 import type { Metric } from '@/lib/domain';
 import { cn } from '@/lib/utils';
-import { MetricCard } from './metric-card';
+import { chipClass, MetricCard } from './metric-card';
 
 export type KpiGridVariant = 'metric' | 'classic';
 
@@ -56,6 +56,41 @@ function withFallbackIcon(metric: Metric): Metric {
   return { ...metric, icon, tone: metric.tone ?? tone };
 }
 
+/**
+ * Columns that divide the card count, so a row never ends with one card on its
+ * own. The grid used to be four wide whatever it held, and pages forced 5, 6 or
+ * 7 with a className, which left orphans below that breakpoint. At two columns
+ * an odd last card spans the row instead of sitting half-empty.
+ */
+export function kpiGridColumns(count: number) {
+  const pairTail =
+    '[&>*:last-child:nth-child(odd)]:col-span-2 lg:[&>*:last-child:nth-child(odd)]:col-span-1';
+  switch (count) {
+    case 1:
+      return 'grid-cols-1';
+    case 2:
+      return 'grid-cols-1 sm:grid-cols-2';
+    case 3:
+      return 'grid-cols-1 sm:grid-cols-3';
+    case 4:
+      return 'grid-cols-2 lg:grid-cols-4';
+    case 5:
+      return `grid-cols-2 lg:grid-cols-5 ${pairTail}`;
+    case 6:
+      return 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-6';
+    case 7:
+      return `grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 ${pairTail} xl:[&>*:last-child:nth-child(odd)]:col-span-1`;
+    case 9:
+      return 'grid-cols-1 sm:grid-cols-3';
+    case 10:
+      return 'grid-cols-2 lg:grid-cols-5';
+    case 12:
+      return 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6';
+    default:
+      return 'grid-cols-2 lg:grid-cols-4';
+  }
+}
+
 export function KpiGrid({
   metrics,
   className,
@@ -67,7 +102,7 @@ export function KpiGrid({
 }) {
   if (variant === 'metric')
     return (
-      <div className={cn('grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4', className)}>
+      <div className={cn('grid gap-2.5', kpiGridColumns(metrics.length), className)}>
         {metrics.map(withFallbackIcon).map((metric) => (
           <MetricCard
             key={metric.label}
@@ -84,7 +119,7 @@ export function KpiGrid({
       </div>
     );
   return (
-    <div className={cn('grid gap-4 sm:grid-cols-2 xl:grid-cols-4', className)}>
+    <div className={cn('grid gap-4', kpiGridColumns(metrics.length), className)}>
       {metrics.map((metric) => {
         const TrendIcon =
           metric.trend === 'up' ? ArrowUpRight : metric.trend === 'down' ? ArrowDownRight : Minus;
@@ -96,7 +131,7 @@ export function KpiGrid({
                 <span
                   className={cn(
                     'grid size-11 shrink-0 place-items-center rounded-full',
-                    metric.tone ?? 'bg-blue-50 text-blue-600',
+                    chipClass(metric.tone),
                   )}
                 >
                   <Icon className="size-5" />

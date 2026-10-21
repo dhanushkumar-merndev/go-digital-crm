@@ -59,16 +59,27 @@ export type MobileCallDetail = MobileCallRecord & {
 
 export type MobileCallPage = { records: MobileCallRecord[]; total: number };
 
-export async function fetchMobileCalls(page: number): Promise<MobileCallPage> {
+export type MobileCallQuery = {
+  search: string;
+  /** HISTORY | TODAY | MISSED | RECORDINGS | AI */
+  view: string;
+  outcome: string;
+  source: string;
+};
+
+export async function fetchMobileCalls(
+  page: number,
+  query: MobileCallQuery = { search: '', view: 'HISTORY', outcome: 'ALL', source: 'ALL' },
+): Promise<MobileCallPage> {
   const { data, error } = await supabase.rpc('get_call_workspace_page', {
-    target_search: '',
+    target_search: query.search,
     target_page: page,
     target_page_size: 25,
     target_status: 'ALL',
-    target_outcome: 'ALL',
-    target_source: 'ALL',
+    target_outcome: query.outcome,
+    target_source: query.source,
     target_sort: 'started:desc',
-    target_view: 'history',
+    target_view: query.view,
   });
   if (error) throw error;
   const result = data as { records?: MobileCallRecord[]; total?: number } | null;

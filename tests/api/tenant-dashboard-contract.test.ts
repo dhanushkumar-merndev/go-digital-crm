@@ -112,7 +112,7 @@ describe('tenant dashboard web contract', () => {
   it('uses TanStack Query, shadcn cards and Apache ECharts only', () => {
     expect(workspace).toContain('useTenantDashboard(dashboardKey, manualRefreshRequest)');
     expect(dashboardHook).toContain("from '@tanstack/react-query'");
-    expect(workspace).toContain("from '@/components/ui/card'");
+    expect(workspace).toContain("from '@/components/shared/section-card'");
     expect(workspace).toContain("from '@/components/charts/e-chart'");
     expect(workspace).toContain('kind="line"');
     expect(workspace).not.toMatch(/recharts|chart\.js|apexcharts/i);

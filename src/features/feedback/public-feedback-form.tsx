@@ -51,6 +51,19 @@ function Shell({ branding, children }: { branding?: Branding; children: React.Re
               className="h-14 w-auto max-w-[220px] object-contain"
             />
           </div>
+        ) : branding?.name ? (
+          // No logo uploaded: the showroom's initials keep the card from opening
+          // on a bare heading, in the showroom's own colour.
+          <div className="flex justify-center px-6 pt-6" aria-hidden>
+            <span className="grid size-12 place-items-center rounded-full bg-primary text-base font-bold text-primary-foreground">
+              {branding.name
+                .split(/\s+/)
+                .filter(Boolean)
+                .slice(0, 2)
+                .map((word) => word[0]?.toUpperCase())
+                .join('')}
+            </span>
+          </div>
         ) : null}
         {children}
       </Card>
@@ -167,7 +180,7 @@ function OpeningGoogle({
           {copied === false
             ? 'Copying did not work on this device. Press and hold your review below to copy it, then paste it on Google.'
             : review
-              ? 'Your review is copied. On Google, tap the review box and paste it.'
+              ? 'Your review is copied. On Google, tap the stars, then paste your review and post it.'
               : 'Tap the stars on Google and share a few words.'}
         </p>
         {review ? (
@@ -210,6 +223,46 @@ function StarPicker({ rating, onChange }: { rating: number; onChange: (value: nu
   );
 }
 
+/**
+ * A review written from the customer's own words and picked keywords, for when
+ * the AI rewrite is not connected or this link has used its five. Their words
+ * lead; the keywords only fill in what they did not say. Nothing is invented.
+ */
+export function composeReview({
+  rating,
+  keywords,
+  notes,
+  branch,
+  sender,
+}: {
+  rating: number;
+  keywords: string[];
+  notes: string;
+  branch: string;
+  sender: string | null;
+}) {
+  const sentence = (text: string) => {
+    const trimmed = text.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return '';
+    const capital = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+    return /[.!?]$/.test(capital) ? capital : `${capital}.`;
+  };
+  const list = keywords.map((keyword) => keyword.toLowerCase());
+  const joined =
+    list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}` : list[0];
+  const parts = [
+    rating >= 5
+      ? `Excellent experience at ${branch}!`
+      : rating === 4
+        ? `Good experience at ${branch}.`
+        : `My experience at ${branch}.`,
+    sentence(notes),
+    joined ? sentence(rating >= 4 ? `${joined} stood out` : `${joined} could be better`) : '',
+    rating >= 4 && sender ? `Thanks to ${sender} for the help.` : '',
+  ];
+  return parts.filter(Boolean).join(' ');
+}
+
 // The last four keywords in review_keyword_options describe a problem; they
 // lead the list for a low rating so the customer does not scroll past praise.
 const IMPROVEMENT_KEYWORDS = 4;
@@ -246,16 +299,38 @@ export function PublicFeedbackForm({ token }: { token: string }) {
     onSuccess: setDone,
   });
   const rephrase = useMutation({
-    mutationFn: () =>
-      rephrasePublicReview({ token, rating, keywords, notes: review.trim().slice(0, 1500) }),
-    onSuccess: (text) => {
-      setBeforeRephrase(review);
-      setReview(text);
-      setAiRemaining((current) => Math.max((current ?? open?.ai_remaining ?? 1) - 1, 0));
+    // Generate always produces a review: the AI rewrite when this tenant has it
+    // and the link has rewrites left, otherwise (or if the AI call fails) one
+    // composed locally from the customer's own words and keywords.
+    mutationFn: async (): Promise<{ text: string; usedAi: boolean }> => {
+      // Generating again starts from the customer's own words, not the last draft.
+      const notes = (beforeRephrase ?? review).trim().slice(0, 1500);
+      const local = () =>
+        composeReview({
+          rating,
+          keywords,
+          notes,
+          branch: open?.branch ?? 'the showroom',
+          sender: open?.sender_first_name ?? null,
+        });
+      if (open?.ai_available && (aiRemaining ?? open.ai_remaining) > 0) {
+        try {
+          return {
+            text: await rephrasePublicReview({ token, rating, keywords, notes }),
+            usedAi: true,
+          };
+        } catch (error) {
+          if (error instanceof ReviewRephraseError && error.code === 'REPHRASE_LIMIT_REACHED')
+            setAiRemaining(0);
+        }
+      }
+      return { text: local(), usedAi: false };
     },
-    onError: (error) => {
-      if (error instanceof ReviewRephraseError && error.code === 'REPHRASE_LIMIT_REACHED')
-        setAiRemaining(0);
+    onSuccess: ({ text, usedAi }) => {
+      setBeforeRephrase((current) => current ?? review);
+      setReview(text);
+      if (usedAi)
+        setAiRemaining((current) => Math.max((current ?? open?.ai_remaining ?? 1) - 1, 0));
     },
   });
 
@@ -282,7 +357,10 @@ export function PublicFeedbackForm({ token }: { token: string }) {
   };
   const submittedReview = submit.variables?.review.trim() ?? '';
 
-  if (done?.status === 'RECORDED' && reviewStep && done.review_url)
+  // A happy customer goes straight to Google with the review on the clipboard.
+  // A lower rating stays with the care team first; ThankYou still offers the
+  // Google link, because withholding it is review gating (Google policy).
+  if (done?.status === 'RECORDED' && reviewStep && done.review_url && done.rating >= 4)
     return (
       <OpeningGoogle
         branding={branding}
@@ -294,13 +372,7 @@ export function PublicFeedbackForm({ token }: { token: string }) {
   if (done?.status === 'RECORDED')
     return <ThankYou branding={branding} branch={branch} result={done} comment={submittedReview} />;
 
-  const remaining = aiRemaining ?? form.data.ai_remaining;
-  const canRephrase =
-    reviewStep &&
-    form.data.ai_available &&
-    remaining > 0 &&
-    rating > 0 &&
-    (keywords.length > 0 || review.trim().length > 0);
+  const canRephrase = reviewStep && rating > 0 && (keywords.length > 0 || review.trim().length > 0);
   const orderedKeywords =
     rating > 0 && rating <= 3
       ? [
@@ -327,7 +399,7 @@ export function PublicFeedbackForm({ token }: { token: string }) {
             const text = review.trim();
             // Started inside the tap: browsers only allow clipboard writes from
             // a user gesture, and the Google page opens after the save returns.
-            if (reviewStep && text) {
+            if (reviewStep && text && rating >= 4) {
               if (navigator.clipboard)
                 navigator.clipboard.writeText(text).then(
                   () => setCopied(true),
@@ -381,7 +453,9 @@ export function PublicFeedbackForm({ token }: { token: string }) {
               onChange={(event) => setReview(event.target.value)}
               placeholder={
                 reviewStep
-                  ? 'Type a few words in your own language. We can help you write it up.'
+                  ? rating > 0 && rating <= 3
+                    ? 'Tell us what went wrong. Our team will call you.'
+                    : 'Type a few words in your own language, then tap Generate review.'
                   : 'Optional'
               }
               aria-label="Your review"
@@ -403,7 +477,7 @@ export function PublicFeedbackForm({ token }: { token: string }) {
                     ) : (
                       <Sparkles className="size-4" aria-hidden />
                     )}
-                    {beforeRephrase === null ? 'Help me write it' : 'Try another version'}
+                    {beforeRephrase === null ? 'Generate review' : 'Generate again'}
                   </Button>
                 ) : null}
                 {beforeRephrase !== null ? (
@@ -425,7 +499,9 @@ export function PublicFeedbackForm({ token }: { token: string }) {
                   ? rephrase.error.message
                   : beforeRephrase !== null
                     ? 'Written from your words. Change anything before you submit.'
-                    : 'Uses only the words you picked and typed.'}
+                    : rating >= 4
+                      ? 'Pick what stood out, add a few words, then generate. You can edit it before you submit.'
+                      : 'Uses only the words you picked and typed.'}
               </p>
             </div>
           ) : null}
@@ -435,7 +511,13 @@ export function PublicFeedbackForm({ token }: { token: string }) {
             </p>
           ) : null}
           <Button className="w-full" disabled={!rating || submit.isPending}>
-            {submit.isPending ? 'Sending…' : reviewStep ? 'Submit review' : 'Submit feedback'}
+            {submit.isPending
+              ? 'Sending…'
+              : reviewStep && rating >= 4
+                ? 'Submit and post on Google'
+                : reviewStep
+                  ? 'Submit review'
+                  : 'Submit feedback'}
           </Button>
         </form>
       </CardContent>

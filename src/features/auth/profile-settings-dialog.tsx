@@ -148,7 +148,7 @@ export function ProfileSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent size="sm">
         <DialogHeader>
           <div className="mb-2 grid size-10 place-items-center rounded-lg bg-blue-50 text-blue-700">
             <UserRoundPen className="size-5" />

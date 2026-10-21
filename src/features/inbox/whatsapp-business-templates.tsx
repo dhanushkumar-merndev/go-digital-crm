@@ -355,7 +355,7 @@ export function WhatsAppTemplateSendDialog({
   const ready = Boolean(state?.templates.length);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Send a WhatsApp template</DialogTitle>
           <DialogDescription>

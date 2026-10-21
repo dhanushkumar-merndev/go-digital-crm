@@ -22,6 +22,13 @@
   --scrollbar-thumb: oklch(0.72 0.025 255);
   --scrollbar-thumb-hover: oklch(0.56 0.075 257);
   --radius: 0.75rem;
+  /* Text navy for titles and KPI values, its softer label tone, and the
+     sidebar. These were four hand-typed hexes (#12213f, #17233d, #263550,
+     #526079) that drifted a shade apart from page to page. */
+  --heading: #12213f;
+  --heading-soft: #263550;
+  --label: #526079;
+  --sidebar: #17233d;
 }
 
 @theme inline {
@@ -43,6 +50,10 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-heading: var(--heading);
+  --color-heading-soft: var(--heading-soft);
+  --color-label: var(--label);
+  --color-sidebar: var(--sidebar);
   --font-sans: var(--font-inter);
 }
 

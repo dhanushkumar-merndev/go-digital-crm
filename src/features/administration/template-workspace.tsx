@@ -1,5 +1,6 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
@@ -18,16 +19,18 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/page-states';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { TemplateWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -184,14 +187,14 @@ function CreateTemplateDialog({
               }
             />
           </label>
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button disabled={create.isPending}>
               {create.isPending ? 'Saving…' : personal ? 'Save reply' : 'Save draft'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -284,14 +287,14 @@ function RejectTemplateDialog({
               placeholder="Meta rejected this template for policy reasons."
             />
           </label>
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button disabled={reject.isPending}>
               {reject.isPending ? 'Rejecting…' : 'Reject template'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -366,14 +369,14 @@ function ApproveTemplateDialog({
             />
             <span className="text-xs font-normal text-muted-foreground">{rules.hint}</span>
           </label>
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button disabled={approve.isPending}>
               {approve.isPending ? 'Recording…' : 'Record approval'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -394,9 +397,12 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
   const [approving, setApproving] = useState<TemplateRecord | null>(null);
   const [rejecting, setRejecting] = useState<TemplateRecord | null>(null);
   const client = useQueryClient();
+  // The input updates at once; the server sees the search 300ms after typing stops.
+  const debouncedSearch = useDebouncedValue(query.search.trim());
+  const requestQuery = { ...query, search: debouncedSearch };
   const workspace = useQuery({
-    queryKey: ['template-workspace', ...workspaceQueryScope(session), query],
-    queryFn: () => fetchTemplateWorkspace(query),
+    queryKey: ['template-workspace', ...workspaceQueryScope(session), requestQuery],
+    queryFn: () => fetchTemplateWorkspace(requestQuery),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
@@ -422,15 +428,15 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
   if (workspace.isPending) return <TemplateWorkspaceSkeleton />;
   if (workspace.isError || !workspace.data)
     return (
-      <div className="space-y-5">
+      <PageShell>
         <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        <Alert>
-          <AlertTitle>Templates are unavailable</AlertTitle>
-          <AlertDescription>
-            Confirm template-management permission and deploy its workspace migration.
-          </AlertDescription>
-        </Alert>
-      </div>
+        <ErrorState
+          title="Templates are unavailable"
+          description="Confirm template-management permission and deploy its workspace migration."
+          onRetry={() => void workspace.refetch()}
+          retrying={workspace.isFetching}
+        />
+      </PageShell>
     );
   const { kpis, records, total } = workspace.data;
   const metrics: Metric[] = [
@@ -444,16 +450,19 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
       trend: kpis.attention ? 'down' : 'neutral',
     },
   ];
-  const pages = Math.max(1, Math.ceil(total / query.pageSize));
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div className="flex flex-wrap justify-between gap-3">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        <Button onClick={() => setOpen(true)}>
-          <Plus /> Create template
-        </Button>
-      </div>
-      <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        actions={
+          <>
+            <Button onClick={() => setOpen(true)}>
+              <Plus /> Create template
+            </Button>
+          </>
+        }
+      />
+      <KpiGrid metrics={metrics} />
       <Card className="shadow-none">
         <CardHeader className="border-b p-4">
           <div className="flex flex-wrap gap-3">
@@ -592,30 +601,15 @@ export function TemplateWorkspace({ spec }: { spec: PageSpec }) {
             </TableBody>
           </Table>
         </CardContent>
-        <div className="flex items-center justify-between border-t p-3 text-sm text-muted-foreground">
-          <span>{total} templates</span>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={query.page <= 1}
-              onClick={() => setQuery((current) => ({ ...current, page: current.page - 1 }))}
-            >
-              Previous
-            </Button>
-            <span>
-              Page {query.page} / {pages}
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={query.page >= pages}
-              onClick={() => setQuery((current) => ({ ...current, page: current.page + 1 }))}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={total}
+          onPageChange={(page) => setQuery((current) => ({ ...current, page }))}
+          onPageSizeChange={(pageSize) =>
+            setQuery((current) => ({ ...current, pageSize, page: 1 }))
+          }
+        />
       </Card>
       {open && <CreateTemplateDialog onClose={() => setOpen(false)} />}
       {editing && <CreateTemplateDialog template={editing} onClose={() => setEditing(null)} />}

@@ -1,4 +1,5 @@
 import { isVersionConflictCode } from '../../lib/supabase/version-conflict';
+import { humanizeEnum } from '../../lib/format';
 
 export const customerCareViews = [
   'ALL',
@@ -56,11 +57,7 @@ export function customerCareNextStatuses(status: string) {
 }
 
 export function customerCareLabel(value: string) {
-  return value
-    .toLowerCase()
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+  return humanizeEnum(value);
 }
 
 export function customerCareInitialView(slug: string): CustomerCareView | null {

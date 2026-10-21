@@ -1,7 +1,6 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,7 +10,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { KpiRow } from '@/components/cards';
+import { Chip, EmptyState, SkeletonList } from '@/components/ui/basics';
+import { dateRange, FilterBar, useFilters } from '@/components/ui/filter-sheet';
+import { orNull, safeSearch, testDriveFilterGroups } from '@/lib/list-filters';
 import {
   attachActiveTestDriveTracking,
   getTestDriveTrackingState,
@@ -21,7 +22,7 @@ import {
   stopTestDriveTracking,
   type TestDriveTrackingState,
 } from '@/lib/test-drive-tracking';
-import { colors } from '@/theme';
+import { colors, font, radius, shadow, space } from '@/theme';
 import {
   loadTestDrivePage,
   saveTestDriveFeedback,
@@ -161,7 +162,7 @@ function RatingControl({
   );
 }
 
-export function TestDriveScreen() {
+export function TestDriveScreen({ bare }: { bare?: boolean } = {}) {
   const [view, setView] = useState<TestDriveView>('TODAY');
   const [page, setPage] = useState<TestDrivePage | null>(null);
   const [tracking, setTracking] = useState<TestDriveTrackingState | null>(null);
@@ -171,6 +172,16 @@ export function TestDriveScreen() {
   const [error, setError] = useState<string | null>(null);
   const [odometers, setOdometers] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<Record<string, TestDriveFeedback>>({});
+  const [search, setSearch] = useState('');
+  const [typed, setTyped] = useState('');
+  const filters = useFilters(testDriveFilterGroups);
+  const { values } = filters;
+  // Search waits for a pause in typing, like the other lists.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(safeSearch(typed)), 300);
+    return () => clearTimeout(timer);
+  }, [typed]);
+  const narrowed = Boolean(search) || filters.active > 0;
 
   const refresh = useCallback(
     async (quiet = false) => {
@@ -178,7 +189,12 @@ export function TestDriveScreen() {
       setError(null);
       try {
         const [nextPage, activeState] = await Promise.all([
-          loadTestDrivePage(view),
+          loadTestDrivePage(view, {
+            search,
+            model: orNull(values.model) ?? '',
+            fromDate: dateRange(values.date).from,
+            toDate: dateRange(values.date).to,
+          }),
           getTestDriveTrackingState(),
         ]);
         setPage(nextPage);
@@ -190,7 +206,7 @@ export function TestDriveScreen() {
         setRefreshing(false);
       }
     },
-    [view],
+    [search, values, view],
   );
 
   useFocusEffect(
@@ -250,8 +266,9 @@ export function TestDriveScreen() {
     }));
   };
 
+  const Wrapper = bare ? View : SafeAreaView;
   return (
-    <SafeAreaView style={styles.safe}>
+    <Wrapper style={styles.safe}>
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={
@@ -264,12 +281,16 @@ export function TestDriveScreen() {
           />
         }
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>Test Drives</Text>
-          <Text style={styles.subtitle}>Scheduled drives, GPS progress and customer feedback</Text>
-        </View>
+        {bare ? null : <Text style={styles.title}>Test drives</Text>}
 
-        <KpiRow items={kpis} />
+        <StatStrip items={kpis} />
+
+        <FilterBar
+          search={typed}
+          onSearch={setTyped}
+          placeholder="Search customer or vehicle"
+          filters={filters}
+        />
 
         <ScrollView
           horizontal
@@ -277,16 +298,12 @@ export function TestDriveScreen() {
           contentContainerStyle={styles.tabs}
         >
           {views.map((item) => (
-            <Pressable
-              accessibilityRole="button"
+            <Chip
               key={item.value}
+              label={item.label}
+              selected={view === item.value}
               onPress={() => setView(item.value)}
-              style={[styles.tab, view === item.value && styles.tabActive]}
-            >
-              <Text style={[styles.tabText, view === item.value && styles.tabTextActive]}>
-                {item.label}
-              </Text>
-            </Pressable>
+            />
           ))}
         </ScrollView>
 
@@ -315,12 +332,17 @@ export function TestDriveScreen() {
           </View>
         ) : null}
 
-        {loading ? <ActivityIndicator color={colors.primary} size="large" /> : null}
+        {loading ? <SkeletonList rows={3} /> : null}
         {!loading && page?.records.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>No test drives in this view</Text>
-            <Text style={styles.emptyText}>Pull down to refresh after a schedule changes.</Text>
-          </View>
+          <EmptyState
+            icon="car-sport-outline"
+            title={narrowed ? 'No test drive matches' : 'No test drives here'}
+            detail={
+              narrowed
+                ? 'Try fewer filters or another tab.'
+                : 'Pull down to refresh after a schedule changes.'
+            }
+          />
         ) : null}
 
         {page?.records.map((record) => {
@@ -523,72 +545,74 @@ export function TestDriveScreen() {
           );
         })}
       </ScrollView>
-    </SafeAreaView>
+    </Wrapper>
+  );
+}
+
+function StatStrip({ items }: { items: Array<{ label: string; value: string }> }) {
+  return (
+    <View style={styles.stats}>
+      {items.map((item, index) => (
+        <View key={item.label} style={[styles.stat, index > 0 && styles.statDivider]}>
+          <Text style={styles.statValue}>{item.value}</Text>
+          <Text style={styles.statLabel} numberOfLines={1}>
+            {item.label}
+          </Text>
+        </View>
+      ))}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
-  content: { padding: 14, paddingBottom: 36, gap: 12 },
-  header: { gap: 2, paddingHorizontal: 2, paddingBottom: 2 },
-  title: { color: colors.text, fontSize: 17, fontWeight: '800', lineHeight: 22 },
-  subtitle: { color: colors.muted, fontSize: 11, lineHeight: 15 },
-  tabs: { gap: 8 },
-  tab: {
-    borderWidth: 1,
-    borderColor: colors.border,
+  content: { padding: space.lg, paddingTop: space.sm, paddingBottom: 40, gap: space.md },
+  title: { color: colors.text, fontSize: font.hero, fontWeight: '700', letterSpacing: -0.5 },
+  stats: {
+    flexDirection: 'row',
     backgroundColor: colors.card,
-    borderRadius: 20,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
+    borderRadius: radius.lg,
+    paddingVertical: space.md,
+    ...shadow,
   },
-  tabActive: { backgroundColor: colors.navy, borderColor: colors.navy },
-  tabText: { color: colors.muted, fontSize: 12, fontWeight: '700' },
-  tabTextActive: { color: '#ffffff' },
+  stat: { flex: 1, alignItems: 'center', gap: 2 },
+  statDivider: { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.border },
+  statValue: { color: colors.text, fontSize: font.large, fontWeight: '700' },
+  statLabel: { color: colors.muted, fontSize: font.caption, fontWeight: '700' },
+  tabs: { gap: 8 },
   notice: {
-    backgroundColor: '#eff6ff',
-    borderColor: '#bfdbfe',
+    backgroundColor: colors.infoSoft,
+    borderColor: colors.infoBorderStrong,
     borderWidth: 1,
     borderRadius: 14,
     padding: 14,
     gap: 8,
   },
-  noticeTitle: { color: '#1e3a8a', fontWeight: '800', fontSize: 13 },
-  noticeText: { color: '#1e40af', fontSize: 12, lineHeight: 17 },
+  noticeTitle: { color: '#1e3a8a', fontWeight: '600', fontSize: font.small },
+  noticeText: { color: '#1e40af', fontSize: font.label, lineHeight: 17 },
   errorBox: {
-    backgroundColor: '#fef2f2',
-    borderColor: '#fecaca',
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.dangerBorder,
     borderWidth: 1,
     borderRadius: 14,
     padding: 14,
     gap: 10,
   },
-  errorText: { color: colors.danger, fontSize: 12, lineHeight: 17 },
-  empty: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 24,
-    alignItems: 'center',
-  },
-  emptyTitle: { color: colors.text, fontSize: 15, fontWeight: '800' },
-  emptyText: { color: colors.muted, fontSize: 12, marginTop: 5 },
+  errorText: { color: colors.danger, fontSize: font.label, lineHeight: 17 },
   card: {
-    borderWidth: 1,
-    borderColor: colors.border,
     backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 15,
+    borderRadius: radius.lg,
+    padding: space.lg,
     gap: 6,
+    ...shadow,
   },
   cardHeader: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   cardMain: { flex: 1 },
-  customer: { color: colors.text, fontSize: 16, fontWeight: '800' },
-  vehicle: { color: colors.text, fontSize: 12, fontWeight: '600', marginTop: 3 },
-  meta: { color: colors.muted, fontSize: 11, lineHeight: 16 },
+  customer: { color: colors.text, fontSize: font.heading, fontWeight: '600' },
+  vehicle: { color: colors.text, fontSize: font.label, fontWeight: '600', marginTop: 3 },
+  meta: { color: colors.muted, fontSize: font.caption, lineHeight: 16 },
   badge: { backgroundColor: '#fff7ed', borderRadius: 20, paddingHorizontal: 9, paddingVertical: 5 },
-  badgeText: { color: colors.warning, fontSize: 9, fontWeight: '800' },
+  badgeText: { color: colors.warning, fontSize: font.caption, fontWeight: '600' },
   actionPanel: {
     borderTopWidth: 1,
     borderTopColor: colors.border,
@@ -596,17 +620,17 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     gap: 10,
   },
-  fieldLabel: { color: colors.text, fontSize: 11, fontWeight: '700' },
+  fieldLabel: { color: colors.text, fontSize: font.caption, fontWeight: '700' },
   input: {
     minHeight: 44,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 10,
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.onColor,
     color: colors.text,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    fontSize: 13,
+    fontSize: font.small,
   },
   textarea: { minHeight: 86, textAlignVertical: 'top' },
   button: {
@@ -617,21 +641,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 13,
   },
-  buttonSecondary: { backgroundColor: '#ffffff', borderColor: colors.primary, borderWidth: 1 },
+  buttonSecondary: { backgroundColor: colors.onColor, borderColor: colors.primary, borderWidth: 1 },
   buttonDanger: { backgroundColor: colors.danger },
   buttonMuted: { opacity: 0.55 },
-  buttonText: { color: '#ffffff', fontSize: 12, fontWeight: '800' },
+  buttonText: { color: colors.onColor, fontSize: font.label, fontWeight: '600' },
   buttonSecondaryText: { color: colors.primary },
-  warningText: { color: colors.warning, fontSize: 12, lineHeight: 17 },
+  warningText: { color: colors.warning, fontSize: font.label, lineHeight: 17 },
   feedbackSummary: {
-    backgroundColor: '#ecfdf5',
+    backgroundColor: colors.successSoft,
     borderRadius: 10,
     padding: 12,
     marginTop: 8,
   },
-  feedbackTitle: { color: colors.text, fontSize: 13, fontWeight: '800' },
+  feedbackTitle: { color: colors.text, fontSize: font.small, fontWeight: '600' },
   ratingRow: { gap: 5 },
-  ratingLabel: { color: colors.muted, fontSize: 11, fontWeight: '700' },
+  ratingLabel: { color: colors.muted, fontSize: font.caption, fontWeight: '700' },
   ratingChoices: { flexDirection: 'row', gap: 7 },
   ratingChoice: {
     width: 34,
@@ -643,8 +667,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ratingChoiceActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  ratingText: { color: colors.muted, fontSize: 11, fontWeight: '700' },
-  ratingTextActive: { color: '#ffffff' },
+  ratingText: { color: colors.muted, fontSize: font.caption, fontWeight: '700' },
+  ratingTextActive: { color: colors.onColor },
   intentChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   intentChoice: {
     borderWidth: 1,
@@ -653,7 +677,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 7,
   },
-  intentChoiceActive: { backgroundColor: '#dbeafe', borderColor: colors.primary },
-  intentText: { color: colors.muted, fontSize: 9, fontWeight: '700' },
-  intentTextActive: { color: '#1d4ed8' },
+  intentChoiceActive: { backgroundColor: colors.infoBorder, borderColor: colors.primary },
+  intentText: { color: colors.muted, fontSize: font.caption, fontWeight: '700' },
+  intentTextActive: { color: colors.primary },
 });

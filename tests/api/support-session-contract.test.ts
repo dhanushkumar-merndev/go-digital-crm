@@ -12,6 +12,7 @@ const acceptHandler = source('supabase/functions/support-session-accept/index.ts
 const endHandler = source('supabase/functions/support-session-end/index.ts');
 const config = source('supabase/config.toml');
 const expiryWorker = source('trigger/support-session-expiry.ts');
+const minuteDispatch = source('trigger/minute-dispatch.ts');
 
 describe('approved support-session contract', () => {
   it('requires platform MFA to request bounded existing permission keys', () => {
@@ -44,11 +45,13 @@ describe('approved support-session contract', () => {
     expect(endHandler).toContain("client.rpc('end_support_session'");
   });
 
-  it('expires abandoned sessions and restores the tenant through a scheduled worker', () => {
+  it('expires abandoned sessions and restores the tenant through the per-minute pass', () => {
     expect(migration).toContain('create or replace function public.expire_support_sessions()');
     expect(migration).toContain("'support.expired'");
-    expect(expiryWorker).toContain("id: 'support-session-expiry'");
+    expect(expiryWorker).toContain('export async function runSupportSessionExpiry');
     expect(expiryWorker).toContain("supabase.rpc('expire_support_sessions'");
+    expect(expiryWorker).not.toContain('schedules.task');
+    expect(minuteDispatch).toContain('support_session_expiry: runSupportSessionExpiry');
   });
 
   it('keeps every support mutation behind JWT verification', () => {

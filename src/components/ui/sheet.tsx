@@ -29,7 +29,7 @@ function SheetContent({
         {children}
         <DialogPrimitive.Close
           className="absolute right-3 top-3 grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted"
-          aria-label="Close navigation"
+          aria-label="Close"
         >
           <X className="size-4" />
         </DialogPrimitive.Close>

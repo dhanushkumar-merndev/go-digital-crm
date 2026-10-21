@@ -210,7 +210,7 @@ Promote the reviewed version using the exact version emitted by the candidate de
 pnpm dlx trigger.dev@4.5.11 promote DEPLOYMENT_VERSION
 ```
 
-Confirm the provider outbox, recording ingestion, retention purge and support-session expiry schedules are registered. Trigger.dev schedules replace Vercel cron for these jobs.
+Confirm exactly two schedules are registered: `minute-dispatch` (every minute; runs every queue, support-session expiry and report export as steps) and `retention-purge` (daily, 21:17 UTC). A deploy that drops a schedule from code removes it from Trigger.dev; if `support-session-expiry` or `report-export` still shows as a schedule after promoting, delete it in the dashboard. Trigger.dev schedules replace Vercel cron for these jobs.
 
 For provider-recording AI processing, add the following values to the matching
 Trigger.dev environment before promoting its candidate version:

@@ -1,17 +1,9 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import {
-  ChevronLeft,
-  ChevronRight,
-  Pencil,
-  Plus,
-  Search,
-  ShieldCheck,
-  UserCheck,
-  UserX,
-} from 'lucide-react';
+import { Pencil, Plus, Search, ShieldCheck, UserCheck, UserX } from 'lucide-react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
@@ -31,6 +23,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -109,18 +102,22 @@ function metrics(kpis: UserWorkspaceResult['kpis'], mode: UserAdministrationMode
   return [
     {
       label: mode === 'CLIENT_ADMIN_BOOTSTRAP' ? 'Client Admins' : 'Managed users',
-      value: kpis.total_users.toLocaleString(),
+      value: kpis.total_users.toLocaleString('en-IN'),
       helper: 'Within your authority and data scope',
     },
-    { label: 'Active', value: kpis.active_users.toLocaleString(), helper: 'Access gate enabled' },
+    {
+      label: 'Active',
+      value: kpis.active_users.toLocaleString('en-IN'),
+      helper: 'Access gate enabled',
+    },
     {
       label: 'Inactive',
-      value: kpis.inactive_users.toLocaleString(),
+      value: kpis.inactive_users.toLocaleString('en-IN'),
       helper: 'Retained without CRM access',
     },
     {
       label: 'MFA required',
-      value: kpis.mfa_required.toLocaleString(),
+      value: kpis.mfa_required.toLocaleString('en-IN'),
       helper: 'TOTP assurance policy',
     },
   ];
@@ -293,7 +290,7 @@ function UserEditorDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>
             {record
@@ -572,14 +569,14 @@ function UserEditorDialog({
               </AlertDescription>
             </Alert>
           )}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button type="submit" disabled={!valid || mutation.isPending}>
               {mutation.isPending ? 'Saving…' : record ? 'Save user' : 'Send secure invite'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -699,7 +696,6 @@ function UserTable({
     manualSorting: true,
     rowCount: data.total,
   });
-  const pages = Math.max(1, Math.ceil(data.total / query.pageSize));
   return (
     <Card className="overflow-hidden shadow-none">
       <CardHeader className="border-b p-4">
@@ -827,46 +823,13 @@ function UserTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Page {query.page} of {pages} · {data.total.toLocaleString()} results
-          </p>
-          <div className="flex items-center gap-2">
-            <Select
-              value={String(query.pageSize)}
-              onValueChange={(value) =>
-                onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
-              }
-            >
-              <SelectTrigger className="w-[90px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="icon"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={data.total}
+          onPageChange={(page) => onQueryChange({ page })}
+          onPageSizeChange={(pageSize) => onQueryChange({ pageSize, page: 1 })}
+        />
       </CardContent>
     </Card>
   );
@@ -934,23 +897,27 @@ export function UserWorkspace({ spec, mode }: { spec: PageSpec; mode: UserAdmini
     );
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       <UserRealtimeBridge organizationId={workspace.data.organization_id} />
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        <div className="shrink-0 sm:pt-7">
-          <Button
-            disabled={!options.data || options.data.roles.length === 0}
-            onClick={() => {
-              setEditRecord(null);
-              setEditorOpen(true);
-            }}
-          >
-            <Plus className="size-4" />
-            {mode === 'CLIENT_ADMIN_BOOTSTRAP' ? 'Invite Client Admin' : 'Invite user'}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        actions={
+          <>
+            <div className="shrink-0">
+              <Button
+                disabled={!options.data || options.data.roles.length === 0}
+                onClick={() => {
+                  setEditRecord(null);
+                  setEditorOpen(true);
+                }}
+              >
+                <Plus className="size-4" />
+                {mode === 'CLIENT_ADMIN_BOOTSTRAP' ? 'Invite Client Admin' : 'Invite user'}
+              </Button>
+            </div>
+          </>
+        }
+      />
       {message && (
         <Alert variant="success">
           <AlertTitle>{message}</AlertTitle>

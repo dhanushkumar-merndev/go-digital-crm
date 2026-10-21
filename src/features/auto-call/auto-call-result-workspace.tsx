@@ -278,7 +278,7 @@ export function AutoCallResultWorkspace({ callId, role }: { callId: string; role
             <ArrowLeft className="size-3" /> My Leads
           </Link>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">
+            <h1 className="text-2xl font-bold tracking-tight text-heading">
               {lead?.customer_name ?? 'Auto call'}
             </h1>
             {lead ? (

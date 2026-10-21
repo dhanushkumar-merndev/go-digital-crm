@@ -1,9 +1,10 @@
 'use client';
 
+import type { PageSpec } from '@/lib/domain';
+import { PageHeader } from '@/components/shared/page-header';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import Link from 'next/link';
-import { CheckCircle2, ChevronRight, CircleAlert, FileText, WalletCards } from 'lucide-react';
+import { CheckCircle2, CircleAlert, FileText, WalletCards } from 'lucide-react';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -54,11 +55,11 @@ function formatDate(value: string) {
 export type OwnerAiView = 'FULL' | 'SUMMARY' | 'CREDITS';
 
 export function OwnerAiBusinessSummaryWorkspace({
-  audience = 'OWNER',
+  spec,
   heading,
   view = 'FULL',
 }: {
-  audience?: 'OWNER' | 'CLIENT_ADMIN';
+  spec: PageSpec;
   heading?: string;
   view?: OwnerAiView;
 }) {
@@ -91,14 +92,14 @@ export function OwnerAiBusinessSummaryWorkspace({
       ? [
           {
             label: 'AI credits used',
-            value: kpis.credits_used.toLocaleString(),
+            value: kpis.credits_used.toLocaleString('en-IN'),
             helper: `Last ${days} days`,
             icon: WalletCards,
             tone: 'bg-violet-50 text-violet-600',
           },
           {
             label: 'AI credits remaining',
-            value: kpis.credits_remaining.toLocaleString(),
+            value: kpis.credits_remaining.toLocaleString('en-IN'),
             helper: 'Current balance',
             icon: WalletCards,
             tone: 'bg-emerald-50 text-emerald-600',
@@ -109,21 +110,21 @@ export function OwnerAiBusinessSummaryWorkspace({
       ? [
           {
             label: 'Call summaries',
-            value: kpis.summaries_generated.toLocaleString(),
+            value: kpis.summaries_generated.toLocaleString('en-IN'),
             helper: 'Generated in period',
             icon: FileText,
             tone: 'bg-blue-50 text-blue-600',
           },
           {
             label: 'Completed extractions',
-            value: kpis.extractions_completed.toLocaleString(),
+            value: kpis.extractions_completed.toLocaleString('en-IN'),
             helper: 'Field suggestions produced',
             icon: CheckCircle2,
             tone: 'bg-cyan-50 text-cyan-600',
           },
           {
             label: 'Reviews pending',
-            value: kpis.reviews_pending.toLocaleString(),
+            value: kpis.reviews_pending.toLocaleString('en-IN'),
             helper: 'Awaiting a person',
             icon: CircleAlert,
             tone: 'bg-amber-50 text-amber-600',
@@ -132,8 +133,7 @@ export function OwnerAiBusinessSummaryWorkspace({
       : []),
   ];
 
-  const rolePath = audience === 'OWNER' ? '/business-owner' : '/client-admin';
-  const title = heading ?? (audience === 'OWNER' ? 'AI Business Summary' : 'AI Usage & Credits');
+  const title = heading ?? spec.title;
   const description =
     view === 'CREDITS'
       ? 'AI credits consumed and remaining, from the immutable credit ledger. Allocations remain with the platform Super Admin.'
@@ -142,45 +142,30 @@ export function OwnerAiBusinessSummaryWorkspace({
         : 'Tenant AI-credit consumption and recorded call-processing activity. Credit allocations remain platform Super Admin only.';
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-            <Link href={`${rolePath}/dashboard`} className="text-blue-600 hover:underline">
-              Dashboard
-            </Link>
-            <ChevronRight className="size-3" />
-            <span>{title}</span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
-            {title}
-          </h1>
-          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>
-        </div>
-        <Select
-          value={String(days)}
-          onValueChange={(value) => setDays(Number(value) as 7 | 30 | 90)}
-        >
-          <SelectTrigger className="w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7">Last 7 days</SelectItem>
-            <SelectItem value="30">Last 30 days</SelectItem>
-            <SelectItem value="90">Last 90 days</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <KpiGrid
-        metrics={metrics}
-        className={
-          metrics.length === 5
-            ? 'xl:grid-cols-5'
-            : metrics.length === 3
-              ? 'xl:grid-cols-3'
-              : 'xl:grid-cols-2'
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={spec}
+        title={title}
+        description={description}
+        actions={
+          <>
+            <Select
+              value={String(days)}
+              onValueChange={(value) => setDays(Number(value) as 7 | 30 | 90)}
+            >
+              <SelectTrigger className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7">Last 7 days</SelectItem>
+                <SelectItem value="30">Last 30 days</SelectItem>
+                <SelectItem value="90">Last 90 days</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
         }
       />
+      <KpiGrid metrics={metrics} />
       {showCredits ? (
         <div className="grid gap-4 xl:grid-cols-12">
           <SectionCard
@@ -229,7 +214,7 @@ export function OwnerAiBusinessSummaryWorkspace({
                     {formatDate(summary.created_at)}
                   </span>
                 </div>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#263550]">
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-heading-soft">
                   {summary.summary}
                 </p>
               </article>

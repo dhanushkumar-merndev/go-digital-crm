@@ -1,16 +1,10 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { PageHeader } from '@/components/shared/page-header';
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Blocks,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  PauseCircle,
-  Search,
-  ShieldCheck,
-} from 'lucide-react';
+import { Blocks, CheckCircle2, PauseCircle, Search, ShieldCheck } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { ModuleWorkspaceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
@@ -79,39 +73,41 @@ export function ModuleWorkspace({ spec }: { spec: PageSpec }) {
   const result = query.data;
   const metrics: Metric[] = result
     ? [
-        { label: 'Total modules', value: result.kpis.total_modules.toLocaleString(), icon: Blocks },
+        {
+          label: 'Total modules',
+          value: result.kpis.total_modules.toLocaleString('en-IN'),
+          icon: Blocks,
+        },
         {
           label: 'Active modules',
-          value: result.kpis.active_modules.toLocaleString(),
+          value: result.kpis.active_modules.toLocaleString('en-IN'),
           icon: CheckCircle2,
         },
         {
           label: 'Disabled modules',
-          value: result.kpis.inactive_modules.toLocaleString(),
+          value: result.kpis.inactive_modules.toLocaleString('en-IN'),
           icon: PauseCircle,
         },
         {
           label: 'Plan assignments',
-          value: result.kpis.plan_assignments.toLocaleString(),
+          value: result.kpis.plan_assignments.toLocaleString('en-IN'),
           icon: ShieldCheck,
         },
-        { label: 'Enabled entitlements', value: result.kpis.enabled_entitlements.toLocaleString() },
+        {
+          label: 'Enabled entitlements',
+          value: result.kpis.enabled_entitlements.toLocaleString('en-IN'),
+        },
       ]
     : [];
-  const hasNext = Boolean(result && page * 25 < result.total);
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div>
-        <div className="mb-2 text-xs text-muted-foreground">Platform › Catalog</div>
-        <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">{spec.title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Control platform module availability. Tenant entitlements and recent usage are read from
-          the live platform catalog.
-        </p>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Which modules the platform offers, how many dealerships use each, and recent usage."
+      />
       {query.isPending ? <ModuleWorkspaceSkeleton /> : null}
-      {result ? <KpiGrid metrics={metrics} className="xl:grid-cols-5" /> : null}
+      {result ? <KpiGrid metrics={metrics} /> : null}
       <Card className="shadow-none">
         <CardContent className="flex flex-col gap-3 p-4 md:flex-row">
           <div className="relative flex-1">
@@ -195,7 +191,7 @@ export function ModuleWorkspace({ spec }: { spec: PageSpec }) {
                           / {module.tenant_count} configured
                         </span>
                       </TableCell>
-                      <TableCell>{module.usage_last_30_days.toLocaleString()}</TableCell>
+                      <TableCell>{module.usage_last_30_days.toLocaleString('en-IN')}</TableCell>
                       <TableCell className="text-right">
                         <Button
                           variant={module.active ? 'outline' : 'default'}
@@ -228,27 +224,13 @@ export function ModuleWorkspace({ spec }: { spec: PageSpec }) {
               </Table>
             </CardContent>
           </Card>
-          <div className="flex items-center justify-between">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page === 1 || query.isFetching}
-              onClick={() => setPage((current) => current - 1)}
-            >
-              <ChevronLeft className="size-4" /> Previous
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Page {page} · {result.total} modules
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!hasNext || query.isFetching}
-              onClick={() => setPage((current) => current + 1)}
-            >
-              Next <ChevronRight className="size-4" />
-            </Button>
-          </div>
+          <TablePagination
+            className="rounded-lg border bg-white"
+            page={page}
+            pageSize={25}
+            total={result.total}
+            onPageChange={setPage}
+          />
         </>
       ) : null}
     </div>

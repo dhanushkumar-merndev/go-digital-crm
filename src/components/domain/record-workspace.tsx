@@ -41,7 +41,7 @@ const timeline = [
 
 export function RecordWorkspace({ role, id }: { role: string; id: string }) {
   return (
-    <div className="mx-auto max-w-[1400px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       <div>
         <Button variant="ghost" size="sm" asChild className="-ml-3 mb-3">
           <Link href={`/${role}/dashboard`}>

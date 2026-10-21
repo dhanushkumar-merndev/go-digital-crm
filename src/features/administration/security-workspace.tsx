@@ -1,5 +1,8 @@
 'use client';
 
+import { KpiGrid } from '@/components/shared/kpi-grid';
+import { humanizeEnum } from '@/lib/format';
+import { PageHeader } from '@/components/shared/page-header';
 import { useQuery } from '@tanstack/react-query';
 import {
   CheckCircle2,
@@ -27,6 +30,11 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+// Role keys and scopes arrive as `client_admin` / `ALL_BRANCHES`; show them as words.
+function readable(value: string | null | undefined) {
+  return value ? humanizeEnum(value.replace(/-/g, '_').toUpperCase()) : 'Unavailable';
+}
+
 export function SecurityWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
   const query = useQuery({
@@ -46,57 +54,43 @@ export function SecurityWorkspace({ spec }: { spec: PageSpec }) {
   const { context, assurance } = query.data;
   const mfaVerified = context.mfa_satisfied && assurance.currentLevel === 'aal2';
   return (
-    <div className="mx-auto max-w-[1400px] space-y-5">
-      <div>
-        <div className="mb-2 text-xs text-muted-foreground">Administration › Security</div>
-        <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">{spec.title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Current authenticated-session posture and immutable security-related activity. It does not
-          claim external monitoring, backups, or threat detection.
-        </p>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card className="shadow-none">
-          <CardContent className="p-5">
-            <ShieldCheck className="size-5 text-emerald-600" />
-            <p className="mt-4 text-sm font-medium">MFA assurance</p>
-            <p className="mt-1 text-lg font-bold">{mfaVerified ? 'Verified' : 'Needs attention'}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Current session: {assurance.currentLevel.toUpperCase()}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none">
-          <CardContent className="p-5">
-            <KeyRound className="size-5 text-blue-600" />
-            <p className="mt-4 text-sm font-medium">Role</p>
-            <p className="mt-1 text-lg font-bold">
-              {context.role_key ?? session?.roleKey ?? 'Unavailable'}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">Authenticated route role</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none">
-          <CardContent className="p-5">
-            <UserRoundCheck className="size-5 text-violet-600" />
-            <p className="mt-4 text-sm font-medium">Data scope</p>
-            <p className="mt-1 text-lg font-bold">
-              {context.data_scope ?? session?.dataScope ?? 'Unavailable'}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">Access remains RLS enforced</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none">
-          <CardContent className="p-5">
-            <ShieldEllipsis className="size-5 text-amber-600" />
-            <p className="mt-4 text-sm font-medium">Tenant status</p>
-            <p className="mt-1 text-lg font-bold">{context.tenant_status ?? 'Platform'}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Access destination: {context.destination}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Sign-in security for your session and recent security activity. It does not claim external monitoring, backups, or threat detection."
+      />
+      <KpiGrid
+        metrics={[
+          {
+            label: 'MFA assurance',
+            value: mfaVerified ? 'Verified' : 'Needs attention',
+            helper: `Current session: ${assurance.currentLevel.toUpperCase()}`,
+            icon: ShieldCheck,
+            tone: mfaVerified ? 'emerald' : 'rose',
+          },
+          {
+            label: 'Role',
+            value: readable(context.role_key ?? session?.roleKey),
+            helper: 'Authenticated route role',
+            icon: KeyRound,
+            tone: 'blue',
+          },
+          {
+            label: 'Data scope',
+            value: readable(context.data_scope ?? session?.dataScope),
+            helper: 'Access remains RLS enforced',
+            icon: UserRoundCheck,
+            tone: 'violet',
+          },
+          {
+            label: 'Tenant status',
+            value: readable(context.tenant_status ?? 'PLATFORM'),
+            helper: `Access destination: ${readable(context.destination)}`,
+            icon: ShieldEllipsis,
+            tone: 'amber',
+          },
+        ]}
+      />
       <div className="grid gap-5 lg:grid-cols-2">
         <Card className="shadow-none">
           <CardHeader>

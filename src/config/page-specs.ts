@@ -675,9 +675,18 @@ export function getPageSpec(role: RoleKey, slug: string): PageSpec | null {
           },
         ]
       : undefined;
+  const breadcrumbs =
+    slug === 'dashboard'
+      ? []
+      : [
+          { label: 'Dashboard', href: `/${role}/dashboard` },
+          ...(item.group ? [{ label: item.group.title }] : []),
+          { label: item.title },
+        ];
   return {
     ...config,
     title: item.title,
+    breadcrumbs,
     category,
     access: `${roleNavigation[role].label} · ${roleNavigation[role].scope}`,
     readOnly,

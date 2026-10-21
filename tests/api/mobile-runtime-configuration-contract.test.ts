@@ -26,9 +26,9 @@ describe('mobile runtime configuration contract', () => {
 
   it('blocks all routed screens and never exposes raw provider/network errors on login', () => {
     expect(layout).toContain('if (!mobileSupabaseConfigured)');
-    expect(layout.indexOf('if (!mobileSupabaseConfigured)')).toBeLessThan(
-      layout.indexOf('<Stack screenOptions'),
-    );
+    const stack = layout.search(/<Stack\s+screenOptions/);
+    expect(stack).toBeGreaterThan(-1);
+    expect(layout.indexOf('if (!mobileSupabaseConfigured)')).toBeLessThan(stack);
     expect(login).toContain('if (!mobileSupabaseConfigured)');
     expect(login).not.toContain('setError(authError.message)');
     expect(login).toContain('The sign-in service could not be reached.');

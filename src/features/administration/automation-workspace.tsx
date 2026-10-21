@@ -3,7 +3,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, CircleAlert, CopyPlus, Play, Plus, Search, ToggleLeft } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -11,6 +11,7 @@ import {
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
+import { TablePagination, type TablePageSize } from '@/components/shared/table-pagination';
 import { AutomationWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -20,6 +21,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -83,7 +85,7 @@ function CreateAutomationDialog({ onClose }: { onClose: () => void }) {
   });
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Create automation</DialogTitle>
           <DialogDescription>
@@ -185,7 +187,7 @@ function CreateAutomationDialog({ onClose }: { onClose: () => void }) {
               </AlertDescription>
             </Alert>
           )}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
@@ -193,7 +195,7 @@ function CreateAutomationDialog({ onClose }: { onClose: () => void }) {
               <CopyPlus className="size-4" />
               {create.isPending ? 'Saving…' : 'Save automation'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -205,11 +207,13 @@ function AutomationTable({
   role,
   onToggle,
   pendingId,
+  footer,
 }: {
   records: AutomationRule[];
   role: string;
   onToggle: (rule: AutomationRule) => void;
   pendingId: string | null;
+  footer?: ReactNode;
 }) {
   return (
     <Card className="shadow-none">
@@ -245,7 +249,8 @@ function AutomationTable({
                       {rule.name}
                     </Link>
                     <p className="text-xs text-muted-foreground">
-                      {rule.execution_count.toLocaleString()} executions · {rule.created_by_name}
+                      {rule.execution_count.toLocaleString('en-IN')} executions ·{' '}
+                      {rule.created_by_name}
                     </p>
                   </TableCell>
                   <TableCell>
@@ -282,6 +287,7 @@ function AutomationTable({
           </TableBody>
         </Table>
       </CardContent>
+      {footer}
     </Card>
   );
 }
@@ -291,12 +297,20 @@ export function AutomationWorkspace({ spec }: { spec: PageSpec }) {
   const [searchInput, setSearchInput] = useState('');
   const [status, setStatus] = useState<AutomationWorkspaceQuery['status']>('ALL');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<TablePageSize>(25);
   const [open, setOpen] = useState(false);
   const client = useQueryClient();
   const search = useDebouncedValue(searchInput, 300);
   const query = useQuery({
-    queryKey: ['automation-workspace', ...workspaceQueryScope(session), page, search, status],
-    queryFn: () => fetchAutomationWorkspace({ page, pageSize: 25, search, status }),
+    queryKey: [
+      'automation-workspace',
+      ...workspaceQueryScope(session),
+      page,
+      pageSize,
+      search,
+      status,
+    ],
+    queryFn: () => fetchAutomationWorkspace({ page, pageSize, search, status }),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
@@ -311,22 +325,22 @@ export function AutomationWorkspace({ spec }: { spec: PageSpec }) {
         ? [
             {
               label: 'Total rules',
-              value: query.data.kpis.total_rules.toLocaleString(),
+              value: query.data.kpis.total_rules.toLocaleString('en-IN'),
               icon: Activity,
             },
             {
               label: 'Active rules',
-              value: query.data.kpis.active_rules.toLocaleString(),
+              value: query.data.kpis.active_rules.toLocaleString('en-IN'),
               icon: Play,
             },
             {
               label: 'Draft rules',
-              value: query.data.kpis.draft_rules.toLocaleString(),
+              value: query.data.kpis.draft_rules.toLocaleString('en-IN'),
               icon: CopyPlus,
             },
             {
               label: 'Failed runs today',
-              value: query.data.kpis.failed_runs_today.toLocaleString(),
+              value: query.data.kpis.failed_runs_today.toLocaleString('en-IN'),
               icon: CircleAlert,
               trend: query.data.kpis.failed_runs_today ? 'down' : 'neutral',
             },
@@ -350,15 +364,19 @@ export function AutomationWorkspace({ spec }: { spec: PageSpec }) {
   const summary = query.data.execution_summary;
   const totalRuns = summary.succeeded + summary.failed + summary.pending;
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        <Button className="shrink-0" onClick={() => setOpen(true)}>
-          <Plus className="size-4" />
-          Create automation
-        </Button>
-      </div>
-      <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        actions={
+          <>
+            <Button className="shrink-0" onClick={() => setOpen(true)}>
+              <Plus className="size-4" />
+              Create automation
+            </Button>
+          </>
+        }
+      />
+      <KpiGrid metrics={metrics} />
       <Card className="shadow-none">
         <CardContent className="flex flex-col gap-3 p-4 lg:flex-row">
           <div className="relative min-w-0 flex-1">
@@ -397,6 +415,18 @@ export function AutomationWorkspace({ spec }: { spec: PageSpec }) {
           role="system-administrator"
           pendingId={toggle.isPending ? (toggle.variables?.id ?? null) : null}
           onToggle={(rule) => toggle.mutate({ id: rule.id, enabled: !rule.enabled })}
+          footer={
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              total={query.data.total}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(1);
+              }}
+            />
+          }
         />
         <Card className="h-fit shadow-none">
           <CardHeader>
@@ -416,15 +446,15 @@ export function AutomationWorkspace({ spec }: { spec: PageSpec }) {
             <div className="mt-3 space-y-2 text-sm">
               <p className="flex justify-between">
                 <span className="text-muted-foreground">Recorded runs</span>
-                <span className="font-medium">{totalRuns.toLocaleString()}</span>
+                <span className="font-medium">{totalRuns.toLocaleString('en-IN')}</span>
               </p>
               <p className="flex justify-between">
                 <span className="text-muted-foreground">Succeeded</span>
-                <span className="font-medium">{summary.succeeded.toLocaleString()}</span>
+                <span className="font-medium">{summary.succeeded.toLocaleString('en-IN')}</span>
               </p>
               <p className="flex justify-between">
                 <span className="text-muted-foreground">Failed</span>
-                <span className="font-medium">{summary.failed.toLocaleString()}</span>
+                <span className="font-medium">{summary.failed.toLocaleString('en-IN')}</span>
               </p>
             </div>
           </CardContent>

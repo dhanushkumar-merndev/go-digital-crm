@@ -21,7 +21,8 @@ import {
   type CallAiField,
   type CallAiReview,
 } from '@/lib/call-ai';
-import { colors } from '@/theme';
+import { markRecordingLead } from '@/lib/recording-sync';
+import { colors, font } from '@/theme';
 
 const identityFields = new Set(['customer_name', 'phone', 'email', 'interested_model']);
 
@@ -103,6 +104,7 @@ export default function NewLeadFromCall() {
         decisions,
         requestId,
       });
+      markRecordingLead(id, created.lead_id, name.trim());
       router.replace({ pathname: '/lead/[id]', params: { id: created.lead_id } });
     } catch (saveError) {
       setError(callAiErrorMessage(saveError));
@@ -112,15 +114,7 @@ export default function NewLeadFromCall() {
   };
 
   return (
-    <Screen
-      title="New lead from call"
-      subtitle={review?.call.phone || 'Phone call recording'}
-      action={
-        <Pressable onPress={() => router.back()}>
-          <Text style={styles.back}>Back</Text>
-        </Pressable>
-      }
-    >
+    <Screen title="New lead from call" subtitle={review?.call.phone || undefined} back>
       {loading ? (
         <View style={styles.loading}>
           <ActivityIndicator color={colors.primary} />
@@ -185,7 +179,9 @@ export default function NewLeadFromCall() {
                 <View key={field.field_key} style={styles.toggleRow}>
                   <View style={styles.toggleMain}>
                     <Text style={styles.toggleLabel}>{callAiFieldLabels[field.field_key]}</Text>
-                    <Text style={styles.toggleValue}>{displayAiValue(field.suggested_value)}</Text>
+                    <Text style={styles.toggleValue}>
+                      {displayAiValue(field.suggested_value, field.field_key)}
+                    </Text>
                   </View>
                   <Switch
                     value={Boolean(accepted[field.field_key])}
@@ -208,17 +204,16 @@ export default function NewLeadFromCall() {
 }
 
 const styles = StyleSheet.create({
-  back: { color: colors.primary, fontWeight: '700' },
   loading: { padding: 36, alignItems: 'center' },
   errorCard: {
-    borderColor: '#fecaca',
+    borderColor: colors.dangerBorder,
     borderWidth: 1,
-    backgroundColor: '#fef2f2',
+    backgroundColor: colors.dangerSoft,
     borderRadius: 14,
     padding: 16,
   },
-  errorTitle: { color: '#991b1b', fontWeight: '800' },
-  errorText: { color: '#b91c1c', fontSize: 12, marginTop: 4 },
+  errorTitle: { color: colors.dangerDeep, fontWeight: '600' },
+  errorText: { color: colors.dangerStrong, fontSize: font.label, marginTop: 4 },
   card: {
     backgroundColor: colors.card,
     borderColor: colors.border,
@@ -227,11 +222,11 @@ const styles = StyleSheet.create({
     padding: 15,
     gap: 8,
   },
-  cardTitle: { color: colors.navy, fontSize: 16, fontWeight: '800' },
-  body: { color: colors.text, fontSize: 13, lineHeight: 20 },
-  hint: { color: colors.muted, fontSize: 12, lineHeight: 17 },
-  label: { color: colors.text, fontSize: 12, fontWeight: '800', marginTop: 6 },
-  readonly: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  cardTitle: { color: colors.navy, fontSize: font.heading, fontWeight: '600' },
+  body: { color: colors.text, fontSize: font.small, lineHeight: 20 },
+  hint: { color: colors.muted, fontSize: font.label, lineHeight: 17 },
+  label: { color: colors.text, fontSize: font.label, fontWeight: '600', marginTop: 6 },
+  readonly: { color: colors.text, fontSize: font.row, fontWeight: '700' },
   input: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -239,13 +234,13 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: 11,
     color: colors.text,
-    backgroundColor: '#fff',
+    backgroundColor: colors.onColor,
   },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
   toggleMain: { flex: 1 },
-  toggleLabel: { color: colors.muted, fontSize: 11, fontWeight: '700' },
-  toggleValue: { color: colors.text, fontSize: 14, fontWeight: '700', marginTop: 2 },
-  error: { color: colors.danger, fontSize: 13 },
+  toggleLabel: { color: colors.muted, fontSize: font.caption, fontWeight: '700' },
+  toggleValue: { color: colors.text, fontSize: font.row, fontWeight: '700', marginTop: 2 },
+  error: { color: colors.danger, fontSize: font.small },
   primary: { backgroundColor: colors.primary, alignItems: 'center', padding: 14, borderRadius: 11 },
-  primaryText: { color: 'white', fontWeight: '800' },
+  primaryText: { color: colors.onColor, fontWeight: '600' },
 });

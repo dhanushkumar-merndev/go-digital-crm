@@ -1,13 +1,15 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { FilterDialogButton } from '@/components/shared/filter-bar';
+import { ErrorState } from '@/components/shared/page-states';
+import { formatCurrency } from '@/lib/format';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   CalendarClock,
   CarFront,
   CircleCheck,
-  ChevronLeft,
-  ChevronRight,
   Clock3,
   Eye,
   FileText,
@@ -15,10 +17,8 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
-  RotateCcw,
   Search,
   Send,
-  TriangleAlert,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -36,7 +36,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid, kpiVariantForRole } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import {
   QuotationsSkeleton,
@@ -102,12 +102,7 @@ import {
 import { recordDetailHref } from '@/lib/navigation/record-links';
 
 function currency(value: number | null) {
-  if (value === null) return '—';
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(value);
+  return value === null ? '—' : formatCurrency(value);
 }
 
 function dateTime(value: string) {
@@ -134,19 +129,19 @@ function quotationMetrics(result: QuotationWorkspaceResult): Metric[] {
   return [
     {
       label: 'Open Quotations',
-      value: result.kpis.open.toLocaleString(),
+      value: result.kpis.open.toLocaleString('en-IN'),
       icon: FileText,
       tone: 'bg-blue-50 text-blue-600',
     },
     {
       label: 'Sent',
-      value: result.kpis.sent.toLocaleString(),
+      value: result.kpis.sent.toLocaleString('en-IN'),
       icon: Send,
       tone: 'bg-emerald-50 text-emerald-600',
     },
     {
       label: 'Approval required',
-      value: result.kpis.approval_required.toLocaleString(),
+      value: result.kpis.approval_required.toLocaleString('en-IN'),
       helper: 'Distinct manager decision required',
       icon: Clock3,
       tone: 'bg-amber-50 text-amber-600',
@@ -154,7 +149,7 @@ function quotationMetrics(result: QuotationWorkspaceResult): Metric[] {
     {
       label: 'Pipeline value',
       value: currency(result.kpis.pipeline_value),
-      helper: `${result.kpis.converted.toLocaleString()} converted`,
+      helper: `${result.kpis.converted.toLocaleString('en-IN')} converted`,
       icon: IndianRupee,
       tone: 'bg-violet-50 text-violet-600',
     },
@@ -165,28 +160,30 @@ function bookingMetrics(result: BookingWorkspaceResult): Metric[] {
   return [
     {
       label: 'Pending bookings',
-      value: (result.kpis.pending ?? result.kpis.awaiting_allocation).toLocaleString(),
+      value: (result.kpis.pending ?? result.kpis.awaiting_allocation).toLocaleString('en-IN'),
       helper: 'Awaiting stock allocation',
       icon: CalendarClock,
       tone: 'bg-blue-50 text-blue-600',
     },
     {
       label: 'Confirmed',
-      value: (result.kpis.confirmed ?? result.kpis.bookings).toLocaleString(),
+      value: (result.kpis.confirmed ?? result.kpis.bookings).toLocaleString('en-IN'),
       helper: 'Confirmed customer bookings',
       icon: CircleCheck,
       tone: 'bg-emerald-50 text-emerald-600',
     },
     {
       label: 'Delivery ready',
-      value: (result.kpis.ready_for_delivery ?? result.kpis.delivery_this_week).toLocaleString(),
+      value: (result.kpis.ready_for_delivery ?? result.kpis.delivery_this_week).toLocaleString(
+        'en-IN',
+      ),
       helper: 'Vehicle ready for handover',
       icon: CarFront,
       tone: 'bg-orange-50 text-orange-600',
     },
     {
       label: 'Delivered this month',
-      value: (result.kpis.delivered_this_month ?? result.kpis.delivered).toLocaleString(),
+      value: (result.kpis.delivered_this_month ?? result.kpis.delivered).toLocaleString('en-IN'),
       helper: 'Completed in the current month',
       icon: CarFront,
       tone: 'bg-violet-50 text-violet-600',
@@ -228,19 +225,12 @@ function TableFrame<T>({
     manualPagination: true,
     rowCount: total,
   });
-  const pages = Math.max(1, Math.ceil(total / query.pageSize));
   const statuses = kind === 'quotations' ? quotationStatusFilters : bookingStatusFilters;
   return (
     <Card className="sales-consultant-list-card shadow-none">
       <CardHeader className="border-b p-4">
-        <div
-          className={
-            kind === 'bookings'
-              ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-6'
-              : 'flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between'
-          }
-        >
-          <div className="relative w-full xl:max-w-md">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1 basis-56 sm:max-w-md">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="pl-9"
@@ -255,80 +245,141 @@ function TableFrame<T>({
           </div>
           {kind === 'bookings' ? (
             <>
-              <Select
-                value={query.model || 'all'}
-                onValueChange={(model) =>
-                  onQueryChange({ model: model === 'all' ? '' : model, page: 1 })
+              <FilterDialogButton
+                title="Booking filters"
+                activeCount={
+                  [
+                    query.status !== 'all',
+                    Boolean(query.model),
+                    Boolean(query.branchId),
+                    Boolean(query.fromDate || query.toDate),
+                  ].filter(Boolean).length
+                }
+                onClear={() =>
+                  onQueryChange({
+                    page: 1,
+                    status: 'all',
+                    model: '',
+                    branchId: '',
+                    fromDate: '',
+                    toDate: '',
+                  })
                 }
               >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="All models" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All models</SelectItem>
-                  {bookingOptions?.models.map((model) => (
-                    <SelectItem key={model} value={model}>
-                      {model}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={query.status}
-                onValueChange={(status) =>
-                  onQueryChange({ status: status as SalesDocumentQuery['status'], page: 1 })
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {statuses.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {status === 'awaiting-allocation' ? 'Stock Awaited' : label(status)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {role === 'sales-consultant' ? null : bookingOptions?.branches.length === 1 ? (
-                <div className="flex h-9 items-center truncate rounded-md border bg-muted/30 px-3 text-sm">
-                  {bookingOptions.branches[0]?.name}
-                </div>
-              ) : (
                 <Select
-                  value={query.branchId || 'all'}
-                  onValueChange={(branchId) =>
-                    onQueryChange({ branchId: branchId === 'all' ? '' : branchId, page: 1 })
+                  value={query.model || 'all'}
+                  onValueChange={(model) =>
+                    onQueryChange({ model: model === 'all' ? '' : model, page: 1 })
                   }
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="All authorized branches" />
+                    <SelectValue placeholder="All models" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All authorized branches</SelectItem>
-                    {bookingOptions?.branches.map((branch) => (
-                      <SelectItem key={branch.id} value={branch.id}>
-                        {branch.name}
+                    <SelectItem value="all">All models</SelectItem>
+                    {bookingOptions?.models.map((model) => (
+                      <SelectItem key={model} value={model}>
+                        {model}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              )}
-              <Input
-                type="date"
-                value={query.fromDate}
-                onChange={(event) => onQueryChange({ fromDate: event.target.value, page: 1 })}
-                aria-label="Booking date from"
-              />
-              <Input
-                type="date"
-                value={query.toDate}
-                onChange={(event) => onQueryChange({ toDate: event.target.value, page: 1 })}
-                aria-label="Booking date to"
-              />
+                <Select
+                  value={query.status}
+                  onValueChange={(status) =>
+                    onQueryChange({ status: status as SalesDocumentQuery['status'], page: 1 })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statuses.map((status) => (
+                      <SelectItem key={status} value={status}>
+                        {status === 'awaiting-allocation' ? 'Stock Awaited' : label(status)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {role === 'sales-consultant' ? null : bookingOptions?.branches.length ===
+                  1 ? null : (
+                  <Select
+                    value={query.branchId || 'all'}
+                    onValueChange={(branchId) =>
+                      onQueryChange({ branchId: branchId === 'all' ? '' : branchId, page: 1 })
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="All authorized branches" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All authorized branches</SelectItem>
+                      {bookingOptions?.branches.map((branch) => (
+                        <SelectItem key={branch.id} value={branch.id}>
+                          {branch.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <label className="grid gap-1 text-xs font-medium text-label">
+                  Booked from
+                  <Input
+                    type="date"
+                    className="w-full"
+                    value={query.fromDate}
+                    onChange={(event) => onQueryChange({ fromDate: event.target.value, page: 1 })}
+                    aria-label="Booking date from"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-medium text-label">
+                  Booked until
+                  <Input
+                    type="date"
+                    className="w-full"
+                    value={query.toDate}
+                    onChange={(event) => onQueryChange({ toDate: event.target.value, page: 1 })}
+                    aria-label="Booking date to"
+                  />
+                </label>
+              </FilterDialogButton>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <Select
+                  value={query.sort}
+                  onValueChange={(sort) =>
+                    onQueryChange({ sort: sort as SalesDocumentQuery['sort'], page: 1 })
+                  }
+                >
+                  <SelectTrigger className="w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="delivery:asc">Earliest delivery</SelectItem>
+                    <SelectItem value="delivery:desc">Latest delivery</SelectItem>
+                    <SelectItem value="updated:desc">Recently booked</SelectItem>
+                    <SelectItem value="amount:desc">Highest value</SelectItem>
+                    <SelectItem value="customer:asc">Customer A–Z</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={String(query.pageSize)}
+                  onValueChange={(value) =>
+                    onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
+                  }
+                >
+                  <SelectTrigger className="w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="25">25 rows</SelectItem>
+                    <SelectItem value="50">50 rows</SelectItem>
+                    <SelectItem value="100">100 rows</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </>
           ) : (
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="ml-auto flex flex-wrap items-center gap-2">
               <Select
                 value={query.status}
                 onValueChange={(status) =>
@@ -382,66 +433,6 @@ function TableFrame<T>({
             </div>
           )}
         </div>
-        {kind === 'bookings' && (
-          <div className="mt-3 flex flex-wrap justify-end gap-2">
-            <Select
-              value={query.sort}
-              onValueChange={(sort) =>
-                onQueryChange({ sort: sort as SalesDocumentQuery['sort'], page: 1 })
-              }
-            >
-              <SelectTrigger className="w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="delivery:asc">Earliest delivery</SelectItem>
-                <SelectItem value="delivery:desc">Latest delivery</SelectItem>
-                <SelectItem value="updated:desc">Recently booked</SelectItem>
-                <SelectItem value="amount:desc">Highest value</SelectItem>
-                <SelectItem value="customer:asc">Customer A–Z</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={String(query.pageSize)}
-              onValueChange={(value) =>
-                onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
-              }
-            >
-              <SelectTrigger className="w-28">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="25">25 rows</SelectItem>
-                <SelectItem value="50">50 rows</SelectItem>
-                <SelectItem value="100">100 rows</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              disabled={
-                !query.search &&
-                query.status === 'all' &&
-                !query.model &&
-                !query.branchId &&
-                !query.fromDate &&
-                !query.toDate
-              }
-              onClick={() =>
-                onQueryChange({
-                  page: 1,
-                  search: '',
-                  status: 'all',
-                  model: '',
-                  branchId: '',
-                  fromDate: '',
-                  toDate: '',
-                })
-              }
-            >
-              Clear filters
-            </Button>
-          </div>
-        )}
       </CardHeader>
       <CardContent className="p-0">
         <div className={isFetching ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
@@ -490,37 +481,12 @@ function TableFrame<T>({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, total)} of {total}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="mr-2 text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={total}
+          onPageChange={(page) => onQueryChange({ page })}
+        />
       </CardContent>
     </Card>
   );
@@ -978,29 +944,19 @@ export function SalesDocumentWorkspace({
     (!useSalesHotPath && kind === 'bookings' && bookingFilterOptions.isError)
   )
     return (
-      <Card className="mx-auto max-w-xl">
-        <CardContent className="flex flex-col items-center p-10 text-center">
-          <div className="grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
-            <TriangleAlert />
-          </div>
-          <h2 className="mt-4 font-semibold">Sales documents are not available yet</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your permission, scope or the quotation/booking migration needs attention. Reference:
-            GDM-SALES-DOCUMENTS.
-          </p>
-          <Button
-            className="mt-5"
-            variant="outline"
-            onClick={() => {
-              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
-              void workspace.refetch();
-              if (kind === 'bookings') void bookingFilterOptions.refetch();
-            }}
-          >
-            <RotateCcw className="size-4" /> Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Sales documents are not available yet"
+          description="Your permission, scope or the quotation/booking migration needs attention."
+          reference="GDM-SALES-DOCUMENTS"
+          onRetry={() => {
+            if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
+            void workspace.refetch();
+            if (kind === 'bookings') void bookingFilterOptions.refetch();
+          }}
+        />
+      </PageShell>
     );
 
   if (directQuotationCreate)
@@ -1022,7 +978,7 @@ export function SalesDocumentWorkspace({
 
   if (directBookingCreate)
     return (
-      <div className="mx-auto max-w-[1800px]">
+      <div className="mx-auto w-full">
         <PageHeader className="mb-0" spec={{ ...spec, primaryAction: undefined }} />
         <BookingCreateDialog
           open
@@ -1044,27 +1000,32 @@ export function SalesDocumentWorkspace({
   if (!workspace.data) return null;
   const result = workspace.data;
   return (
-    <div className="mx-auto max-w-[1800px]">
+    <div className="mx-auto w-full">
       <RefreshFailedNotice
         className="mb-4"
         show={!directCreate && workspace.isError}
         retrying={workspace.isFetching}
         onRetry={() => void workspace.refetch()}
       />
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader className="mb-0" spec={{ ...spec, primaryAction: undefined }} />
-        {permissions.canManage && (
-          <Button
-            className="shrink-0 sm:mt-7"
-            onClick={() =>
-              kind === 'quotations' ? setQuotationScreen('create') : setCreateOpen(true)
-            }
-          >
-            <Plus className="size-4" />
-            {kind === 'quotations' ? 'Create quotation' : 'Create booking'}
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        className="mb-6"
+        actions={
+          <>
+            {permissions.canManage && (
+              <Button
+                className="shrink-0"
+                onClick={() =>
+                  kind === 'quotations' ? setQuotationScreen('create') : setCreateOpen(true)
+                }
+              >
+                <Plus className="size-4" />
+                {kind === 'quotations' ? 'Create quotation' : 'Create booking'}
+              </Button>
+            )}
+          </>
+        }
+      />
       <div className="space-y-6">
         {kind === 'quotations' && (
           <div className="flex h-10 gap-2 overflow-x-auto border-b">
@@ -1076,7 +1037,7 @@ export function SalesDocumentWorkspace({
                     key={status}
                     type="button"
                     onClick={() => onQueryChange({ status, page: 1 })}
-                    className={`relative h-full shrink-0 px-3 text-xs font-semibold ${active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'}`}
+                    className={`relative h-full shrink-0 px-3 text-xs font-semibold ${active ? 'text-blue-700' : 'text-heading-soft hover:text-blue-700'}`}
                     style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
                   >
                     {status === 'pending-approval' ? 'Approval Pending' : label(status)}
@@ -1095,7 +1056,7 @@ export function SalesDocumentWorkspace({
                   key={status}
                   type="button"
                   onClick={() => onQueryChange({ status, page: 1 })}
-                  className={`relative h-full shrink-0 px-3 text-xs font-semibold ${active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'}`}
+                  className={`relative h-full shrink-0 px-3 text-xs font-semibold ${active ? 'text-blue-700' : 'text-heading-soft hover:text-blue-700'}`}
                   style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
                 >
                   {status === 'awaiting-allocation' ? 'Stock Awaited' : label(status)}

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
+import { personalCasePerformanceSchema } from '../operations/operational-case-api';
 import {
   isCustomerCareVersionConflict,
   type CustomerCareQuery,
@@ -250,4 +251,19 @@ export async function updateCustomerCareCase(input: {
     throw error;
   }
   return mutationResultSchema.parse(data);
+}
+
+/** The executive's own numbers for My Performance, shaped like the ops desks'. */
+export async function fetchCustomerCarePerformance(
+  range: { from: string; to: string },
+  signal?: AbortSignal,
+) {
+  const request = createClient().rpc('get_customer_care_performance', {
+    target_from_date: range.from,
+    target_to_date: range.to,
+    target_timezone: 'Asia/Kolkata',
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return personalCasePerformanceSchema.parse(data);
 }

@@ -1,5 +1,8 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { ErrorState } from '@/components/shared/page-states';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   flexRender,
@@ -10,19 +13,15 @@ import {
 } from '@tanstack/react-table';
 import {
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Flag,
   MapPin,
   MessageSquareText,
   MoreHorizontal,
   Play,
   Plus,
-  RotateCcw,
   Route,
   Search,
   TrendingUp,
-  TriangleAlert,
   X,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -128,22 +127,22 @@ function testDriveMetrics(result: TestDriveWorkspaceResult): Metric[] {
   return [
     {
       label: 'Total test drives',
-      value: result.kpis.total.toLocaleString(),
-      helper: `${result.kpis.cancelled.toLocaleString()} cancelled all time`,
+      value: result.kpis.total.toLocaleString('en-IN'),
+      helper: `${result.kpis.cancelled.toLocaleString('en-IN')} cancelled all time`,
       icon: Route,
       tone: 'bg-blue-50 text-blue-600',
     },
     {
       label: 'Active',
-      value: result.kpis.active.toLocaleString(),
+      value: result.kpis.active.toLocaleString('en-IN'),
       helper: 'On the road right now',
       icon: Play,
       tone: 'bg-violet-50 text-violet-600',
     },
     {
       label: 'Completed',
-      value: result.kpis.completed.toLocaleString(),
-      helper: `${result.kpis.completed_this_month.toLocaleString()} completed this month`,
+      value: result.kpis.completed.toLocaleString('en-IN'),
+      helper: `${result.kpis.completed_this_month.toLocaleString('en-IN')} completed this month`,
       icon: CheckCircle2,
       tone: 'bg-emerald-50 text-emerald-600',
     },
@@ -414,7 +413,6 @@ function TestDriveTable({
     manualPagination: true,
     rowCount: result.total,
   });
-  const pages = Math.max(1, Math.ceil(result.total / query.pageSize));
   return (
     <Card className="sales-consultant-list-card overflow-hidden shadow-none">
       <CardHeader className="border-b p-4">
@@ -530,37 +528,12 @@ function TestDriveTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {result.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, result.total)} of {result.total}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="mr-2 text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={result.total}
+          onPageChange={(page) => onQueryChange({ page })}
+        />
       </CardContent>
     </Card>
   );
@@ -663,28 +636,18 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
     (screen === 'create' && !permissions.canManage)
   )
     return (
-      <Card className="mx-auto max-w-xl">
-        <CardContent className="flex flex-col items-center p-10 text-center">
-          <div className="grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
-            <TriangleAlert />
-          </div>
-          <h2 className="mt-4 font-semibold">Test drives are not available yet</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your access scope or the test-drive workspace migration needs attention. Reference:
-            GDM-TEST-DRIVES.
-          </p>
-          <Button
-            className="mt-5"
-            variant="outline"
-            onClick={() => {
-              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
-              void workspace.refetch();
-            }}
-          >
-            <RotateCcw className="size-4" /> Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Test drives are not available yet"
+          description="Your access scope or the test-drive workspace migration needs attention."
+          reference="GDM-TEST-DRIVES"
+          onRetry={() => {
+            if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
+            void workspace.refetch();
+          }}
+        />
+      </PageShell>
     );
 
   if (screen === 'create' && permissions.canManage)
@@ -707,21 +670,15 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
   // A failed background refresh keeps the rows on screen with a notice.
   if (!workspace.data)
     return (
-      <Card className="mx-auto max-w-xl">
-        <CardContent className="flex flex-col items-center p-10 text-center">
-          <div className="grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
-            <TriangleAlert />
-          </div>
-          <h2 className="mt-4 font-semibold">Test drives are not available yet</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your access scope or the test-drive workspace migration needs attention. Reference:
-            GDM-TEST-DRIVES.
-          </p>
-          <Button className="mt-5" variant="outline" onClick={() => void workspace.refetch()}>
-            <RotateCcw className="size-4" /> Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Test drives are not available yet"
+          description="Your access scope or the test-drive workspace migration needs attention."
+          reference="GDM-TEST-DRIVES"
+          onRetry={() => void workspace.refetch()}
+        />
+      </PageShell>
     );
   if (screen === 'detail' && selectedRecord) {
     const current =
@@ -766,26 +723,19 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
   }
 
   return (
-    <div className="mx-auto max-w-[1800px]">
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-xs">
-            <span className="text-primary">Dashboard</span>
-            <span className="text-muted-foreground">›</span>
-            <span className="text-muted-foreground">Test Drives</span>
-          </div>
-          <h1 className="text-2xl font-bold">Test Drive List</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Manage and track every test drive scheduled with your customers.
-          </p>
-        </div>
-        {permissions.canManage && (
-          <Button className="shrink-0 sm:mt-7" onClick={() => setScreen('create')}>
-            <Plus className="size-4" /> Book Test Drive
-          </Button>
-        )}
-      </div>
-      <div className="space-y-6">
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Every test drive booked with your customers, from scheduled to completed."
+        actions={
+          permissions.canManage ? (
+            <Button onClick={() => setScreen('create')}>
+              <Plus className="size-4" /> Book test drive
+            </Button>
+          ) : null
+        }
+      />
+      <div className="space-y-5">
         <RefreshFailedNotice
           show={workspace.isError}
           retrying={workspace.isFetching}
@@ -800,7 +750,7 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
                 type="button"
                 onClick={() => onQueryChange({ view, page: 1 })}
                 className={`relative h-full shrink-0 px-3 text-xs font-semibold ${
-                  active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
+                  active ? 'text-blue-700' : 'text-heading-soft hover:text-blue-700'
                 }`}
                 style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
               >

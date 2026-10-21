@@ -338,7 +338,7 @@ export function WorkCreateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>
             {kind === 'followups' ? 'Schedule follow-up' : 'Schedule appointment'}
@@ -649,7 +649,7 @@ export function WorkEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{isFollowup ? 'Reschedule follow-up' : 'Update appointment'}</DialogTitle>
           <DialogDescription>
@@ -1088,7 +1088,7 @@ export function FollowupCompleteDialog({
                         active ? 'border-blue-400 bg-blue-50/60' : 'hover:border-blue-200'
                       }`}
                     >
-                      <p className="text-sm font-semibold text-[#12213f]">{choice.label}</p>
+                      <p className="text-sm font-semibold text-heading">{choice.label}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {lostUnavailable &&
                         (choice.value === 'LOST' || choice.value === 'TRANSFER_TO_SALES')

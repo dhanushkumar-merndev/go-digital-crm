@@ -40,3 +40,6 @@ services/whatsapp-gateway/dist/
 /services/voice-agent/.venv
 __pycache__
 .pytest_cache
+
+# Local app screenshots
+/screenshot/

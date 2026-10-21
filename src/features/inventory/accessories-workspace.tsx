@@ -1,23 +1,15 @@
 'use client';
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Box,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Filter,
-  Package,
-  Plus,
-  Search,
-  ShieldCheck,
-} from 'lucide-react';
+import { Box, CheckCircle2, Filter, Package, Plus, Search, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import { EmptyState, ErrorState } from '@/components/shared/page-states';
+import { TablePagination, type TablePageSize } from '@/components/shared/table-pagination';
 import { PageHeader } from '@/components/shared/page-header';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Badge } from '@/components/ui/badge';
@@ -49,7 +41,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { toast } from '@/components/ui/toast';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { Metric, PageSpec } from '@/lib/domain';
+import { formatCurrency, formatNumber, formatPercent } from '@/lib/format';
 import {
   fetchAccessoriesCatalog,
   upsertAccessory,
@@ -57,12 +52,16 @@ import {
   type AccessoryRecord,
 } from './accessories-api';
 
+function categoryLabel(value: AccessoryCategory) {
+  return categories.find((category) => category.value === value)?.label ?? value;
+}
+
 const categories: Array<{ value: AccessoryCategory | 'ALL'; label: string }> = [
-  { value: 'ALL', label: 'All Categories' },
+  { value: 'ALL', label: 'All categories' },
   { value: 'EXTERIOR', label: 'Exterior' },
   { value: 'INTERIOR', label: 'Interior' },
   { value: 'ELECTRICAL', label: 'Electrical' },
-  { value: 'CAR_CARE', label: 'Car Care' },
+  { value: 'CAR_CARE', label: 'Car care' },
   { value: 'SAFETY_UTILITY', label: 'Safety & Utility' },
 ];
 
@@ -70,7 +69,9 @@ export function AccessoriesWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
   const [selectedCategory, setSelectedCategory] = useState<AccessoryCategory | 'ALL'>('ALL');
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search.trim());
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<TablePageSize>(25);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AccessoryRecord | null>(null);
 
@@ -86,8 +87,16 @@ export function AccessoriesWorkspace({ spec }: { spec: PageSpec }) {
   const categoryParam = selectedCategory === 'ALL' ? null : selectedCategory;
 
   const catalogQuery = useQuery({
-    queryKey: ['accessories-catalog', ...workspaceQueryScope(session), categoryParam, search, page],
-    queryFn: ({ signal }) => fetchAccessoriesCatalog(categoryParam, search, page, 25, signal),
+    queryKey: [
+      'accessories-catalog',
+      ...workspaceQueryScope(session),
+      categoryParam,
+      debouncedSearch,
+      page,
+      pageSize,
+    ],
+    queryFn: ({ signal }) =>
+      fetchAccessoriesCatalog(categoryParam, debouncedSearch, page, pageSize, signal),
     placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
@@ -148,19 +157,27 @@ export function AccessoriesWorkspace({ spec }: { spec: PageSpec }) {
 
   const kpis = catalogQuery.data?.kpis;
   const metrics: Metric[] = [
-    { label: 'Catalog Items', value: String(kpis?.total_items ?? 0), icon: Package },
-    { label: 'Active Items', value: String(kpis?.active_items ?? 0), icon: CheckCircle2 },
-    { label: 'Low Stock Alert (≤3)', value: String(kpis?.low_stock ?? 0), icon: Box },
-    { label: 'OEM Certified', value: '100%', icon: ShieldCheck },
+    { label: 'Catalog items', value: formatNumber(kpis?.total_items ?? 0), icon: Package },
+    { label: 'Active items', value: formatNumber(kpis?.active_items ?? 0), icon: CheckCircle2 },
+    {
+      label: 'Low stock',
+      value: formatNumber(kpis?.low_stock ?? 0),
+      helper: '3 or fewer in stock',
+      icon: Box,
+    },
+    {
+      label: 'OEM certified',
+      value: kpis?.active_items ? formatPercent((kpis.oem_items / kpis.active_items) * 100) : '—',
+      helper: `${formatNumber(kpis?.oem_items ?? 0)} of the active items`,
+      icon: ShieldCheck,
+    },
   ];
 
-  const totalPages = Math.max(1, Math.ceil((catalogQuery.data?.total ?? 0) / 25));
-
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader spec={{ ...spec, primaryAction: undefined }} />
 
-      <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
+      <KpiGrid metrics={metrics} />
 
       <div className="grid gap-5 xl:grid-cols-[230px_minmax(0,1fr)]">
         <Card className="shadow-none">
@@ -205,7 +222,7 @@ export function AccessoriesWorkspace({ spec }: { spec: PageSpec }) {
                   {catalogQuery.data?.total ?? 0} items
                 </Badge>
                 <Button size="sm" onClick={openCreateDialog} className="gap-1.5">
-                  <Plus className="size-4" /> Add Item
+                  <Plus className="size-4" /> Add item
                 </Button>
               </div>
             </div>
@@ -215,10 +232,10 @@ export function AccessoriesWorkspace({ spec }: { spec: PageSpec }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Accessory Name</TableHead>
-                  <TableHead>Part Number</TableHead>
+                  <TableHead>Accessory</TableHead>
+                  <TableHead>Part number</TableHead>
                   <TableHead>Category</TableHead>
-                  <TableHead>Price (₹)</TableHead>
+                  <TableHead>Price</TableHead>
                   <TableHead>Stock</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Status</TableHead>
@@ -226,19 +243,36 @@ export function AccessoriesWorkspace({ spec }: { spec: PageSpec }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {catalogQuery.data?.records.length ? (
+                {catalogQuery.isPending ? (
+                  Array.from({ length: 6 }, (_, index) => (
+                    <TableRow key={index}>
+                      <TableCell colSpan={8}>
+                        <Skeleton className="h-6 w-full" />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : catalogQuery.isError && !catalogQuery.data ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="p-0">
+                      <ErrorState
+                        className="border-0"
+                        title="The accessory catalog could not be loaded"
+                        onRetry={() => void catalogQuery.refetch()}
+                        retrying={catalogQuery.isFetching}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ) : catalogQuery.data?.records.length ? (
                   catalogQuery.data.records.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell className="font-medium">{item.name}</TableCell>
                       <TableCell className="font-mono text-xs">{item.part_number}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-xs">
-                          {item.category.replace('_', ' ')}
+                          {categoryLabel(item.category)}
                         </Badge>
                       </TableCell>
-                      <TableCell className="font-semibold">
-                        ₹{item.price.toLocaleString('en-IN')}
-                      </TableCell>
+                      <TableCell className="font-semibold">{formatCurrency(item.price)}</TableCell>
                       <TableCell>
                         <span
                           className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -271,48 +305,37 @@ export function AccessoriesWorkspace({ spec }: { spec: PageSpec }) {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
-                      No accessories match your filter criteria.
+                    <TableCell colSpan={8} className="p-0">
+                      <EmptyState
+                        bare
+                        icon={Package}
+                        title="No accessories match these filters"
+                        description="Try another category or search term, or add the item to the catalog."
+                      />
                     </TableCell>
                   </TableRow>
                 )}
               </TableBody>
             </Table>
 
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between border-t px-4 py-3">
-                <span className="text-xs text-muted-foreground">
-                  Page {page} of {totalPages}
-                </span>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="size-8"
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  >
-                    <ChevronLeft className="size-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="size-8"
-                    disabled={page >= totalPages}
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  >
-                    <ChevronRight className="size-4" />
-                  </Button>
-                </div>
-              </div>
-            )}
+            <TablePagination
+              className="border-t"
+              page={page}
+              pageSize={pageSize}
+              total={catalogQuery.data?.total ?? 0}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(1);
+              }}
+            />
           </CardContent>
         </Card>
       </div>
 
       {/* Add / Edit Accessory Dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>{editingItem ? 'Edit Accessory' : 'Add New Accessory'}</DialogTitle>
             <DialogDescription>

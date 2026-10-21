@@ -103,7 +103,7 @@ function ConnectionDialog({
   });
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>
             {existing ? 'Replace PIOPIY connection' : 'Connect TeleCMI PIOPIY'}

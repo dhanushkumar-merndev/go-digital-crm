@@ -1,28 +1,36 @@
 'use client';
 
+import { EmptyState, ErrorState } from '@/components/shared/page-states';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Clock, FolderOpen, RotateCcw, Timer, TriangleAlert } from 'lucide-react';
+import { CheckCircle2, Clock, FolderOpen, Timer, TriangleAlert } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
-import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
+import { KpiGrid, kpiGridColumns } from '@/components/shared/kpi-grid';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { SectionCard } from '@/components/shared/section-card';
 import { PerformanceDateRangeSelector } from '@/components/shared/performance-date-range-selector';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { RoleKey } from '@/config/navigation/types';
 import type { Metric, PageSpec } from '@/lib/domain';
-import { performanceRangeForLastDays, performanceRangeLabel } from '@/lib/performance-date-range';
+import {
+  performanceRangeForLastDays,
+  performanceRangeLabel,
+  type PerformanceDateRange,
+} from '@/lib/performance-date-range';
+import { formatDayMonth, formatNumber } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import {
   DASHBOARD_QUERY_GC_TIME_MS,
   DASHBOARD_QUERY_STALE_TIME_MS,
 } from '@/lib/query/cache-policy';
-import { fetchOperationalCasePerformance } from './operational-case-api';
+import {
+  fetchOperationalCasePerformance,
+  type OperationalCasePerformance as OperationalCasePerformanceResult,
+} from './operational-case-api';
 import { operationalCaseCasesHref, operationalCaseRoute } from './operational-case-query';
 
 function closeTime(hours: number | null) {
@@ -37,90 +45,107 @@ function closeTime(hours: number | null) {
 export function OperationalCasePerformance({ spec, role }: { spec: PageSpec; role: RoleKey }) {
   const route = operationalCaseRoute(role, 'my-performance');
   if (!route) throw new Error('INVALID_OPERATIONAL_CASE_ROUTE');
+  return (
+    <PersonalCasePerformance
+      spec={spec}
+      cacheKey={route.department}
+      casesHref={operationalCaseCasesHref(role, route.department)}
+      fetchPerformance={(range, signal) =>
+        fetchOperationalCasePerformance(route.department, range, signal)
+      }
+    />
+  );
+}
+
+/**
+ * One personal performance view for every case desk. Customer Care uses it with
+ * its own RPC, so "My Performance" never falls back to the dashboard.
+ */
+export function PersonalCasePerformance({
+  spec,
+  cacheKey,
+  casesHref,
+  fetchPerformance,
+}: {
+  spec: PageSpec;
+  cacheKey: string;
+  casesHref?: string;
+  fetchPerformance: (
+    range: PerformanceDateRange,
+    signal?: AbortSignal,
+  ) => Promise<OperationalCasePerformanceResult>;
+}) {
   const session = useWorkspaceSession();
   const [range, setRange] = useState(() => performanceRangeForLastDays(30));
   const query = useQuery({
-    queryKey: [
-      'ops-performance',
-      route.department,
-      ...workspaceQueryScope(session),
-      range.from,
-      range.to,
-    ],
-    queryFn: ({ signal }) => fetchOperationalCasePerformance(route.department, range, signal),
+    queryKey: ['ops-performance', cacheKey, ...workspaceQueryScope(session), range.from, range.to],
+    queryFn: ({ signal }) => fetchPerformance(range, signal),
     staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
     gcTime: DASHBOARD_QUERY_GC_TIME_MS,
     placeholderData: (previous) => previous,
   });
 
   const header = (
-    <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-      <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-      <PerformanceDateRangeSelector value={range} onChange={setRange} className="sm:mt-7" />
-    </div>
+    <PageHeader
+      spec={{ ...spec, primaryAction: undefined }}
+      actions={<PerformanceDateRangeSelector value={range} onChange={setRange} />}
+    />
   );
 
   if (query.isPending)
     return (
-      <div className="mx-auto max-w-[1800px]">
+      <PageShell>
         {header}
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className={cn('grid gap-2.5', kpiGridColumns(5))}>
           {Array.from({ length: 5 }, (_, index) => (
             <Skeleton key={index} className="h-[118px] rounded-xl" />
           ))}
         </div>
-        <Skeleton className="mt-6 h-[360px] rounded-xl" />
-      </div>
+        <Skeleton className="h-[360px] rounded-xl" />
+      </PageShell>
     );
 
   if (query.isError || !query.data)
     return (
-      <div className="mx-auto max-w-[1800px]">
+      <PageShell>
         {header}
-        <Card className="mx-auto max-w-xl shadow-none">
-          <CardContent className="p-10 text-center">
-            <div className="mx-auto grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
-              <TriangleAlert />
-            </div>
-            <h2 className="mt-4 font-semibold">Your performance is not available yet</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Your department permission or scope needs attention. Reference: GDM-OPS-PERFORMANCE.
-            </p>
-            <Button className="mt-5" variant="outline" onClick={() => void query.refetch()}>
-              <RotateCcw className="size-4" /> Try again
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+        <ErrorState
+          title="Your performance is not available yet"
+          description="Your department permission or scope needs attention."
+          reference="GDM-OPS-PERFORMANCE"
+          onRetry={() => void query.refetch()}
+          retrying={query.isFetching}
+        />
+      </PageShell>
     );
 
   const { kpis, daily } = query.data;
   const metrics: Metric[] = [
     {
       label: 'Open with me',
-      value: kpis.open.toLocaleString(),
+      value: formatNumber(kpis.open),
       helper: 'Assigned to you, not closed',
       icon: FolderOpen,
       tone: 'bg-blue-50 text-blue-600',
     },
     {
       label: 'Due today',
-      value: kpis.due_today.toLocaleString(),
+      value: formatNumber(kpis.due_today),
       helper: 'Open cases due today',
       icon: Clock,
       tone: 'bg-amber-50 text-amber-600',
     },
     {
       label: 'Overdue',
-      value: kpis.overdue.toLocaleString(),
+      value: formatNumber(kpis.overdue),
       helper: 'Past their due time',
       icon: TriangleAlert,
       tone: 'bg-rose-50 text-rose-600',
     },
     {
       label: 'Completed',
-      value: kpis.completed.toLocaleString(),
-      helper: `${kpis.handled.toLocaleString()} handled · ${performanceRangeLabel(range)}`,
+      value: formatNumber(kpis.completed),
+      helper: `${formatNumber(kpis.handled)} handled · ${performanceRangeLabel(range)}`,
       icon: CheckCircle2,
       tone: 'bg-emerald-50 text-emerald-600',
     },
@@ -133,37 +158,36 @@ export function OperationalCasePerformance({ spec, role }: { spec: PageSpec; rol
     },
   ];
   const quiet = kpis.handled === 0 && kpis.open === 0;
-  const casesHref = operationalCaseCasesHref(role, route.department);
 
   return (
-    <div className="mx-auto max-w-[1800px]">
+    <PageShell>
       {header}
-      <div className="space-y-6">
-        <KpiGrid metrics={metrics} className="xl:grid-cols-5" />
-        <SectionCard
-          title="Daily activity"
-          description="Cases you updated and completed, by day"
-          actionHref={casesHref}
-          actionLabel="Open my cases"
-        >
-          {quiet ? (
-            <p className="py-16 text-center text-sm text-muted-foreground">
-              No cases assigned to you in this period.
-            </p>
-          ) : (
-            <EChart
-              kind="line"
-              data={daily.map((row) => ({
-                name: row.day.slice(5),
-                value: row.handled,
-                secondary: row.completed,
-              }))}
-              seriesNames={['Handled', 'Completed']}
-              className="h-[320px]"
-            />
-          )}
-        </SectionCard>
-      </div>
-    </div>
+      <KpiGrid metrics={metrics} />
+      <SectionCard
+        title="Daily activity"
+        description="Cases you updated and completed, by day"
+        actionHref={casesHref}
+        actionLabel="Open my cases"
+      >
+        {quiet ? (
+          <EmptyState
+            bare
+            title="No cases assigned to you in this period"
+            description="Pick a wider range, or open your cases to take one on."
+          />
+        ) : (
+          <EChart
+            kind="line"
+            data={daily.map((row) => ({
+              name: formatDayMonth(row.day),
+              value: row.handled,
+              secondary: row.completed,
+            }))}
+            seriesNames={['Handled', 'Completed']}
+            className="h-[320px]"
+          />
+        )}
+      </SectionCard>
+    </PageShell>
   );
 }

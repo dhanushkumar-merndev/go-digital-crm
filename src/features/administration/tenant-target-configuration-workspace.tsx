@@ -1,5 +1,7 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { PageHeader } from '@/components/shared/page-header';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createColumnHelper,
@@ -200,49 +202,44 @@ export function TenantTargetConfigurationWorkspace({
   const data = query.data;
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="mb-2 text-xs text-muted-foreground">
-            {readOnly
-              ? 'Business Owner › Targets & performance'
-              : 'Administration › Target configuration'}
-          </p>
-          <h1 className="text-2xl font-bold tracking-tight">{spec.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Monthly vehicle targets by model. Each non-cancelled booking counts as one unit.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <Select
-            value={branchId ?? data?.branch_id ?? undefined}
-            onValueChange={(value) => {
-              setBranchId(value);
-              setPage(1);
-            }}
-          >
-            <SelectTrigger className="w-64" aria-label="Target branch">
-              <SelectValue placeholder="Select branch" />
-            </SelectTrigger>
-            <SelectContent>
-              {data?.branches.map((b) => (
-                <SelectItem key={b.id} value={b.id}>
-                  {b.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Input
-            aria-label="Target month"
-            className="w-44"
-            type="month"
-            value={month}
-            onChange={(event) => {
-              setMonth(event.target.value || currentMonth());
-              setPage(1);
-            }}
-          />
-        </div>
-      </div>
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Monthly vehicle targets by model and showroom. Each booking that is not cancelled counts as one unit."
+        actions={
+          <>
+            <div className="flex flex-wrap gap-3">
+              <Select
+                value={branchId ?? data?.branch_id ?? undefined}
+                onValueChange={(value) => {
+                  setBranchId(value);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="w-64" aria-label="Target branch">
+                  <SelectValue placeholder="Select branch" />
+                </SelectTrigger>
+                <SelectContent>
+                  {data?.branches.map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      {b.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                aria-label="Target month"
+                className="w-44"
+                type="month"
+                value={month}
+                onChange={(event) => {
+                  setMonth(event.target.value || currentMonth());
+                  setPage(1);
+                }}
+              />
+            </div>
+          </>
+        }
+      />
       {query.isPending ? (
         <TenantTargetConfigurationSkeleton />
       ) : query.isError || !data ? (
@@ -257,18 +254,17 @@ export function TenantTargetConfigurationWorkspace({
       ) : (
         <>
           <KpiGrid
-            className="xl:grid-cols-3"
             metrics={[
               {
                 label: 'Target units',
-                value: data.target_units.toLocaleString(),
+                value: data.target_units.toLocaleString('en-IN'),
                 helper: 'All models in the selected branch',
                 icon: Target,
                 tone: 'bg-blue-50 text-blue-600',
               },
               {
                 label: 'Booked units',
-                value: data.booked_units.toLocaleString(),
+                value: data.booked_units.toLocaleString('en-IN'),
                 helper: 'Selected month · matched models',
                 icon: CarFront,
                 tone: 'bg-emerald-50 text-emerald-600',
@@ -345,45 +341,16 @@ export function TenantTargetConfigurationWorkspace({
               )}
             </TableBody>
           </Table>
-          <div className="flex items-center justify-between border-t p-4">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page === 1 || query.isFetching}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              Previous
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              Page {page} · {data?.total ?? 0} models
-            </span>
-            <Select
-              value={String(pageSize)}
-              onValueChange={(value) => {
-                setPageSize(Number(value) as 25 | 50 | 100);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger className="w-28" aria-label="Models per page">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[25, 50, 100].map((size) => (
-                  <SelectItem key={size} value={String(size)}>
-                    {size} / page
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!data || page * pageSize >= data.total || query.isFetching}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
-          </div>
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            total={data?.total ?? 0}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
         </CardContent>
       </Card>
       {!readOnly && (

@@ -33,6 +33,7 @@ const accessoriesCatalogResponseSchema = z.object({
     total_items: z.coerce.number().int().nonnegative(),
     active_items: z.coerce.number().int().nonnegative(),
     low_stock: z.coerce.number().int().nonnegative(),
+    oem_items: z.coerce.number().int().nonnegative().default(0),
   }),
 });
 export type AccessoriesCatalogResponse = z.infer<typeof accessoriesCatalogResponseSchema>;

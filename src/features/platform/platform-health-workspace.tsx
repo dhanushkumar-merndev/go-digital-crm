@@ -1,5 +1,7 @@
 'use client';
 
+import { ErrorState } from '@/components/shared/page-states';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, Building2, Cable, CircleAlert, RefreshCw, Workflow } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
@@ -35,54 +37,61 @@ export function PlatformHealthWorkspace({ spec }: { spec: PageSpec }) {
   if (query.isPending) return <PlatformHealthSkeleton />;
   if (query.isError || !query.data)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center text-sm text-muted-foreground">
-          Platform health signals are unavailable. Confirm Super Admin MFA access and deploy the
-          platform health migration.
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          description="Platform health signals are unavailable. Confirm Super Admin MFA access and deploy the platform health migration."
+          onRetry={() => void query.refetch()}
+        />
+      </PageShell>
     );
   const data = query.data;
   const metrics: Metric[] = [
-    { label: 'Active tenants', value: data.kpis.active_tenants.toLocaleString(), icon: Building2 },
+    {
+      label: 'Active tenants',
+      value: data.kpis.active_tenants.toLocaleString('en-IN'),
+      icon: Building2,
+    },
     {
       label: 'Provider connections',
-      value: data.kpis.provider_connections.toLocaleString(),
+      value: data.kpis.provider_connections.toLocaleString('en-IN'),
       icon: Cable,
     },
-    { label: 'Sync runs · 24h', value: data.kpis.sync_runs_24h.toLocaleString(), icon: Workflow },
+    {
+      label: 'Sync runs · 24h',
+      value: data.kpis.sync_runs_24h.toLocaleString('en-IN'),
+      icon: Workflow,
+    },
     {
       label: 'Provider attention',
-      value: data.kpis.provider_attention.toLocaleString(),
+      value: data.kpis.provider_attention.toLocaleString('en-IN'),
       icon: CircleAlert,
     },
     {
       label: 'Recorded errors · 24h',
-      value: data.kpis.errors_24h.toLocaleString(),
+      value: data.kpis.errors_24h.toLocaleString('en-IN'),
       icon: Activity,
     },
   ];
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="mb-2 text-xs text-muted-foreground">Platform › Health</div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">{spec.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Recorded CRM provider, sync, and sanitized error signals. External uptime or latency is
-            not claimed without a monitoring source.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={query.isFetching}
-          onClick={() => void query.refetch()}
-        >
-          <RefreshCw className="size-4" /> Refresh
-        </Button>
-      </div>
-      <KpiGrid metrics={metrics} className="xl:grid-cols-5" />
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Provider, sync and error signals recorded by the CRM across every dealership. External uptime or latency is not claimed without a monitoring source."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={query.isFetching}
+              onClick={() => void query.refetch()}
+            >
+              <RefreshCw className="size-4" /> Refresh
+            </Button>
+          </>
+        }
+      />
+      <KpiGrid metrics={metrics} />
       <div className="grid gap-5 xl:grid-cols-2">
         <Card className="overflow-hidden shadow-none">
           <CardHeader>

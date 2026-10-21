@@ -41,9 +41,10 @@ describe('automation rules workspace contract', () => {
     expect(api).toContain("rpc('create_automation_rule'");
     expect(api).toContain("rpc('set_automation_rule_enabled'");
     expect(workspace).toContain('useDebouncedValue(searchInput, 300)');
-    expect(workspace).toContain(
-      "['automation-workspace', ...workspaceQueryScope(session), page, search, status]",
+    expect(workspace).toMatch(
+      /\[\s*'automation-workspace',\s*\.\.\.workspaceQueryScope\(session\),\s*page,\s*pageSize,\s*search,\s*status,?\s*\]/,
     );
+    expect(workspace).toContain('<TablePagination');
     expect(workspace).toContain("invalidateQueries({ queryKey: ['automation-workspace'] })");
     expect(workspace).toContain('kind="donut"');
     expect(route).toContain("role === 'system-administrator' && slug[0] === 'automation-rules'");

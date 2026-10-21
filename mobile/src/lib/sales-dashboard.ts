@@ -17,9 +17,12 @@ export type MobileSalesDashboard = {
     id: string;
     kind: 'FOLLOW_UP' | 'SHOWROOM_VISIT' | 'TEST_DRIVE' | 'DELIVERY';
     scheduledAt: string;
+    leadId: string | null;
     customerName: string;
     detail: string | null;
     status: string;
+    /** For swipe-to-call; null when neither the lead nor the customer has one. */
+    phone: string | null;
   }>;
   recentLeads: Array<{
     id: string;
@@ -94,9 +97,11 @@ export async function fetchMobileSalesDashboard(): Promise<MobileSalesDashboard>
           id: asString(value.id),
           kind: kind as MobileSalesDashboard['schedule'][number]['kind'],
           scheduledAt: asString(value.scheduled_at),
+          leadId: typeof value.lead_id === 'string' ? value.lead_id : null,
           customerName: asString(value.customer_name),
           detail: typeof value.detail === 'string' ? value.detail : null,
           status: asString(value.status),
+          phone: typeof value.phone === 'string' && value.phone ? value.phone : null,
         },
       ];
     }),

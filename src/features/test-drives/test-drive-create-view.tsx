@@ -254,7 +254,7 @@ export function TestDriveCreateView({
           <button onClick={onCancel} className="mb-2 flex items-center gap-1 text-sm text-primary">
             <ArrowLeft className="size-4" /> Test Drives
           </button>
-          <h1 className="text-2xl font-bold">New Test Drive</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-heading">New Test Drive</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Schedule a test drive using an assigned opportunity and an available branch vehicle.
           </p>

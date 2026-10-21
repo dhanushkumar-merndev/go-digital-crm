@@ -581,3 +581,35 @@ export async function releaseStockAllocation(input: ReleaseAllocationInput) {
   if (error) throw error;
   return allocationMutationSchema.omit({ booking_id: true }).parse(data);
 }
+
+const performanceCount = z.coerce.number().int().nonnegative();
+const inventoryPerformanceSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  kpis: z.object({
+    allocations: performanceCount,
+    active_allocations: performanceCount,
+    movements: performanceCount,
+    transfers: performanceCount,
+    intakes: performanceCount,
+  }),
+  daily: z.array(
+    z.object({ day: z.string(), allocations: performanceCount, movements: performanceCount }),
+  ),
+});
+export type InventoryPerformance = z.infer<typeof inventoryPerformanceSchema>;
+
+/** The caller's own allocations and stock movements, for My Performance. */
+export async function fetchInventoryPerformance(
+  range: { from: string; to: string },
+  signal?: AbortSignal,
+) {
+  const request = createClient().rpc('get_inventory_performance', {
+    target_from_date: range.from,
+    target_to_date: range.to,
+    target_timezone: 'Asia/Kolkata',
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return inventoryPerformanceSchema.parse(data);
+}

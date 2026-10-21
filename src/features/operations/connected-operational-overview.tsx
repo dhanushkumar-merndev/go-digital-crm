@@ -74,7 +74,10 @@ export function ConnectedOperationalOverview({
 }) {
   const presentation = departmentPresentation[department];
   const Icon = presentation.icon;
-  const steps = operationalCaseStatuses[department].slice(0, 5);
+  // The forward path only: cancelled and rejected are outcomes, not stages.
+  const steps = operationalCaseStatuses[department].filter(
+    (status) => status !== 'CANCELLED' && status !== 'REJECTED',
+  );
   const priorityQueue = [...result.records]
     .filter(
       (record) =>
@@ -114,19 +117,30 @@ export function ConnectedOperationalOverview({
           <p className="mb-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Workflow progress
           </p>
-          <div className="grid gap-2 sm:grid-cols-5">
+          <div
+            className={cn(
+              'grid gap-2 sm:grid-cols-3',
+              steps.length === 4 && 'sm:grid-cols-4',
+              steps.length === 5 && 'lg:grid-cols-5',
+              steps.length >= 6 && 'lg:grid-cols-6',
+            )}
+          >
             {steps.map((step, index) => {
-              const count = result.records.filter((record) => record.status === step).length;
+              const count = result.status_counts
+                ? (result.status_counts[step] ?? 0)
+                : result.records.filter((record) => record.status === step).length;
               return (
                 <div key={step} className="relative min-w-0 rounded-lg border bg-slate-50/60 p-3">
                   {index < steps.length - 1 && (
-                    <ChevronRight className="absolute -right-3 top-1/2 z-10 hidden size-4 -translate-y-1/2 rounded-full border bg-white p-0.5 text-slate-400 sm:block" />
+                    <ChevronRight className="absolute -right-3 top-1/2 z-10 hidden size-4 -translate-y-1/2 rounded-full border bg-white p-0.5 text-slate-400 lg:block" />
                   )}
                   <p className="truncate text-[10px] font-medium text-muted-foreground">
                     {operationalCaseStatusLabel(step)}
                   </p>
-                  <p className="mt-2 text-xl font-bold tracking-tight text-[#17233d]">{count}</p>
-                  <p className="text-[10px] text-muted-foreground">loaded cases</p>
+                  <p className="mt-2 text-xl font-bold tracking-tight text-heading">{count}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {result.status_counts ? 'cases' : 'loaded cases'}
+                  </p>
                 </div>
               );
             })}
@@ -164,7 +178,7 @@ export function ConnectedOperationalOverview({
               >
                 <ClipboardCheck className="size-4 shrink-0 text-blue-600" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[11px] font-semibold text-[#17233d]">
+                  <span className="block truncate text-[11px] font-semibold text-heading">
                     {record.customer_name}
                   </span>
                   <span className="block truncate text-[10px] text-muted-foreground">

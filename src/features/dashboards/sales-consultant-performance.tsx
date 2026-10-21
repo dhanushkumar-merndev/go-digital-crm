@@ -1,4 +1,6 @@
 'use client';
+import type { PageSpec } from '@/lib/domain';
+import { PageHeader } from '@/components/shared/page-header';
 import {
   CalendarDays,
   CarFront,
@@ -45,7 +47,13 @@ import { TelecallerActivityChart } from './telecaller-activity-chart';
 const duration = (seconds: number) =>
   `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 
-export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role?: string }) {
+export function SalesConsultantPerformance({
+  spec,
+  role = 'sales-consultant',
+}: {
+  spec: PageSpec;
+  role?: string;
+}) {
   const workspaceSession = useWorkspaceSession();
   const queryScope = workspaceQueryScope(workspaceSession);
   const [range, setRange] = useState(() => performanceRangeForLastDays(7));
@@ -222,25 +230,20 @@ export function SalesConsultantPerformance({ role = 'sales-consultant' }: { role
   const targeted = summary.filter(([key]) => d.targets[key]);
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="mb-2 text-xs">
-            <span className="text-primary">Dashboard</span>
-            <span className="mx-2 text-muted-foreground">›</span>
-            <span className="text-muted-foreground">My Performance</span>
-          </div>
-          <h1 className="text-2xl font-bold">My Performance</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Track your personal activity, conversion and target achievement.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <PerformanceDateRangeSelector value={range} onChange={setRange} includeAllTime />
-        </div>
-      </div>
-      <KpiGrid metrics={metrics.slice(0, 5)} className="xl:grid-cols-5" variant="classic" />
-      <KpiGrid metrics={metrics.slice(5)} className="xl:grid-cols-4" variant="classic" />
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Your activity, conversion and target achievement."
+        actions={
+          <>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <PerformanceDateRangeSelector value={range} onChange={setRange} includeAllTime />
+            </div>
+          </>
+        }
+      />
+      <KpiGrid metrics={metrics.slice(0, 5)} variant="classic" />
+      <KpiGrid metrics={metrics.slice(5)} variant="classic" />
       {telecaller ? (
         <TelecallerActivityChart
           key={`${range.from}:${range.to}`}

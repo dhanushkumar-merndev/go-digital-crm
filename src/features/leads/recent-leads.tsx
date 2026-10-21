@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
+  hasWorkspacePermission,
 } from '@/components/providers/workspace-session-provider';
 import { Button } from '@/components/ui/button';
 import {
@@ -65,6 +66,9 @@ export function RecentLeadsMenu({ role }: { role: string }) {
   useEffect(() => {
     if (!session) clear();
   }, [session, clear]);
+  // Platform, admin and operations roles never open a lead, so the menu would
+  // only ever say it is empty.
+  if (session && !hasWorkspacePermission(session, 'lead.view')) return null;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

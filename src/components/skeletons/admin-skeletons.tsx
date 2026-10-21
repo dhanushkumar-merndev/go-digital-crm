@@ -1,14 +1,16 @@
 'use client';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { kpiGridColumns } from '@/components/shared/kpi-grid';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 
 // ==========================================
 // 1. ADMIN USERS SKELETON
 // ==========================================
 export function AdminUsersSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -18,8 +20,8 @@ export function AdminUsersSkeleton() {
         <Skeleton className="h-9 w-32 rounded-md" />
       </div>
 
-      {/* 4 KPI Cards */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* KPI Cards */}
+      <div className={cn('grid gap-2.5', kpiGridColumns(4))}>
         {Array.from({ length: 4 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-4">
@@ -96,7 +98,7 @@ export function AdminUsersSkeleton() {
 // ==========================================
 export function BranchTeamSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -146,7 +148,7 @@ export function BranchTeamSkeleton() {
 // ==========================================
 export function RolesPermissionsSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -214,7 +216,7 @@ export function RolesPermissionsSkeleton() {
 // ==========================================
 export function CustomFieldsSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -264,7 +266,7 @@ export function CustomFieldsSkeleton() {
 // ==========================================
 export function MasterDataSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -307,7 +309,7 @@ export function MasterDataSkeleton() {
 // ==========================================
 export function CompetitorCatalogSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -351,7 +353,7 @@ export function CompetitorCatalogSkeleton() {
 // ==========================================
 export function TenantModuleEntitlementsSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -361,8 +363,8 @@ export function TenantModuleEntitlementsSkeleton() {
         <Skeleton className="h-9 w-32 rounded-md" />
       </div>
 
-      {/* 3 KPI Cards */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      {/* KPI Cards */}
+      <div className={cn('grid gap-2.5', kpiGridColumns(3))}>
         {Array.from({ length: 3 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-4">
@@ -405,7 +407,7 @@ export function TenantModuleEntitlementsSkeleton() {
 // ==========================================
 export function TenantTargetConfigurationSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -454,7 +456,7 @@ export function TenantTargetConfigurationSkeleton() {
 // ==========================================
 export function CompanyComplianceSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -504,7 +506,7 @@ export function CompanyComplianceSkeleton() {
 // ==========================================
 export function SystemHealthSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -514,8 +516,8 @@ export function SystemHealthSkeleton() {
         <Skeleton className="h-9 w-32 rounded-md" />
       </div>
 
-      {/* 4 Health KPI Cards */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* Health KPI Cards */}
+      <div className={cn('grid gap-2.5', kpiGridColumns(4))}>
         {Array.from({ length: 4 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-4">
@@ -548,7 +550,7 @@ export function SystemHealthSkeleton() {
 // ==========================================
 export function AutomationWorkspaceSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -588,7 +590,7 @@ export function AutomationWorkspaceSkeleton() {
 // ==========================================
 export function AutomationRuleDetailSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -635,7 +637,7 @@ export function AutomationRuleDetailSkeleton() {
 // ==========================================
 export function TemplateWorkspaceSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -677,7 +679,7 @@ export function TemplateWorkspaceSkeleton() {
 // ==========================================
 export function SecurityWorkspaceSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -687,8 +689,8 @@ export function SecurityWorkspaceSkeleton() {
         <Skeleton className="h-9 w-32 rounded-md" />
       </div>
 
-      {/* 3 KPI Cards */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      {/* KPI Cards */}
+      <div className={cn('grid gap-2.5', kpiGridColumns(3))}>
         {Array.from({ length: 3 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-4">
@@ -726,7 +728,7 @@ export function SecurityWorkspaceSkeleton() {
 // ==========================================
 export function AuditLogWorkspaceSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -774,7 +776,7 @@ export function AuditLogWorkspaceSkeleton() {
 // ==========================================
 export function OwnerAiBusinessSummarySkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -796,8 +798,8 @@ export function OwnerAiBusinessSummarySkeleton() {
         </CardContent>
       </Card>
 
-      {/* 4 KPI Cards */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* KPI Cards */}
+      <div className={cn('grid gap-2.5', kpiGridColumns(4))}>
         {Array.from({ length: 4 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-4">
@@ -841,7 +843,7 @@ export function OwnerAiBusinessSummarySkeleton() {
 // ==========================================
 export function IntegrationWorkspaceSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -887,7 +889,7 @@ export function IntegrationWorkspaceSkeleton() {
 // ==========================================
 export function NotificationWorkspaceSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -926,7 +928,7 @@ export function NotificationWorkspaceSkeleton() {
 // ==========================================
 export function ReportExportWorkspaceSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>

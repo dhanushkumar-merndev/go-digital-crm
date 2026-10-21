@@ -32,10 +32,17 @@ export function SectionCard({
   children: ReactNode;
 }) {
   return (
-    <Card className={cn('min-w-0 overflow-hidden border-slate-200/90 shadow-none', className)}>
+    // h-full + flex column: two panels side by side in a grid row end level,
+    // with the shorter one's body stretching rather than its border stopping short.
+    <Card
+      className={cn(
+        'flex h-full min-w-0 flex-col overflow-hidden border-slate-200/90 shadow-none',
+        className,
+      )}
+    >
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3.5">
         <div className="min-w-0">
-          <CardTitle className="text-sm text-[#12213f]">{title}</CardTitle>
+          <CardTitle className="text-sm text-heading">{title}</CardTitle>
           {description ? (
             <p className="mt-1 text-[11px] font-normal text-muted-foreground">{description}</p>
           ) : null}
@@ -50,7 +57,9 @@ export function SectionCard({
             </Link>
           ) : null)}
       </CardHeader>
-      <CardContent className={cn(flush ? 'p-0' : 'p-4', contentClassName)}>{children}</CardContent>
+      <CardContent className={cn('min-h-0 flex-1', flush ? 'p-0' : 'p-4', contentClassName)}>
+        {children}
+      </CardContent>
     </Card>
   );
 }

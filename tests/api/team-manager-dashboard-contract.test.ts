@@ -17,7 +17,9 @@ describe('team manager dashboard contract', () => {
     expect(migration).toContain(
       'app_private.can_access_team(current_organization_id, team_row.id)',
     );
-    expect(workspace).toContain("heading = 'Team Performance'");
+    // The title is the sidebar label, read from the page spec.
+    expect(workspace).toContain('spec: PageSpec');
+    expect(route).toContain('<TeamManagerPerformance spec={spec} showHandoffs />');
     expect(route).toContain("role === 'team-manager' && slug[0] === 'team-performance'");
   });
 
@@ -25,7 +27,9 @@ describe('team manager dashboard contract', () => {
     const dashboardRoute = route.slice(
       route.indexOf("role === 'team-manager' && slug[0] === 'dashboard'"),
     );
-    expect(dashboardRoute.slice(0, 200)).toContain('<TenantDashboard spec={spec} role={role} />');
+    expect(dashboardRoute.slice(0, 260)).toContain('<TenantDashboard spec={spec} role={role}>');
+    // PRD 54.3 §4: the dashboard ends with the managed team's overview table.
+    expect(dashboardRoute.slice(0, 260)).toContain('<TeamOverviewCard />');
     expect(route).not.toContain('<TeamManagerPerformance heading="Team Manager Workspace" />');
   });
 });

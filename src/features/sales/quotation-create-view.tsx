@@ -366,7 +366,9 @@ export function QuotationCreateView({
           <button className="mb-2 flex items-center gap-1 text-sm text-primary" onClick={onBack}>
             <ArrowLeft className="size-4" /> Quotations
           </button>
-          <h1 className="text-2xl font-bold">{record ? 'Revise Quotation' : 'Create Quotation'}</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-heading">
+            {record ? 'Revise Quotation' : 'Create Quotation'}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Create a professional quotation for your customer.
           </p>

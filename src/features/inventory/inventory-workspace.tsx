@@ -1,18 +1,17 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { ErrorState } from '@/components/shared/page-states';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   ArrowLeftRight,
   CalendarDays,
   CarFront,
-  ChevronLeft,
-  ChevronRight,
   CircleAlert,
   ListFilter,
   Package,
   Plus,
-  RotateCcw,
   Search,
   TriangleAlert,
 } from 'lucide-react';
@@ -29,7 +28,7 @@ import {
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
-import { PageHeader } from '@/components/shared/page-header';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { StockCheckSkeleton, InventoryWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -370,7 +369,7 @@ function Filters({
       key: 'brand' | 'model' | 'variant' | 'fuel' | 'transmission' | 'color',
     ) => (
       <label className="min-w-0 space-y-1.5">
-        <span className="block text-[10px] font-medium text-[#526079]">{label}</span>
+        <span className="block text-[10px] font-medium text-label">{label}</span>
         <Select
           value={value || 'all'}
           onValueChange={(next) => onQueryChange({ [key]: next === 'all' ? '' : next, page: 1 })}
@@ -415,7 +414,7 @@ function Filters({
           )}
           {selectFilter('Colour', query.color, stockOptions?.colors ?? [], 'color')}
           <label className="min-w-0 space-y-1.5">
-            <span className="block text-[10px] font-medium text-[#526079]">Branch</span>
+            <span className="block text-[10px] font-medium text-label">Branch</span>
             {branches.length === 1 ? (
               <div className="flex h-9 items-center truncate rounded-md border bg-muted/30 px-3 text-sm">
                 {branches[0]?.name}
@@ -442,7 +441,7 @@ function Filters({
             )}
           </label>
           <label className="min-w-0 space-y-1.5">
-            <span className="block text-[10px] font-medium text-[#526079]">Stock status</span>
+            <span className="block text-[10px] font-medium text-label">Stock status</span>
             <Select
               value={query.filter}
               onValueChange={(filter) =>
@@ -662,7 +661,6 @@ function ServerTable<T>({
     manualSorting: true,
     rowCount: total,
   });
-  const pages = Math.max(1, Math.ceil(total / query.pageSize));
   return (
     <Card className="sales-consultant-list-card overflow-hidden shadow-none">
       <CardContent className="p-0">
@@ -704,37 +702,12 @@ function ServerTable<T>({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, total)} of {total}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="mr-2 text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={total}
+          onPageChange={(page) => onQueryChange({ page })}
+        />
       </CardContent>
     </Card>
   );
@@ -1335,7 +1308,11 @@ export function InventoryWorkspace({
       </Alert>
     );
   if ((!useWorkspaceBootstrap && legacyPermissions.isPending) || branches.isPending)
-    return selectedView === 'stock-check' ? <StockCheckSkeleton /> : <InventoryWorkspaceSkeleton />;
+    return selectedView === 'stock-check' ? (
+      <StockCheckSkeleton />
+    ) : (
+      <InventoryWorkspaceSkeleton kpis={selectedView === 'dashboard' ? 8 : 6} />
+    );
   const permissionDenied =
     permissions &&
     (selectedView === 'stock-check'
@@ -1348,49 +1325,44 @@ export function InventoryWorkspace({
     permissionDenied
   )
     return (
-      <Card className="mx-auto max-w-xl">
-        <CardContent className="flex flex-col items-center p-10 text-center">
-          <div className="grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
-            <TriangleAlert />
-          </div>
-          <h2 className="mt-4 font-semibold">Inventory is not available</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your session, permission, branch scope, or the required Inventory migration needs
-            attention. Reference: GDM-INVENTORY-ACCESS.
-          </p>
-          <Button
-            className="mt-5"
-            variant="outline"
-            onClick={() => {
-              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
-              void branches.refetch();
-            }}
-          >
-            <RotateCcw className="size-4" /> Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Inventory is not available"
+          description="Your session, permission, branch scope, or the required Inventory migration needs attention."
+          reference="GDM-INVENTORY-ACCESS"
+          onRetry={() => {
+            if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
+            void branches.refetch();
+          }}
+        />
+      </PageShell>
     );
   const branchOptions = branches.data ?? [];
   const canOpenUnits = permissions.canView && selectedView !== 'stock-check';
   return (
-    <div className="mx-auto max-w-[1800px]">
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader className="mb-0" spec={{ ...spec, primaryAction: undefined }} />
-        {!spec.readOnly && permissions.canCreate && selectedView !== 'stock-check' && (
-          <Button
-            className="shrink-0 sm:mt-7"
-            onClick={() => {
-              const now = new Date();
-              const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
-              setIntakeReceivedAt(local.toISOString().slice(0, 16));
-              setCreateOpen(true);
-            }}
-          >
-            <Plus className="size-4" /> Intake stock unit
-          </Button>
-        )}
-      </div>
+    <div className="mx-auto w-full">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        className="mb-6"
+        actions={
+          <>
+            {!spec.readOnly && permissions.canCreate && selectedView !== 'stock-check' && (
+              <Button
+                className="shrink-0"
+                onClick={() => {
+                  const now = new Date();
+                  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+                  setIntakeReceivedAt(local.toISOString().slice(0, 16));
+                  setCreateOpen(true);
+                }}
+              >
+                <Plus className="size-4" /> Intake stock unit
+              </Button>
+            )}
+          </>
+        }
+      />
       {selectedView === 'movements' && permissions.canMove && (
         <Alert className="mb-6">
           <ArrowLeftRight className="size-4" />
@@ -1405,7 +1377,7 @@ export function InventoryWorkspace({
       )}
       {selectedView === 'dashboard' ? (
         dashboard.isPending ? (
-          <InventoryWorkspaceSkeleton />
+          <InventoryWorkspaceSkeleton kpis={8} />
         ) : dashboard.isError || !dashboard.data ? (
           <Alert variant="destructive">
             <TriangleAlert className="size-4" />

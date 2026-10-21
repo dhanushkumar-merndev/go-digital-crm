@@ -41,16 +41,16 @@ describe('telecaller workspace parity', () => {
   });
 
   it('lays every telecaller workspace out on one page width', () => {
-    // 1600px is the app-wide norm, but the sales surface standardised on
-    // 1800px. Mixing the two inside one sidebar shifts the layout as you
-    // navigate and leaves dead margin on the narrower pages.
+    // The shell caps the content width once. A page that picks its own
+    // 1600 or 1800px maximum shifts the layout as you navigate between pages
+    // of one sidebar, so no workspace sets a width of its own.
     const surface = [
       ...shared,
       'src/features/dashboards/telecaller-dashboard.tsx',
       'src/features/dashboards/sales-consultant-activity-timeline.tsx',
       'src/features/dashboards/sales-consultant-performance.tsx',
     ];
-    const offenders = surface.filter((file) => !read(file).includes('mx-auto max-w-[1800px]'));
+    const offenders = surface.filter((file) => /max-w-\[1[4-8]00px\]/.test(read(file)));
     expect(offenders).toEqual([]);
   });
 

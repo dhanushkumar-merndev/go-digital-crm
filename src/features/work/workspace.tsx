@@ -1,5 +1,8 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { FilterDialogButton } from '@/components/shared/filter-bar';
+import { ErrorState } from '@/components/shared/page-states';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ZodError } from 'zod';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
@@ -9,8 +12,6 @@ import {
   CalendarClock,
   CalendarDays,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   CircleCheckBig,
   ClockAlert,
   List,
@@ -18,11 +19,9 @@ import {
   Pencil,
   Phone,
   Plus,
-  RotateCcw,
   Search,
   TrendingDown,
   TrendingUp,
-  TriangleAlert,
   XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -73,6 +72,8 @@ import {
 } from '@/components/ui/table';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { cn } from '@/lib/utils';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
+import { kpiGridColumns } from '@/components/shared/kpi-grid';
 import type { PageSpec } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import { toWhatsAppClickToChatUrl } from '@/lib/phone';
@@ -171,7 +172,7 @@ function followupMetricCards(
       rising: true,
       good: true,
       neutral: true,
-      footnote: `${statusCounts.completed.toLocaleString()} completed · ${statusCounts.cancelled.toLocaleString()} cancelled`,
+      footnote: `${statusCounts.completed.toLocaleString('en-IN')} completed · ${statusCounts.cancelled.toLocaleString('en-IN')} cancelled`,
     },
     {
       status: 'today' as const,
@@ -209,7 +210,7 @@ function followupMetricCards(
       // The tab lists every completed follow-up ever; the card counts only
       // today's. Naming the tab total keeps that difference from reading as a
       // second contradiction between the KPIs and the tabs.
-      footnote: `${statusCounts.completed.toLocaleString()} completed all time`,
+      footnote: `${statusCounts.completed.toLocaleString('en-IN')} completed all time`,
     },
     {
       status: 'upcoming' as const,
@@ -254,12 +255,12 @@ function FollowupMetricCard({
             <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', card.chip)}>
               <Icon className="size-4" />
             </span>
-            <p className="min-w-0 text-[11px] font-semibold leading-4 text-[#263550]">
+            <p className="min-w-0 text-[11px] font-semibold leading-4 text-heading-soft">
               {card.label}
             </p>
           </div>
-          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-[#12213f]">
-            {card.value.toLocaleString()}
+          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-heading">
+            {card.value.toLocaleString('en-IN')}
           </p>
           <p
             className={cn(
@@ -328,7 +329,7 @@ function FollowupStatusTabs({
               onClick={() => onStatusChange(tab.value)}
               style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
               className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
-                active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
+                active ? 'text-blue-700' : 'text-heading-soft hover:text-blue-700'
               }`}
             >
               <span>{tab.label}</span>
@@ -337,7 +338,7 @@ function FollowupStatusTabs({
                   active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
                 }`}
               >
-                {tab.count.toLocaleString()}
+                {tab.count.toLocaleString('en-IN')}
               </span>
             </button>
           );
@@ -788,15 +789,40 @@ function WorkTable({
     manualPagination: true,
     rowCount: result.total,
   });
-  const pages = Math.max(1, Math.ceil(result.total / query.pageSize));
-  const pageNumbers = Array.from({ length: Math.min(5, pages) }, (_, index) =>
-    Math.min(Math.max(query.page - 2, 1) + index, pages),
-  ).filter((value, index, values) => index === 0 || value > values[index - 1]!);
   const statuses = kind === 'followups' ? followupFilters : appointmentFilters;
   const selectedBranchTeams = result.filters.teams.filter(
     (team) => query.branchId === 'all' || team.branch_id === query.branchId,
   );
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
+  // The tab owns status on follow-ups, so only the dialog's own fields count here.
+  const clearedFilters: Partial<WorkQuery> = {
+    page: 1,
+    priority: 'all',
+    appointmentType: 'all',
+    branchId: 'all',
+    teamId: 'all',
+    ownerId: 'all',
+    model: '',
+    source: '',
+    temperature: 'all',
+    buyerType: 'all',
+    followupFrom: '',
+    followupTo: '',
+    ...(kind === 'followups' ? {} : { status: 'all' as const }),
+  };
+  const activeFilterCount = [
+    kind !== 'followups' && query.status !== 'all',
+    query.priority !== 'all',
+    query.appointmentType !== 'all',
+    query.branchId !== 'all',
+    query.teamId !== 'all',
+    query.ownerId !== 'all',
+    query.model !== '',
+    query.source !== '',
+    query.temperature !== 'all',
+    query.buyerType !== 'all',
+    query.followupFrom !== '' || query.followupTo !== '',
+  ].filter(Boolean).length;
   const followupDateLabel =
     query.followupFrom && query.followupTo
       ? `${query.followupFrom} – ${query.followupTo}`
@@ -809,31 +835,24 @@ function WorkTable({
   return (
     <Card className="sales-consultant-list-card overflow-hidden border-slate-200 shadow-none">
       <CardHeader className="space-y-0 p-0">
-        <div className="overflow-x-auto bg-white px-3 py-3 sm:px-4">
-          <div
-            className={cn(
-              'grid items-end gap-2.5',
-              kind === 'followups'
-                ? managerial
-                  ? 'min-w-[1920px] grid-cols-[1.45fr_.85fr_.85fr_.9fr_1.2fr_.9fr_.85fr_.9fr_.85fr_.9fr_1.2fr_108px_auto]'
-                  : 'min-w-[1520px] grid-cols-[1.45fr_.85fr_.85fr_.9fr_1.2fr_.9fr_.85fr_1.2fr_108px_auto]'
-                : managerial
-                  ? 'min-w-[1320px] grid-cols-[1.45fr_.85fr_.9fr_.85fr_.85fr_.9fr_1.2fr_108px]'
-                  : 'min-w-[920px] grid-cols-[1.45fr_.9fr_.9fr_1.2fr_108px]',
-            )}
+        <div className="flex flex-wrap items-center gap-2 bg-white px-3 py-3 sm:px-4">
+          <div className="relative min-w-0 flex-1 basis-56 sm:max-w-sm">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query.search}
+              onChange={(event) => onQueryChange({ search: event.target.value, page: 1 })}
+              className="h-9 bg-white pl-9 text-xs"
+              maxLength={160}
+              placeholder="Search customer, phone, lead or work ID…"
+            />
+          </div>
+          <FilterDialogButton
+            activeCount={activeFilterCount}
+            onClear={() => onQueryChange(clearedFilters)}
+            title={kind === 'followups' ? 'Follow-up filters' : 'Appointment filters'}
           >
-            <div className="relative min-w-0">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query.search}
-                onChange={(event) => onQueryChange({ search: event.target.value, page: 1 })}
-                className="h-8 bg-white pl-9 text-[10px]"
-                maxLength={160}
-                placeholder="Search customer, phone, lead or work ID…"
-              />
-            </div>
             {kind !== 'followups' && (
-              <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              <label className="grid min-w-0 gap-1 text-xs font-medium text-label">
                 Status
                 <Select
                   value={query.status}
@@ -841,7 +860,7 @@ function WorkTable({
                     onQueryChange({ status: status as WorkStatusFilter, page: 1 })
                   }
                 >
-                  <SelectTrigger className="h-8 bg-white text-[10px]">
+                  <SelectTrigger className="h-9 bg-white text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -855,7 +874,7 @@ function WorkTable({
               </label>
             )}
             {kind === 'followups' ? (
-              <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              <label className="grid min-w-0 gap-1 text-xs font-medium text-label">
                 Priority
                 <Select
                   value={query.priority}
@@ -863,7 +882,7 @@ function WorkTable({
                     onQueryChange({ priority: priority as WorkQuery['priority'], page: 1 })
                   }
                 >
-                  <SelectTrigger className="h-8 bg-white text-[10px]">
+                  <SelectTrigger className="h-9 bg-white text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -876,7 +895,7 @@ function WorkTable({
                 </Select>
               </label>
             ) : (
-              <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              <label className="grid min-w-0 gap-1 text-xs font-medium text-label">
                 Type
                 <Select
                   value={query.appointmentType}
@@ -887,7 +906,7 @@ function WorkTable({
                     })
                   }
                 >
-                  <SelectTrigger className="h-8 bg-white text-[10px]">
+                  <SelectTrigger className="h-9 bg-white text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -901,7 +920,7 @@ function WorkTable({
             )}
             {kind === 'followups' && (
               <>
-                <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+                <label className="grid min-w-0 gap-1 text-xs font-medium text-label">
                   Model
                   <Select
                     value={query.model || 'all'}
@@ -909,7 +928,7 @@ function WorkTable({
                       onQueryChange({ model: model === 'all' ? '' : model, page: 1 })
                     }
                   >
-                    <SelectTrigger className="h-8 bg-white text-[10px]">
+                    <SelectTrigger className="h-9 bg-white text-xs">
                       <SelectValue placeholder="All models" />
                     </SelectTrigger>
                     <SelectContent>
@@ -922,7 +941,7 @@ function WorkTable({
                     </SelectContent>
                   </Select>
                 </label>
-                <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+                <label className="grid min-w-0 gap-1 text-xs font-medium text-label">
                   Source
                   <Select
                     value={query.source || 'all'}
@@ -930,7 +949,7 @@ function WorkTable({
                       onQueryChange({ source: source === 'all' ? '' : source, page: 1 })
                     }
                   >
-                    <SelectTrigger className="h-8 bg-white text-[10px]">
+                    <SelectTrigger className="h-9 bg-white text-xs">
                       <SelectValue placeholder="All sources" />
                     </SelectTrigger>
                     <SelectContent>
@@ -943,7 +962,7 @@ function WorkTable({
                     </SelectContent>
                   </Select>
                 </label>
-                <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+                <label className="grid min-w-0 gap-1 text-xs font-medium text-label">
                   Temperature
                   <Select
                     value={query.temperature}
@@ -954,7 +973,7 @@ function WorkTable({
                       })
                     }
                   >
-                    <SelectTrigger className="h-8 bg-white text-[10px]">
+                    <SelectTrigger className="h-9 bg-white text-xs">
                       <SelectValue placeholder="All temperatures" />
                     </SelectTrigger>
                     <SelectContent>
@@ -965,7 +984,7 @@ function WorkTable({
                     </SelectContent>
                   </Select>
                 </label>
-                <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+                <label className="grid min-w-0 gap-1 text-xs font-medium text-label">
                   Buyer type
                   <Select
                     value={query.buyerType}
@@ -976,7 +995,7 @@ function WorkTable({
                       })
                     }
                   >
-                    <SelectTrigger className="h-8 bg-white text-[10px]">
+                    <SelectTrigger className="h-9 bg-white text-xs">
                       <SelectValue placeholder="Individual & company" />
                     </SelectTrigger>
                     <SelectContent>
@@ -986,12 +1005,12 @@ function WorkTable({
                     </SelectContent>
                   </Select>
                 </label>
-                <div className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+                <div className="grid min-w-0 gap-1 text-xs font-medium text-label">
                   Follow-up date
                   <Button
                     type="button"
                     variant="outline"
-                    className="h-8 justify-start px-2 text-[10px] font-normal text-muted-foreground"
+                    className="h-9 justify-start px-2 text-xs font-normal text-muted-foreground"
                     onClick={() => setDateRangeOpen(true)}
                   >
                     <CalendarDays className="size-3.5 shrink-0 text-blue-600" />
@@ -1001,13 +1020,13 @@ function WorkTable({
               </>
             )}
             {managerial ? (
-              <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              <label className="grid min-w-0 gap-1 text-xs font-medium text-label">
                 Branch
                 <Select
                   value={query.branchId}
                   onValueChange={(branchId) => onQueryChange({ branchId, teamId: 'all', page: 1 })}
                 >
-                  <SelectTrigger className="h-8 bg-white text-[10px]">
+                  <SelectTrigger className="h-9 bg-white text-xs">
                     <SelectValue placeholder="Branch" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1020,25 +1039,15 @@ function WorkTable({
                   </SelectContent>
                 </Select>
               </label>
-            ) : kind !== 'followups' ? (
-              <div
-                className="flex h-10 min-w-0 items-center gap-2 rounded-md border bg-slate-50 px-3 text-xs text-[#263550] xl:min-w-[170px] xl:flex-1"
-                title={result.filters.branches[0]?.name ?? 'Assigned dealership'}
-              >
-                <Building2 className="size-4 shrink-0 text-blue-600" />
-                <span className="truncate font-medium">
-                  {result.filters.branches[0]?.name ?? 'Assigned dealership'}
-                </span>
-              </div>
             ) : null}
             {managerial && (
-              <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              <label className="grid min-w-0 gap-1 text-xs font-medium text-label">
                 Team
                 <Select
                   value={query.teamId}
                   onValueChange={(teamId) => onQueryChange({ teamId, page: 1 })}
                 >
-                  <SelectTrigger className="h-8 bg-white text-[10px]">
+                  <SelectTrigger className="h-9 bg-white text-xs">
                     <SelectValue placeholder="Team" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1053,13 +1062,13 @@ function WorkTable({
               </label>
             )}
             {managerial && (
-              <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              <label className="grid min-w-0 gap-1 text-xs font-medium text-label">
                 Assigned user
                 <Select
                   value={query.ownerId}
                   onValueChange={(ownerId) => onQueryChange({ ownerId, page: 1 })}
                 >
-                  <SelectTrigger className="h-8 bg-white text-[10px]">
+                  <SelectTrigger className="h-9 bg-white text-xs">
                     <SelectValue placeholder="Responsible user" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1073,15 +1082,16 @@ function WorkTable({
                 </Select>
               </label>
             )}
-            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
-              Sort by
+          </FilterDialogButton>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <label className="w-40 shrink-0" aria-label="Sort by">
               <Select
                 value={query.sort}
                 onValueChange={(sort) =>
                   onQueryChange({ sort: sort as WorkQuery['sort'], page: 1 })
                 }
               >
-                <SelectTrigger className="h-8 bg-white text-[10px]">
+                <SelectTrigger className="h-9 bg-white text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1092,15 +1102,14 @@ function WorkTable({
                 </SelectContent>
               </Select>
             </label>
-            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
-              Rows
+            <label className="w-40 shrink-0" aria-label="Rows">
               <Select
                 value={String(query.pageSize)}
                 onValueChange={(value) =>
                   onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
                 }
               >
-                <SelectTrigger className="h-8 w-full bg-white text-[10px]">
+                <SelectTrigger className="h-9 w-full bg-white text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1111,10 +1120,10 @@ function WorkTable({
               </Select>
             </label>
             {kind === 'followups' && (
-              <div className="flex h-10 self-end shrink-0 items-center rounded-md border bg-slate-50 p-1">
+              <div className="flex h-9 shrink-0 items-center rounded-md border bg-slate-50 p-1">
                 <button
                   type="button"
-                  className={`flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium ${
+                  className={`flex h-7 items-center gap-1.5 rounded px-2.5 text-xs font-medium ${
                     view === 'table'
                       ? 'bg-white text-blue-700 shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
@@ -1125,7 +1134,7 @@ function WorkTable({
                 </button>
                 <button
                   type="button"
-                  className={`flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium ${
+                  className={`flex h-7 items-center gap-1.5 rounded px-2.5 text-xs font-medium ${
                     view === 'calendar'
                       ? 'bg-white text-blue-700 shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
@@ -1168,7 +1177,7 @@ function WorkTable({
                       {group.headers.map((header) => (
                         <TableHead
                           key={header.id}
-                          className="h-11 whitespace-nowrap bg-slate-50 px-4 text-[10px] font-semibold uppercase tracking-wide text-[#263550]"
+                          className="h-11 whitespace-nowrap bg-slate-50 px-4 text-[10px] font-semibold uppercase tracking-wide text-heading-soft"
                         >
                           {header.isPlaceholder
                             ? null
@@ -1204,7 +1213,7 @@ function WorkTable({
                             <TableCell
                               key={cell.id}
                               className={cn(
-                                'whitespace-nowrap px-4 py-4 align-middle text-xs text-[#263550]',
+                                'whitespace-nowrap px-4 py-4 align-middle text-xs text-heading-soft',
                                 cell.column.id === 'actions' && 'w-px',
                                 cell.column.id === 'customer' && 'max-w-[190px]',
                               )}
@@ -1230,64 +1239,13 @@ function WorkTable({
                 </TableBody>
               </Table>
             </div>
-            <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm lg:flex-row lg:items-center lg:justify-between">
-              <p className="text-xs text-[#526079]">
-                Showing {result.total ? (query.page - 1) * query.pageSize + 1 : 0} to{' '}
-                {Math.min(query.page * query.pageSize, result.total)} of {result.total}{' '}
-                {kind === 'followups' ? 'follow-ups' : 'appointments'}
-              </p>
-              <div className="flex items-center gap-1.5">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-8"
-                  disabled={query.page <= 1}
-                  onClick={() => onQueryChange({ page: query.page - 1 })}
-                  aria-label="Previous page"
-                >
-                  <ChevronLeft className="size-4" />
-                </Button>
-                {pageNumbers.map((page) => (
-                  <Button
-                    key={page}
-                    variant={page === query.page ? 'default' : 'outline'}
-                    size="icon"
-                    className="size-8"
-                    onClick={() => onQueryChange({ page })}
-                  >
-                    {page}
-                  </Button>
-                ))}
-                {pages > pageNumbers[pageNumbers.length - 1]! && (
-                  <span className="px-1 text-muted-foreground">…</span>
-                )}
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-8"
-                  disabled={query.page >= pages}
-                  onClick={() => onQueryChange({ page: query.page + 1 })}
-                  aria-label="Next page"
-                >
-                  <ChevronRight className="size-4" />
-                </Button>
-                <Select
-                  value={String(query.pageSize)}
-                  onValueChange={(value) =>
-                    onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
-                  }
-                >
-                  <SelectTrigger className="ml-3 h-8 w-[112px] text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="25">25 / page</SelectItem>
-                    <SelectItem value="50">50 / page</SelectItem>
-                    <SelectItem value="100">100 / page</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+            <TablePagination
+              page={query.page}
+              pageSize={query.pageSize}
+              total={result.total}
+              onPageChange={(page) => onQueryChange({ page })}
+              onPageSizeChange={(pageSize) => onQueryChange({ pageSize, page: 1 })}
+            />
           </>
         )}
       </CardContent>
@@ -1495,45 +1453,32 @@ export function WorkWorkspace({
     !workspace.data
   )
     return (
-      <Card className="mx-auto max-w-xl">
-        <CardContent className="flex flex-col items-center p-10 text-center">
-          <div className="grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
-            <TriangleAlert />
-          </div>
-          <h2 className="mt-4 font-semibold">Work items are not available yet</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your access scope or the work workspace migration needs attention. Reference:
-            GDM-WORK-QUERY.
-          </p>
-          {/*
-            The card used to stop at the reference code, which hid every actual
-            cause behind one sentence and made the page undiagnosable without a
-            devtools session. The underlying reason is shown here instead: a
-            PostgREST code and message for a failed call, a Zod path for a
-            response that did not match the contract, or the missing-permission
-            case that produces no error object at all.
-          */}
-          <p className="mt-3 max-w-lg break-words rounded-md bg-slate-50 px-3 py-2 text-left font-mono text-[11px] leading-5 text-[#263550]">
-            {workspaceFailureDetail({
-              permissions,
-              workspaceError: workspace.error,
-              permissionsError: useWorkspaceBootstrap ? null : legacyPermissions.error,
-              hasData: Boolean(workspace.data),
-            })}
-          </p>
-          <Button
-            className="mt-5"
-            variant="outline"
-            onClick={() => {
-              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
-              void workspace.refetch();
-            }}
-          >
-            <RotateCcw className="size-4" />
-            Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Work items are not available yet"
+          description={
+            <>
+              Your access scope or the work workspace migration needs attention.
+              {/* The underlying cause: a PostgREST code and message, a Zod path,
+                  or the missing-permission case that produces no error object. */}
+              <span className="mt-3 block break-words rounded-md bg-slate-50 px-3 py-2 text-left font-mono text-[11px] leading-5 text-heading-soft">
+                {workspaceFailureDetail({
+                  permissions,
+                  workspaceError: workspace.error,
+                  permissionsError: useWorkspaceBootstrap ? null : legacyPermissions.error,
+                  hasData: Boolean(workspace.data),
+                })}
+              </span>
+            </>
+          }
+          reference="GDM-WORK-QUERY"
+          onRetry={() => {
+            if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
+            void workspace.refetch();
+          }}
+        />
+      </PageShell>
     );
 
   // `kind` selects which RPC ran, so the response shape is already decided by
@@ -1541,65 +1486,43 @@ export function WorkWorkspace({
   const followupData = workspace.data as FollowupWorkspaceResult;
 
   return (
-    <div className="mx-auto max-w-[1800px]">
+    <PageShell>
       <RefreshFailedNotice
-        className="mb-4"
         show={workspace.isError}
         retrying={workspace.isFetching}
         onRetry={() => void workspace.refetch()}
       />
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        {kind === 'followups' ? (
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-              <Link href={`/${role}/dashboard`} className="text-blue-600 hover:underline">
-                Dashboard
-              </Link>
-              <ChevronRight className="size-3" />
-              <span>{role === 'team-manager' ? 'Team Follow-ups' : 'Follow-ups'}</span>
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
-              {role === 'team-manager' ? 'Team Follow-up Monitor' : 'Follow-up Management'}
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {role === 'team-manager'
-                ? 'Monitor your team’s customer follow-ups and ensure no opportunity is missed.'
-                : 'Manage and track customer follow-ups to keep every commitment on time.'}
-            </p>
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description={
+          kind === 'appointments'
+            ? 'Showroom visits and test drives booked with customers, in one schedule.'
+            : role === 'team-manager'
+              ? 'Your team’s customer follow-ups, so no commitment slips past its time.'
+              : role === 'showroom-manager'
+                ? 'Follow-ups across every team in your showroom: due, overdue and missed.'
+                : role === 'customer-care' || role === 'customer-relationship-executive'
+                  ? 'Post-sale customer follow-ups: delivery check-ins, feedback and open cases.'
+                  : 'Your customer follow-ups, so every commitment happens on time.'
+        }
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {kind === 'appointments' && permissions.canCreate && !spec.readOnly && (
+              <Button className="shrink-0" onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" />
+                New appointment
+              </Button>
+            )}
           </div>
-        ) : (
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-              <Link href={`/${role}/dashboard`} className="text-blue-600 hover:underline">
-                Dashboard
-              </Link>
-              <ChevronRight className="size-3" />
-              <span>Appointments</span>
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
-              Appointments
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Schedule, manage and track all customer appointments in one place.
-            </p>
-          </div>
-        )}
-        <div className="flex flex-wrap items-center gap-2">
-          {kind === 'appointments' && permissions.canCreate && !spec.readOnly && (
-            <Button className="shrink-0" onClick={() => setCreateOpen(true)}>
-              <Plus className="size-4" />
-              New appointment
-            </Button>
-          )}
-        </div>
-      </div>
-      <div className="space-y-6">
+        }
+      />
+      <div className="space-y-5">
         {kind === 'followups' ? (
           <>
             <div
               id="followup-summary-kpis"
               hidden={!summaryOpen}
-              className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+              className={cn('grid gap-2.5', kpiGridColumns(5))}
             >
               {followupMetricCards(followupData.kpis, followupData.status_counts).map((card) => (
                 <FollowupMetricCard
@@ -1706,6 +1629,6 @@ export function WorkWorkspace({
           }}
         />
       )}
-    </div>
+    </PageShell>
   );
 }

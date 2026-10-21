@@ -1,17 +1,10 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen } from '@/components/screen';
+import { Badge, EmptyState, PrimaryButton } from '@/components/ui/basics';
+import { Sheet } from '@/components/ui/sheet';
 import {
   addPickedRecordings,
   chooseRecordingFolder,
@@ -32,7 +25,7 @@ import {
   type SyncSummary,
 } from '@/lib/recording-sync';
 import { supabase } from '@/lib/supabase';
-import { colors } from '@/theme';
+import { colors, font } from '@/theme';
 
 function dateTime(value: number | null) {
   if (!value) return 'Time unknown';
@@ -51,12 +44,12 @@ const statusLabels: Record<RecordingStatus, string> = {
 };
 
 const statusTones: Record<RecordingStatus, { color: string; background: string }> = {
-  PENDING: { color: '#1d4ed8', background: '#eff6ff' },
-  NEEDS_NUMBER: { color: '#b45309', background: '#fffbeb' },
-  SYNCED: { color: '#047857', background: '#ecfdf5' },
-  FAILED: { color: '#b91c1c', background: '#fef2f2' },
-  UNSUPPORTED: { color: colors.muted, background: '#f1f5f9' },
-  OLDER: { color: colors.muted, background: '#f1f5f9' },
+  PENDING: { color: colors.primary, background: colors.infoSoft },
+  NEEDS_NUMBER: { color: colors.warningStrong, background: colors.warningSoft },
+  SYNCED: { color: colors.successStrong, background: colors.successSoft },
+  FAILED: { color: colors.dangerStrong, background: colors.dangerSoft },
+  UNSUPPORTED: { color: colors.muted, background: colors.subtle },
+  OLDER: { color: colors.muted, background: colors.subtle },
 };
 
 const errorLabels: Record<string, string> = {
@@ -163,12 +156,8 @@ export default function Recordings() {
   return (
     <Screen
       title="Call recordings"
-      subtitle={lastSync ? `Last synced ${dateTime(lastSync)}` : 'Recordings from your phone'}
-      action={
-        <Pressable onPress={() => router.back()}>
-          <Text style={styles.back}>Back</Text>
-        </Pressable>
-      }
+      subtitle={lastSync ? `Last synced ${dateTime(lastSync)}` : undefined}
+      back
     >
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Recorder folder</Text>
@@ -180,19 +169,21 @@ export default function Recordings() {
                 : 'Choose the folder your phone saves call recordings to (often Recordings › Call). The app only reads that folder.'}
             </Text>
             <View style={styles.row}>
-              <Pressable style={styles.secondary} onPress={() => void chooseFolder()}>
-                <Text style={styles.secondaryText}>
-                  {folder ? 'Change folder' : 'Choose folder'}
-                </Text>
-              </Pressable>
+              <PrimaryButton
+                label={folder ? 'Change folder' : 'Choose folder'}
+                icon="folder-open-outline"
+                variant="secondary"
+                style={styles.grow}
+                onPress={() => void chooseFolder()}
+              />
               {folder ? (
-                <Pressable
-                  style={styles.primary}
+                <PrimaryButton
+                  label="Sync now"
+                  icon="sync"
+                  busy={syncing}
+                  style={styles.grow}
                   onPress={() => void sync(userId)}
-                  disabled={syncing}
-                >
-                  <Text style={styles.primaryText}>{syncing ? 'Syncing…' : 'Sync now'}</Text>
-                </Pressable>
+                />
               ) : null}
             </View>
           </>
@@ -201,10 +192,13 @@ export default function Recordings() {
             Folder sync is available on Android. Upload recordings below instead.
           </Text>
         )}
-        <Pressable style={styles.secondary} onPress={() => void pickFiles()} disabled={syncing}>
-          <Text style={styles.secondaryText}>Upload recordings</Text>
-        </Pressable>
-        {syncing ? <ActivityIndicator color={colors.primary} /> : null}
+        <PrimaryButton
+          label="Upload recordings"
+          icon="cloud-upload-outline"
+          variant="secondary"
+          disabled={syncing}
+          onPress={() => void pickFiles()}
+        />
         {summary && !syncing ? (
           <Text style={styles.summary}>
             {summary.synced} synced
@@ -265,119 +259,98 @@ export default function Recordings() {
                     </Text>
                   ) : null}
                 </View>
-                <View style={[styles.badge, { backgroundColor: tone.background }]}>
-                  <Text style={[styles.badgeText, { color: tone.color }]}>
-                    {statusLabels[row.status]}
-                  </Text>
-                </View>
+                <Badge
+                  label={statusLabels[row.status]}
+                  tone={{ fg: tone.color, bg: tone.background }}
+                />
               </Pressable>
             );
           })
         ) : (
-          <Text style={styles.empty}>
-            {folder ? 'No new call recordings yet.' : 'Choose a folder or upload a recording.'}
-          </Text>
+          <EmptyState
+            icon="mic-outline"
+            title={folder ? 'No new call recordings yet' : 'No recordings yet'}
+            detail={folder ? undefined : 'Choose a folder or upload a recording.'}
+          />
         )}
       </View>
 
-      <DetailsModal
-        row={editing}
-        onClose={() => setEditing(null)}
-        onSave={(input) => {
-          if (!userId || !editing) return;
-          if (editing.status === 'FAILED' && !input.phone) retryRecording(userId, editing.uri);
-          else setRecordingDetails(userId, editing.uri, input);
-          setEditing(null);
-          void sync(userId);
-        }}
-      />
+      {editing ? (
+        <DetailsSheet
+          key={editing.uri}
+          row={editing}
+          onClose={() => setEditing(null)}
+          onSave={(input) => {
+            if (!userId) return;
+            if (editing.status === 'FAILED' && !input.phone) retryRecording(userId, editing.uri);
+            else setRecordingDetails(userId, editing.uri, input);
+            setEditing(null);
+            void sync(userId);
+          }}
+        />
+      ) : null}
     </Screen>
   );
 }
 
-function DetailsModal({
+function DetailsSheet({
   row,
   onClose,
   onSave,
 }: {
-  row: RecordingRow | null;
+  row: RecordingRow;
   onClose: () => void;
   onSave: (input: { phone: string; direction: 'INBOUND' | 'OUTBOUND' }) => void;
 }) {
-  const [phone, setPhone] = useState('');
-  const [direction, setDirection] = useState<'INBOUND' | 'OUTBOUND'>('OUTBOUND');
+  // Mounted per recording, so the draft always starts from that recording.
+  const [phone, setPhone] = useState(row.phone ?? '');
+  const [direction, setDirection] = useState<'INBOUND' | 'OUTBOUND'>(row.direction ?? 'OUTBOUND');
   const [error, setError] = useState<string>();
-  const [shownFor, setShownFor] = useState<string | null>(null);
-  if (row && shownFor !== row.uri) {
-    setShownFor(row.uri);
-    setPhone(row.phone ?? '');
-    setDirection(row.direction ?? 'OUTBOUND');
-    setError(undefined);
-  }
-  // A closed sheet forgets its draft, so reopening starts from the recording.
-  if (!row && shownFor !== null) setShownFor(null);
+  const save = () => {
+    if (phone.replace(/\D/g, '').length < 8) {
+      setError('Enter the customer’s phone number.');
+      return;
+    }
+    try {
+      onSave({ phone, direction });
+    } catch {
+      setError('Enter a valid mobile number.');
+    }
+  };
   return (
-    <Modal visible={Boolean(row)} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior="padding" style={styles.modalBackdrop}>
-        <View style={styles.modal}>
-          <Text style={styles.modalTitle}>
-            {row?.status === 'FAILED' ? 'Retry recording' : 'Which number was this call?'}
-          </Text>
-          <Text style={styles.modalText} numberOfLines={2}>
-            {row?.contactName ? `${row.contactName} · ` : ''}
-            {row?.name}
-          </Text>
-          <Text style={styles.inputLabel}>Customer phone</Text>
-          <TextInput
-            value={phone}
-            onChangeText={setPhone}
-            style={styles.input}
-            keyboardType="phone-pad"
-            placeholder="98765 43210"
-          />
-          <View style={styles.row}>
-            {(['OUTBOUND', 'INBOUND'] as const).map((value) => (
-              <Pressable
-                key={value}
-                style={[styles.choice, direction === value && styles.choiceActive]}
-                onPress={() => setDirection(value)}
-              >
-                <Text style={[styles.choiceText, direction === value && styles.choiceTextActive]}>
-                  {value === 'OUTBOUND' ? 'I called them' : 'They called me'}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-          <View style={styles.modalActions}>
-            <Pressable style={styles.modalCancel} onPress={onClose}>
-              <Text style={styles.modalCancelText}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              style={styles.modalSave}
-              onPress={() => {
-                if (phone.replace(/\D/g, '').length < 8) {
-                  setError('Enter the customer’s phone number.');
-                  return;
-                }
-                try {
-                  onSave({ phone, direction });
-                } catch {
-                  setError('Enter a valid mobile number.');
-                }
-              }}
-            >
-              <Text style={styles.modalSaveText}>Sync</Text>
-            </Pressable>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+    <Sheet
+      title={row.status === 'FAILED' ? 'Retry recording' : 'Which number was this call?'}
+      subtitle={`${row.contactName ? `${row.contactName} · ` : ''}${row.name}`}
+      onClose={onClose}
+      footer={<PrimaryButton label="Sync" icon="sync" style={styles.grow} onPress={save} />}
+    >
+      <Text style={styles.inputLabel}>Customer phone</Text>
+      <TextInput
+        value={phone}
+        onChangeText={setPhone}
+        style={styles.input}
+        keyboardType="phone-pad"
+        placeholder="98765 43210"
+      />
+      <View style={styles.row}>
+        {(['OUTBOUND', 'INBOUND'] as const).map((value) => (
+          <Pressable
+            key={value}
+            style={[styles.choice, direction === value && styles.choiceActive]}
+            onPress={() => setDirection(value)}
+          >
+            <Text style={[styles.choiceText, direction === value && styles.choiceTextActive]}>
+              {value === 'OUTBOUND' ? 'I called them' : 'They called me'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  back: { color: colors.primary, fontWeight: '700' },
   card: {
     backgroundColor: colors.card,
     borderColor: colors.border,
@@ -386,38 +359,22 @@ const styles = StyleSheet.create({
     padding: 15,
     gap: 10,
   },
-  cardTitle: { color: colors.navy, fontSize: 16, fontWeight: '800' },
-  body: { color: colors.muted, fontSize: 12, lineHeight: 18 },
+  cardTitle: { color: colors.navy, fontSize: font.heading, fontWeight: '600' },
+  body: { color: colors.muted, fontSize: font.label, lineHeight: 18 },
   row: { flexDirection: 'row', gap: 10 },
-  primary: {
-    flex: 1,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 11,
-  },
-  primaryText: { color: 'white', fontWeight: '800' },
-  secondary: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 11,
-  },
-  secondaryText: { color: colors.primary, fontWeight: '800' },
-  summary: { color: colors.text, fontSize: 12, fontWeight: '700' },
-  error: { color: colors.danger, fontSize: 12, lineHeight: 17 },
+  grow: { flex: 1 },
+  summary: { color: colors.text, fontSize: font.label, fontWeight: '700' },
+  error: { color: colors.danger, fontSize: font.label, lineHeight: 17 },
   notice: {
-    borderColor: '#fde68a',
+    borderColor: colors.warningBorder,
     borderWidth: 1,
-    backgroundColor: '#fffbeb',
+    backgroundColor: colors.warningSoft,
     borderRadius: 14,
     padding: 14,
   },
-  noticeTitle: { color: '#92400e', fontWeight: '800' },
-  noticeText: { color: '#b45309', fontSize: 12, marginTop: 3 },
-  hint: { color: colors.muted, fontSize: 12, lineHeight: 17 },
+  noticeTitle: { color: colors.warningDeep, fontWeight: '600' },
+  noticeText: { color: colors.warningStrong, fontSize: font.label, marginTop: 3 },
+  hint: { color: colors.muted, fontSize: font.label, lineHeight: 17 },
   recording: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -427,23 +384,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   recordingMain: { flex: 1 },
-  recordingTitle: { color: colors.text, fontWeight: '800', fontSize: 14 },
-  recordingMeta: { color: colors.muted, fontSize: 11, marginTop: 2 },
-  recordingError: { color: colors.danger, fontSize: 11, marginTop: 2 },
-  badge: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4 },
-  badgeText: { fontSize: 10, fontWeight: '800' },
-  empty: { color: colors.muted, fontSize: 13, textAlign: 'center', padding: 12 },
-  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(15,23,42,0.4)' },
-  modal: {
-    backgroundColor: colors.card,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    padding: 20,
-    gap: 10,
-  },
-  modalTitle: { color: colors.navy, fontSize: 19, fontWeight: '800' },
-  modalText: { color: colors.muted, fontSize: 12, lineHeight: 18 },
-  inputLabel: { color: colors.text, fontSize: 12, fontWeight: '800', marginTop: 4 },
+  recordingTitle: { color: colors.text, fontWeight: '600', fontSize: font.row },
+  recordingMeta: { color: colors.muted, fontSize: font.caption, marginTop: 2 },
+  recordingError: { color: colors.danger, fontSize: font.caption, marginTop: 2 },
+  inputLabel: { color: colors.text, fontSize: font.label, fontWeight: '600', marginTop: 4 },
   input: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -460,23 +404,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
   },
-  choiceActive: { borderColor: colors.primary, backgroundColor: '#eff6ff' },
-  choiceText: { color: colors.text, fontWeight: '700', fontSize: 12 },
+  choiceActive: { borderColor: colors.primary, backgroundColor: colors.infoSoft },
+  choiceText: { color: colors.text, fontWeight: '700', fontSize: font.label },
   choiceTextActive: { color: colors.primary },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 6 },
-  modalCancel: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-  },
-  modalCancelText: { color: colors.text, fontWeight: '800' },
-  modalSave: {
-    backgroundColor: colors.primary,
-    borderRadius: 10,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-  },
-  modalSaveText: { color: 'white', fontWeight: '800' },
 });

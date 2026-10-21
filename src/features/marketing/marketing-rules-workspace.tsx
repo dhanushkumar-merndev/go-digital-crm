@@ -205,7 +205,7 @@ function AutomationDialog({
   });
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{rule ? 'Edit automation' : 'Create automation'}</DialogTitle>
           <DialogDescription>
@@ -625,7 +625,7 @@ export function MarketingRulesWorkspace({ spec }: { spec: PageSpec }) {
     },
   ];
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader
         spec={{
           ...spec,

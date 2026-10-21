@@ -1,5 +1,7 @@
 'use client';
 
+import { ErrorState } from '@/components/shared/page-states';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Blocks, CheckCircle2, Coins, Plus, ShieldCheck } from 'lucide-react';
@@ -12,6 +14,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -77,7 +80,7 @@ function PlanDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{plan ? 'Edit subscription plan' : 'Create subscription plan'}</DialogTitle>
           <DialogDescription>
@@ -153,14 +156,14 @@ function PlanDialog({
               })}
             </div>
           </div>
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button type="submit" disabled={mutation.isPending}>
               {mutation.isPending ? 'Saving…' : 'Save plan'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -204,28 +207,33 @@ export function SubscriptionPlanWorkspace({ spec }: { spec: PageSpec }) {
   if (query.isPending) return <SubscriptionPlanSkeleton />;
   if (query.isError || !workspace)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center text-sm text-muted-foreground">
-          Subscription plans are unavailable. Confirm Super Admin MFA access and deploy the plan
-          workspace migration.
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          description="Subscription plans are unavailable. Confirm Super Admin MFA access and deploy the plan workspace migration."
+          onRetry={() => void query.refetch()}
+        />
+      </PageShell>
     );
   const metrics: Metric[] = [
-    { label: 'Total plans', value: workspace.kpis.total_plans.toLocaleString(), icon: Coins },
+    {
+      label: 'Total plans',
+      value: workspace.kpis.total_plans.toLocaleString('en-IN'),
+      icon: Coins,
+    },
     {
       label: 'Active plans',
-      value: workspace.kpis.active_plans.toLocaleString(),
+      value: workspace.kpis.active_plans.toLocaleString('en-IN'),
       icon: CheckCircle2,
     },
     {
       label: 'Plan-module assignments',
-      value: workspace.kpis.module_assignments.toLocaleString(),
+      value: workspace.kpis.module_assignments.toLocaleString('en-IN'),
       icon: Blocks,
     },
     {
       label: 'Active catalog modules',
-      value: workspace.kpis.active_modules.toLocaleString(),
+      value: workspace.kpis.active_modules.toLocaleString('en-IN'),
       icon: ShieldCheck,
     },
   ];
@@ -233,21 +241,19 @@ export function SubscriptionPlanWorkspace({ spec }: { spec: PageSpec }) {
     workspace.plans.some((plan) => plan.modules.some((candidate) => candidate.id === module.id)),
   );
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="mb-2 text-xs text-muted-foreground">Platform › Plans</div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">{spec.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Manage the platform plan-feature matrix. This screen intentionally shows no fabricated
-            pricing or subscription counts.
-          </p>
-        </div>
-        <Button onClick={() => setEditing(null)}>
-          <Plus className="size-4" /> Create plan
-        </Button>
-      </div>
-      <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Plans and the features each one includes."
+        actions={
+          <>
+            <Button onClick={() => setEditing(null)}>
+              <Plus className="size-4" /> Create plan
+            </Button>
+          </>
+        }
+      />
+      <KpiGrid metrics={metrics} />
       <div className="grid gap-4 xl:grid-cols-4">
         {workspace.plans.map((plan) => (
           <Card key={plan.id} className="shadow-none">

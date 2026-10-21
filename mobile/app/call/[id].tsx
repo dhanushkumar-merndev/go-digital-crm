@@ -1,18 +1,12 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Linking,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { CallAiPanel } from '@/components/call-ai-panel';
 import { Screen } from '@/components/screen';
+import { ErrorState, initials, PrimaryButton, SkeletonList } from '@/components/ui/basics';
+import { Sheet } from '@/components/ui/sheet';
+import { WhenPicker } from '@/components/ui/when-picker';
 import { fetchCallAiState, type CallAiState } from '@/lib/call-ai';
 import {
   createMobileCallFollowup,
@@ -22,7 +16,7 @@ import {
   type MobileCallDetail,
 } from '@/lib/calls';
 import { spokenLanguageName } from '@/lib/spoken-language';
-import { colors } from '@/theme';
+import { colors, font } from '@/theme';
 
 function duration(value: number | null) {
   if (value === null) return 'Duration unavailable';
@@ -36,11 +30,10 @@ function dateTime(value: string) {
     : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
 
-function localDateInput() {
+function tomorrowAtTen() {
   const next = new Date(Date.now() + 24 * 60 * 60 * 1000);
   next.setHours(10, 0, 0, 0);
-  const pad = (value: number) => value.toString().padStart(2, '0');
-  return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())} ${pad(next.getHours())}:${pad(next.getMinutes())}`;
+  return next;
 }
 
 function requestId() {
@@ -49,16 +42,6 @@ function requestId() {
     const random = Math.floor(Math.random() * 16);
     return (character === 'x' ? random : (random & 0x3) | 0x8).toString(16);
   });
-}
-
-function initials(name: string | null) {
-  return (name ?? 'Customer')
-    .split(' ')
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
 }
 
 export default function CallSummary() {
@@ -73,7 +56,7 @@ export default function CallSummary() {
   const [recordingUploaded, setRecordingUploaded] = useState(false);
   const [followupOpen, setFollowupOpen] = useState(false);
   const [reason, setReason] = useState('Follow up after call');
-  const [dueAt, setDueAt] = useState(localDateInput);
+  const [dueAt, setDueAt] = useState(tomorrowAtTen);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string>();
   const [saved, setSaved] = useState(false);
@@ -161,9 +144,9 @@ export default function CallSummary() {
   };
   const scheduleFollowup = async () => {
     if (!call) return;
-    const date = new Date(dueAt.replace(' ', 'T'));
-    if (reason.trim().length < 3 || Number.isNaN(date.getTime())) {
-      setFormError('Enter a reason and a valid local date/time.');
+    const date = dueAt;
+    if (reason.trim().length < 3) {
+      setFormError('Enter a reason for the follow-up.');
       return;
     }
     setSaving(true);
@@ -185,34 +168,23 @@ export default function CallSummary() {
   };
 
   return (
-    <Screen
-      title="Call summary"
-      subtitle={call ? dateTime(call.started_at) : 'Authorized call record'}
-      action={
-        <Pressable onPress={() => router.back()}>
-          <Text style={styles.back}>Back</Text>
-        </Pressable>
-      }
-    >
-      {loading ? (
-        <View style={styles.loading}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : null}
+    <Screen title="Call summary" subtitle={call ? dateTime(call.started_at) : undefined} back>
+      {loading && !call ? <SkeletonList rows={5} /> : null}
       {error ? (
-        <Pressable style={styles.error} onPress={() => void load()}>
-          <Text style={styles.errorTitle}>Call detail is unavailable</Text>
-          <Text style={styles.errorText}>
-            It may be outside your current permission or data scope. Tap to retry.
-          </Text>
-        </Pressable>
+        <ErrorState
+          title="Call detail is unavailable"
+          detail="It may be outside your current permission or data scope."
+          onRetry={() => void load()}
+        />
       ) : null}
       {call ? (
         <>
           <View style={styles.card}>
             <View style={styles.customerRow}>
               <View style={styles.customerAvatar}>
-                <Text style={styles.customerAvatarText}>{initials(call.customer_name)}</Text>
+                <Text style={styles.customerAvatarText}>
+                  {initials(call.customer_name ?? 'Customer')}
+                </Text>
               </View>
               <View style={styles.customerMain}>
                 <Text style={styles.customerName}>
@@ -260,21 +232,21 @@ export default function CallSummary() {
                 </Text>
               </View>
               {readyRecording ? (
-                <Pressable
-                  style={styles.download}
+                <PrimaryButton
+                  label="Open"
+                  icon="play"
+                  variant="secondary"
+                  busy={downloading}
                   onPress={() => void downloadRecording()}
-                  disabled={downloading}
-                >
-                  <Text style={styles.downloadText}>{downloading ? 'Opening…' : 'Open'}</Text>
-                </Pressable>
+                />
               ) : call.call_source === 'PERSONAL_MANUAL' ? (
-                <Pressable
-                  style={styles.download}
+                <PrimaryButton
+                  label="Upload"
+                  icon="cloud-upload-outline"
+                  variant="secondary"
+                  busy={uploading}
                   onPress={() => void uploadRecording()}
-                  disabled={uploading}
-                >
-                  <Text style={styles.downloadText}>{uploading ? 'Uploading…' : 'Upload'}</Text>
-                </Pressable>
+                />
               ) : null}
             </View>
             {recordingError ? <Text style={styles.formError}>{recordingError}</Text> : null}
@@ -292,7 +264,7 @@ export default function CallSummary() {
           ) : null}
           <InsightCard
             title="AI call summary"
-            tone="#7c3aed"
+            tone={colors.violet}
             text={call.ai_summary?.summary ?? 'AI summary is not available for this call.'}
           />
           <SpeakerTranscriptCard transcript={call.transcript} />
@@ -308,9 +280,11 @@ export default function CallSummary() {
             </Text>
             {saved ? <Text style={styles.success}>Follow-up scheduled successfully.</Text> : null}
             {canScheduleFollowup ? (
-              <Pressable style={styles.primary} onPress={() => setFollowupOpen(true)}>
-                <Text style={styles.primaryText}>Schedule follow-up</Text>
-              </Pressable>
+              <PrimaryButton
+                label="Schedule follow-up"
+                icon="alarm-outline"
+                onPress={() => setFollowupOpen(true)}
+              />
             ) : (
               <Text style={styles.restricted}>
                 This call is not linked to a lead or customer, so a follow-up cannot be scheduled
@@ -319,70 +293,53 @@ export default function CallSummary() {
             )}
           </View>
           {phone ? (
-            <Pressable style={styles.secondary} onPress={callCustomer}>
-              <Text style={styles.secondaryText}>Call customer</Text>
-            </Pressable>
+            <PrimaryButton
+              label="Call customer"
+              icon="call-outline"
+              variant="secondary"
+              onPress={callCustomer}
+            />
           ) : null}
           {call.lead_id ? (
-            <Pressable
-              style={styles.secondary}
+            <PrimaryButton
+              label="Open linked lead"
+              icon="person-outline"
+              variant="secondary"
               onPress={() =>
                 router.push({ pathname: '/lead/[id]', params: { id: call.lead_id as string } })
               }
-            >
-              <Text style={styles.secondaryText}>Open linked lead</Text>
-            </Pressable>
+            />
           ) : null}
         </>
       ) : null}
-      <Modal
-        visible={followupOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setFollowupOpen(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Schedule follow-up</Text>
-            <Text style={styles.modalText}>
-              This is created through the audited CRM follow-up workflow and assigned to you.
-            </Text>
-            <Text style={styles.inputLabel}>Reason</Text>
-            <TextInput
-              value={reason}
-              onChangeText={setReason}
-              style={styles.input}
-              maxLength={240}
-              placeholder="Reason for follow-up"
+      {followupOpen ? (
+        <Sheet
+          title="Schedule follow-up"
+          subtitle="Created through the audited follow-up workflow and assigned to you."
+          onClose={() => setFollowupOpen(false)}
+          footer={
+            <PrimaryButton
+              label="Schedule"
+              icon="alarm"
+              busy={saving}
+              style={styles.grow}
+              onPress={() => void scheduleFollowup()}
             />
-            <Text style={styles.inputLabel}>Due date and time</Text>
-            <TextInput
-              value={dueAt}
-              onChangeText={setDueAt}
-              style={styles.input}
-              autoCapitalize="none"
-              placeholder="YYYY-MM-DD HH:mm"
-            />
-            {formError ? <Text style={styles.formError}>{formError}</Text> : null}
-            <View style={styles.modalActions}>
-              <Pressable
-                style={styles.modalCancel}
-                onPress={() => setFollowupOpen(false)}
-                disabled={saving}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={styles.modalSave}
-                onPress={() => void scheduleFollowup()}
-                disabled={saving}
-              >
-                <Text style={styles.modalSaveText}>{saving ? 'Scheduling…' : 'Schedule'}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+          }
+        >
+          <Text style={styles.inputLabel}>Reason</Text>
+          <TextInput
+            value={reason}
+            onChangeText={setReason}
+            style={styles.input}
+            maxLength={240}
+            placeholder="Reason for follow-up"
+          />
+          <Text style={styles.inputLabel}>When</Text>
+          <WhenPicker value={dueAt} onChange={setDueAt} />
+          {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+        </Sheet>
+      ) : null}
     </Screen>
   );
 }
@@ -510,18 +467,8 @@ function SpeakerTranscriptCard({ transcript }: { transcript: MobileCallDetail['t
 }
 
 const styles = StyleSheet.create({
-  languageToggle: { color: colors.primary, fontSize: 12, fontWeight: '700' },
-  back: { color: colors.primary, fontWeight: '700' },
-  loading: { padding: 36, alignItems: 'center' },
-  error: {
-    borderColor: '#fecaca',
-    borderWidth: 1,
-    backgroundColor: '#fef2f2',
-    borderRadius: 14,
-    padding: 16,
-  },
-  errorTitle: { color: '#991b1b', fontWeight: '800' },
-  errorText: { color: '#b91c1c', fontSize: 12, marginTop: 4 },
+  grow: { flex: 1 },
+  languageToggle: { color: colors.primary, fontSize: font.label, fontWeight: '700' },
   card: {
     backgroundColor: colors.card,
     borderColor: colors.border,
@@ -539,14 +486,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  customerAvatarText: { color: '#be123c', fontWeight: '800', fontSize: 19 },
+  customerAvatarText: { color: '#be123c', fontWeight: '600', fontSize: font.title },
   customerMain: { flex: 1 },
-  customerName: { color: colors.navy, fontSize: 20, fontWeight: '800' },
+  customerName: { color: colors.navy, fontSize: font.large, fontWeight: '700' },
   phone: { color: colors.success, fontWeight: '700', marginTop: 4 },
-  context: { color: colors.muted, fontSize: 11, marginTop: 5 },
-  restricted: { color: colors.muted, fontSize: 12, lineHeight: 18 },
+  context: { color: colors.muted, fontSize: font.caption, marginTop: 5 },
+  restricted: { color: colors.muted, fontSize: font.label, lineHeight: 18 },
   divider: { height: 1, backgroundColor: colors.border },
-  source: { color: colors.muted, fontSize: 11, fontWeight: '700' },
+  source: { color: colors.muted, fontSize: font.caption, fontWeight: '700' },
   factRow: { flexDirection: 'row', gap: 8 },
   fact: {
     flex: 1,
@@ -555,8 +502,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 4,
   },
-  factValue: { color: colors.text, fontSize: 12, fontWeight: '800', textAlign: 'center' },
-  factLabel: { color: colors.muted, fontSize: 10, fontWeight: '700', marginTop: 6 },
+  factValue: { color: colors.text, fontSize: font.label, fontWeight: '600', textAlign: 'center' },
+  factLabel: { color: colors.muted, fontSize: font.caption, fontWeight: '700', marginTop: 6 },
   recording: {
     borderTopColor: colors.border,
     borderTopWidth: 1,
@@ -566,19 +513,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   recordingMain: { flex: 1 },
-  recordingTitle: { color: colors.text, fontWeight: '800' },
-  recordingText: { color: colors.muted, fontSize: 11, marginTop: 3 },
-  download: {
-    borderColor: colors.primary,
-    borderWidth: 1,
-    borderRadius: 9,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  downloadText: { color: colors.primary, fontSize: 12, fontWeight: '800' },
-  insightTitle: { fontWeight: '800', fontSize: 17 },
-  insightText: { color: colors.text, fontSize: 13, lineHeight: 20 },
-  insightNote: { color: colors.warning, fontSize: 11, lineHeight: 16 },
+  recordingTitle: { color: colors.text, fontWeight: '600' },
+  recordingText: { color: colors.muted, fontSize: font.caption, marginTop: 3 },
+  insightTitle: { fontWeight: '600', fontSize: font.heading },
+  insightText: { color: colors.text, fontSize: font.small, lineHeight: 20 },
+  insightNote: { color: colors.warning, fontSize: font.caption, lineHeight: 16 },
   speakerTurns: { gap: 8 },
   speakerBubble: {
     maxWidth: '88%',
@@ -587,43 +526,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 9,
   },
-  agentBubble: { alignSelf: 'flex-start', borderColor: '#bfdbfe', backgroundColor: '#eff6ff' },
+  agentBubble: {
+    alignSelf: 'flex-start',
+    borderColor: colors.infoBorderStrong,
+    backgroundColor: colors.infoSoft,
+  },
   customerBubble: {
     alignSelf: 'flex-end',
     borderColor: '#a7f3d0',
-    backgroundColor: '#ecfdf5',
+    backgroundColor: colors.successSoft,
   },
-  unclearBubble: { alignSelf: 'flex-start', borderColor: '#fde68a', backgroundColor: '#fffbeb' },
-  speakerLabel: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
-  agentLabel: { color: '#1d4ed8' },
-  customerLabel: { color: '#047857' },
-  unclearLabel: { color: '#92400e' },
-  speakerText: { color: colors.text, fontSize: 13, lineHeight: 20, marginTop: 4 },
-  nextTitle: { color: colors.navy, fontSize: 17, fontWeight: '800' },
-  nextText: { color: colors.muted, fontSize: 12, lineHeight: 18 },
-  success: { color: colors.success, fontSize: 12, fontWeight: '800' },
-  primary: { backgroundColor: colors.primary, alignItems: 'center', padding: 13, borderRadius: 11 },
-  primaryText: { color: 'white', fontWeight: '800' },
-  secondary: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    alignItems: 'center',
-    padding: 13,
-    borderRadius: 11,
+  unclearBubble: {
+    alignSelf: 'flex-start',
+    borderColor: colors.warningBorder,
+    backgroundColor: colors.warningSoft,
   },
-  secondaryText: { color: colors.primary, fontWeight: '800' },
-  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(15,23,42,0.4)' },
-  modal: {
-    backgroundColor: colors.card,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    padding: 20,
-    gap: 10,
-  },
-  modalTitle: { color: colors.navy, fontSize: 19, fontWeight: '800' },
-  modalText: { color: colors.muted, fontSize: 12, lineHeight: 18 },
-  inputLabel: { color: colors.text, fontSize: 12, fontWeight: '800', marginTop: 4 },
+  speakerLabel: { fontSize: font.caption, fontWeight: '600', textTransform: 'uppercase' },
+  agentLabel: { color: colors.primary },
+  customerLabel: { color: colors.successStrong },
+  unclearLabel: { color: colors.warningDeep },
+  speakerText: { color: colors.text, fontSize: font.small, lineHeight: 20, marginTop: 4 },
+  nextTitle: { color: colors.navy, fontSize: font.heading, fontWeight: '600' },
+  nextText: { color: colors.muted, fontSize: font.label, lineHeight: 18 },
+  success: { color: colors.success, fontSize: font.label, fontWeight: '600' },
+  inputLabel: { color: colors.text, fontSize: font.label, fontWeight: '600', marginTop: 4 },
   input: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -631,24 +557,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: 11,
     color: colors.text,
-    backgroundColor: '#fff',
+    backgroundColor: colors.onColor,
   },
-  formError: { color: colors.danger, fontSize: 12 },
-  uploadSuccess: { color: colors.success, fontSize: 12 },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 6 },
-  modalCancel: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-  },
-  modalCancelText: { color: colors.text, fontWeight: '800' },
-  modalSave: {
-    backgroundColor: colors.primary,
-    borderRadius: 10,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-  },
-  modalSaveText: { color: 'white', fontWeight: '800' },
+  formError: { color: colors.danger, fontSize: font.label },
+  uploadSuccess: { color: colors.success, fontSize: font.label },
 });

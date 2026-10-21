@@ -9,6 +9,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -221,7 +222,7 @@ export function TestDriveScheduleDialog({
   const validSchedule = Boolean(scheduledAt) && !Number.isNaN(new Date(scheduledAt).getTime());
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Schedule test drive</DialogTitle>
           <DialogDescription>
@@ -422,7 +423,7 @@ export function TestDriveScheduleDialog({
               </AlertDescription>
             </Alert>
           )}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -441,7 +442,7 @@ export function TestDriveScheduleDialog({
             >
               {mutation.isPending ? 'Scheduling…' : 'Schedule test drive'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -523,7 +524,7 @@ export function TestDriveCancelDialog({
               </AlertDescription>
             </Alert>
           )}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {active ? 'Keep active' : 'Keep scheduled'}
             </Button>
@@ -538,7 +539,7 @@ export function TestDriveCancelDialog({
                   ? 'Cancel active drive'
                   : 'Cancel test drive'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -632,7 +633,7 @@ export function TestDriveAnchorDialog({
   const odometerError =
     requiresOdometer && odometer.trim() !== '' && !validOdometer
       ? kind === 'end' && record.start_odometer !== null && odometerValue < record.start_odometer
-        ? `End odometer must be at least ${record.start_odometer.toLocaleString()} km.`
+        ? `End odometer must be at least ${record.start_odometer.toLocaleString('en-IN')} km.`
         : 'Enter a whole odometer value between 0 and 2,000,000 km.'
       : '';
   const titles: Record<TestDriveAnchorKind, string> = {
@@ -724,7 +725,7 @@ export function TestDriveAnchorDialog({
               />
               {kind === 'end' && record.start_odometer !== null && !odometerError && (
                 <p className="text-xs text-muted-foreground">
-                  Start odometer: {record.start_odometer.toLocaleString()} km
+                  Start odometer: {record.start_odometer.toLocaleString('en-IN')} km
                 </p>
               )}
               {odometerError && <p className="text-xs text-destructive">{odometerError}</p>}
@@ -744,7 +745,7 @@ export function TestDriveAnchorDialog({
               customer feedback.
             </p>
           )}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -754,7 +755,7 @@ export function TestDriveAnchorDialog({
             >
               {mutation.isPending ? 'Saving…' : titles[kind]}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -903,7 +904,7 @@ export function TestDriveFeedbackDialog({
   });
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Test-drive feedback</DialogTitle>
           <DialogDescription>
@@ -994,14 +995,14 @@ export function TestDriveFeedbackDialog({
               </AlertDescription>
             </Alert>
           )}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={mutation.isPending}>
               {mutation.isPending ? 'Saving…' : 'Save feedback'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

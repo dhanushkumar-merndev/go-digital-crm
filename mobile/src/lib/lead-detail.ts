@@ -1,3 +1,4 @@
+import { fetchAccessContext } from '@/lib/access-context';
 import { supabase } from '@/lib/supabase';
 
 export type MobileLeadDetail = {
@@ -19,6 +20,16 @@ export type MobileLeadDetail = {
     assigned_user_name: string | null;
     next_followup_at: string | null;
     updated_at: string;
+    /** Null until the lead's requirements are first saved. */
+    requirements?: {
+      variant: string | null;
+      budget_max: number | string | null;
+      purchase_timeline: string | null;
+      finance_required: boolean | null;
+      exchange_required: boolean | null;
+      test_drive_required: boolean | null;
+      competitors: string[] | null;
+    } | null;
   };
   access: {
     can_followups: boolean;
@@ -85,9 +96,7 @@ export type MobileRole = 'telecaller' | 'sales-consultant' | null;
 // Throws on a failed read: a role silently read as null would make Call skip
 // recording the contact with no message.
 export async function fetchMobileRole(): Promise<MobileRole> {
-  const { data, error } = await supabase.rpc('get_access_context');
-  if (error) throw error;
-  const role = (data as { role_key?: string } | null)?.role_key;
+  const role = (await fetchAccessContext()).role_key;
   return role === 'telecaller' || role === 'sales-consultant' ? role : null;
 }
 
@@ -275,6 +284,24 @@ export async function createMobileTestDrive(input: {
     target_start_location: null,
     target_destination: null,
     target_request_id: input.requestId,
+  });
+  if (error) throw error;
+}
+
+export const leadTemperatures = ['HOT', 'WARM', 'COLD', 'DORMANT'] as const;
+export type LeadTemperature = (typeof leadTemperatures)[number];
+
+// Same audited update the web "Set temperature" menu makes; every change lands
+// in lead_temperature_history. DORMANT is a deliberate human choice (AGENTS 9.7).
+export async function setMobileLeadTemperature(input: {
+  lead: MobileLeadDetail['lead'];
+  temperature: LeadTemperature;
+}) {
+  const { error } = await supabase.rpc('update_lead', {
+    target_lead_id: input.lead.id,
+    expected_updated_at: input.lead.updated_at,
+    lead_patch: { temperature: input.temperature },
+    change_reason: `Temperature set to ${input.temperature} from the mobile app`,
   });
   if (error) throw error;
 }

@@ -39,7 +39,14 @@ export type CallAiFieldKey =
   | 'lifecycle_status'
   | 'temperature'
   | 'next_followup_at'
-  | 'lost_reason';
+  | 'lost_reason'
+  | 'variant'
+  | 'budget_max'
+  | 'purchase_timeline'
+  | 'finance_required'
+  | 'exchange_required'
+  | 'test_drive_required'
+  | 'competitors';
 
 export type CallAiField = {
   field_key: CallAiFieldKey;
@@ -80,7 +87,20 @@ export const callAiFieldLabels: Record<CallAiFieldKey, string> = {
   temperature: 'Temperature',
   next_followup_at: 'Next follow-up',
   lost_reason: 'Lost reason',
+  variant: 'Variant',
+  budget_max: 'Budget',
+  purchase_timeline: 'Buying timeline',
+  finance_required: 'Needs finance',
+  exchange_required: 'Has exchange',
+  test_drive_required: 'Wants test drive',
+  competitors: 'Also considering',
 };
+
+const yesNoFields = new Set<CallAiFieldKey>([
+  'finance_required',
+  'exchange_required',
+  'test_drive_required',
+]);
 
 export function isCallAiRunning(state: CallAiState | null) {
   return Boolean(state?.job && ['QUEUED', 'PROCESSING', 'RETRY'].includes(state.job.status));
@@ -157,8 +177,12 @@ export async function saveCallAiPreferences(input: Partial<CallAiPreferences>) {
 }
 
 // Values the worker suggests are JSON; show them as plain text.
-export function displayAiValue(value: unknown) {
+export function displayAiValue(value: unknown, key?: CallAiFieldKey) {
   if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (Array.isArray(value)) return value.join(', ') || '—';
+  if (key === 'budget_max' && Number.isFinite(Number(value)))
+    return `₹${Number(value).toLocaleString('en-IN')}`;
   if (typeof value === 'string') {
     if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
       const date = new Date(value);
@@ -168,6 +192,33 @@ export function displayAiValue(value: unknown) {
     return value;
   }
   return String(value);
+}
+
+// Text the Edit box starts with.
+export function aiEditText(key: CallAiFieldKey, value: unknown) {
+  if (value === null || value === undefined) return '';
+  if (yesNoFields.has(key)) return value === true ? 'Yes' : value === false ? 'No' : String(value);
+  if (Array.isArray(value)) return value.join(', ');
+  return String(value);
+}
+
+// The server stores requirement fields as booleans, numbers and lists, so an
+// edited value is converted back before it is sent.
+export function aiEditValue(key: CallAiFieldKey, text: string): unknown {
+  const trimmed = text.trim();
+  if (yesNoFields.has(key)) return /^(y|yes|true)$/i.test(trimmed);
+  if (key === 'budget_max') {
+    const lakh = /^([\d.]+)\s*(l|lakh|lakhs)$/i.exec(trimmed);
+    if (lakh) return Math.round(Number(lakh[1]) * 100_000);
+    const digits = Number(trimmed.replace(/[₹,\s]/g, ''));
+    return Number.isFinite(digits) && digits > 0 ? Math.round(digits) : null;
+  }
+  if (key === 'competitors')
+    return trimmed
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  return trimmed;
 }
 
 const friendlyErrors: Record<string, string> = {
@@ -185,7 +236,19 @@ const friendlyErrors: Record<string, string> = {
   SARVAM_EMPTY_TRANSCRIPT: 'No speech was found in this recording.',
   SARVAM_JOB_FAILED: 'The recording could not be transcribed. Credits were returned.',
   SARVAM_TIMEOUT: 'Transcription took too long. Credits were returned.',
+  GROQ_ANALYSIS_MODEL_MISSING: 'AI transcription is not configured yet.',
+  CALL_RECORDING_EMPTY: 'The recording file is empty. Upload it again.',
+  CALL_RECORDING_UNREADABLE: 'The recording file could not be read. Upload it again.',
+  LEAD_REQUIREMENTS_VERSION_CONFLICT: 'Someone else changed this lead. Reload and try again.',
+  LEAD_REQUIREMENTS_INVALID: 'One of the edited values is not valid.',
 };
+
+// Provider and credit failures share one message per family: the person only
+// needs to know it is not their recording.
+const familyErrors: Array<[RegExp, string]> = [
+  [/\b(SARVAM|GROQ)_[A-Z_]+/, 'The AI service had a problem. Try again in a few minutes.'],
+  [/\bAI_CREDIT_[A-Z_]+/, 'AI credits could not be reserved. Try again shortly.'],
+];
 
 export function callAiErrorMessage(error: unknown) {
   const message =
@@ -193,5 +256,9 @@ export function callAiErrorMessage(error: unknown) {
       ? String((error as { message: unknown }).message)
       : String(error ?? '');
   const code = Object.keys(friendlyErrors).find((key) => message.includes(key));
-  return code ? friendlyErrors[code] : 'Something went wrong. Try again.';
+  if (code) return friendlyErrors[code];
+  return (
+    familyErrors.find(([pattern]) => pattern.test(message))?.[1] ??
+    'Something went wrong. Try again.'
+  );
 }

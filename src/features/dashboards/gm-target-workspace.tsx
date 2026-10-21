@@ -1,22 +1,22 @@
 'use client';
 
-import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { formatCompactCurrency, formatNumber } from '@/lib/format';
+import { EmptyState, ErrorState } from '@/components/shared/page-states';
 import {
-  CalendarDays,
-  CarFront,
-  ChartNoAxesCombined,
-  Target,
-  Trophy,
-  TriangleAlert,
-} from 'lucide-react';
+  useWorkspaceSession,
+  workspaceQueryScope,
+} from '@/components/providers/workspace-session-provider';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { PageSpec } from '@/lib/domain';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
+import { useQuery } from '@tanstack/react-query';
+import { CalendarDays, CarFront, ChartNoAxesCombined, Target, Trophy } from 'lucide-react';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { SectionCard } from '@/components/shared/section-card';
 import { GmTargetSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
   Table,
@@ -39,39 +39,31 @@ function currentMonth() {
     .slice(0, 7);
 }
 
-function currency(value: number) {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-    notation: value >= 10_000_000 ? 'compact' : 'standard',
-  }).format(value);
-}
-
 function progress(actual: number, target: number) {
   return target > 0 ? (actual / target) * 100 : null;
 }
 
-export function GmTargetWorkspace() {
+export function GmTargetWorkspace({ spec }: { spec: PageSpec }) {
+  const session = useWorkspaceSession();
   const [month, setMonth] = useState(currentMonth);
   const query = useQuery({
-    queryKey: ['gm-target', month],
+    // Scoped like every tenant read (AGENTS.md 11.8), so a cached month never
+    // crosses from one session or tenant to the next.
+    queryKey: ['gm-target', ...workspaceQueryScope(session), month],
     queryFn: ({ signal }) => fetchGmTarget(month, signal),
     staleTime: 60_000,
   });
   if (query.isPending) return <GmTargetSkeleton />;
   if (query.isError || !query.data)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <TriangleAlert className="mx-auto size-8 text-destructive" />
-          <h1 className="mt-4 font-semibold">GM target data is unavailable</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Confirm your GM Sales Executive role, authorized branch scope, and the target workspace
-            migration.
-          </p>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="GM target data is unavailable"
+          description="Confirm your GM Sales Executive role, authorized branch scope, and the target workspace migration."
+          onRetry={() => void query.refetch()}
+        />
+      </PageShell>
     );
 
   const data = query.data;
@@ -79,14 +71,16 @@ export function GmTargetWorkspace() {
   const metrics: Metric[] = [
     {
       label: 'Sales target',
-      value: data.kpis.sales_target ? currency(data.kpis.sales_target) : 'Not configured',
+      value: data.kpis.sales_target
+        ? formatCompactCurrency(data.kpis.sales_target)
+        : 'Not configured',
       helper: 'Authorized showrooms combined',
       icon: Target,
       tone: 'bg-blue-50 text-blue-600',
     },
     {
       label: 'Booked sales',
-      value: currency(data.kpis.sales_value),
+      value: formatCompactCurrency(data.kpis.sales_value),
       helper:
         salesProgress === null
           ? 'No revenue target configured'
@@ -97,47 +91,43 @@ export function GmTargetWorkspace() {
     {
       label: 'Booking target',
       value: data.kpis.booking_target
-        ? data.kpis.booking_target.toLocaleString()
+        ? data.kpis.booking_target.toLocaleString('en-IN')
         : 'Not configured',
-      helper: `${data.kpis.bookings.toLocaleString()} booked this month`,
+      helper: `${data.kpis.bookings.toLocaleString('en-IN')} booked this month`,
       icon: Trophy,
       tone: 'bg-orange-50 text-orange-600',
     },
     {
       label: 'Test-drive target',
-      value: data.kpis.drive_target ? data.kpis.drive_target.toLocaleString() : 'Not configured',
-      helper: `${data.kpis.test_drives.toLocaleString()} scheduled this month`,
+      value: data.kpis.drive_target
+        ? data.kpis.drive_target.toLocaleString('en-IN')
+        : 'Not configured',
+      helper: `${data.kpis.test_drives.toLocaleString('en-IN')} scheduled this month`,
       icon: CarFront,
       tone: 'bg-violet-50 text-violet-600',
     },
   ];
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <nav aria-label="Breadcrumb" className="mb-2 text-xs text-muted-foreground">
-            <Link href="/gm-sales/dashboard" className="hover:text-foreground hover:underline">
-              Dashboard
-            </Link>{' '}
-            › Targets
-          </nav>
-          <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">Sales targets</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Configured branch targets and live booked outcomes in your authorized scope.
-          </p>
-        </div>
-        <Input
-          aria-label="Target month"
-          className="w-44"
-          max="2030-12"
-          min="2025-01"
-          type="month"
-          value={month}
-          onChange={(event) => setMonth(event.target.value || currentMonth())}
-        />
-      </div>
-      <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Branch targets for the month and the bookings made against them in your scope."
+        actions={
+          <>
+            <Input
+              aria-label="Target month"
+              className="w-44"
+              max="2030-12"
+              min="2025-01"
+              type="month"
+              value={month}
+              onChange={(event) => setMonth(event.target.value || currentMonth())}
+            />
+          </>
+        }
+      />
+      <KpiGrid metrics={metrics} />
       <div className="grid gap-4 xl:grid-cols-2">
         <SectionCard
           title="Booked sales by showroom"
@@ -168,8 +158,10 @@ export function GmTargetWorkspace() {
           />
           <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
             <CalendarDays className="size-3.5" /> Test drives:{' '}
-            {data.kpis.test_drives.toLocaleString()} /{' '}
-            {data.kpis.drive_target ? data.kpis.drive_target.toLocaleString() : 'not configured'}
+            {data.kpis.test_drives.toLocaleString('en-IN')} /{' '}
+            {data.kpis.drive_target
+              ? data.kpis.drive_target.toLocaleString('en-IN')
+              : 'not configured'}
           </div>
         </SectionCard>
       </div>
@@ -197,9 +189,11 @@ export function GmTargetWorkspace() {
                 <TableRow key={branch.id}>
                   <TableCell className="font-medium">{branch.name}</TableCell>
                   <TableCell className="text-right">
-                    {branch.sales_target ? currency(branch.sales_target) : '—'}
+                    {branch.sales_target ? formatCompactCurrency(branch.sales_target) : '—'}
                   </TableCell>
-                  <TableCell className="text-right">{currency(branch.sales_value)}</TableCell>
+                  <TableCell className="text-right">
+                    {formatCompactCurrency(branch.sales_value)}
+                  </TableCell>
                   <TableCell>
                     <Badge
                       variant={attainment !== null && attainment >= 100 ? 'success' : 'outline'}
@@ -229,5 +223,60 @@ export function GmTargetWorkspace() {
         </Table>
       </SectionCard>
     </div>
+  );
+}
+
+/**
+ * The GM dashboard's showroom target vs actual (PRD 54.5 §1), for the current
+ * month under the Targets page's query key.
+ */
+export function GmShowroomTargetsCard() {
+  const session = useWorkspaceSession();
+  const [month] = useState(currentMonth);
+  const query = useQuery({
+    queryKey: ['gm-target', ...workspaceQueryScope(session), month],
+    queryFn: ({ signal }) => fetchGmTarget(month, signal),
+    staleTime: 60_000,
+  });
+  const branches = query.data?.branches ?? [];
+  const kpis = query.data?.kpis;
+  return (
+    <SectionCard
+      title="Showroom targets this month"
+      description={
+        kpis && kpis.booking_target
+          ? `${formatNumber(kpis.bookings)} of ${formatNumber(kpis.booking_target)} bookings across your showrooms`
+          : 'Bookings against each showroom target'
+      }
+      actionHref="/gm-sales/targets"
+      actionLabel="Targets"
+    >
+      {query.isPending ? (
+        <Skeleton className="h-[280px] rounded-lg" />
+      ) : query.isError || !query.data ? (
+        <ErrorState
+          className="border-0"
+          title="Targets are unavailable"
+          onRetry={() => void query.refetch()}
+        />
+      ) : branches.some((branch) => branch.booking_target > 0) ? (
+        <EChart
+          kind="bar"
+          data={branches.map((branch) => ({
+            name: branch.name,
+            value: branch.booking_target,
+            secondary: branch.bookings,
+          }))}
+          seriesNames={['Booking target', 'Booked']}
+          className="h-[280px]"
+        />
+      ) : (
+        <EmptyState
+          bare
+          title="No showroom targets set this month"
+          description="Allocate monthly booking targets to your showrooms on Targets."
+        />
+      )}
+    </SectionCard>
   );
 }

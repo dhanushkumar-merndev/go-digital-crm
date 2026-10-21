@@ -1,10 +1,12 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { PageHeader } from '@/components/shared/page-header';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { notificationDetailHref } from '@/lib/navigation/record-links';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BellRing, CheckCheck, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { BellRing, CheckCheck, Search } from 'lucide-react';
 import { NotificationWorkspaceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -109,14 +111,11 @@ export function NotificationWorkspace({ spec }: { spec: PageSpec }) {
   const unreadOnPage = query.data?.records.filter((record) => !record.read_at).length ?? 0;
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div>
-        <div className="mb-2 text-xs text-muted-foreground">Administration › Alerts</div>
-        <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">{spec.title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Review updates addressed to your authenticated account. Read state is private to you.
-        </p>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Updates addressed to you. Read state is private to your account."
+      />
 
       <Card className="shadow-none">
         <CardContent className="flex flex-col gap-3 p-4 lg:flex-row">
@@ -226,7 +225,7 @@ export function NotificationWorkspace({ spec }: { spec: PageSpec }) {
                             {record.title}
                           </Link>
                         ) : (
-                          <p className="font-medium text-[#17233d]">{record.title}</p>
+                          <p className="font-medium text-heading">{record.title}</p>
                         )}
                         <p className="mt-0.5 max-w-2xl text-xs leading-5 text-muted-foreground">
                           {record.body}
@@ -270,25 +269,13 @@ export function NotificationWorkspace({ spec }: { spec: PageSpec }) {
               </Table>
             </CardContent>
           </Card>
-          <div className="flex items-center justify-between">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page === 1 || query.isFetching}
-              onClick={() => setPage((current) => current - 1)}
-            >
-              <ChevronLeft className="size-4" /> Previous
-            </Button>
-            <p className="text-xs text-muted-foreground">Page {page} · server-side pagination</p>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!query.data.hasNext || query.isFetching}
-              onClick={() => setPage((current) => current + 1)}
-            >
-              Next <ChevronRight className="size-4" />
-            </Button>
-          </div>
+          <TablePagination
+            className="rounded-lg border bg-white"
+            page={page}
+            pageSize={pageSize}
+            hasNextPage={query.data.hasNext}
+            onPageChange={setPage}
+          />
         </>
       ) : null}
     </div>

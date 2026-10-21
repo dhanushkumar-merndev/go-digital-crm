@@ -287,10 +287,17 @@ async function collect(
   const englishTranscript = turns
     .map((turn) => `${turn.speaker === 'UNKNOWN' ? 'SPEAKER' : turn.speaker}: ${turn.text}`)
     .join('\n');
+  const { data: callRow } = await supabase
+    .from('calls')
+    .select('started_at')
+    .eq('id', job.call_id)
+    .eq('organization_id', job.organization_id)
+    .maybeSingle<{ started_at: string | null }>();
   const analysis = await analyzeCall({
     apiKey: providers.groqKey,
     model: providers.groqModel,
     transcript: englishTranscript,
+    callStartedAt: callRow?.started_at ?? null,
   });
   await rpcTrue(
     supabase,

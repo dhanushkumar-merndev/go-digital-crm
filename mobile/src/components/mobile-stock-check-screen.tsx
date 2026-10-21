@@ -1,16 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen } from '@/components/screen';
+import { Badge, Card, Chip, EmptyState, ErrorState, SkeletonList } from '@/components/ui/basics';
 import { fetchMobileStockCheck, type MobileStockCheckPage } from '@/lib/stock-check';
-import { colors } from '@/theme';
+import { colors, font } from '@/theme';
 
 const filters = [
   ['ALL', 'All'],
@@ -20,11 +13,14 @@ const filters = [
   ['UNAVAILABLE', 'Unavailable'],
 ] as const;
 
-function availabilityTone(value: string) {
-  if (value === 'AVAILABLE') return colors.success;
-  if (value === 'LIMITED') return colors.warning;
-  if (value === 'INCOMING') return colors.primary;
-  return colors.danger;
+const availabilityBadge: Record<string, { fg: string; bg: string }> = {
+  AVAILABLE: { fg: colors.successStrong, bg: colors.successSoft },
+  LIMITED: { fg: colors.warningStrong, bg: colors.warningSoft },
+  INCOMING: { fg: colors.primary, bg: colors.infoSoft },
+};
+
+function availabilityLabel(value: string) {
+  return value.charAt(0) + value.slice(1).toLowerCase();
 }
 
 export function MobileStockCheckScreen() {
@@ -59,7 +55,7 @@ export function MobileStockCheckScreen() {
   };
 
   return (
-    <Screen title="Stock check" subtitle="Live inventory available in your authorized branches">
+    <Screen back title="Stock check">
       <TextInput
         value={searchInput}
         onChangeText={(value) => {
@@ -75,28 +71,16 @@ export function MobileStockCheckScreen() {
         contentContainerStyle={styles.filters}
       >
         {filters.map(([value, label]) => (
-          <Pressable
+          <Chip
             key={value}
+            label={label}
+            selected={availability === value}
             onPress={() => setFilter(value)}
-            style={[styles.filter, availability === value && styles.filterActive]}
-          >
-            <Text style={[styles.filterText, availability === value && styles.filterTextActive]}>
-              {label}
-            </Text>
-          </Pressable>
+          />
         ))}
       </ScrollView>
-      {loading ? (
-        <View style={styles.loading}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : null}
-      {error ? (
-        <Pressable style={styles.error} onPress={() => void load()}>
-          <Text style={styles.errorTitle}>Stock check could not load</Text>
-          <Text style={styles.errorText}>Tap to retry with your current authorized session.</Text>
-        </Pressable>
-      ) : null}
+      {loading ? <SkeletonList /> : null}
+      {error ? <ErrorState title="Stock check could not load" onRetry={() => void load()} /> : null}
       {!loading && !error && result ? (
         <>
           <View style={styles.metrics}>
@@ -109,7 +93,7 @@ export function MobileStockCheckScreen() {
               tone={colors.danger}
             />
           </View>
-          <View style={styles.card}>
+          <Card>
             {result.records.length ? (
               result.records.map((record) => (
                 <View key={record.key} style={styles.row}>
@@ -129,17 +113,25 @@ export function MobileStockCheckScreen() {
                       reserved
                     </Text>
                   </View>
-                  <Text
-                    style={[styles.availability, { color: availabilityTone(record.availability) }]}
-                  >
-                    {record.availability}
-                  </Text>
+                  <Badge
+                    label={availabilityLabel(record.availability)}
+                    tone={
+                      availabilityBadge[record.availability] ?? {
+                        fg: colors.dangerStrong,
+                        bg: colors.dangerSoft,
+                      }
+                    }
+                  />
                 </View>
               ))
             ) : (
-              <Text style={styles.empty}>No stock groups match your filters.</Text>
+              <EmptyState
+                icon="car-outline"
+                title="No stock matches your filters"
+                detail="Try another model or clear the availability filter."
+              />
             )}
-          </View>
+          </Card>
           <View style={styles.pagination}>
             <Pressable
               style={[styles.pageButton, page === 1 && styles.disabled]}
@@ -183,30 +175,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     paddingHorizontal: 12,
     color: colors.text,
-    fontSize: 13,
+    fontSize: font.small,
   },
   filters: { gap: 8 },
-  filter: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 999,
-    backgroundColor: colors.card,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  filterActive: { backgroundColor: colors.navy, borderColor: colors.navy },
-  filterText: { color: colors.muted, fontSize: 11, fontWeight: '800' },
-  filterTextActive: { color: 'white' },
-  loading: { padding: 36, alignItems: 'center' },
-  error: {
-    borderColor: '#fecaca',
-    borderWidth: 1,
-    backgroundColor: '#fef2f2',
-    borderRadius: 14,
-    padding: 16,
-  },
-  errorTitle: { color: '#991b1b', fontWeight: '800' },
-  errorText: { color: '#b91c1c', fontSize: 12, marginTop: 4 },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   metric: {
     width: '48%',
@@ -216,15 +187,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     padding: 12,
   },
-  metricValue: { fontSize: 22, fontWeight: '800' },
-  metricLabel: { color: colors.muted, fontSize: 10, fontWeight: '700', marginTop: 4 },
-  card: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 15,
-    backgroundColor: colors.card,
-    overflow: 'hidden',
-  },
+  metricValue: { fontSize: font.display, fontWeight: '700' },
+  metricLabel: { color: colors.muted, fontSize: font.caption, fontWeight: '700', marginTop: 4 },
   row: {
     flexDirection: 'row',
     gap: 10,
@@ -233,11 +197,9 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   main: { flex: 1 },
-  model: { color: colors.text, fontSize: 14, fontWeight: '800' },
-  meta: { color: colors.muted, fontSize: 11, marginTop: 4 },
-  units: { color: colors.text, fontSize: 11, marginTop: 5 },
-  availability: { fontSize: 10, fontWeight: '800', maxWidth: 80, textAlign: 'right' },
-  empty: { color: colors.muted, fontSize: 12, textAlign: 'center', padding: 24 },
+  model: { color: colors.text, fontSize: font.row, fontWeight: '600' },
+  meta: { color: colors.muted, fontSize: font.caption, marginTop: 4 },
+  units: { color: colors.text, fontSize: font.caption, marginTop: 5 },
   pagination: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   pageButton: {
     borderWidth: 1,
@@ -248,10 +210,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   disabled: { opacity: 0.45 },
-  pageText: { color: colors.primary, fontSize: 12, fontWeight: '800' },
+  pageText: { color: colors.primary, fontSize: font.label, fontWeight: '600' },
   pageLabel: {
     color: colors.muted,
-    fontSize: 11,
+    fontSize: font.caption,
     fontWeight: '700',
     maxWidth: 145,
     textAlign: 'center',

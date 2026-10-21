@@ -1,5 +1,8 @@
 'use client';
 
+import { ErrorState } from '@/components/shared/page-states';
+import type { PageSpec } from '@/lib/domain';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
@@ -41,6 +44,7 @@ import {
   type LeadAssignmentAudience,
   type LeadAssignmentWorkspace,
 } from './lead-assignment-workspace-api';
+import { leadTemperatureVariant } from '@/features/leads/lead-temperature-variant';
 
 function initials(name: string) {
   return name
@@ -62,17 +66,9 @@ function dateTime(value: string) {
 
 function age(value: string) {
   const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60_000));
-  return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
-
-function temperatureVariant(value: string | null) {
-  if (value === 'HOT') return 'destructive' as const;
-  if (value === 'WARM') return 'warning' as const;
-  // DORMANT is do-not-disturb, not a colder COLD, so it must not share the
-  // COLD styling: someone scanning the column has to see that this lead is
-  // suppressed from outbound messaging. See AGENTS.md 9.7.
-  if (value === 'DORMANT') return 'secondary' as const;
-  return 'info' as const;
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 48 * 60) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return `${Math.floor(minutes / 1440)}d`;
 }
 
 function AssignmentQueue({
@@ -107,7 +103,7 @@ function AssignmentQueue({
                 <p className="truncate text-sm font-semibold">{lead.customer_name}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{lead.phone}</p>
               </div>
-              <Badge variant={temperatureVariant(lead.temperature)}>
+              <Badge variant={leadTemperatureVariant(lead.temperature)}>
                 {lead.temperature ?? 'No temp'}
               </Badge>
             </div>
@@ -135,8 +131,10 @@ function AssignmentQueue({
 }
 
 export function LeadAssignmentWorkspace({
+  spec,
   audience = 'TEAM_MANAGER',
 }: {
+  spec: PageSpec;
   audience?: LeadAssignmentAudience;
 }) {
   const session = useWorkspaceSession();
@@ -205,7 +203,11 @@ export function LeadAssignmentWorkspace({
         title: 'Lead was not assigned',
         description:
           error instanceof Error && error.message.includes('ASSIGNEE_NOT_ELIGIBLE')
-            ? 'That consultant is no longer eligible. Refresh the queue and choose another consultant.'
+            ? selectedLead && isAutomaticAssignmentMode(selectedLead.assignment_mode)
+              ? selectedLead.assignment_kind === 'FRESH'
+                ? 'No active Telecaller in this team takes fresh leads. Add one, or switch the team to manual assignment.'
+                : 'No active Sales Consultant in this team takes qualified leads. Add one, or switch the team to manual assignment.'
+              : 'That person is no longer eligible. Refresh the queue and choose someone else.'
             : 'The lead may have changed or is outside your managed team. Refresh and try again.',
       });
     },
@@ -219,44 +221,38 @@ export function LeadAssignmentWorkspace({
   if (query.isPending) return <LeadAssignmentSkeleton />;
   if (query.isError)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <h1 className="font-semibold">Lead assignment is unavailable</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Confirm your active manager role, authorized scope and lead assignment permission.
-          </p>
-          <Button className="mt-5" variant="outline" onClick={() => void query.refetch()}>
-            <RefreshCw className="size-4" /> Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Lead assignment is unavailable"
+          description="Confirm your active manager role, authorized scope and lead assignment permission."
+          onRetry={() => void query.refetch()}
+        />
+      </PageShell>
     );
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="mb-2 text-xs">
-            <span className="text-primary">Dashboard</span>
-            <span className="mx-2 text-muted-foreground">›</span>
-            <span className="text-muted-foreground">Lead Assignment</span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">Lead Assignment</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {isShowroom
-              ? 'Distribute unassigned leads across eligible consultants in your authorized showroom branches.'
-              : 'Distribute unassigned leads to eligible team consultants with the configured team rule.'}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={query.isFetching}
-          onClick={() => void query.refetch()}
-        >
-          <RefreshCw className={`size-4 ${query.isFetching ? 'animate-spin' : ''}`} /> Refresh
-        </Button>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description={
+          isShowroom
+            ? 'Distribute unassigned leads across eligible consultants in your showroom branches.'
+            : 'Distribute unassigned leads to eligible team members using the team rule.'
+        }
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={query.isFetching}
+              onClick={() => void query.refetch()}
+            >
+              <RefreshCw className={`size-4 ${query.isFetching ? 'animate-spin' : ''}`} /> Refresh
+            </Button>
+          </>
+        }
+      />
       <Card className="shadow-none">
         <CardContent className="flex flex-col gap-3 p-4 sm:flex-row">
           <div className="relative min-w-0 flex-1">
@@ -364,7 +360,11 @@ export function LeadAssignmentWorkspace({
             </Card>
             <Card className="min-h-[490px] overflow-hidden shadow-none">
               <CardHeader className="border-b">
-                <CardTitle className="text-base">Eligible consultants</CardTitle>
+                <CardTitle className="text-base">
+                  {selectedLead?.assignment_kind === 'FRESH'
+                    ? 'Eligible telecallers'
+                    : 'Eligible consultants'}
+                </CardTitle>
                 <CardDescription>
                   {isShowroom
                     ? 'Live workload in your authorized showroom teams.'

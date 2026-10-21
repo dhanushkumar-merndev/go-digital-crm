@@ -10,6 +10,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -183,14 +184,14 @@ export function CreateOperationalCaseDialog({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : null}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={busy || !bookingId}>
               {busy ? <Loader2 className="size-4 animate-spin" /> : null} Create case
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

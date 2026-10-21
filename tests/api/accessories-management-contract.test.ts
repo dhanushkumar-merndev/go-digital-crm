@@ -37,6 +37,7 @@ describe('accessories management contract', () => {
       );
     `);
     await db.exec(source('supabase/migrations/202609060012_accessories_management.sql'));
+    await db.exec(source('supabase/migrations/202610210006_accessories_catalog_kpis.sql'));
 
     await db.query('insert into organizations(id) values($1)', [org]);
     await db.query('insert into profiles(id,organization_id) values($1,$2)', [actor, org]);
@@ -87,6 +88,48 @@ describe('accessories management contract', () => {
     expect(catalog.total).toBe(1);
     expect(catalog.records[0].name).toBe('7D Floor Mats');
     expect(catalog.kpis.total_items).toBe(1);
+  });
+
+  it('counts OEM items from the catalog rather than assuming every item is OEM', async () => {
+    await rpc('upsert_accessory', [
+      null,
+      'OEM Mud Flaps',
+      'OEM-MF-1',
+      'EXTERIOR',
+      900,
+      5,
+      true,
+      true,
+    ]);
+    await rpc('upsert_accessory', [
+      null,
+      'Aftermarket Horn',
+      'AM-HRN-1',
+      'ELECTRICAL',
+      700,
+      2,
+      false,
+      true,
+    ]);
+    await rpc('upsert_accessory', [
+      null,
+      'Retired Cover',
+      'OEM-CV-0',
+      'EXTERIOR',
+      400,
+      9,
+      true,
+      false,
+    ]);
+
+    const catalog = await rpc<{
+      records: unknown[];
+      kpis: { total_items: number; active_items: number; low_stock: number; oem_items: number };
+    }>('get_accessories_catalog', [null, null, 1, 5000]);
+
+    expect(catalog.kpis).toEqual({ total_items: 3, active_items: 2, low_stock: 1, oem_items: 1 });
+    // An unsupported page size falls back to 25 rather than reading the whole catalog.
+    expect(catalog.records).toHaveLength(3);
   });
 
   it('links an accessory to a customer booking and updates fitment status to FITTED', async () => {

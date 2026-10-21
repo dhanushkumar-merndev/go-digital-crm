@@ -76,7 +76,8 @@ describe('audit log workspace UI contract', () => {
     expect(workspace).toContain('...workspaceQueryScope(session)');
     expect(workspace).toContain("'audit-log-page'");
     expect(workspace).toContain('cursor?.id ?? null');
-    expect(workspace).toContain('cursor pagination');
+    // Cursor paging has no total, so the shared footer is driven by hasNext.
+    expect(workspace).toContain('hasNextPage={query.data.hasNext}');
   });
 
   it('renders security data in shadcn table primitives without exposing arbitrary metadata', () => {

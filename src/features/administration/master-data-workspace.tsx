@@ -1,4 +1,5 @@
 'use client';
+import { TablePagination } from '@/components/shared/table-pagination';
 import { VehicleSpecificationsEditor } from './vehicle-specifications-editor';
 import { vehicleSpecificationsSchema } from './vehicle-specifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -284,12 +285,11 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
     { label: 'Variants', value: String(k.variants), icon: Database },
     { label: 'Lead sources', value: String(k.lead_sources), icon: Tag },
   ];
-  const pages = Math.max(1, Math.ceil(data.data.total / pageSize));
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-      <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
+      <KpiGrid metrics={metrics} />
       <div className="grid gap-5 xl:grid-cols-[210px_minmax(0,1fr)]">
         <Card className="shadow-none">
           <CardHeader>
@@ -417,48 +417,16 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
               </TableBody>
             </Table>
           </CardContent>
-          <div className="flex justify-between border-t p-3 text-sm">
-            <span>{data.data.total} records</span>
-            <div className="flex gap-2">
-              <Select
-                value={String(pageSize)}
-                onValueChange={(value) => {
-                  setPageSize(Number(value) as 25 | 50 | 100);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-24" aria-label="Rows per page">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[25, 50, 100].map((size) => (
-                    <SelectItem key={size} value={String(size)}>
-                      {size} rows
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={page <= 1}
-                onClick={() => setPage(page - 1)}
-              >
-                Previous
-              </Button>
-              <span className="self-center text-xs text-muted-foreground">
-                Page {page} of {pages}
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={page >= pages}
-                onClick={() => setPage(page + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            total={data.data.total}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
         </Card>
       </div>
 
@@ -469,7 +437,7 @@ export function MasterDataWorkspace({ spec }: { spec: PageSpec }) {
           if (!createMutation.isPending) setIsAddOpen(open);
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>
               {editing ? 'Edit' : 'Add'} {categoryLabel}

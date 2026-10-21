@@ -1,8 +1,11 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { EmptyState } from '@/components/shared/page-states';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { Check, ChevronLeft, ChevronRight, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
+import { Check, RefreshCw, Search, ShieldCheck, X, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import {
@@ -23,13 +26,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -294,44 +290,40 @@ export function DuplicateLeadDeletionWorkspace({ spec }: { spec: PageSpec }) {
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
-  const pageCount = Math.max(1, Math.ceil((requests.data?.total ?? 0) / pageSize));
   const rejectNoteInvalid = decisionState?.decision === 'REJECTED' && reviewNote.trim().length < 5;
 
   if (!canDecide)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <ShieldCheck className="mx-auto size-9 text-muted-foreground" />
-          <h1 className="mt-4 font-semibold">Team Manager approval is required</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Only a Team Manager with access to the lead&apos;s team can review duplicate deletion
-            requests.
-          </p>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <EmptyState
+          icon={ShieldAlert}
+          title="Team Manager approval is required"
+          description={
+            "Only a Team Manager with access to the lead's team can review duplicate deletion requests."
+          }
+        />
+      </PageShell>
     );
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <div>
-          <div className="mb-2 text-xs text-muted-foreground">
-            <Link href="/team-manager/dashboard" className="text-primary hover:underline">
-              Dashboard
-            </Link>
-            <span className="mx-2">›</span>
-            <span>{spec.title}</span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">Duplicate Lead Approvals</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Approve only untouched newer leads that duplicate an earlier lead with the same mobile
-            number.
-          </p>
-        </div>
-        <Button variant="outline" disabled={requests.isFetching} onClick={() => requests.refetch()}>
-          <RefreshCw className={`size-4 ${requests.isFetching ? 'animate-spin' : ''}`} /> Refresh
-        </Button>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Approve deleting a newer lead only when it is untouched and duplicates an earlier lead on the same mobile number."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              disabled={requests.isFetching}
+              onClick={() => requests.refetch()}
+            >
+              <RefreshCw className={`size-4 ${requests.isFetching ? 'animate-spin' : ''}`} />{' '}
+              Refresh
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Card className="shadow-none">
@@ -441,52 +433,13 @@ export function DuplicateLeadDeletionWorkspace({ spec }: { spec: PageSpec }) {
             </div>
           )}
 
-          <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-muted-foreground">
-              Showing {requests.data?.records.length ?? 0} of {requests.data?.total ?? 0} requests
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                size="icon"
-                variant="outline"
-                className="size-8"
-                disabled={page <= 1}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                aria-label="Previous page"
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <span className="min-w-16 text-center text-sm">
-                {page} / {pageCount}
-              </span>
-              <Button
-                size="icon"
-                variant="outline"
-                className="size-8"
-                disabled={page >= pageCount}
-                onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-                aria-label="Next page"
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-              <Select
-                value={String(pageSize)}
-                onValueChange={(value) => {
-                  setPageSize(Number(value) as 25 | 50 | 100);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="h-8 w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="25">25 / page</SelectItem>
-                  <SelectItem value="50">50 / page</SelectItem>
-                  <SelectItem value="100">100 / page</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            total={requests.data?.total ?? 0}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
         </CardContent>
       </Card>
 

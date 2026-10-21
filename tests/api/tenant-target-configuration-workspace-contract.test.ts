@@ -44,7 +44,7 @@ describe('tenant target configuration workspace contract', () => {
     expect(workspace).toContain("from '@tanstack/react-table'");
     expect(workspace).toContain('Save targets');
     expect(workspace).toContain('readOnly = false');
-    expect(workspace).toContain('Business Owner › Targets & performance');
+    expect(workspace).toContain('<PageHeader');
     expect(route).toContain("role === 'client-admin' && slug[0] === 'targets-approval-rules'");
     // The owner's read-only copy moved into Showroom Performance; old links redirect there.
     expect(route).toContain("redirect('/business-owner/showroom-performance')");

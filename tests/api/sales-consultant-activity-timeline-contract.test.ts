@@ -35,7 +35,7 @@ describe('sales consultant activity timeline contract', () => {
 
   it('keeps the activity report separate from Tasks and exposes it only to individual sales roles', () => {
     expect(route).toContain("(role === 'sales-consultant' || role === 'telecaller')");
-    expect(route).toContain('<SalesConsultantActivityTimeline role={role} />');
+    expect(route).toContain('<SalesConsultantActivityTimeline spec={spec} role={role} />');
     expect(route).toContain('<TaskWorkspace spec={spec} role={role} />');
   });
 });

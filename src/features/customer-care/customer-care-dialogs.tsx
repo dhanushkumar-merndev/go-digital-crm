@@ -107,7 +107,7 @@ export function CreateCustomerCareDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Create customer-care case</DialogTitle>
           <DialogDescription>

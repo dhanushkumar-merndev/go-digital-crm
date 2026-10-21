@@ -8,7 +8,7 @@ import {
   requestCallAiProcessing,
   type CallAiState,
 } from '@/lib/call-ai';
-import { colors } from '@/theme';
+import { colors, font } from '@/theme';
 
 const pollEveryMs = 5000;
 
@@ -158,20 +158,20 @@ const styles = StyleSheet.create({
     padding: 15,
     gap: 10,
   },
-  title: { color: '#7c3aed', fontWeight: '800', fontSize: 17 },
-  text: { color: colors.text, fontSize: 13, lineHeight: 19, flex: 1 },
+  title: { color: colors.violet, fontWeight: '600', fontSize: font.heading },
+  text: { color: colors.text, fontSize: font.small, lineHeight: 19, flex: 1 },
   progress: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  error: { color: colors.danger, fontSize: 12, lineHeight: 17 },
-  note: { color: colors.muted, fontSize: 11 },
-  primary: { backgroundColor: '#7c3aed', alignItems: 'center', padding: 13, borderRadius: 11 },
-  primaryText: { color: 'white', fontWeight: '800' },
+  error: { color: colors.danger, fontSize: font.label, lineHeight: 17 },
+  note: { color: colors.muted, fontSize: font.caption },
+  primary: { backgroundColor: colors.violet, alignItems: 'center', padding: 13, borderRadius: 11 },
+  primaryText: { color: colors.onColor, fontWeight: '600' },
   secondary: {
     borderWidth: 1,
-    borderColor: '#7c3aed',
+    borderColor: colors.violet,
     alignItems: 'center',
     padding: 12,
     borderRadius: 11,
   },
-  secondaryText: { color: '#7c3aed', fontWeight: '800' },
-  link: { color: colors.muted, fontSize: 12, fontWeight: '700', textAlign: 'center' },
+  secondaryText: { color: colors.violet, fontWeight: '600' },
+  link: { color: colors.muted, fontSize: font.label, fontWeight: '700', textAlign: 'center' },
 });

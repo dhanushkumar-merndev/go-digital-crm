@@ -1,15 +1,16 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { PageHeader } from '@/components/shared/page-header';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, History, Search } from 'lucide-react';
+import { History, Search } from 'lucide-react';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { AuditLogWorkspaceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
@@ -88,14 +89,11 @@ export function AuditLogWorkspace({ spec }: { spec: PageSpec }) {
   };
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div>
-        <div className="mb-2 text-xs text-muted-foreground">Administration › Security</div>
-        <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">{spec.title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Immutable security and business-event records in your authorized scope.
-        </p>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Who changed what, when and from where, across your authorized scope. Records cannot be edited."
+      />
       <Card className="shadow-none">
         <CardContent className="flex flex-col gap-3 p-4 md:flex-row">
           <div className="relative flex-1">
@@ -192,25 +190,13 @@ export function AuditLogWorkspace({ spec }: { spec: PageSpec }) {
               </Table>
             </CardContent>
           </Card>
-          <div className="flex items-center justify-between">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page === 1 || query.isFetching}
-              onClick={() => setPage((current) => current - 1)}
-            >
-              <ChevronLeft className="size-4" /> Previous
-            </Button>
-            <p className="text-xs text-muted-foreground">Page {page} · cursor pagination</p>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!query.data.hasNext || query.isFetching}
-              onClick={nextPage}
-            >
-              Next <ChevronRight className="size-4" />
-            </Button>
-          </div>
+          <TablePagination
+            className="rounded-lg border bg-white"
+            page={page}
+            pageSize={25}
+            hasNextPage={query.data.hasNext}
+            onPageChange={(next) => (next > page ? nextPage() : setPage(next))}
+          />
         </>
       ) : null}
     </div>

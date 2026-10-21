@@ -76,7 +76,8 @@ export const reviewRequestKeys = {
     view: ReviewRequestView,
     search: string,
     page: number,
-  ) => ['review-requests', ...scope, range.from, range.to, view, search, page] as const,
+    pageSize: number,
+  ) => ['review-requests', ...scope, range.from, range.to, view, search, page, pageSize] as const,
   picker: (scope: readonly unknown[], search: string) =>
     ['review-requests', 'picker', ...scope, search] as const,
 };
@@ -87,6 +88,7 @@ export async function fetchMyReviewRequests(
     view: ReviewRequestView;
     search: string;
     page: number;
+    pageSize: 25 | 50 | 100;
   },
   signal?: AbortSignal,
 ) {
@@ -96,7 +98,7 @@ export async function fetchMyReviewRequests(
     target_view: input.view,
     target_search: input.search,
     target_page: input.page,
-    target_page_size: 25,
+    target_page_size: input.pageSize,
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;

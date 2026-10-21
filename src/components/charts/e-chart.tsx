@@ -129,6 +129,13 @@ function optionFor(
       ],
     };
   }
+  const plotted = extra.series?.length
+    ? extra.series.flatMap((series) => series.values)
+    : data.flatMap((item) => [item.value, item.secondary]);
+  const allIntegers = plotted.every(
+    (value) => value === undefined || value === null || Number.isInteger(Number(value)),
+  );
+  const anyNegative = plotted.some((value) => Number(value) < 0);
   const common = {
     textStyle,
     tooltip: {
@@ -174,6 +181,10 @@ function optionFor(
     },
     yAxis: {
       type: 'value' as const,
+      // Counts never go negative and never come in fractions, so a single
+      // spike reads as 0 to 1, not 0, 0.2, 0.4 with the line dipping below 0.
+      min: anyNegative ? undefined : 0,
+      minInterval: allIntegers ? 1 : undefined,
       splitLine: { lineStyle: { color: '#eef1f5' } },
       axisLabel: { color: text, ...textStyle },
     },
@@ -186,7 +197,10 @@ function optionFor(
         name: series.name,
         type: kind,
         stack: extra.stacked ? 'total' : undefined,
-        smooth: kind === 'line' ? true : undefined,
+        // Monotone smoothing never overshoots the data, so a jump from 0 to 1
+        // does not dip below the axis or bulge above the peak first.
+        smooth: kind === 'line' ? 0.3 : undefined,
+        smoothMonotone: kind === 'line' ? ('x' as const) : undefined,
         symbolSize: kind === 'line' ? px(6) : undefined,
         barMaxWidth: kind === 'bar' ? px(extra.stacked ? 34 : 18) : undefined,
         itemStyle:
@@ -226,7 +240,8 @@ function optionFor(
       {
         name: seriesNames?.[0] ?? 'Current',
         type: 'line',
-        smooth: true,
+        smooth: 0.3,
+        smoothMonotone: 'x' as const,
         symbolSize: px(7),
         areaStyle: { color: 'rgba(37,99,235,.08)' },
         data: data.map((item) => item.value),
@@ -234,7 +249,8 @@ function optionFor(
       {
         name: seriesNames?.[1] ?? 'Previous',
         type: 'line',
-        smooth: true,
+        smooth: 0.3,
+        smoothMonotone: 'x' as const,
         symbolSize: px(6),
         data: data.map((item) => item.secondary),
       },

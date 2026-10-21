@@ -1,22 +1,22 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { ErrorState } from '@/components/shared/page-states';
+import { kpiGridColumns } from '@/components/shared/kpi-grid';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   CalendarCheck2,
   CalendarDays,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   CircleCheckBig,
   ClipboardList,
   ClockAlert,
   Pencil,
-  RotateCcw,
   Search,
   TrendingDown,
   TrendingUp,
-  TriangleAlert,
   XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -146,7 +146,7 @@ function taskMetricCards(
       rising: true,
       good: true,
       neutral: true,
-      footnote: `${statusCounts.completed.toLocaleString()} completed \u00b7 ${statusCounts.cancelled.toLocaleString()} cancelled`,
+      footnote: `${statusCounts.completed.toLocaleString('en-IN')} completed \u00b7 ${statusCounts.cancelled.toLocaleString('en-IN')} cancelled`,
     },
     {
       status: 'today' as const,
@@ -183,7 +183,7 @@ function taskMetricCards(
       neutral: dueTodayTotal === 0,
       // The Completed tab lists every completed task; this card counts only
       // today's. Naming the tab total stops that reading as a contradiction.
-      footnote: `${statusCounts.completed.toLocaleString()} completed all time`,
+      footnote: `${statusCounts.completed.toLocaleString('en-IN')} completed all time`,
     },
     {
       status: 'upcoming' as const,
@@ -228,12 +228,12 @@ function TaskMetricCard({
             <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', card.chip)}>
               <Icon className="size-4" />
             </span>
-            <p className="min-w-0 text-[11px] font-semibold leading-4 text-[#263550]">
+            <p className="min-w-0 text-[11px] font-semibold leading-4 text-heading-soft">
               {card.label}
             </p>
           </div>
-          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-[#12213f]">
-            {card.value.toLocaleString()}
+          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-heading">
+            {card.value.toLocaleString('en-IN')}
           </p>
           <p
             className={cn(
@@ -304,7 +304,7 @@ function TaskStatusTabs({
               onClick={() => onStatusChange(tab.value)}
               style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
               className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
-                active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
+                active ? 'text-blue-700' : 'text-heading-soft hover:text-blue-700'
               }`}
             >
               <span>{tab.label}</span>
@@ -313,7 +313,7 @@ function TaskStatusTabs({
                   active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
                 }`}
               >
-                {tab.count.toLocaleString()}
+                {tab.count.toLocaleString('en-IN')}
               </span>
             </button>
           );
@@ -496,7 +496,6 @@ function TaskTable({
     manualPagination: true,
     rowCount: result.total,
   });
-  const pages = Math.max(1, Math.ceil(result.total / query.pageSize));
   return (
     <Card className="sales-consultant-list-card overflow-hidden shadow-none">
       <CardHeader className="border-b p-4">
@@ -575,7 +574,7 @@ function TaskTable({
                   {group.headers.map((header) => (
                     <TableHead
                       key={header.id}
-                      className="h-10 whitespace-nowrap bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-[#263550]"
+                      className="h-10 whitespace-nowrap bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-heading-soft"
                     >
                       {header.isPlaceholder
                         ? null
@@ -616,43 +615,18 @@ function TaskTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {result.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, result.total)} of {result.total}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="mr-2 text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={result.total}
+          onPageChange={(page) => onQueryChange({ page })}
+        />
       </CardContent>
     </Card>
   );
 }
 
-export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
+export function TaskWorkspace({ spec, role }: { spec: PageSpec; role: string }) {
   const workspaceSession = useWorkspaceSession();
   const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
   const queryScope = useMemo(
@@ -751,57 +725,37 @@ export function TaskWorkspace({ role }: { spec: PageSpec; role: string }) {
     !workspace.data
   )
     return (
-      <Card className="mx-auto max-w-xl">
-        <CardContent className="flex flex-col items-center p-10 text-center">
-          <div className="grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
-            <TriangleAlert />
-          </div>
-          <h2 className="mt-4 font-semibold">Tasks are not available yet</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your access scope or the tasks migration needs attention. Reference: GDM-TASKS.
-          </p>
-          <Button
-            className="mt-5"
-            variant="outline"
-            onClick={() => {
-              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
-              void workspace.refetch();
-            }}
-          >
-            <RotateCcw className="size-4" /> Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Tasks are not available yet"
+          description="Your access scope or the tasks migration needs attention."
+          reference="GDM-TASKS"
+          onRetry={() => {
+            if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
+            void workspace.refetch();
+          }}
+        />
+      </PageShell>
     );
 
   return (
-    <div className="mx-auto max-w-[1800px]">
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-            <Link href={`/${role}/dashboard`} className="text-blue-600 hover:underline">
-              Dashboard
-            </Link>
-            <ChevronRight className="size-3" />
-            <span>Tasks</span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">Tasks</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Plan lead-linked work, prioritize due items and record completion outcomes.
-          </p>
-        </div>
-        {/*
-          Tasks are raised against the lead they belong to, from the lead row's
-          Create task action, which arrives here as ?action=create&lead=... and
-          opens the same dialog with the lead already attached. A standalone
-          button here produced tasks with no lead, so it is deliberately absent.
-        */}
-      </div>
-      <div className="space-y-6">
+    <div className="mx-auto w-full space-y-5">
+      {/*
+        No "New task" action: tasks are raised against the lead they belong to,
+        from the lead row's Create task action, which arrives here as
+        ?action=create&lead=... and opens the same dialog with the lead already
+        attached. A standalone button produced tasks with no lead.
+      */}
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Plan lead-linked work, prioritise what is due and record how each task ended."
+      />
+      <div className="space-y-5">
         <div
           id="task-summary-kpis"
           hidden={!summaryOpen}
-          className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+          className={cn('grid gap-2.5', kpiGridColumns(5))}
         >
           {taskMetricCards(workspace.data.kpis, workspace.data.status_counts).map((card) => (
             <TaskMetricCard

@@ -1,18 +1,16 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { ErrorState } from '@/components/shared/page-states';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
-  ChevronLeft,
-  ChevronRight,
   MoreHorizontal,
   Palette,
   Pencil,
   Plus,
-  RotateCcw,
   Search,
   ShieldCheck,
-  TriangleAlert,
   UserRoundCog,
 } from 'lucide-react';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -24,7 +22,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { BranchTeamSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Badge } from '@/components/ui/badge';
@@ -90,10 +88,10 @@ function formatDate(value: string) {
 
 function branchMetrics(result: BranchAdministrationWorkspace): Metric[] {
   return [
-    { label: 'Total branches', value: result.kpis.total.toLocaleString() },
-    { label: 'Active', value: result.kpis.active.toLocaleString() },
-    { label: 'Inactive', value: result.kpis.inactive.toLocaleString() },
-    { label: 'Users assigned', value: result.kpis.users_assigned.toLocaleString() },
+    { label: 'Total branches', value: result.kpis.total.toLocaleString('en-IN') },
+    { label: 'Active', value: result.kpis.active.toLocaleString('en-IN') },
+    { label: 'Inactive', value: result.kpis.inactive.toLocaleString('en-IN') },
+    { label: 'Users assigned', value: result.kpis.users_assigned.toLocaleString('en-IN') },
   ];
 }
 
@@ -101,10 +99,10 @@ export type TeamWorkspacePreset = 'STRUCTURE' | 'ASSIGNMENT';
 
 function teamMetrics(result: TeamAdministrationWorkspace): Metric[] {
   return [
-    { label: 'Total teams', value: result.kpis.total.toLocaleString() },
-    { label: 'Active teams', value: result.kpis.active.toLocaleString() },
-    { label: 'Telecallers / BDC', value: result.kpis.telecallers.toLocaleString() },
-    { label: 'Sales consultants', value: result.kpis.consultants.toLocaleString() },
+    { label: 'Total teams', value: result.kpis.total.toLocaleString('en-IN') },
+    { label: 'Active teams', value: result.kpis.active.toLocaleString('en-IN') },
+    { label: 'Telecallers / BDC', value: result.kpis.telecallers.toLocaleString('en-IN') },
+    { label: 'Sales consultants', value: result.kpis.consultants.toLocaleString('en-IN') },
   ];
 }
 
@@ -117,39 +115,13 @@ function AdministrationPagination({
   query: AdministrationQuery;
   onQueryChange: (next: Partial<AdministrationQuery>) => void;
 }) {
-  const pages = Math.max(1, Math.ceil(total / query.pageSize));
   return (
-    <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-xs text-muted-foreground">
-        Showing {total ? (query.page - 1) * query.pageSize + 1 : 0}–
-        {Math.min(query.page * query.pageSize, total)} of {total}
-      </p>
-      <div className="flex items-center gap-2">
-        <span className="mr-2 text-xs text-muted-foreground">
-          Page {query.page} of {pages}
-        </span>
-        <Button
-          variant="outline"
-          size="icon"
-          className="size-8"
-          disabled={query.page <= 1}
-          onClick={() => onQueryChange({ page: query.page - 1 })}
-          aria-label="Previous page"
-        >
-          <ChevronLeft className="size-4" />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          className="size-8"
-          disabled={query.page >= pages}
-          onClick={() => onQueryChange({ page: query.page + 1 })}
-          aria-label="Next page"
-        >
-          <ChevronRight className="size-4" />
-        </Button>
-      </div>
-    </div>
+    <TablePagination
+      page={query.page}
+      pageSize={query.pageSize}
+      total={total}
+      onPageChange={(page) => onQueryChange({ page })}
+    />
   );
 }
 
@@ -782,29 +754,18 @@ export function BranchTeamWorkspace({
     !workspace.data
   )
     return (
-      <Card className="mx-auto max-w-xl">
-        <CardContent className="flex flex-col items-center p-10 text-center">
-          <div className="grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
-            <TriangleAlert />
-          </div>
-          <h2 className="mt-4 font-semibold">Administration workspace is unavailable</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your permission/scope or migration state needs attention. Reference:
-            GDM-BRANCH-TEAM-QUERY.
-          </p>
-          <Button
-            className="mt-5"
-            variant="outline"
-            onClick={() => {
-              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
-              void workspace.refetch();
-            }}
-          >
-            <RotateCcw className="size-4" />
-            Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Administration workspace is unavailable"
+          description="Your permission/scope or migration state needs attention."
+          reference="GDM-BRANCH-TEAM-QUERY"
+          onRetry={() => {
+            if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
+            void workspace.refetch();
+          }}
+        />
+      </PageShell>
     );
   const isBranchResult = kind === 'branches';
   const branchResult = isBranchResult ? (workspace.data as BranchAdministrationWorkspace) : null;
@@ -816,21 +777,26 @@ export function BranchTeamWorkspace({
         permissions.canManageBranches
       : teamPreset === 'STRUCTURE' && permissions.canManageTeams;
   return (
-    <div className="mx-auto max-w-[1600px]">
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        {canCreate && (
-          <Button
-            className="shrink-0 sm:mt-7"
-            onClick={() =>
-              kind === 'branches' ? setBranchEditor('create') : setTeamEditor('create')
-            }
-          >
-            <Plus className="size-4" />
-            {kind === 'branches' ? 'Create branch' : 'Create team'}
-          </Button>
-        )}
-      </div>
+    <div className="mx-auto w-full">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        className="mb-6"
+        actions={
+          <>
+            {canCreate && (
+              <Button
+                className="shrink-0"
+                onClick={() =>
+                  kind === 'branches' ? setBranchEditor('create') : setTeamEditor('create')
+                }
+              >
+                <Plus className="size-4" />
+                {kind === 'branches' ? 'Create branch' : 'Create team'}
+              </Button>
+            )}
+          </>
+        }
+      />
       <div className="space-y-6">
         {/* The team counts belong to Teams; the assignment page does not repeat them. */}
         {branchResult ? (

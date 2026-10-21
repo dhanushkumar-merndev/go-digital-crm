@@ -34,8 +34,9 @@ function Badge({
   className,
   variant,
   ...props
-}: React.ComponentProps<'div'> & VariantProps<typeof badgeVariants>) {
-  return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
+}: React.ComponentProps<'span'> & VariantProps<typeof badgeVariants>) {
+  // A span, so a badge can sit inside a line of text (<p>, CardDescription).
+  return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
 }
 
 /** The badge colours anything in the app may ask for by name. */

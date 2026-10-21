@@ -70,7 +70,7 @@ function CustomerSearchDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-2xl overflow-y-auto p-0">
+      <DialogContent size="lg" className="p-0">
         <DialogHeader className="border-b px-5 py-4 pr-12">
           <DialogTitle>Customer search</DialogTitle>
           <DialogDescription>
@@ -113,7 +113,7 @@ function CustomerSearchDialog({
                     <UserRound className="size-4" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-[#17233d]">
+                    <span className="block truncate text-sm font-semibold text-heading">
                       {record.full_name}
                     </span>
                     <span className="mt-0.5 block truncate text-xs text-muted-foreground">
@@ -192,7 +192,7 @@ export function GlobalCustomerSearch({ role }: { role: RoleKey }) {
       >
         <Search className="size-4" />
         <span className="flex-1 text-left">Search customers</span>
-        <kbd className="rounded border bg-white px-1.5 py-0.5 text-[9px] text-muted-foreground">
+        <kbd className="rounded border bg-white px-1.5 py-0.5 text-[10px] text-muted-foreground">
           ⌘ K
         </kbd>
       </Button>

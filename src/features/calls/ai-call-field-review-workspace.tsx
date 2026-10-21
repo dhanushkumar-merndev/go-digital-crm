@@ -25,20 +25,15 @@ import {
   reviewAiCallFields,
   type AiFieldDecision,
 } from './ai-call-field-review-api';
+import {
+  aiFieldDisplay,
+  aiFieldEditText,
+  aiFieldEditValue,
+  aiFieldLabel,
+} from './ai-call-field-values';
 import { SpeakerTranscript } from './speaker-transcript';
 
 type DraftDecision = { decision: AiFieldDecision; value?: string };
-
-function displayValue(value: unknown) {
-  if (value === null || value === undefined || value === '') return 'Not set';
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
-    return String(value);
-  return JSON.stringify(value);
-}
-
-function labelForField(value: string) {
-  return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
 
 function formatDuration(value: number | null) {
   if (!value) return '—';
@@ -62,7 +57,9 @@ export function AiCallFieldReviewWorkspace({ callId, role }: { callId: string; r
         decisions: Object.entries(drafts).map(([field_key, item]) => ({
           field_key,
           decision: item.decision,
-          ...(item.decision === 'EDITED' ? { value: item.value ?? '' } : {}),
+          ...(item.decision === 'EDITED'
+            ? { value: aiFieldEditValue(field_key, item.value ?? '') }
+            : {}),
         })),
         requestId: globalThis.crypto.randomUUID(),
       });
@@ -135,16 +132,18 @@ export function AiCallFieldReviewWorkspace({ callId, role }: { callId: string; r
       ...current,
       [fieldKey]: {
         decision,
-        ...(decision === 'EDITED' ? { value: displayValue(suggested) } : {}),
+        ...(decision === 'EDITED' ? { value: aiFieldEditText(fieldKey, suggested) } : {}),
       },
     }));
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5 p-5">
+    <div className="mx-auto w-full space-y-5 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm text-muted-foreground">Calls / AI field review</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight">AI Auto Field Fill Review</h1>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-heading">
+            AI Auto Field Fill Review
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Review AI-extracted values before they update CRM records.
           </p>
@@ -246,12 +245,12 @@ export function AiCallFieldReviewWorkspace({ callId, role }: { callId: string; r
                   <div key={field.field_key} className="rounded-lg border p-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <p className="font-medium">{labelForField(field.field_key)}</p>
+                        <p className="font-medium">{aiFieldLabel(field.field_key)}</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          Current: {displayValue(field.current_value)}
+                          Current: {aiFieldDisplay(field.field_key, field.current_value)}
                         </p>
                         <p className="mt-1 text-sm text-primary">
-                          Suggested: {displayValue(field.suggested_value)}
+                          Suggested: {aiFieldDisplay(field.field_key, field.suggested_value)}
                         </p>
                       </div>
                       <Badge
@@ -300,7 +299,7 @@ export function AiCallFieldReviewWorkspace({ callId, role }: { callId: string; r
                       </Button>
                       {selected === 'EDITED' && (
                         <Input
-                          aria-label={`${labelForField(field.field_key)} edited value`}
+                          aria-label={`${aiFieldLabel(field.field_key)} edited value`}
                           className="max-w-sm"
                           value={draft?.value ?? ''}
                           onChange={(event) =>

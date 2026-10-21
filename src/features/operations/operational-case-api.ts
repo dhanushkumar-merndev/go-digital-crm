@@ -46,6 +46,10 @@ const workspaceSchema = z.object({
   total: z.coerce.number().int().nonnegative(),
   organization_id: z.uuid(),
   department: z.enum(['FINANCE', 'INSURANCE', 'RTO', 'EXCHANGE', 'DELIVERY']),
+  // Cases per status across the actor's whole scope, not the loaded page.
+  // Optional until 202610210005 is applied everywhere; absent, the overview
+  // falls back to the loaded page and says so.
+  status_counts: z.record(z.string(), z.coerce.number().int().nonnegative()).optional(),
   kpis: z.object({
     open: z.coerce.number().int().nonnegative(),
     pending_documents: z.coerce.number().int().nonnegative(),
@@ -367,8 +371,9 @@ export async function downloadOperationalCaseDocument(objectFileId: string) {
 }
 
 const count = z.coerce.number().int().nonnegative();
-const performanceSchema = z.object({
-  department: z.enum(['FINANCE', 'INSURANCE', 'RTO', 'EXCHANGE', 'DELIVERY']),
+// Shared by the operations desks and Customer Care (get_customer_care_performance).
+export const personalCasePerformanceSchema = z.object({
+  department: z.enum(['FINANCE', 'INSURANCE', 'RTO', 'EXCHANGE', 'DELIVERY', 'CUSTOMER_CARE']),
   kpis: z.object({
     open: count,
     overdue: count,
@@ -379,7 +384,7 @@ const performanceSchema = z.object({
   }),
   daily: z.array(z.object({ day: z.string(), handled: count, completed: count })),
 });
-export type OperationalCasePerformance = z.infer<typeof performanceSchema>;
+export type OperationalCasePerformance = z.infer<typeof personalCasePerformanceSchema>;
 
 export async function fetchOperationalCasePerformance(
   department: OperationalCaseDepartment,
@@ -393,5 +398,5 @@ export async function fetchOperationalCasePerformance(
     target_timezone: 'Asia/Kolkata',
   });
   const data = await readRpc(request, signal);
-  return performanceSchema.parse(data);
+  return personalCasePerformanceSchema.parse(data);
 }

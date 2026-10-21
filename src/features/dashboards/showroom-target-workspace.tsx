@@ -1,14 +1,11 @@
 'use client';
 
+import { formatCompactCurrency } from '@/lib/format';
+import { ErrorState } from '@/components/shared/page-states';
+import type { PageSpec } from '@/lib/domain';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { useQuery } from '@tanstack/react-query';
-import {
-  CalendarDays,
-  CarFront,
-  ChartNoAxesCombined,
-  Target,
-  TriangleAlert,
-  Trophy,
-} from 'lucide-react';
+import { CalendarDays, CarFront, ChartNoAxesCombined, Target, Trophy } from 'lucide-react';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import {
@@ -41,20 +38,11 @@ function currentMonth() {
     .slice(0, 7);
 }
 
-function currency(value: number) {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-    notation: value >= 10_000_000 ? 'compact' : 'standard',
-  }).format(value);
-}
-
 function percent(value: number, target: number) {
   return target > 0 ? (value / target) * 100 : null;
 }
 
-export function ShowroomTargetWorkspace() {
+export function ShowroomTargetWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
   const queryScope = workspaceQueryScope(session);
   const [month, setMonth] = useState(currentMonth);
@@ -66,15 +54,14 @@ export function ShowroomTargetWorkspace() {
   if (query.isPending) return <ShowroomTargetSkeleton />;
   if (query.isError || !query.data)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <TriangleAlert className="mx-auto size-8 text-destructive" />
-          <h1 className="mt-4 font-semibold">Showroom target data is unavailable</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            This page requires one authorized showroom branch and sales-view permission.
-          </p>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Showroom target data is unavailable"
+          description="This page requires one authorized showroom branch and sales-view permission."
+          onRetry={() => void query.refetch()}
+        />
+      </PageShell>
     );
 
   const data = query.data;
@@ -84,14 +71,16 @@ export function ShowroomTargetWorkspace() {
   const metrics: Metric[] = [
     {
       label: 'Monthly sales target',
-      value: data.kpis.sales_target ? currency(data.kpis.sales_target) : 'Not configured',
+      value: data.kpis.sales_target
+        ? formatCompactCurrency(data.kpis.sales_target)
+        : 'Not configured',
       helper: data.kpis.sales_target ? 'Branch revenue target' : 'Set a branch revenue target',
       icon: Target,
       tone: 'bg-blue-50 text-blue-600',
     },
     {
       label: 'Achieved sales',
-      value: currency(data.kpis.sales_value),
+      value: formatCompactCurrency(data.kpis.sales_value),
       helper:
         salesAchievement === null
           ? 'No sales target configured'
@@ -102,16 +91,18 @@ export function ShowroomTargetWorkspace() {
     {
       label: 'Booking target',
       value: data.kpis.booking_target
-        ? data.kpis.booking_target.toLocaleString()
+        ? data.kpis.booking_target.toLocaleString('en-IN')
         : 'Not configured',
-      helper: `${data.kpis.bookings.toLocaleString()} bookings this month`,
+      helper: `${data.kpis.bookings.toLocaleString('en-IN')} bookings this month`,
       icon: CalendarDays,
       tone: 'bg-orange-50 text-orange-600',
     },
     {
       label: 'Test-drive target',
-      value: data.kpis.drive_target ? data.kpis.drive_target.toLocaleString() : 'Not configured',
-      helper: `${data.kpis.test_drives.toLocaleString()} test drives this month`,
+      value: data.kpis.drive_target
+        ? data.kpis.drive_target.toLocaleString('en-IN')
+        : 'Not configured',
+      helper: `${data.kpis.test_drives.toLocaleString('en-IN')} test drives this month`,
       icon: CarFront,
       tone: 'bg-violet-50 text-violet-600',
     },
@@ -129,31 +120,26 @@ export function ShowroomTargetWorkspace() {
     .slice(0, 4);
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="mb-2 text-xs">
-            <span className="text-primary">Dashboard</span>
-            <span className="mx-2 text-muted-foreground">›</span>
-            <span className="text-muted-foreground">Showroom targets</span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">Showroom Target</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {data.branch.name} · actual booked sales and configured branch targets.
-          </p>
-        </div>
-        <Input
-          aria-label="Target month"
-          className="w-44"
-          max="2030-12"
-          min="2025-01"
-          type="month"
-          value={month}
-          onChange={(event) => setMonth(event.target.value || currentMonth())}
-        />
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description={`${data.branch.name}: booked sales against the targets for the month.`}
+        actions={
+          <>
+            <Input
+              aria-label="Target month"
+              className="w-44"
+              max="2030-12"
+              min="2025-01"
+              type="month"
+              value={month}
+              onChange={(event) => setMonth(event.target.value || currentMonth())}
+            />
+          </>
+        }
+      />
 
-      <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
+      <KpiGrid metrics={metrics} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card className="shadow-none">
@@ -224,7 +210,7 @@ export function ShowroomTargetWorkspace() {
                     <TableCell className="font-medium">{model.model}</TableCell>
                     <TableCell>{model.bookings}</TableCell>
                     <TableCell className="text-right font-medium">
-                      {currency(model.sales_value)}
+                      {formatCompactCurrency(model.sales_value)}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -265,9 +251,11 @@ export function ShowroomTargetWorkspace() {
                     <TableRow key={consultant.user_id}>
                       <TableCell className="font-medium">{consultant.full_name}</TableCell>
                       <TableCell>
-                        {consultant.sales_target ? currency(consultant.sales_target) : '—'}
+                        {consultant.sales_target
+                          ? formatCompactCurrency(consultant.sales_target)
+                          : '—'}
                       </TableCell>
-                      <TableCell>{currency(consultant.sales_value)}</TableCell>
+                      <TableCell>{formatCompactCurrency(consultant.sales_value)}</TableCell>
                       <TableCell>
                         <Badge
                           variant={
@@ -313,7 +301,7 @@ export function ShowroomTargetWorkspace() {
                   <div>
                     <p className="font-semibold">{best.full_name}</p>
                     <p className="text-sm text-muted-foreground">
-                      {currency(best.sales_value)} booked sales
+                      {formatCompactCurrency(best.sales_value)} booked sales
                     </p>
                   </div>
                 </div>
@@ -343,7 +331,7 @@ export function ShowroomTargetWorkspace() {
                 >
                   <span className="font-medium">{consultant.full_name}</span>
                   <span className="text-destructive">
-                    Gap {currency(consultant.sales_target - consultant.sales_value)}
+                    Gap {formatCompactCurrency(consultant.sales_target - consultant.sales_value)}
                   </span>
                 </div>
               ))
@@ -365,7 +353,7 @@ export function ShowroomTargetWorkspace() {
             <p className="mt-1 text-sm text-muted-foreground">
               {salesAchievement === null
                 ? 'Configure a sales-value target to calculate achievement.'
-                : `${currency(Math.max(data.kpis.sales_target - data.kpis.sales_value, 0))} remaining to branch target.`}
+                : `${formatCompactCurrency(Math.max(data.kpis.sales_target - data.kpis.sales_value, 0))} remaining to branch target.`}
             </p>
             <div className="mt-4 flex gap-2 text-xs">
               <Badge

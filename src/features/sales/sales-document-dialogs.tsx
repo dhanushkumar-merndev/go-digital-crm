@@ -13,6 +13,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -126,7 +127,7 @@ export function QuotationDialog({
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogContent size="xl">
         <DialogHeader>
           <DialogTitle>{record ? 'Edit quotation' : 'Create quotation'}</DialogTitle>
           <DialogDescription>
@@ -314,14 +315,14 @@ export function QuotationDialog({
               </AlertDescription>
             </Alert>
           )}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={mutation.isPending || !leadId || total < 0}>
               {mutation.isPending ? 'Saving…' : record ? 'Save new version' : 'Create quotation'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -648,14 +649,14 @@ export function BookingCreateDialog({
               <AlertDescription>{bookingErrorMessage(mutation.error)}</AlertDescription>
             </Alert>
           )}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={mutation.isPending || !ready || Number(amount) <= 0}>
               {mutation.isPending ? 'Creating…' : 'Create booking'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -782,14 +783,14 @@ export function SalesDocumentActionDialog({
               </AlertDescription>
             </Alert>
           )}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={mutation.isPending || (needsReason && !reason.trim())}>
               {mutation.isPending ? 'Saving…' : `Confirm ${label}`}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

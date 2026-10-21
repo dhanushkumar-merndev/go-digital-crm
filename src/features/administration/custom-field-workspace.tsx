@@ -1,8 +1,10 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { PageHeader } from '@/components/shared/page-header';
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { Plus, Search, SlidersHorizontal } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import {
   useWorkspaceSession,
@@ -120,7 +122,7 @@ function CreateFieldDialog({
     (!selectable || options.length > 0);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Create custom field</DialogTitle>
           <DialogDescription>
@@ -373,38 +375,34 @@ export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
         </CardContent>
       </Card>
     );
-  const pages = Math.max(1, Math.ceil(query.data.total / pageSize));
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5">
-      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-        <div>
-          <div className="mb-2 text-xs text-muted-foreground">
-            Administration › CRM configuration
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">{spec.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Manage validated organization-wide CRM fields without modifying existing customer data.
-          </p>
-        </div>
-        <Button onClick={() => setDialogOpen(true)}>
-          <Plus className="size-4" /> Create field
-        </Button>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Extra fields for customers, leads and bookings. Disable a field to retire it; existing values are kept."
+        actions={
+          <>
+            <Button onClick={() => setDialogOpen(true)}>
+              <Plus className="size-4" /> Create field
+            </Button>
+          </>
+        }
+      />
       <KpiGrid
         metrics={[
           {
             label: 'Total definitions',
-            value: query.data.total.toLocaleString(),
+            value: query.data.total.toLocaleString('en-IN'),
             icon: SlidersHorizontal,
           },
           {
             label: 'Active',
-            value: query.data.active_count.toLocaleString(),
+            value: query.data.active_count.toLocaleString('en-IN'),
             icon: SlidersHorizontal,
           },
           {
             label: 'Inactive',
-            value: query.data.inactive_count.toLocaleString(),
+            value: query.data.inactive_count.toLocaleString('en-IN'),
             icon: SlidersHorizontal,
           },
         ]}
@@ -536,28 +534,13 @@ export function CustomFieldWorkspace({ spec }: { spec: PageSpec }) {
             </TableBody>
           </Table>
         </CardContent>
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          total={query.data.total}
+          onPageChange={setPage}
+        />
       </Card>
-      <div className="flex items-center justify-between">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={page <= 1 || query.isFetching}
-          onClick={() => setPage((value) => value - 1)}
-        >
-          <ChevronLeft className="size-4" /> Previous
-        </Button>
-        <span className="text-xs text-muted-foreground">
-          Page {page} of {pages}
-        </span>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={page >= pages || query.isFetching}
-          onClick={() => setPage((value) => value + 1)}
-        >
-          Next <ChevronRight className="size-4" />
-        </Button>
-      </div>
       <CreateFieldDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </div>
   );

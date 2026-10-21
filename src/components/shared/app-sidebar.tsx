@@ -1,10 +1,9 @@
 'use client';
 
-import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronDown, CircleHelp, ShieldCheck } from 'lucide-react';
+import { CircleHelp, ShieldCheck } from 'lucide-react';
 import {
   EMPTY_NAVIGATION_ACCESS,
   filterNavigationItems,
@@ -49,14 +48,14 @@ function NavigationLink({
   item,
   href,
   active,
-  nested,
   onNavigate,
+  className,
 }: {
   item: NavItem;
   href: string;
   active: boolean;
-  nested?: boolean;
   onNavigate?: () => void;
+  className?: string;
 }) {
   return (
     <Link
@@ -65,10 +64,10 @@ function NavigationLink({
       aria-current={active ? 'page' : undefined}
       className={cn(
         'flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors',
-        nested && 'h-9 pl-3',
         active
           ? 'bg-blue-500 text-white shadow-sm'
           : 'text-slate-300 hover:bg-white/7 hover:text-white',
+        className,
       )}
     >
       <AppIcon name={item.icon} className="size-[17px] shrink-0" />
@@ -77,16 +76,17 @@ function NavigationLink({
   );
 }
 
+// Every role's links render exactly like the Telecaller and Sales Consultant
+// sidebar; a group only adds a small section label above its links, so nothing
+// hides behind a collapsed folder.
 function NavigationGroup({
   title,
-  icon,
   items,
   role,
   pathname,
   onNavigate,
 }: {
   title: string;
-  icon: string;
   items: NavItem[];
   role: RoleKey;
   pathname: string;
@@ -94,43 +94,22 @@ function NavigationGroup({
 }) {
   const isActive = (slug: string) =>
     pathname === `/${role}/${slug}` || pathname.startsWith(`/${role}/${slug}/`);
-  const containsActive = items.some((item) => isActive(item.slug));
-  // Open on the group's own pages; elsewhere it stays as the user left it.
-  const [expanded, setExpanded] = useState(containsActive);
-  const open = expanded || containsActive;
   return (
-    <div>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setExpanded(!open)}
-        className={cn(
-          'flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors',
-          containsActive
-            ? 'bg-white/5 text-white'
-            : 'text-slate-300 hover:bg-white/7 hover:text-white',
-        )}
-      >
-        <AppIcon name={icon} className="size-[17px] shrink-0" />
-        <span className="flex-1 truncate text-left">{title}</span>
-        <ChevronDown
-          className={cn('size-4 shrink-0 transition-transform', open ? 'rotate-180' : '')}
-        />
-      </button>
-      {open ? (
-        <div className="mb-1 ml-[22px] mt-1 space-y-1 border-l border-white/10 pl-2">
-          {items.map((item) => (
-            <NavigationLink
-              key={item.slug}
-              item={item}
-              href={`/${role}/${item.slug}`}
-              active={isActive(item.slug)}
-              nested
-              onNavigate={onNavigate}
-            />
-          ))}
-        </div>
-      ) : null}
+    <div className="pt-3 first:pt-0">
+      <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+        {title}
+      </p>
+      <div className="space-y-1">
+        {items.map((item) => (
+          <NavigationLink
+            key={item.slug}
+            item={item}
+            href={`/${role}/${item.slug}`}
+            active={isActive(item.slug)}
+            onNavigate={onNavigate}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -182,13 +161,12 @@ function SidebarContent({
         </div>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-        {navigationEntries(navigationItems).map((entry) => {
+        {navigationEntries(navigationItems).map((entry, index, entries) => {
           if (entry.kind === 'group')
             return (
               <NavigationGroup
                 key={`group:${entry.title}`}
                 title={entry.title}
-                icon={entry.icon}
                 items={entry.items}
                 role={role}
                 pathname={pathname}
@@ -196,9 +174,13 @@ function SidebarContent({
               />
             );
           const href = `/${role}/${entry.item.slug}`;
+          // A loose link after a section gets the same gap, so it doesn't read as
+          // that section's last item.
+          const afterGroup = entries[index - 1]?.kind === 'group';
           return (
             <NavigationLink
               key={entry.item.slug}
+              className={afterGroup ? 'mt-3' : undefined}
               item={entry.item}
               href={href}
               active={pathname === href || pathname.startsWith(`${href}/`)}
@@ -261,11 +243,11 @@ export function AppSidebar({
   const setOpen = useUiStore((state) => state.setMobileNavigationOpen);
   return (
     <>
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[252px] flex-col bg-[#17233d] text-slate-200 lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[252px] flex-col bg-sidebar text-slate-200 lg:flex">
         <SidebarContent role={role} previewMode={previewMode} navigationAccess={navigationAccess} />
       </aside>
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent className="flex flex-col border-0 bg-[#17233d] p-0 text-slate-200 lg:hidden">
+        <SheetContent className="flex flex-col border-0 bg-sidebar p-0 text-slate-200 lg:hidden">
           <SheetTitle className="sr-only">Application navigation</SheetTitle>
           <SheetDescription className="sr-only">Role-specific CRM navigation</SheetDescription>
           <SidebarContent

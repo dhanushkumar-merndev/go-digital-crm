@@ -5,7 +5,7 @@ export function AuthPageShell({ children }: { children: React.ReactNode }) {
   return (
     <main className="flex min-h-screen min-h-[100dvh] lg:h-screen lg:h-[100dvh] w-full bg-[#f5f7fb] overflow-y-auto lg:overflow-hidden">
       {/* ── Left panel (Desktop / Laptop 50% full height blue) ─────── */}
-      <section className="relative hidden w-1/2 flex-col justify-between bg-[#17233d] p-6 lg:p-8 xl:p-12 2xl:p-14 text-white lg:flex h-full overflow-hidden shrink-0 select-none">
+      <section className="relative hidden w-1/2 flex-col justify-between bg-sidebar p-6 lg:p-8 xl:p-12 2xl:p-14 text-white lg:flex h-full overflow-hidden shrink-0 select-none">
         {/* TOP: Tagline text */}
         <div className="relative z-10 max-w-md xl:max-w-xl shrink-0">
           <p className="text-xs xl:text-sm font-semibold text-blue-300">
@@ -45,10 +45,10 @@ export function AuthPageShell({ children }: { children: React.ReactNode }) {
               priority
             />
             <div>
-              <p className="text-sm xl:text-base font-bold text-[#17233d]">
+              <p className="text-sm xl:text-base font-bold text-heading">
                 Go Digital Marketing CRM
               </p>
-              <p className="text-[11px] xl:text-xs text-[#17233d]/70">
+              <p className="text-[11px] xl:text-xs text-heading/70">
                 Automobile dealership workspace
               </p>
             </div>

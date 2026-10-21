@@ -1,5 +1,7 @@
 'use client';
 
+import { ErrorState } from '@/components/shared/page-states';
+import { PageShell } from '@/components/shared/page-header';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Blocks, Building2, CarFront, UsersRound } from 'lucide-react';
@@ -38,34 +40,39 @@ export function DealershipDetailWorkspace({ organizationId }: { organizationId: 
   if (query.isPending) return <DealershipDetailSkeleton />;
   if (query.isError || !query.data)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <p className="font-semibold">Dealership detail is unavailable</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Confirm Super Admin MFA access and that the dealership still exists.
-          </p>
-          <Button asChild className="mt-5" variant="outline">
-            <Link href="/super-admin/dealerships">Return to dealerships</Link>
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <ErrorState
+          title="Dealership detail is unavailable"
+          description="Confirm Super Admin MFA access and that the dealership still exists."
+          onRetry={() => void query.refetch()}
+          action={
+            <Button asChild size="sm" variant="ghost">
+              <Link href="/super-admin/dealerships">Return to dealerships</Link>
+            </Button>
+          }
+        />
+      </PageShell>
     );
 
   const { organization, kpis } = query.data;
   const metrics: Metric[] = [
-    { label: 'Active branches', value: kpis.branches.toLocaleString(), icon: Building2 },
-    { label: 'Active users', value: kpis.users.toLocaleString(), icon: UsersRound },
-    { label: 'Leads this week', value: kpis.leads_this_week.toLocaleString(), icon: UsersRound },
+    { label: 'Active branches', value: kpis.branches.toLocaleString('en-IN'), icon: Building2 },
+    { label: 'Active users', value: kpis.users.toLocaleString('en-IN'), icon: UsersRound },
+    {
+      label: 'Leads this week',
+      value: kpis.leads_this_week.toLocaleString('en-IN'),
+      icon: UsersRound,
+    },
     {
       label: 'Bookings this week',
-      value: kpis.bookings_this_week.toLocaleString(),
+      value: kpis.bookings_this_week.toLocaleString('en-IN'),
       icon: CarFront,
     },
-    { label: 'Enabled modules', value: kpis.enabled_modules.toLocaleString(), icon: Blocks },
+    { label: 'Enabled modules', value: kpis.enabled_modules.toLocaleString('en-IN'), icon: Blocks },
   ];
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
+    <div className="mx-auto w-full space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
@@ -76,9 +83,7 @@ export function DealershipDetailWorkspace({ organizationId }: { organizationId: 
             <span>{organization.name}</span>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">
-              {organization.name}
-            </h1>
+            <h1 className="text-2xl font-bold tracking-tight text-heading">{organization.name}</h1>
             <Badge variant={organization.status === 'ACTIVE' ? 'success' : 'secondary'}>
               {organization.status.replaceAll('_', ' ')}
             </Badge>
@@ -107,7 +112,7 @@ export function DealershipDetailWorkspace({ organizationId }: { organizationId: 
         </CardContent>
       </Card>
 
-      <KpiGrid metrics={metrics} className="xl:grid-cols-5" />
+      <KpiGrid metrics={metrics} />
 
       <SeatLimitsCard organizationId={organization.id} organizationName={organization.name} />
 
@@ -165,9 +170,11 @@ export function DealershipDetailWorkspace({ organizationId }: { organizationId: 
                     <TableCell className="font-mono text-xs text-muted-foreground">
                       {branch.code}
                     </TableCell>
-                    <TableCell className="text-right">{branch.users.toLocaleString()}</TableCell>
                     <TableCell className="text-right">
-                      {branch.leads_this_week.toLocaleString()}
+                      {branch.users.toLocaleString('en-IN')}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {branch.leads_this_week.toLocaleString('en-IN')}
                     </TableCell>
                   </TableRow>
                 ))}

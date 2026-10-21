@@ -2,14 +2,17 @@ import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { AppState, StyleSheet, Text, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { ToastProvider } from '@/components/ui/toast';
+import { CallFlowProvider } from '@/features/call-flow/call-flow';
 import { autoSyncRecordings, initializeRecordingLedger } from '@/lib/recording-sync';
 import { initializeRouteBuffer } from '@/lib/route-buffer';
 import { mobileSupabaseConfigured } from '@/lib/runtime-config';
 import { enforceMobileSessionPolicy } from '@/lib/session-policy';
 import { supabase } from '@/lib/supabase';
 import '@/lib/test-drive-tracking';
-import { colors } from '@/theme';
+import { colors, font } from '@/theme';
 
 export default function RootLayout() {
   useEffect(() => {
@@ -86,14 +89,38 @@ export default function RootLayout() {
     );
   }
   return (
-    <SafeAreaProvider>
-      <StatusBar style="dark" />
-      <Stack screenOptions={{ headerShown: false }} />
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>
+        <ToastProvider>
+          <CallFlowProvider>
+            <StatusBar style="dark" />
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                animation: 'slide_from_right',
+                animationDuration: 220,
+                freezeOnBlur: true,
+                gestureEnabled: true,
+                fullScreenGestureEnabled: true,
+                contentStyle: { backgroundColor: colors.background },
+              }}
+            >
+              <Stack.Screen name="index" options={{ animation: 'fade' }} />
+              <Stack.Screen
+                name="telecaller"
+                options={{ animation: 'fade', gestureEnabled: false }}
+              />
+              <Stack.Screen name="sales" options={{ animation: 'fade', gestureEnabled: false }} />
+            </Stack>
+          </CallFlowProvider>
+        </ToastProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   safe: {
     flex: 1,
     justifyContent: 'center',
@@ -104,9 +131,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 18,
-    backgroundColor: 'white',
+    backgroundColor: colors.onColor,
     padding: 24,
   },
-  title: { color: colors.text, fontSize: 24, fontWeight: '800' },
-  body: { color: colors.muted, fontSize: 14, lineHeight: 21, marginTop: 10 },
+  title: { color: colors.text, fontSize: font.display, fontWeight: '700' },
+  body: { color: colors.muted, fontSize: font.row, lineHeight: 21, marginTop: 10 },
 });

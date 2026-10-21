@@ -1,13 +1,11 @@
 import type { Href } from 'expo-router';
+import { fetchAccessContext, forgetAccessContext } from './access-context';
 import { supabase } from './supabase';
 
-type AccessContext = { destination: string; role_key?: string; reason?: string };
-
 export async function routeForCurrentSession(): Promise<Href> {
-  const { data, error } = await supabase.rpc('get_access_context');
-  if (error || !data) throw error ?? new Error('ACCESS_CONTEXT_MISSING');
-  const context = data as AccessContext;
+  const context = await fetchAccessContext();
   if (context.destination === 'LOGIN' && context.reason === 'SESSION_EXPIRED') {
+    forgetAccessContext();
     await supabase.auth.signOut({ scope: 'local' });
     throw new Error('SESSION_EXPIRED');
   }

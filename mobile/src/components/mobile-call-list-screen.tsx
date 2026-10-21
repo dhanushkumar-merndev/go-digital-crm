@@ -1,193 +1,148 @@
 import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Screen } from '@/components/screen';
-import { fetchMobileCalls, type MobileCallRecord } from '@/lib/calls';
-import { colors } from '@/theme';
+import { memo, useCallback, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { RecordingSyncButton } from '@/components/recording-sync-button';
+import { ListScreen } from '@/components/screen';
+import { Avatar, Badge } from '@/components/ui/basics';
+import { FilterBar, useFilters } from '@/components/ui/filter-sheet';
+import { Icon } from '@/components/ui/icon';
+import { PressableScale } from '@/components/ui/pressable-scale';
+import { RowPressable } from '@/components/ui/row';
+import { fetchMobileCalls } from '@/lib/calls';
+import { callFilterGroups, safeSearch } from '@/lib/list-filters';
+import { usePagedList } from '@/lib/use-paged-list';
+import { colors, font, space, type Tone } from '@/theme';
+
+const stamp = new Intl.DateTimeFormat('en-IN', {
+  day: 'numeric',
+  month: 'short',
+  hour: 'numeric',
+  minute: '2-digit',
+});
 
 function duration(value: number | null) {
-  if (value === null) return 'Duration unavailable';
-  const minutes = Math.floor(value / 60);
-  const seconds = value % 60;
-  return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+  if (value === null) return null;
+  return `${Math.floor(value / 60)}m ${(value % 60).toString().padStart(2, '0')}s`;
 }
 
-function dateTime(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? 'Time unavailable'
-    : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+function outcomeTone(outcome: string): Tone {
+  if (/CONNECTED|COMPLETED|ANSWERED/.test(outcome))
+    return { fg: colors.successStrong, bg: colors.successSoft };
+  if (/NO_ANSWER|BUSY|MISSED|FAILED/.test(outcome))
+    return { fg: colors.warningStrong, bg: colors.warningSoft };
+  return { fg: '#4b5563', bg: '#f3f4f6' };
 }
 
-function initials(name: string | null) {
-  return (name ?? 'Customer')
-    .split(' ')
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
+type CallItem = Awaited<ReturnType<typeof fetchMobileCalls>>['records'][number];
+
+const CallRow = memo(function CallRow({ item }: { item: CallItem }) {
+  const outcome = item.outcome ?? item.status;
+  // A call from a number with no lead yet reads as the call screen names it.
+  const name = item.customer_name ?? item.phone ?? 'New number';
+  const started = new Date(item.started_at);
+  return (
+    <RowPressable onPress={() => router.push({ pathname: '/call/[id]', params: { id: item.id } })}>
+      <Avatar name={name} tone={{ fg: colors.primary, bg: colors.primarySoft }} size={38} />
+      <View style={styles.main}>
+        <View style={styles.line}>
+          <Text numberOfLines={1} style={styles.name}>
+            {name}
+          </Text>
+          <Badge label={outcome.replaceAll('_', ' ').toLowerCase()} tone={outcomeTone(outcome)} />
+        </View>
+        <Text numberOfLines={1} style={styles.meta}>
+          {[
+            Number.isNaN(started.getTime()) ? null : stamp.format(started),
+            duration(item.duration_seconds),
+            item.ai_summary_available ? 'AI summary' : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </Text>
+      </View>
+      <Icon name="chevron-forward" size={18} color={colors.faint} />
+    </RowPressable>
+  );
+});
+
+function renderCall({ item }: { item: CallItem }) {
+  return <CallRow item={item} />;
 }
 
 export function MobileCallListScreen() {
-  const [records, setRecords] = useState<MobileCallRecord[]>([]);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const load = useCallback(async (nextPage: number) => {
-    setLoading(true);
-    setError(false);
-    try {
-      const result = await fetchMobileCalls(nextPage);
-      setRecords(result.records);
-      setTotal(result.total);
-      setPage(nextPage);
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    void load(1);
-  }, [load]);
-
+  const [search, setSearch] = useState('');
+  const filters = useFilters(callFilterGroups);
+  const { values } = filters;
+  const fetchPage = useCallback(
+    (page: number) =>
+      fetchMobileCalls(page, {
+        search: safeSearch(search),
+        view: values.view,
+        outcome: values.outcome,
+        source: values.source,
+      }),
+    [search, values],
+  );
+  const list = usePagedList(fetchPage, { debounceMs: 300 });
+  const narrowed = Boolean(search.trim()) || filters.active > 0;
   return (
-    <Screen
-      title="Calls"
-      subtitle="Your authorized call history"
-      action={
-        <Pressable onPress={() => router.push('/recordings')} accessibilityRole="button">
-          <Text style={styles.headerLink}>Recordings</Text>
-        </Pressable>
+    <ListScreen
+      back
+      title="Call history"
+      subtitle={
+        list.total
+          ? `${list.total.toLocaleString('en-IN')} ${narrowed ? 'matching calls' : 'calls'}`
+          : undefined
       }
-    >
-      {loading ? (
-        <View style={styles.loading}>
-          <ActivityIndicator color={colors.primary} />
+      action={
+        <View style={styles.headerActions}>
+          <RecordingSyncButton />
+          <PressableScale
+            onPress={() => router.push('/recordings')}
+            style={styles.headerAction}
+            accessibilityLabel="Call recordings"
+          >
+            <Icon name="mic-outline" size={18} color={colors.primary} />
+          </PressableScale>
         </View>
-      ) : null}
-      {error ? (
-        <Pressable style={styles.error} onPress={() => void load(page)}>
-          <Text style={styles.errorTitle}>Calls could not load</Text>
-          <Text style={styles.errorText}>Tap to retry with your current secure session.</Text>
-        </Pressable>
-      ) : null}
-      {!loading && !error ? (
-        <>
-          <Text style={styles.count}>
-            {total} call{total === 1 ? '' : 's'} in your current scope
-          </Text>
-          <View style={styles.card}>
-            {records.length ? (
-              records.map((call) => (
-                <Pressable
-                  key={call.id}
-                  style={styles.row}
-                  onPress={() => router.push({ pathname: '/call/[id]', params: { id: call.id } })}
-                >
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{initials(call.customer_name)}</Text>
-                  </View>
-                  <View style={styles.main}>
-                    <Text style={styles.name}>{call.customer_name ?? 'Restricted party'}</Text>
-                    <Text style={styles.meta}>
-                      {call.phone ?? call.direction} · {duration(call.duration_seconds)}
-                    </Text>
-                    <Text style={styles.time}>{dateTime(call.started_at)}</Text>
-                  </View>
-                  <View style={styles.statuses}>
-                    <Text style={styles.status}>
-                      {(call.outcome ?? call.status).replaceAll('_', ' ')}
-                    </Text>
-                    {call.ai_summary_available ? <Text style={styles.ai}>AI summary</Text> : null}
-                  </View>
-                </Pressable>
-              ))
-            ) : (
-              <Text style={styles.empty}>No calls are available in your current scope.</Text>
-            )}
-          </View>
-          <View style={styles.pagination}>
-            <Pressable
-              style={[styles.pageButton, page === 1 && styles.disabled]}
-              disabled={page === 1}
-              onPress={() => void load(page - 1)}
-            >
-              <Text style={styles.pageText}>Previous</Text>
-            </Pressable>
-            <Text style={styles.pageLabel}>Page {page}</Text>
-            <Pressable
-              style={[styles.pageButton, records.length < 25 && styles.disabled]}
-              disabled={records.length < 25}
-              onPress={() => void load(page + 1)}
-            >
-              <Text style={styles.pageText}>Next</Text>
-            </Pressable>
-          </View>
-        </>
-      ) : null}
-    </Screen>
+      }
+      toolbar={
+        <FilterBar
+          search={search}
+          onSearch={setSearch}
+          placeholder="Search name or phone"
+          filters={filters}
+        />
+      }
+      data={list.items}
+      keyExtractor={(call) => call.id}
+      renderItem={renderCall}
+      loading={list.loading}
+      refreshing={list.refreshing}
+      loadingMore={list.loadingMore}
+      error={list.error}
+      errorTitle="Calls could not load"
+      emptyTitle={narrowed ? 'No call matches' : 'No calls yet'}
+      emptyIcon="call-outline"
+      onRefresh={list.refresh}
+      onEndReached={list.loadMore}
+      onRetry={list.reload}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  headerLink: { color: colors.primary, fontWeight: '700' },
-  loading: { padding: 36, alignItems: 'center' },
-  error: {
-    borderColor: '#fecaca',
-    borderWidth: 1,
-    backgroundColor: '#fef2f2',
-    borderRadius: 14,
-    padding: 16,
-  },
-  errorTitle: { color: '#991b1b', fontWeight: '800' },
-  errorText: { color: '#b91c1c', fontSize: 12, marginTop: 4 },
-  count: { color: colors.muted, fontSize: 12, fontWeight: '700' },
-  card: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 15,
-    overflow: 'hidden',
-  },
-  row: {
-    minHeight: 82,
-    padding: 13,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  avatar: {
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  headerAction: {
     width: 40,
     height: 40,
     borderRadius: 20,
+    backgroundColor: colors.primarySoft,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#e8f0ff',
   },
-  avatarText: { color: colors.primary, fontWeight: '800' },
-  main: { flex: 1 },
-  name: { color: colors.text, fontSize: 14, fontWeight: '800' },
-  meta: { color: colors.muted, fontSize: 11, marginTop: 3 },
-  time: { color: colors.primary, fontSize: 10, fontWeight: '700', marginTop: 5 },
-  statuses: { alignItems: 'flex-end', gap: 5, maxWidth: 88 },
-  status: { color: colors.success, fontSize: 10, fontWeight: '800', textAlign: 'right' },
-  ai: { color: '#7c3aed', fontSize: 10, fontWeight: '800' },
-  empty: { color: colors.muted, fontSize: 12, textAlign: 'center', padding: 24 },
-  pagination: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  pageButton: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    paddingHorizontal: 13,
-    paddingVertical: 9,
-    borderRadius: 10,
-  },
-  disabled: { opacity: 0.45 },
-  pageText: { color: colors.primary, fontSize: 12, fontWeight: '800' },
-  pageLabel: { color: colors.muted, fontSize: 12, fontWeight: '700' },
+  main: { flex: 1, minWidth: 0, gap: 2 },
+  line: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  name: { flexShrink: 1, color: colors.text, fontSize: font.body, fontWeight: '600' },
+  meta: { color: colors.muted, fontSize: font.small },
 });

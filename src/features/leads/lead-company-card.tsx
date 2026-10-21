@@ -247,7 +247,7 @@ function LeadCompanyDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{registering ? 'Register as company' : 'Edit company'}</DialogTitle>
           <DialogDescription>
@@ -508,7 +508,7 @@ function ChangeToIndividualDialog({
   });
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Change to individual?</DialogTitle>
           <DialogDescription>

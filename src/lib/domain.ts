@@ -44,9 +44,13 @@ export type PageColumn = {
 
 export type ChartKind = 'line' | 'bar' | 'donut' | 'funnel';
 
+export type Breadcrumb = { label: string; href?: string };
+
 export type PageSpec = {
   title: string;
   description: string;
+  /** Home › sidebar group › page, built from the role's navigation. */
+  breadcrumbs?: Breadcrumb[];
   category: string;
   access: string;
   readOnly: boolean;

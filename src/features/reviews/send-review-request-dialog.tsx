@@ -13,6 +13,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -136,7 +137,8 @@ function ShareStep({
       <label className="grid gap-1.5 text-sm font-medium">
         Message
         <Textarea
-          rows={4}
+          rows={5}
+          className="break-words"
           value={message}
           maxLength={1000}
           onChange={(event) => setMessage(event.target.value)}
@@ -144,9 +146,9 @@ function ShareStep({
       </label>
       <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs">
         <Link2 className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate font-mono">{link}</span>
+        <span className="min-w-0 flex-1 font-mono break-all select-all">{link}</span>
       </div>
-      <div className="flex flex-wrap justify-end gap-2">
+      <DialogFooter>
         <Button type="button" variant="outline" onClick={copy}>
           {copied ? <Check /> : <Copy />} {channel === 'LINK' ? 'Copy link' : 'Copy message'}
         </Button>
@@ -168,7 +170,7 @@ function ShareStep({
             </a>
           </Button>
         ) : null}
-      </div>
+      </DialogFooter>
     </div>
   );
 }
@@ -205,7 +207,7 @@ export function SendReviewRequestDialog({
   };
   return (
     <Dialog open={open} onOpenChange={reset}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Star className="size-4 fill-amber-400 text-amber-400" /> Ask for a review

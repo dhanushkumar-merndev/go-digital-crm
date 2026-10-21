@@ -46,7 +46,7 @@ export function DayPicker({
       >
         <ChevronLeft className="size-4" />
       </Button>
-      <label className="relative flex h-9 min-w-0 flex-1 items-center rounded-lg border border-input bg-white px-2.5 text-xs font-semibold text-[#17233d] focus-within:ring-2 focus-within:ring-ring sm:w-44 sm:flex-none">
+      <label className="relative flex h-9 min-w-0 flex-1 items-center rounded-lg border border-input bg-white px-2.5 text-xs font-semibold text-heading focus-within:ring-2 focus-within:ring-ring sm:w-44 sm:flex-none">
         <CalendarDays className="mr-1.5 size-3.5 shrink-0 text-muted-foreground" />
         <input
           type="date"

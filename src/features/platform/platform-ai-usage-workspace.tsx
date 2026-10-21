@@ -1,17 +1,10 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { PageHeader } from '@/components/shared/page-header';
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  BrainCircuit,
-  ChevronLeft,
-  ChevronRight,
-  Coins,
-  Plus,
-  ScrollText,
-  Search,
-  Sparkles,
-} from 'lucide-react';
+import { BrainCircuit, Coins, Plus, ScrollText, Search, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
@@ -109,7 +102,7 @@ function CreditAllocationDialog({
       toast.add({
         type: 'success',
         title: 'AI credits added',
-        description: `${result.amount.toLocaleString()} credits allocated to ${organization.name}.`,
+        description: `${result.amount.toLocaleString('en-IN')} credits allocated to ${organization.name}.`,
       });
       await queryClient.invalidateQueries({ queryKey: ['platform-ai-usage-workspace'] });
       await queryClient.invalidateQueries({
@@ -141,7 +134,7 @@ function CreditAllocationDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Add AI credits</DialogTitle>
           <DialogDescription>
@@ -233,7 +226,8 @@ function CreditLedgerSheet({
         <SheetHeader>
           <SheetTitle>{organization.name} · AI credit ledger</SheetTitle>
           <SheetDescription>
-            Append-only ledger history. Current balance: {data?.balance.toLocaleString() ?? '…'}
+            Append-only ledger history. Current balance:{' '}
+            {data?.balance.toLocaleString('en-IN') ?? '…'}
           </SheetDescription>
         </SheetHeader>
         <div className="px-4 pb-5">
@@ -267,7 +261,7 @@ function CreditLedgerSheet({
                       className={entry.amount > 0 ? 'font-medium text-emerald-700' : 'font-medium'}
                     >
                       {entry.amount > 0 ? '+' : ''}
-                      {entry.amount.toLocaleString()}
+                      {entry.amount.toLocaleString('en-IN')}
                     </TableCell>
                     <TableCell className="min-w-48 text-sm">{entry.reason}</TableCell>
                   </TableRow>
@@ -285,29 +279,16 @@ function CreditLedgerSheet({
               </TableBody>
             </Table>
           </div>
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page === 1 || query.isFetching}
-              onClick={() => setCursorHistory((value) => value.slice(0, -1))}
-            >
-              <ChevronLeft className="size-4" /> Previous
-            </Button>
-            <span className="text-xs text-muted-foreground">Page {page} · cursor-paginated</span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!data?.has_more || !data.next_cursor || query.isFetching}
-              onClick={() => {
-                if (data?.next_cursor) {
-                  setCursorHistory((value) => [...value, data.next_cursor]);
-                }
-              }}
-            >
-              Next <ChevronRight className="size-4" />
-            </Button>
-          </div>
+          <TablePagination
+            className="rounded-lg border"
+            page={page}
+            pageSize={25}
+            hasNextPage={Boolean(data?.has_more && data.next_cursor)}
+            onPageChange={(next) => {
+              if (next < page) setCursorHistory((value) => value.slice(0, -1));
+              else if (data?.next_cursor) setCursorHistory((value) => [...value, data.next_cursor]);
+            }}
+          />
         </div>
       </SheetContent>
     </Sheet>
@@ -332,47 +313,54 @@ export function PlatformAiUsageWorkspace({ spec }: { spec: PageSpec }) {
     ? [
         {
           label: `AI credits used · ${data.days}d`,
-          value: data.kpis.used_period.toLocaleString(),
+          value: data.kpis.used_period.toLocaleString('en-IN'),
           icon: BrainCircuit,
         },
-        { label: 'AI credits remaining', value: data.kpis.remaining.toLocaleString(), icon: Coins },
-        { label: 'Credits allocated', value: data.kpis.allocated.toLocaleString(), icon: Sparkles },
-        { label: 'Average daily usage', value: data.kpis.average_daily_usage.toLocaleString() },
+        {
+          label: 'AI credits remaining',
+          value: data.kpis.remaining.toLocaleString('en-IN'),
+          icon: Coins,
+        },
+        {
+          label: 'Credits allocated',
+          value: data.kpis.allocated.toLocaleString('en-IN'),
+          icon: Sparkles,
+        },
+        {
+          label: 'Average daily usage',
+          value: data.kpis.average_daily_usage.toLocaleString('en-IN'),
+        },
       ]
     : [];
-  const hasNext = Boolean(data && page * 25 < data.total);
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="mb-2 text-xs text-muted-foreground">Platform › Credits</div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">{spec.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Immutable platform-wide AI-credit ledger activity. New allocations are available only
-            for Active or Support Maintenance dealerships. Cost is intentionally not estimated
-            because no rate card is stored.
-          </p>
-        </div>
-        <Select
-          value={String(days)}
-          onValueChange={(value) => {
-            setDays(Number(value) as 7 | 14 | 30);
-            setPage(1);
-          }}
-        >
-          <SelectTrigger className="w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7">Last 7 days</SelectItem>
-            <SelectItem value="14">Last 14 days</SelectItem>
-            <SelectItem value="30">Last 30 days</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="AI credit allocations and usage across every dealership. Credits can be added only to Active or Support Maintenance dealerships. Cost is intentionally not estimated because no rate card is stored."
+        actions={
+          <>
+            <Select
+              value={String(days)}
+              onValueChange={(value) => {
+                setDays(Number(value) as 7 | 14 | 30);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7">Last 7 days</SelectItem>
+                <SelectItem value="14">Last 14 days</SelectItem>
+                <SelectItem value="30">Last 30 days</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
+        }
+      />
       {query.isPending ? <PlatformAiUsageSkeleton /> : null}
-      {data ? <KpiGrid metrics={metrics} className="xl:grid-cols-4" /> : null}
+      {data ? <KpiGrid metrics={metrics} /> : null}
       {data ? (
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
           <Card className="shadow-none">
@@ -442,9 +430,9 @@ export function PlatformAiUsageWorkspace({ spec }: { spec: PageSpec }) {
                 {data.organizations.map((organization) => (
                   <TableRow key={organization.id}>
                     <TableCell className="font-medium">{organization.name}</TableCell>
-                    <TableCell>{organization.used_period.toLocaleString()}</TableCell>
-                    <TableCell>{organization.daily_average.toLocaleString()}</TableCell>
-                    <TableCell>{organization.balance.toLocaleString()}</TableCell>
+                    <TableCell>{organization.used_period.toLocaleString('en-IN')}</TableCell>
+                    <TableCell>{organization.daily_average.toLocaleString('en-IN')}</TableCell>
+                    <TableCell>{organization.balance.toLocaleString('en-IN')}</TableCell>
                     <TableCell>
                       <StatusBadge value={organization.status} />
                     </TableCell>
@@ -486,27 +474,7 @@ export function PlatformAiUsageWorkspace({ spec }: { spec: PageSpec }) {
               </TableBody>
             </Table>
           </CardContent>
-          <CardContent className="flex items-center justify-between border-t py-3">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page === 1 || query.isFetching}
-              onClick={() => setPage((value) => value - 1)}
-            >
-              <ChevronLeft className="size-4" /> Previous
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Page {page} · {data.total} dealerships
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!hasNext || query.isFetching}
-              onClick={() => setPage((value) => value + 1)}
-            >
-              Next <ChevronRight className="size-4" />
-            </Button>
-          </CardContent>
+          <TablePagination page={page} pageSize={25} total={data.total} onPageChange={setPage} />
         </Card>
       ) : null}
       {allocationOrganization ? (

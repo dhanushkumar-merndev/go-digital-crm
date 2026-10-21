@@ -1,7 +1,9 @@
 'use client';
 
-import { CarFront, CheckCircle2, ChevronRight, Target, TriangleAlert, Trophy } from 'lucide-react';
-import Link from 'next/link';
+import { EmptyState, ErrorState } from '@/components/shared/page-states';
+import type { PageSpec } from '@/lib/domain';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
+import { CarFront, CheckCircle2, Target, Trophy } from 'lucide-react';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import {
@@ -18,7 +20,8 @@ import {
 import { usePersistedQuery } from '@/lib/query/persisted-query';
 import { TeamManagerPerformanceSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { formatNumber, formatPercent } from '@/lib/format';
 import { SectionCard } from '@/components/shared/section-card';
 import { performanceRangeForLastDays } from '@/lib/performance-date-range';
 import {
@@ -50,10 +53,10 @@ function initials(name: string) {
 }
 
 export function TeamManagerPerformance({
-  heading = 'Team Performance',
+  spec,
   showHandoffs = false,
 }: {
-  heading?: string;
+  spec: PageSpec;
   /** The Team Performance page adds the telecaller-to-sales handoff report. */
   showHandoffs?: boolean;
 }) {
@@ -78,15 +81,14 @@ export function TeamManagerPerformance({
   if (query.isPending) return <TeamManagerPerformanceSkeleton />;
   if (query.isError || !query.data)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <TriangleAlert className="mx-auto size-8 text-destructive" />
-          <h1 className="mt-4 font-semibold">Team performance is unavailable</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Confirm that you manage an active team and have the required CRM permissions.
-          </p>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Team performance is unavailable"
+          description="Confirm that you manage an active team and have the required CRM permissions."
+          onRetry={() => void query.refetch()}
+        />
+      </PageShell>
     );
 
   const data = query.data;
@@ -100,22 +102,22 @@ export function TeamManagerPerformance({
     },
     {
       label: 'Total bookings',
-      value: data.kpis.bookings.toLocaleString(),
+      value: data.kpis.bookings.toLocaleString('en-IN'),
       helper: 'Non-cancelled bookings',
       icon: CarFront,
       tone: 'bg-emerald-50 text-emerald-600',
     },
     {
       label: 'Connected calls',
-      value: data.kpis.connected_calls.toLocaleString(),
-      helper: `${data.kpis.calls.toLocaleString()} calls logged`,
+      value: data.kpis.connected_calls.toLocaleString('en-IN'),
+      helper: `${data.kpis.calls.toLocaleString('en-IN')} calls logged`,
       icon: CheckCircle2,
       tone: 'bg-green-50 text-green-600',
     },
     {
       label: 'Team test drives',
-      value: data.kpis.test_drives.toLocaleString(),
-      helper: `${data.kpis.quotations.toLocaleString()} quotations created`,
+      value: data.kpis.test_drives.toLocaleString('en-IN'),
+      helper: `${data.kpis.quotations.toLocaleString('en-IN')} quotations created`,
       icon: Trophy,
       tone: 'bg-orange-50 text-orange-600',
     },
@@ -123,26 +125,17 @@ export function TeamManagerPerformance({
   const leaders = data.leaderboard.slice(0, 3);
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-            <Link href="/team-manager/dashboard" className="text-blue-600 hover:underline">
-              Dashboard
-            </Link>
-            <ChevronRight className="size-3" />
-            <span>{heading}</span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
-            {heading}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Compare your managed consultants using their actual, authorized activity.
-          </p>
-        </div>
-        <PerformanceDateRangeSelector value={range} onChange={setRange} />
-      </div>
-      <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description={
+          showHandoffs
+            ? 'Compare your team members on real, authorized activity and their handoffs to Sales.'
+            : 'Compare your team members on real, authorized activity.'
+        }
+        actions={<PerformanceDateRangeSelector value={range} onChange={setRange} />}
+      />
+      <KpiGrid metrics={metrics} />
       <div className="grid gap-4 xl:grid-cols-[1.05fr_1.35fr]">
         <SectionCard title="Performance trend">
           <EChart
@@ -252,5 +245,87 @@ export function TeamManagerPerformance({
         {formatDuration(data.kpis.talk_seconds)}.
       </p>
     </div>
+  );
+}
+
+/**
+ * The Team Manager dashboard's "Team overview" (PRD 54.3 §4): every member of
+ * the managed team on one row. It reads the same 7-day query as Team
+ * Performance, so opening either page warms the other.
+ */
+export function TeamOverviewCard() {
+  const session = useWorkspaceSession();
+  const queryScope = workspaceQueryScope(session);
+  const [range] = useState(() => performanceRangeForLastDays(7));
+  const query = usePersistedQuery({
+    queryKey: ['team-manager-performance', ...queryScope, range.from, range.to],
+    queryFn: ({ signal }) => fetchTeamManagerPerformance(range, signal),
+    staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
+    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+    persist: { version: 1, schema: teamPerformanceSchema },
+  });
+  return (
+    <SectionCard
+      title="Team overview"
+      description="Last 7 days, by team member"
+      actionHref="/team-manager/team-performance"
+      actionLabel="Team performance"
+      flush
+      contentClassName="overflow-x-auto"
+    >
+      {query.isPending ? (
+        <div className="space-y-2 p-4">
+          {Array.from({ length: 4 }, (_, index) => (
+            <Skeleton key={index} className="h-8 w-full" />
+          ))}
+        </div>
+      ) : query.isError || !query.data ? (
+        <ErrorState
+          className="border-0"
+          title="Team overview is unavailable"
+          onRetry={() => void query.refetch()}
+        />
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Member</TableHead>
+              <TableHead className="text-right">Leads</TableHead>
+              <TableHead className="text-right">Calls</TableHead>
+              <TableHead className="text-right">Connected</TableHead>
+              <TableHead className="text-right">Test drives</TableHead>
+              <TableHead className="text-right">Quotations</TableHead>
+              <TableHead className="text-right">Bookings</TableHead>
+              <TableHead className="text-right">Conversion</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {query.data.leaderboard.map((member) => (
+              <TableRow key={member.user_id}>
+                <TableCell className="font-medium">{member.full_name}</TableCell>
+                <TableCell className="text-right">{formatNumber(member.leads)}</TableCell>
+                <TableCell className="text-right">{formatNumber(member.calls)}</TableCell>
+                <TableCell className="text-right">{formatNumber(member.connected_calls)}</TableCell>
+                <TableCell className="text-right">{formatNumber(member.test_drives)}</TableCell>
+                <TableCell className="text-right">{formatNumber(member.quotations)}</TableCell>
+                <TableCell className="text-right">{formatNumber(member.bookings)}</TableCell>
+                <TableCell className="text-right">{formatPercent(member.conversion)}</TableCell>
+              </TableRow>
+            ))}
+            {!query.data.leaderboard.length && (
+              <TableRow>
+                <TableCell colSpan={8} className="p-0">
+                  <EmptyState
+                    bare
+                    title="No active members in your managed team"
+                    description="Members appear here once they are assigned to your team."
+                  />
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      )}
+    </SectionCard>
   );
 }

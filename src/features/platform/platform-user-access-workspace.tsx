@@ -1,14 +1,15 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { ErrorState } from '@/components/shared/page-states';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, KeyRound, Search, ShieldCheck, UsersRound } from 'lucide-react';
+import { KeyRound, Search, ShieldCheck, UsersRound } from 'lucide-react';
 import { useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { PlatformUserAccessSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -45,44 +46,43 @@ export function PlatformUserAccessWorkspace({ spec }: { spec: PageSpec }) {
   if (query.isPending) return <PlatformUserAccessSkeleton />;
   if (query.isError || !query.data)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <p className="font-semibold">Platform user access is unavailable</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            This view requires an MFA-assured Super Admin session.
-          </p>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Platform user access is unavailable"
+          description="This view requires an MFA-assured Super Admin session."
+          onRetry={() => void query.refetch()}
+        />
+      </PageShell>
     );
   const data = query.data;
-  const pages = Math.max(1, Math.ceil(data.total / pageSize));
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader spec={{ ...spec, primaryAction: undefined, readOnly: true }} />
       <KpiGrid
         className="xl:grid-cols-4"
         metrics={[
           {
             label: 'Users',
-            value: data.kpis.total.toLocaleString(),
+            value: data.kpis.total.toLocaleString('en-IN'),
             helper: 'Filtered platform view',
             icon: UsersRound,
           },
           {
             label: 'Active',
-            value: data.kpis.active.toLocaleString(),
+            value: data.kpis.active.toLocaleString('en-IN'),
             helper: 'Current active profiles',
             icon: ShieldCheck,
           },
           {
             label: 'MFA required',
-            value: data.kpis.mfa_required.toLocaleString(),
+            value: data.kpis.mfa_required.toLocaleString('en-IN'),
             helper: 'Profile policy flag',
             icon: KeyRound,
           },
           {
             label: 'Organizations',
-            value: data.kpis.organizations.toLocaleString(),
+            value: data.kpis.organizations.toLocaleString('en-IN'),
             helper: 'Tenants with matching users',
             icon: UsersRound,
           },
@@ -198,31 +198,16 @@ export function PlatformUserAccessWorkspace({ spec }: { spec: PageSpec }) {
             </TableBody>
           </Table>
         </CardContent>
-        <CardContent className="flex items-center justify-between border-t py-3">
-          <CardDescription>
-            Page {page} of {pages} · {data.total} users
-          </CardDescription>
-          <div className="flex gap-2">
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-8"
-              disabled={page <= 1}
-              onClick={() => setPage((value) => value - 1)}
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-8"
-              disabled={page >= pages}
-              onClick={() => setPage((value) => value + 1)}
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </CardContent>
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          total={data.total}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+        />
       </Card>
     </div>
   );

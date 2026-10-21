@@ -44,9 +44,8 @@ describe('owner AI business summary contract', () => {
     expect(workspace).not.toMatch(/recharts|chart\.js|apexcharts/i);
     expect(route).toContain("role === 'business-owner' && slug[0] === 'ai-business-summary'");
     expect(route).toContain("role === 'client-admin' && slug[0] === 'ai-usage'");
-    expect(route).toContain('<OwnerAiBusinessSummaryWorkspace audience="CLIENT_ADMIN" />');
-    expect(workspace).toContain("audience?: 'OWNER' | 'CLIENT_ADMIN'");
-    expect(workspace).toContain('AI Usage & Credits');
+    expect(route).toContain('<OwnerAiBusinessSummaryWorkspace spec={spec} />');
+    expect(workspace).toContain('spec: PageSpec');
     expect(route.indexOf('return <OwnerAiBusinessSummaryWorkspace')).toBeLessThan(
       route.indexOf('<ProductionDataUnavailable'),
     );

@@ -87,7 +87,7 @@ export function TestDriveActiveView({
           at: record.completed_at,
           title: 'Test drive completed',
           detail: record.end_odometer
-            ? `End odometer ${record.end_odometer.toLocaleString()} km`
+            ? `End odometer ${record.end_odometer.toLocaleString('en-IN')} km`
             : 'Completion recorded',
           icon: Flag,
         }
@@ -102,7 +102,7 @@ export function TestDriveActiveView({
             <ArrowLeft className="size-4" /> Test Drives
           </button>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">Active Test Drive</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-heading">Active Test Drive</h1>
             <Badge className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
               {record.status === 'ACTIVE' ? 'In progress' : record.status}
             </Badge>
@@ -235,7 +235,7 @@ export function TestDriveActiveView({
               <div>
                 <p className="text-xs text-muted-foreground">Start KM</p>
                 <p className="mt-1 font-medium">
-                  {record.start_odometer?.toLocaleString() ?? 'Pending'}
+                  {record.start_odometer?.toLocaleString('en-IN') ?? 'Pending'}
                 </p>
               </div>
             </div>

@@ -1,8 +1,9 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, Plus, Search, ShieldCheck } from 'lucide-react';
+import { Plus, Search, ShieldCheck } from 'lucide-react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
@@ -21,6 +22,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -75,20 +77,20 @@ function formatDate(value: string) {
 
 function toMetrics(kpis: RoleWorkspaceResult['kpis']): Metric[] {
   return [
-    { label: 'Role presets', value: kpis.total_roles.toLocaleString() },
+    { label: 'Role presets', value: kpis.total_roles.toLocaleString('en-IN') },
     {
       label: 'Custom roles',
-      value: kpis.custom_roles.toLocaleString(),
+      value: kpis.custom_roles.toLocaleString('en-IN'),
       helper: 'Delegated below your ceiling',
     },
     {
       label: 'MFA roles',
-      value: kpis.mfa_roles.toLocaleString(),
+      value: kpis.mfa_roles.toLocaleString('en-IN'),
       helper: 'Additional assurance required',
     },
     {
       label: 'Active assignments',
-      value: kpis.assigned_users.toLocaleString(),
+      value: kpis.assigned_users.toLocaleString('en-IN'),
       helper: 'Role-to-user assignments',
     },
   ];
@@ -157,7 +159,7 @@ function RoleEditorDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{record ? 'Edit custom role' : 'Create custom role'}</DialogTitle>
           <DialogDescription>
@@ -301,14 +303,14 @@ function RoleEditorDialog({
               </AlertDescription>
             </Alert>
           )}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button type="submit" disabled={!valid || mutation.isPending || permissions.isError}>
               {mutation.isPending ? 'Saving…' : 'Save custom role'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -343,7 +345,7 @@ function RoleTable({
       {
         accessorKey: 'authority_level',
         header: 'Authority',
-        cell: ({ row }) => row.original.authority_level.toLocaleString(),
+        cell: ({ row }) => row.original.authority_level.toLocaleString('en-IN'),
       },
       {
         id: 'type',
@@ -413,7 +415,6 @@ function RoleTable({
     manualSorting: true,
     rowCount: data.total,
   });
-  const pages = Math.max(1, Math.ceil(data.total / query.pageSize));
 
   return (
     <Card className="overflow-hidden shadow-none">
@@ -503,54 +504,13 @@ function RoleTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {data.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, data.total)} of {data.total}
-          </p>
-          <div className="flex items-center gap-2">
-            <Select
-              value={String(query.pageSize)}
-              onValueChange={(value) =>
-                onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
-              }
-            >
-              <SelectTrigger className="h-8 w-[82px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[25, 50, 100].map((size) => (
-                  <SelectItem key={size} value={String(size)}>
-                    {size}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <span className="text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={data.total}
+          onPageChange={(page) => onQueryChange({ page })}
+          onPageSizeChange={(pageSize) => onQueryChange({ pageSize, page: 1 })}
+        />
       </CardContent>
     </Card>
   );
@@ -610,22 +570,26 @@ export function RoleWorkspace({ spec }: { spec: PageSpec }) {
     );
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       <RoleRealtimeBridge organizationId={workspace.data.viewer.organization_id} />
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        <div className="shrink-0 sm:pt-7">
-          <Button
-            onClick={() => {
-              setEditRecord(null);
-              setEditorOpen(true);
-            }}
-          >
-            <Plus className="size-4" />
-            Create custom role
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        actions={
+          <>
+            <div className="shrink-0">
+              <Button
+                onClick={() => {
+                  setEditRecord(null);
+                  setEditorOpen(true);
+                }}
+              >
+                <Plus className="size-4" />
+                Create custom role
+              </Button>
+            </div>
+          </>
+        }
+      />
       {savedMessage && (
         <Alert variant="success">
           <AlertTitle>{savedMessage}</AlertTitle>

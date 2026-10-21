@@ -1,14 +1,16 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { ErrorState } from '@/components/shared/page-states';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { DealershipWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -18,6 +20,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -56,16 +59,20 @@ function formatDate(value: string) {
 
 function toMetrics(kpis: Awaited<ReturnType<typeof fetchDealerships>>['kpis']): Metric[] {
   return [
-    { label: 'Total dealerships', value: kpis.total.toLocaleString(), helper: 'All tenants' },
-    { label: 'Active', value: kpis.active.toLocaleString(), helper: 'CRM access enabled' },
+    {
+      label: 'Total dealerships',
+      value: kpis.total.toLocaleString('en-IN'),
+      helper: 'All tenants',
+    },
+    { label: 'Active', value: kpis.active.toLocaleString('en-IN'), helper: 'CRM access enabled' },
     {
       label: 'Onboarding',
-      value: kpis.onboarding.toLocaleString(),
+      value: kpis.onboarding.toLocaleString('en-IN'),
       helper: 'Setup or review in progress',
     },
     {
       label: 'Requires attention',
-      value: kpis.attention.toLocaleString(),
+      value: kpis.attention.toLocaleString('en-IN'),
       helper: 'Suspended, rejected or soft deleted',
     },
   ];
@@ -92,7 +99,7 @@ function ProvisionDealershipDialog({
   });
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Create dealership tenant</DialogTitle>
           <DialogDescription>
@@ -183,14 +190,14 @@ function ProvisionDealershipDialog({
               </AlertDescription>
             </Alert>
           )}
-          <div className="flex justify-end gap-2 pt-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={organizationSlug.length < 3 || mutation.isPending}>
               {mutation.isPending ? 'Creating and inviting…' : 'Create tenant & invite owner'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -326,7 +333,6 @@ function DealershipTable({
     manualSorting: true,
     rowCount: data.total,
   });
-  const pages = Math.max(1, Math.ceil(data.total / query.pageSize));
   return (
     <Card className="overflow-hidden shadow-none">
       <CardHeader className="border-b p-4">
@@ -434,37 +440,12 @@ function DealershipTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {data.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, data.total)} of {data.total}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="mr-2 text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={data.total}
+          onPageChange={(page) => onQueryChange({ page })}
+        />
       </CardContent>
     </Card>
   );
@@ -510,29 +491,34 @@ export function DealershipWorkspace({
   if (dealerships.isPending) return <DealershipWorkspaceSkeleton />;
   if (dealerships.isError || !dealerships.data)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <p className="font-semibold">Dealership management is unavailable</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            A Super Admin AAL2 session and the platform workspace migration are required.
-          </p>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Dealership management is unavailable"
+          description="A Super Admin AAL2 session and the platform workspace migration are required."
+          onRetry={() => void dealerships.refetch()}
+        />
+      </PageShell>
     );
 
   return (
-    <div className="mx-auto max-w-[1600px]">
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        {view === 'DEALERSHIPS' ? (
-          <div className="shrink-0 sm:pt-7">
-            <Button onClick={() => setProvisionOpen(true)}>
-              <Plus className="size-4" />
-              Add dealership
-            </Button>
-          </div>
-        ) : null}
-      </div>
+    <div className="mx-auto w-full">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        className="mb-6"
+        actions={
+          <>
+            {view === 'DEALERSHIPS' ? (
+              <div className="shrink-0">
+                <Button onClick={() => setProvisionOpen(true)}>
+                  <Plus className="size-4" />
+                  Add dealership
+                </Button>
+              </div>
+            ) : null}
+          </>
+        }
+      />
       <div className="space-y-6">
         {inviteSent && (
           <Alert>

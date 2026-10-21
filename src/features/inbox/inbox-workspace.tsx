@@ -657,7 +657,7 @@ export function InboxWorkspace({
 
   return (
     <div
-      className={`mx-auto max-w-[1800px] ${embedded ? 'space-y-4' : 'flex flex-col gap-3'}`}
+      className={`mx-auto w-full ${embedded ? 'space-y-4' : 'flex flex-col gap-3'}`}
       style={!embedded ? { height: 'calc(100vh / var(--canvas-zoom, 1) - 110px)' } : undefined}
     >
       <div className="flex shrink-0 flex-wrap items-end justify-between gap-3">

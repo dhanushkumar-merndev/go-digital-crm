@@ -251,7 +251,7 @@ export function SalesHandoffReport({
           <>
             <KpiGrid
               metrics={summaryMetrics(data, preset)}
-              className={preset === 'TELECALLER' ? 'xl:grid-cols-3' : 'xl:grid-cols-4'}
+              variant={preset === 'TELECALLER' ? 'classic' : 'metric'}
             />
             {preset === 'ORGANIZATION' && !branchId && data.by_branch.length > 0 ? (
               <BranchTable

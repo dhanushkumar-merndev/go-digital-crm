@@ -13,6 +13,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -199,12 +200,12 @@ function SaveAssetDialog({ objectFileId, onClose }: { objectFileId: string; onCl
               Comma separated, up to 20. Stored lowercase.
             </span>
           </label>
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save asset'}</Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -276,7 +277,7 @@ export function AiImageCreationWorkspace({ spec }: { spec: PageSpec }) {
     );
   const connections = workspace.data.connections;
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader spec={{ ...spec, primaryAction: undefined }} />
       <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)_380px]">
         <PromptSettingsCard />

@@ -1,5 +1,8 @@
 'use client';
 
+import { kpiGridColumns } from '@/components/shared/kpi-grid';
+import { ErrorState } from '@/components/shared/page-states';
+import { PageHeader } from '@/components/shared/page-header';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useRef, useState } from 'react';
@@ -27,7 +30,6 @@ import { AGGREGATE_REALTIME_MIN_INTERVAL_MS } from '@/lib/query/cache-policy';
 import { TenantDashboardSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Table,
@@ -54,14 +56,9 @@ import {
   type TenantDashboardResult,
 } from './tenant-dashboard-api';
 import { useTenantDashboard } from './use-tenant-dashboard';
+import { leadTemperatureVariant } from '@/features/leads/lead-temperature-variant';
 
 /** One tile per column on wide screens, whatever the role's tile count. */
-const kpiColumns: Record<number, string> = {
-  5: 'xl:grid-cols-5',
-  6: 'xl:grid-cols-6',
-  7: 'xl:grid-cols-7',
-  8: 'xl:grid-cols-8',
-};
 
 /** The dashboard RPC buckets its days in this zone, so times are read back in it. */
 const DASHBOARD_TIMEZONE = 'Asia/Kolkata';
@@ -227,7 +224,7 @@ function dashboardKpis(data: TenantDashboardResult, role: RoleKey): KpiCard[] {
         caption: 'Open case commitments',
         icon: CalendarClock,
         tone: 'cyan',
-        href: caseList ? `${caseList}?status=ACTION_DUE` : undefined,
+        href: caseList ? `${caseList}?status=DUE_TODAY` : undefined,
       },
       {
         key: 'cases_completed_month',
@@ -280,16 +277,6 @@ function formatDateTime(value: string | null) {
   }).format(new Date(value));
 }
 
-function temperatureVariant(temperature: TenantDashboardLeadPreview['temperature']) {
-  if (temperature === 'HOT') return 'destructive' as const;
-  if (temperature === 'WARM') return 'warning' as const;
-  // DORMANT is do-not-disturb, not a colder COLD, so it must not share the
-  // COLD styling: someone scanning the column has to see that this lead is
-  // suppressed from outbound messaging. See AGENTS.md 9.7.
-  if (temperature === 'DORMANT') return 'secondary' as const;
-  return 'info' as const;
-}
-
 function DashboardHeader({
   spec,
   role,
@@ -311,27 +298,28 @@ function DashboardHeader({
 }) {
   const navigation = roleNavigation[role];
   return (
-    <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
-          {heading ?? `${navigation.shortLabel} Workspace`}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">{spec.description}</p>
-      </div>
-      <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onRefresh}
-          disabled={refreshing || manualRefreshRemaining === 0}
-        >
-          <RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />
-          {generatedAt ? `Last synced ${formatTime(generatedAt)}` : 'Refresh'}
-        </Button>
-        <span>{manualRefreshRemaining}/3 manual refreshes left</span>
-        {manualRefreshMessage && <span className="text-rose-600">{manualRefreshMessage}</span>}
-      </div>
-    </div>
+    <PageHeader
+      spec={spec}
+      title={heading ?? `${navigation.shortLabel} Workspace`}
+      description={spec.description}
+      actions={
+        <>
+          <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onRefresh}
+              disabled={refreshing || manualRefreshRemaining === 0}
+            >
+              <RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />
+              {generatedAt ? `Last synced ${formatTime(generatedAt)}` : 'Refresh'}
+            </Button>
+            <span>{manualRefreshRemaining}/3 manual refreshes left</span>
+            {manualRefreshMessage && <span className="text-rose-600">{manualRefreshMessage}</span>}
+          </div>
+        </>
+      }
+    />
   );
 }
 
@@ -354,7 +342,7 @@ function LeadPreviewTable({
       actionHref={leadHref ?? undefined}
       actionLabel="View all leads"
       flush
-      className="h-full"
+      className="h-auto"
     >
       {records.length ? (
         <Table>
@@ -405,7 +393,9 @@ function LeadPreviewTable({
                 </TableCell>
                 <TableCell className="hidden md:table-cell">
                   {lead.temperature ? (
-                    <Badge variant={temperatureVariant(lead.temperature)}>{lead.temperature}</Badge>
+                    <Badge variant={leadTemperatureVariant(lead.temperature)}>
+                      {lead.temperature}
+                    </Badge>
                   ) : (
                     '—'
                   )}
@@ -431,7 +421,15 @@ function LeadPreviewTable({
  * count itself is already a tile, so this panel lists records rather than
  * restating the number.
  */
-function OverdueFollowups({ data, role }: { data: TenantDashboardResult; role: RoleKey }) {
+function OverdueFollowups({
+  data,
+  role,
+  className,
+}: {
+  data: TenantDashboardResult;
+  role: RoleKey;
+  className?: string;
+}) {
   const href = firstPage(role, ['follow-ups'], '?status=overdue');
   const items = [...data.attention].sort(
     (left, right) =>
@@ -443,8 +441,8 @@ function OverdueFollowups({ data, role }: { data: TenantDashboardResult; role: R
       title="Needs a follow-up now"
       actionHref={href}
       actionLabel="View follow-ups"
-      className="flex h-[22rem] flex-col xl:h-full"
-      contentClassName="min-h-0 flex-1 p-3"
+      className={cn('h-[22rem]', className)}
+      contentClassName="p-3"
     >
       {items.length ? (
         <ScrollArea type="always" className="h-full pr-1" aria-label="Overdue follow-ups">
@@ -470,14 +468,12 @@ function OverdueFollowups({ data, role }: { data: TenantDashboardResult; role: R
                     </p>
                     <Badge
                       variant={item.severity === 'HIGH' ? 'destructive' : 'warning'}
-                      className="px-1.5 py-0 text-[9px] normal-case"
+                      className="px-1.5 py-0 text-[10px] normal-case"
                     >
                       {item.severity === 'HIGH' ? 'overdue 1 day+' : 'overdue'}
                     </Badge>
                   </div>
-                  <p className="mt-0.5 truncate text-xs font-semibold text-[#17233d]">
-                    {item.title}
-                  </p>
+                  <p className="mt-0.5 truncate text-xs font-semibold text-heading">{item.title}</p>
                   <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{item.detail}</p>
                 </div>
               </Link>
@@ -514,14 +510,14 @@ function PipelineStages({ stages }: { stages: TenantDashboardResult['pipeline'] 
             className="flex items-center justify-between gap-2 border-b border-slate-100 last:border-0"
           >
             <span className="min-w-0">
-              <span className="block truncate font-medium text-[#263550]" title={stage.name}>
+              <span className="block truncate font-medium text-heading-soft" title={stage.name}>
                 {stage.name}
               </span>
-              <span className="block text-[9px] text-emerald-600">
+              <span className="block text-[10px] text-emerald-600">
                 {index === 0 ? 'Starting stage' : `${conversion.toFixed(1)}% conversion`}
               </span>
             </span>
-            <span className="shrink-0 rounded bg-slate-50 px-1.5 py-0.5 font-semibold text-[#263550]">
+            <span className="shrink-0 rounded bg-slate-50 px-1.5 py-0.5 font-semibold text-heading-soft">
               {stage.value}
             </span>
           </div>
@@ -534,13 +530,13 @@ function PipelineStages({ stages }: { stages: TenantDashboardResult['pipeline'] 
 const shortcutTones: Tone[] = ['blue', 'violet', 'emerald', 'orange', 'cyan', 'amber'];
 
 /** Pages this role owns, so a shortcut can never lead somewhere it has no access. */
-function QuickActions({ role }: { role: RoleKey }) {
+function QuickActions({ role, className }: { role: RoleKey; className?: string }) {
   const items = roleNavigation[role].items
     .filter((item) => item.slug !== 'dashboard' && !item.optional)
     .slice(0, 6);
   if (!items.length) return null;
   return (
-    <SectionCard title="Quick actions" contentClassName="p-3">
+    <SectionCard title="Quick actions" className={cn('h-auto', className)} contentClassName="p-3">
       <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
         {items.map((item, index) => (
           <Link
@@ -556,7 +552,7 @@ function QuickActions({ role }: { role: RoleKey }) {
             >
               <AppIcon name={item.icon} className="size-4" />
             </span>
-            <span className="mt-1.5 text-[10px] font-medium leading-3 text-[#263550]">
+            <span className="mt-1.5 text-[10px] font-medium leading-3 text-heading-soft">
               {item.title}
             </span>
           </Link>
@@ -627,16 +623,15 @@ export function TenantDashboard({
   if (dashboard.isPending) return <TenantDashboardSkeleton role={role} />;
   if (dashboard.isError || !dashboard.data)
     return (
-      <div className="mx-auto max-w-[1800px] space-y-4">
+      <div className="mx-auto w-full space-y-5">
         {header()}
-        <Card className="shadow-none">
-          <CardContent className="p-8 text-center">
-            <p className="font-semibold">Dashboard data is unavailable</p>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Your current role, data scope, or dashboard connection needs attention.
-            </p>
-          </CardContent>
-        </Card>
+        <ErrorState
+          title="Dashboard data is unavailable"
+          description="Your role, data scope or dashboard connection needs attention."
+          reference="GDM-TENANT-DASHBOARD"
+          onRetry={() => void dashboard.refetch()}
+          retrying={dashboard.isFetching}
+        />
       </div>
     );
 
@@ -655,10 +650,10 @@ export function TenantDashboard({
     data.pipeline.some((stage) => stage.value > 0);
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-4 pb-8">
+    <div className="mx-auto w-full space-y-5 pb-8">
       {header(data.generated_at)}
 
-      <div className={cn('grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4', kpiColumns[kpis.length])}>
+      <div className={cn('grid gap-2.5', kpiGridColumns(kpis.length))}>
         {kpis.map(({ key, ...metric }) => (
           <MetricCard key={key} {...metric} />
         ))}
@@ -701,22 +696,36 @@ export function TenantDashboard({
         ) : null}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-12">
-        {data.capabilities.leads ? (
-          <div className="xl:col-span-8">
+      {data.capabilities.leads ? (
+        // The left column sets the row height at its natural size. The follow-up
+        // list is pinned to that height and scrolls, so a long overdue list can't
+        // stretch the lead table into an empty panel.
+        <div className="grid gap-4 xl:grid-cols-12">
+          <div
+            className={cn(
+              'flex flex-col gap-4',
+              data.capabilities.work ? 'xl:col-span-8' : 'xl:col-span-12',
+            )}
+          >
             <LeadPreviewTable records={data.lead_preview} leadHref={leadsHref} />
+            <QuickActions role={role} />
           </div>
-        ) : null}
-        <div
-          className={cn(
-            'flex flex-col gap-4',
-            data.capabilities.leads ? 'xl:col-span-4' : 'xl:col-span-12',
-          )}
-        >
+          {data.capabilities.work ? (
+            <div className="relative xl:col-span-4">
+              <OverdueFollowups
+                data={data}
+                role={role}
+                className="xl:absolute xl:inset-0 xl:h-auto"
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="space-y-4">
           {data.capabilities.work ? <OverdueFollowups data={data} role={role} /> : null}
           <QuickActions role={role} />
         </div>
-      </div>
+      )}
       {children}
     </div>
   );

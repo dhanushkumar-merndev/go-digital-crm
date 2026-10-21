@@ -1,5 +1,9 @@
 'use client';
 
+import { TablePagination, type TablePageSize } from '@/components/shared/table-pagination';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import type { PageSpec } from '@/lib/domain';
+import { PageHeader } from '@/components/shared/page-header';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   CircleCheck,
@@ -11,8 +15,7 @@ import {
   Star,
   TriangleAlert,
 } from 'lucide-react';
-import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import {
   useWorkspaceSession,
@@ -87,7 +90,7 @@ const percent = (part: number, whole: number) => (whole ? Math.round((part / who
  * the stars, and how many were taken on to Google. Own requests only; a
  * request belongs to whoever sent it.
  */
-export function ReviewRequestsWorkspace({ role }: { role: 'telecaller' | 'sales-consultant' }) {
+export function ReviewRequestsWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
   const scope = workspaceQueryScope(session);
   const [range, setRange] = useState(() => performanceRangeForLastDays(30));
@@ -95,50 +98,41 @@ export function ReviewRequestsWorkspace({ role }: { role: 'telecaller' | 'sales-
   const [term, setTerm] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<TablePageSize>(25);
   const [sending, setSending] = useState<{ target: ReviewTarget | null } | null>(null);
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setSearch(term.trim());
-      setPage(1);
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [term]);
+  const debouncedTerm = useDebouncedValue(term.trim());
+  if (debouncedTerm !== search) {
+    setSearch(debouncedTerm);
+    setPage(1);
+  }
   const query = useQuery({
-    queryKey: reviewRequestKeys.workspace(scope, range, view, search, page),
-    queryFn: ({ signal }) => fetchMyReviewRequests({ range, view, search, page }, signal),
+    queryKey: reviewRequestKeys.workspace(scope, range, view, search, page, pageSize),
+    queryFn: ({ signal }) => fetchMyReviewRequests({ range, view, search, page, pageSize }, signal),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
 
   const header = (
-    <div className="flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <div className="mb-2 text-xs">
-          <Link href={`/${role}/dashboard`} className="text-primary hover:underline">
-            Dashboard
-          </Link>
-          <span className="mx-2 text-muted-foreground">›</span>
-          <span className="text-muted-foreground">Reviews</span>
-        </div>
-        <h1 className="text-2xl font-bold">Reviews</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Ask customers for a review and see who answered, the stars they gave and who went on to
-          Google.
-        </p>
-      </div>
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <PerformanceDateRangeSelector
-          value={range}
-          onChange={(next) => {
-            setRange(next);
-            setPage(1);
-          }}
-        />
-        <Button onClick={() => setSending({ target: null })}>
-          <Send /> Ask for a review
-        </Button>
-      </div>
-    </div>
+    <PageHeader
+      spec={{ ...spec, primaryAction: undefined }}
+      description="Ask customers for a review and see who answered, the stars they gave and who went on to Google."
+      actions={
+        <>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <PerformanceDateRangeSelector
+              value={range}
+              onChange={(next) => {
+                setRange(next);
+                setPage(1);
+              }}
+            />
+            <Button onClick={() => setSending({ target: null })}>
+              <Send /> Ask for a review
+            </Button>
+          </div>
+        </>
+      }
+    />
   );
   const dialog = sending ? (
     <SendReviewRequestDialog
@@ -151,7 +145,7 @@ export function ReviewRequestsWorkspace({ role }: { role: 'telecaller' | 'sales-
 
   if (query.isPending)
     return (
-      <div className="mx-auto max-w-[1800px] space-y-4">
+      <div className="mx-auto w-full space-y-5">
         {header}
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           {Array.from({ length: 6 }, (_, index) => (
@@ -168,7 +162,7 @@ export function ReviewRequestsWorkspace({ role }: { role: 'telecaller' | 'sales-
     );
   if (query.isError)
     return (
-      <div className="mx-auto max-w-[1800px] space-y-4">
+      <div className="mx-auto w-full space-y-5">
         {header}
         <Card className="shadow-none">
           <CardContent className="p-10 text-center">
@@ -187,7 +181,6 @@ export function ReviewRequestsWorkspace({ role }: { role: 'telecaller' | 'sales-
     );
 
   const { kpis, ratings, daily, records, total } = query.data;
-  const pages = Math.max(1, Math.ceil(total / 25));
   const metrics: Metric[] = [
     {
       label: 'Requests Sent',
@@ -234,9 +227,9 @@ export function ReviewRequestsWorkspace({ role }: { role: 'telecaller' | 'sales-
   ];
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-4">
+    <div className="mx-auto w-full space-y-5">
       {header}
-      <KpiGrid metrics={metrics} className="xl:grid-cols-6" variant="classic" />
+      <KpiGrid metrics={metrics} variant="classic" />
       <div className="grid gap-4 xl:grid-cols-3">
         <Card className="shadow-none xl:col-span-2">
           <CardHeader>
@@ -387,30 +380,16 @@ export function ReviewRequestsWorkspace({ role }: { role: 'telecaller' | 'sales-
             </TableBody>
           </Table>
         </CardContent>
-        <div className="flex items-center justify-between border-t p-3 text-sm text-muted-foreground">
-          <span>{total} requests</span>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={page <= 1}
-              onClick={() => setPage((current) => current - 1)}
-            >
-              Previous
-            </Button>
-            <span>
-              Page {page} / {pages}
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={page >= pages}
-              onClick={() => setPage((current) => current + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          onPageChange={setPage}
+          onPageSizeChange={(next) => {
+            setPageSize(next);
+            setPage(1);
+          }}
+        />
       </Card>
       <p className="text-center text-xs text-muted-foreground">
         Customers are taken to Google whatever they rate: asking only happy customers is review

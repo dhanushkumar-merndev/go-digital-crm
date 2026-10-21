@@ -1,5 +1,6 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, Image as ImageIcon, Search, Tag } from 'lucide-react';
 import { useState } from 'react';
@@ -87,9 +88,8 @@ export function AssetLibraryWorkspace({ spec }: { spec: PageSpec }) {
     );
   const records = library.data?.records ?? [];
   const total = library.data?.total ?? 0;
-  const pages = Math.max(1, Math.ceil(total / 25));
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader spec={{ ...spec, primaryAction: undefined }} />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Card className="shadow-none">
@@ -178,30 +178,7 @@ export function AssetLibraryWorkspace({ spec }: { spec: PageSpec }) {
               </TableBody>
             </Table>
           </CardContent>
-          <div className="flex items-center justify-between border-t p-3 text-sm text-muted-foreground">
-            <span>{total} assets</span>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={page <= 1}
-                onClick={() => setPage((current) => current - 1)}
-              >
-                Previous
-              </Button>
-              <span>
-                Page {page} / {pages}
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={page >= pages}
-                onClick={() => setPage((current) => current + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
+          <TablePagination page={page} pageSize={25} total={total} onPageChange={setPage} />
         </Card>
         <Card className="shadow-none">
           <CardHeader className="border-b p-4 text-sm font-medium">Preview</CardHeader>

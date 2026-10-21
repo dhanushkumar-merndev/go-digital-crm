@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 import type { Metric } from '@/lib/domain';
 import { customerCareLabel } from './customer-care-query';
 import type { CustomerCareDashboard, CustomerCareRecord } from './customer-care-api';
@@ -132,7 +133,13 @@ function ScoreCard({ summary }: { summary: CustomerCareDashboard }) {
         <div className="min-w-0 space-y-2">
           <div className="flex items-center gap-0.5 text-amber-500">
             {Array.from({ length: 5 }).map((_, index) => (
-              <Star key={index} className="size-3.5 fill-current" />
+              <Star
+                key={index}
+                className={cn(
+                  'size-3.5',
+                  index < Math.round(score) ? 'fill-current' : 'fill-slate-100 text-slate-200',
+                )}
+              />
             ))}
           </div>
           <p className="text-sm font-semibold">Customer satisfaction</p>
@@ -163,7 +170,7 @@ function ScoreStrip({ summary }: { summary: CustomerCareDashboard }) {
       <CardContent className="grid gap-5 pb-5 sm:grid-cols-2 lg:grid-cols-4">
         {scores.map(([label, value]) => (
           <div key={label} className="border-l border-slate-100 pl-4 first:border-l-0 first:pl-0">
-            <p className="text-xl font-bold tracking-tight text-[#17233d]">{value}</p>
+            <p className="text-xl font-bold tracking-tight text-heading">{value}</p>
             <p className="mt-1 text-xs text-muted-foreground">{label}</p>
           </div>
         ))}
@@ -189,7 +196,7 @@ function RatingBreakdown({ data }: { data: CustomerCareDashboard['rating_breakdo
                 style={{ width: `${(item.value / maximum) * 100}%` }}
               />
             </div>
-            <span className="w-6 text-right font-medium text-[#17233d]">{item.value}</span>
+            <span className="w-6 text-right font-medium text-heading">{item.value}</span>
           </div>
         ))}
       </CardContent>
@@ -223,7 +230,7 @@ function AttentionPanel({
               className="flex w-full items-center justify-between gap-3 rounded-md px-1 py-1 text-left hover:bg-slate-50"
             >
               <span className="min-w-0">
-                <span className="block truncate text-xs font-semibold text-[#17233d]">
+                <span className="block truncate text-xs font-semibold text-heading">
                   {item.customer_name}
                 </span>
                 <span className="block truncate text-[11px] text-muted-foreground">
@@ -276,7 +283,7 @@ function FeedbackQueue({
                 records.slice(0, 8).map((record) => (
                   <TableRow key={record.id}>
                     <TableCell>
-                      <div className="font-medium text-[#17233d]">{record.customer_name}</div>
+                      <div className="font-medium text-heading">{record.customer_name}</div>
                       <div className="text-xs text-muted-foreground">
                         {record.phone ?? record.case_number}
                       </div>
@@ -329,7 +336,7 @@ export function CustomerRelationshipDashboard({
   };
   return (
     <div className="space-y-5">
-      <KpiGrid metrics={scoreMetrics(summary)} className="xl:grid-cols-7" />
+      <KpiGrid metrics={scoreMetrics(summary)} />
 
       <div className="grid gap-5 xl:grid-cols-12">
         <ScoreCard summary={summary} />
@@ -375,7 +382,7 @@ export function CustomerRelationshipDashboard({
                   <span className="grid size-5 shrink-0 place-items-center rounded-full bg-blue-50 font-semibold text-blue-700">
                     {index + 1}
                   </span>
-                  <span className="min-w-0 flex-1 truncate font-medium text-[#17233d]">
+                  <span className="min-w-0 flex-1 truncate font-medium text-heading">
                     {item.name}
                   </span>
                   <span className="text-muted-foreground">{item.value} ratings</span>

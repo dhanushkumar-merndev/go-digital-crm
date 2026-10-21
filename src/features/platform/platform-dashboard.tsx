@@ -19,23 +19,23 @@ function toMetrics(kpis: Awaited<ReturnType<typeof fetchPlatformDashboard>>['kpi
   return [
     {
       label: 'Active dealerships',
-      value: kpis.active_dealerships.toLocaleString(),
+      value: kpis.active_dealerships.toLocaleString('en-IN'),
       helper: 'Approved tenant access',
     },
     {
       label: 'Onboarding',
-      value: kpis.onboarding.toLocaleString(),
+      value: kpis.onboarding.toLocaleString('en-IN'),
       helper: 'Setup or review in progress',
     },
     {
       label: 'Provider attention',
-      value: kpis.provider_attention.toLocaleString(),
+      value: kpis.provider_attention.toLocaleString('en-IN'),
       helper: 'Connection errors',
       trend: kpis.provider_attention ? 'down' : 'neutral',
     },
     {
       label: 'Pending support',
-      value: kpis.pending_support.toLocaleString(),
+      value: kpis.pending_support.toLocaleString('en-IN'),
       helper: 'Awaiting tenant decision',
     },
   ];
@@ -69,7 +69,7 @@ export function PlatformDashboard({ spec }: { spec: PageSpec }) {
     );
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader spec={{ ...spec, primaryAction: undefined }} />
       <KpiGrid metrics={toMetrics(dashboard.data.kpis)} />
       <div className="grid gap-6 xl:grid-cols-12">

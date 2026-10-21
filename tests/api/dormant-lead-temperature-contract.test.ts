@@ -78,15 +78,21 @@ describe('DORMANT lead temperature', () => {
   it('does not render as an ordinary cold lead', () => {
     // Sharing COLD's styling would hide the suppression from anyone scanning
     // the column, which is the one thing the value exists to communicate.
+    // One mapping (lead-temperature-variant.ts) is read by every surface, so
+    // the rule cannot drift between the lists that show temperature.
+    expect(read('src/features/leads/lead-temperature-variant.ts')).toMatch(
+      /'DORMANT'\) return 'secondary'/,
+    );
     for (const file of [
       'src/features/dashboards/telecaller-dashboard.tsx',
       'src/features/dashboards/tenant-dashboard.tsx',
       'src/features/dashboards/sales-consultant-dashboard.tsx',
       'src/features/leads/lead-assignment-workspace.tsx',
       'src/features/leads/lead-workspace.tsx',
+      'src/components/shared/status-badge.tsx',
     ])
       expect(read(file)).toMatch(
-        /DORMANT'\s*\n?\s*\??\s*'secondary'|'DORMANT'\) return 'secondary'/,
+        /leadTemperatureVariant|DORMANT'\s*\n?\s*\??\s*'secondary'|'DORMANT'\) return 'secondary'/,
       );
   });
 

@@ -1791,13 +1791,16 @@ Super Admin is platform-level and does not normally work dealership leads.
 
 ### 24.10 Grouped sidebars and tabbed pages (product decision 2026-10-18)
 
-Long sidebars are grouped into collapsible sections, and pages that showed the
+Long sidebars are grouped into labelled sections, and pages that showed the
 same workspace with a different preset are one page with URL-synced tabs. Slugs
 are unchanged; only the grouping and the retired preset pages differ from the
 lists above. The groups live in `src/config/navigation/index.ts`
 (`group(title, icon, [...])`). `roleNavigation[role].items` stays a flat list, so
 `roleHasNavigationSlug` and the dashboard quick actions are unaffected.
-Telecaller and Sales Consultant are not grouped.
+Telecaller and Sales Consultant are not grouped. Every role's links render
+exactly like the Telecaller and Sales Consultant sidebar; a group is only a small
+section label above its links, never a collapsed folder (product decision
+2026-10-21).
 
 - **Team Manager:** Leads (Team Leads, Duplicate Approvals, Lead Assignment, Lost
   Leads) · Activity (Follow-ups, Team Calls, Team Activity, Appointments, Test

@@ -5,7 +5,14 @@
     "scheme": "godigitalcrm",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
     "userInterfaceStyle": "light",
+    "primaryColor": "#f5f6f8",
     "plugins": [
       "expo-router",
       [
@@ -25,7 +32,8 @@
         }
       ],
       "expo-sqlite",
-      "expo-background-task"
+      "expo-background-task",
+      ["expo-media-library", { "granularPermissions": ["audio"] }]
     ],
     "ios": {
       "supportsTablet": false,
@@ -37,7 +45,11 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION"
-      ]
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      }
     },
     "experiments": {
       "typedRoutes": true

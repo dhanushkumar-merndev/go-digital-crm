@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as BackgroundTask from 'expo-background-task';
 import * as Crypto from 'expo-crypto';
 import { Directory, File } from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library/legacy';
 import * as SQLite from 'expo-sqlite';
 import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
@@ -56,6 +57,7 @@ export type SyncSummary = { synced: number; failed: number; remaining: number };
 const folderKey = 'recording-sync.folder';
 const lastRunKey = 'recording-sync.last-run';
 const autoSyncKey = 'recording-sync.auto-sync';
+const folderOfferKey = 'recording-sync.folder-offered';
 export const recordingSyncTaskName = 'call-recording-sync';
 const filesPerRun = 5;
 const maximumAttempts = 5;
@@ -171,11 +173,13 @@ export function recordingFolderSupported() {
   return Platform.OS === 'android';
 }
 
-export async function chooseRecordingFolder(): Promise<RecordingFolder | null> {
+// `initialUri` opens the picker at a folder found by findRecorderFolder, so
+// granting it is one tap instead of browsing the phone's storage.
+export async function chooseRecordingFolder(initialUri?: string): Promise<RecordingFolder | null> {
   const previous = await getRecordingFolder();
   let directory: Directory;
   try {
-    directory = await Directory.pickDirectoryAsync(previous?.uri);
+    directory = await Directory.pickDirectoryAsync(previous?.uri ?? initialUri);
   } catch (error) {
     if (String(error).toLowerCase().includes('cancel')) return previous;
     throw error;
@@ -190,6 +194,49 @@ export async function chooseRecordingFolder(): Promise<RecordingFolder | null> {
   await AsyncStorage.setItem(folderKey, JSON.stringify(folder));
   await registerRecordingSyncTask();
   return folder;
+}
+
+export type RecorderFolderGuess = { initialUri: string; label: string };
+
+// MediaStore paths look like /storage/emulated/0/Recordings/Call/x.mp3; the
+// picker opens at the matching document of the primary storage volume.
+export function recorderFolderFromPath(fileUri: string): RecorderFolderGuess | null {
+  const path = decodeURIComponent(fileUri.replace(/^file:\/\//, ''));
+  const match = path.match(/^\/storage\/emulated\/0\/(.+)\/[^/]+$/);
+  if (!match) return null;
+  return {
+    initialUri: `content://com.android.externalstorage.documents/document/primary%3A${encodeURIComponent(match[1])}`,
+    label: match[1],
+  };
+}
+
+/**
+ * After the first call with no folder chosen, looks for the recording the
+ * dialer just wrote: audio added since the call started, preferring a file
+ * whose name carries the number. Asked once per install; reading audio needs
+ * the media permission, and a refusal is final for this offer.
+ */
+export async function findRecorderFolder(
+  callStartedAt: number,
+  phone: string,
+): Promise<RecorderFolderGuess | 'NOT_FOUND' | null> {
+  if (!recordingFolderSupported() || (await getRecordingFolder())) return null;
+  if (await AsyncStorage.getItem(folderOfferKey)) return null;
+  await AsyncStorage.setItem(folderOfferKey, String(Date.now()));
+  const permission = await MediaLibrary.requestPermissionsAsync(false, ['audio']);
+  if (!permission.granted) return null;
+  const digits = phone.replace(/\D/g, '').slice(-10);
+  const page = await MediaLibrary.getAssetsAsync({
+    mediaType: MediaLibrary.MediaType.audio,
+    createdAfter: callStartedAt - 60_000,
+    sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+    first: 20,
+  });
+  const candidates = page.assets.filter((asset) => isCallRecordingFile(asset.filename));
+  const asset =
+    candidates.find((item) => digits && item.filename.replace(/\D/g, '').includes(digits)) ??
+    candidates[0];
+  return (asset && recorderFolderFromPath(asset.uri)) || 'NOT_FOUND';
 }
 
 export async function forgetRecordingFolder() {
@@ -260,8 +307,20 @@ export async function scanRecordingFolder(userId: string) {
   const folder = await getRecordingFolder();
   if (!folder) return 0;
   const directory = new Directory(folder.uri);
+  const files = listAudioFiles(directory);
+  // A file deleted from the folder before it synced has nothing left to send;
+  // synced rows stay because they are the call's history.
+  const present = new Set(files.map((file) => file.uri));
+  const unsynced = database.getAllSync<{ uri: string }>(
+    `select uri from recordings where user_id = ? and source = 'FOLDER' and status <> 'SYNCED'`,
+    [userId],
+  );
+  for (const row of unsynced) {
+    if (!present.has(row.uri))
+      database.runSync('delete from recordings where user_id = ? and uri = ?', [userId, row.uri]);
+  }
   let added = 0;
-  for (const file of listAudioFiles(directory)) {
+  for (const file of files) {
     const modifiedAt = fileModifiedAt(file);
     if (
       insertRecording(userId, {
@@ -292,6 +351,16 @@ export function addPickedRecordings(
       older: false,
     });
   }
+}
+
+// A lead created from a synced call: the list then shows the customer instead
+// of "no lead yet".
+export function markRecordingLead(callId: string, leadId: string, customerName: string) {
+  database.runSync(
+    `update recordings set lead_id = ?, customer_name = ?, matched = 1, updated_at = ?
+       where call_id = ?`,
+    [leadId, customerName, Date.now(), callId],
+  );
 }
 
 export function setRecordingDetails(

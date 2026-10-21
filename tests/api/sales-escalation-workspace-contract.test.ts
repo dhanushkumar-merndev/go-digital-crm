@@ -36,6 +36,6 @@ describe('sales escalation workspace contract', () => {
     expect(workspace).toContain('useReactTable');
     expect(workspace).toContain('Mark resolved');
     expect(route).toContain("['team-manager', 'showroom-manager', 'gm-sales'].includes(role)");
-    expect(route).toContain('<SalesEscalationWorkspace role={role} />');
+    expect(route).toContain('<SalesEscalationWorkspace spec={spec} role={role} />');
   });
 });

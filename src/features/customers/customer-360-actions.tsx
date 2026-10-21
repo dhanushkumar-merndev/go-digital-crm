@@ -219,7 +219,7 @@ function CustomerEditFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-4xl overflow-y-auto">
+      <DialogContent size="xl">
         <DialogHeader>
           <DialogTitle>Edit customer</DialogTitle>
           <DialogDescription>
@@ -722,7 +722,7 @@ export function CustomerEditDialog({
   if (detailsQuery.isPending)
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-lg">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit customer</DialogTitle>
             <DialogDescription>Loading the complete editable customer profile…</DialogDescription>
@@ -733,7 +733,7 @@ export function CustomerEditDialog({
   if (detailsQuery.isError || !detailsQuery.data)
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-lg">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit customer</DialogTitle>
             <DialogDescription>
@@ -872,7 +872,7 @@ export function CustomerTelecmiCallDialog({
         onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <PhoneCall className="size-5 text-primary" /> Call through CRM
@@ -1011,7 +1011,7 @@ export function CustomerDocumentUploadDialog({
   };
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileUp className="size-5 text-blue-600" /> Upload customer document

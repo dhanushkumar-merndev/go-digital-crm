@@ -1,21 +1,15 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { ErrorState } from '@/components/shared/page-states';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import {
-  CalendarClock,
-  ChevronLeft,
-  ChevronRight,
-  MoreHorizontal,
-  Search,
-  ShieldAlert,
-  Trash2,
-} from 'lucide-react';
+import { CalendarClock, MoreHorizontal, Search, ShieldAlert, Trash2 } from 'lucide-react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { RetentionWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -26,6 +20,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -112,22 +107,22 @@ function toMetrics(kpis: Awaited<ReturnType<typeof fetchRetentionWorkspace>>['kp
   return [
     {
       label: 'Awaiting approval',
-      value: kpis.awaiting_approval.toLocaleString(),
+      value: kpis.awaiting_approval.toLocaleString('en-IN'),
       helper: 'Requires a different Super Admin',
     },
     {
       label: 'Scheduled',
-      value: kpis.scheduled.toLocaleString(),
+      value: kpis.scheduled.toLocaleString('en-IN'),
       helper: 'Approved and not on hold',
     },
     {
       label: 'Legal hold',
-      value: kpis.on_hold.toLocaleString(),
+      value: kpis.on_hold.toLocaleString('en-IN'),
       helper: 'Purge eligibility paused',
     },
     {
       label: 'Requires attention',
-      value: kpis.attention.toLocaleString(),
+      value: kpis.attention.toLocaleString('en-IN'),
       helper: 'Purging or failed',
     },
   ];
@@ -177,7 +172,7 @@ function RequestDeletionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Request tenant deletion</DialogTitle>
           <DialogDescription>
@@ -303,14 +298,14 @@ function RequestDeletionDialog({
               </AlertDescription>
             </Alert>
           )}
-          <div className="flex justify-end gap-2 pt-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" variant="destructive" disabled={!canSubmit || mutation.isPending}>
               {mutation.isPending ? 'Suspending tenant…' : 'Suspend & request deletion'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -382,7 +377,7 @@ function RetentionActionDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>{actionTitle(action, decision)}</DialogTitle>
           <DialogDescription>
@@ -459,7 +454,7 @@ function RetentionActionDialog({
               changed.
             </p>
           )}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
@@ -470,7 +465,7 @@ function RetentionActionDialog({
             >
               {mutation.isPending ? 'Saving…' : 'Confirm audited action'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -658,7 +653,6 @@ function RetentionTable({
     manualSorting: true,
     rowCount: data.total,
   });
-  const pages = Math.max(1, Math.ceil(data.total / query.pageSize));
 
   return (
     <Card className="overflow-hidden shadow-none">
@@ -766,37 +760,12 @@ function RetentionTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {data.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, data.total)} of {data.total}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="mr-2 text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={data.total}
+          onPageChange={(page) => onQueryChange({ page })}
+        />
       </CardContent>
     </Card>
   );
@@ -841,27 +810,31 @@ export function RetentionWorkspace({ spec }: { spec: PageSpec }) {
   if (retention.isPending) return <RetentionWorkspaceSkeleton />;
   if (retention.isError || !retention.data)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <p className="font-semibold">Data retention controls are unavailable</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            A Super Admin AAL2 session and the controlled-retention migrations are required.
-          </p>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Data retention controls are unavailable"
+          description="A Super Admin AAL2 session and the controlled-retention migrations are required."
+        />
+      </PageShell>
     );
 
   return (
-    <div className="mx-auto max-w-[1800px]">
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        <div className="shrink-0 sm:pt-7">
-          <Button variant="destructive" onClick={() => setRequestOpen(true)}>
-            <Trash2 className="size-4" />
-            Request tenant deletion
-          </Button>
-        </div>
-      </div>
+    <div className="mx-auto w-full">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        className="mb-6"
+        actions={
+          <>
+            <div className="shrink-0">
+              <Button variant="destructive" onClick={() => setRequestOpen(true)}>
+                <Trash2 className="size-4" />
+                Request tenant deletion
+              </Button>
+            </div>
+          </>
+        }
+      />
       <div className="space-y-6">
         {successMessage && (
           <Alert>

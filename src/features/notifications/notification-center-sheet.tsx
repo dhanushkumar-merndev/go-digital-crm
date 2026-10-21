@@ -183,7 +183,7 @@ export function NotificationCenterSheet({
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-3">
-                      <p className="text-sm font-semibold text-[#17233d]">{record.title}</p>
+                      <p className="text-sm font-semibold text-heading">{record.title}</p>
                       <span className="shrink-0 text-[11px] text-muted-foreground">
                         {formatDate(record.created_at)}
                       </span>
@@ -226,7 +226,7 @@ export function NotificationCenterSheet({
           ) : (
             <div className="flex flex-col items-center p-10 text-center">
               <CheckCheck className="size-7 text-blue-600" />
-              <p className="mt-3 text-sm font-semibold text-[#17233d]">All caught up</p>
+              <p className="mt-3 text-sm font-semibold text-heading">All caught up</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 No notifications match these server-side filters.
               </p>

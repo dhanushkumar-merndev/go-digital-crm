@@ -1,17 +1,55 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PrimaryButton } from '@/components/ui/basics';
+import { Icon } from '@/components/ui/icon';
+import { PressableScale } from '@/components/ui/pressable-scale';
 import { routeForCurrentSession } from '@/lib/session-route';
 import { mobileSupabaseConfigured } from '@/lib/runtime-config';
 import { supabase } from '@/lib/supabase';
-import { colors } from '@/theme';
+import { colors, font, radius, space } from '@/theme';
+
+const logo = require('../assets/logo.png');
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  // A saved session goes straight to the role's home; without this every app
+  // restart asked for the password again.
+  const [restoring, setRestoring] = useState(mobileSupabaseConfigured);
+  useEffect(() => {
+    if (!mobileSupabaseConfigured) return;
+    let active = true;
+    void (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data.session) {
+          const destination = await routeForCurrentSession();
+          if (active) router.replace(destination);
+          return;
+        }
+      } catch {
+        // Expired or ineligible sessions fall through to the sign-in form.
+      }
+      if (active) setRestoring(false);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
   async function signIn() {
     if (!mobileSupabaseConfigured) {
       setError('Mobile setup is incomplete. Restart the app after configuring its environment.');
@@ -43,96 +81,112 @@ export default function LoginScreen() {
       setLoading(false);
     }
   }
+  if (restoring) {
+    return (
+      <SafeAreaView style={[styles.safe, styles.restoring]}>
+        <Image source={logo} style={styles.logoLarge} accessibilityLabel="Go Digital" />
+        <ActivityIndicator color={colors.primary} />
+      </SafeAreaView>
+    );
+  }
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.content}>
-        <View style={styles.logo}>
-          <Text style={styles.logoText}>GO</Text>
-        </View>
-        <Text style={styles.title}>Go Digital Marketing CRM</Text>
-        <Text style={styles.subtitle}>
-          Sign in with your verified work email or link this app from your authenticated web
-          profile.
-        </Text>
-        <Text style={styles.label}>WORK EMAIL</Text>
-        <TextInput
-          style={styles.input}
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          autoComplete="email"
-        />
-        <Text style={styles.label}>PASSWORD</Text>
-        <TextInput
-          style={styles.input}
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          autoComplete="current-password"
-        />
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Pressable
-          style={[styles.primary, loading && styles.disabled]}
-          disabled={loading}
-          onPress={() => void signIn()}
-        >
-          <Text style={styles.primaryText}>{loading ? 'Signing in…' : 'Sign in'}</Text>
-        </Pressable>
-        <Pressable style={styles.secondary} onPress={() => router.push('/link-mobile')}>
-          <Text style={styles.secondaryText}>Scan web linking QR</Text>
-        </Pressable>
-        <Text style={styles.note}>
-          Only Telecaller / BDC and Sales Consultant workflows are available in the mobile MVP.
-        </Text>
-      </View>
+      <KeyboardAvoidingView behavior="padding" style={styles.content}>
+        <Animated.View entering={FadeIn.duration(220)}>
+          <Image source={logo} style={styles.logo} accessibilityLabel="Go Digital" />
+          <Text style={styles.title}>Welcome back</Text>
+          <Text style={styles.subtitle}>Sign in to your Go Digital work account.</Text>
+        </Animated.View>
+        <Animated.View entering={FadeIn.delay(60).duration(220)} style={styles.form}>
+          <View style={styles.field}>
+            <Icon name="mail-outline" size={20} color={colors.muted} />
+            <TextInput
+              style={styles.input}
+              value={email}
+              onChangeText={setEmail}
+              placeholder="Work email"
+              placeholderTextColor={colors.faint}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoComplete="email"
+              returnKeyType="next"
+            />
+          </View>
+          <View style={styles.field}>
+            <Icon name="lock-closed-outline" size={20} color={colors.muted} />
+            <TextInput
+              style={styles.input}
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Password"
+              placeholderTextColor={colors.faint}
+              secureTextEntry={!showPassword}
+              autoComplete="current-password"
+              returnKeyType="go"
+              onSubmitEditing={() => void signIn()}
+            />
+            <PressableScale
+              onPress={() => setShowPassword((value) => !value)}
+              hitSlop={10}
+              accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+            >
+              <Icon
+                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                size={20}
+                color={colors.muted}
+              />
+            </PressableScale>
+          </View>
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <PrimaryButton label="Sign in" busy={loading} onPress={() => void signIn()} />
+          <View style={styles.or}>
+            <View style={styles.rule} />
+            <Text style={styles.orText}>or</Text>
+            <View style={styles.rule} />
+          </View>
+          <PrimaryButton
+            label="Scan QR from web"
+            icon="qr-code-outline"
+            variant="secondary"
+            onPress={() => router.push('/link-mobile')}
+          />
+        </Animated.View>
+        <Text style={styles.note}>For Telecaller and Sales Consultant accounts.</Text>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
-  content: { flex: 1, justifyContent: 'center', padding: 28 },
-  logo: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoText: { color: 'white', fontWeight: '900' },
-  title: { fontSize: 27, fontWeight: '800', color: colors.text, marginTop: 22 },
-  subtitle: { fontSize: 14, lineHeight: 21, color: colors.muted, marginTop: 8, marginBottom: 24 },
-  label: { color: colors.muted, fontSize: 10, fontWeight: '800', marginBottom: 6, marginTop: 12 },
-  input: {
-    height: 48,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    paddingHorizontal: 13,
+  restoring: { alignItems: 'center', justifyContent: 'center', gap: space.xl },
+  content: { flex: 1, justifyContent: 'center', padding: space.xl },
+  logo: { width: 64, height: 64, marginBottom: 24 },
+  logoLarge: { width: 96, height: 96 },
+  title: {
+    fontSize: font.hero,
+    fontWeight: '600',
+    letterSpacing: -0.6,
     color: colors.text,
+    marginTop: space.xl,
   },
-  error: { color: colors.danger, fontSize: 12, marginTop: 12 },
-  primary: {
-    backgroundColor: colors.primary,
-    borderRadius: 12,
-    padding: 15,
+  subtitle: { fontSize: font.body, color: colors.muted, marginTop: 6 },
+  form: { gap: space.md, marginTop: space.xl },
+  field: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 18,
-  },
-  primaryText: { color: 'white', fontWeight: '800' },
-  disabled: { opacity: 0.6 },
-  secondary: {
+    gap: space.sm,
+    height: 54,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 15,
-    alignItems: 'center',
-    marginTop: 12,
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
   },
-  secondaryText: { color: colors.text, fontWeight: '800' },
-  note: { color: colors.muted, fontSize: 11, lineHeight: 17, textAlign: 'center', marginTop: 22 },
+  input: { flex: 1, color: colors.text, fontSize: font.heading, paddingVertical: 0 },
+  error: { color: colors.danger, fontSize: font.small, fontWeight: '600' },
+  or: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  rule: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+  orText: { color: colors.faint, fontSize: font.label, fontWeight: '700' },
+  note: { color: colors.faint, fontSize: font.label, textAlign: 'center', marginTop: space.xl },
 });

@@ -1,7 +1,14 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Eye, Search, TriangleAlert, X } from 'lucide-react';
+import { Clock3, WalletCards } from 'lucide-react';
+import { KpiGrid } from '@/components/shared/kpi-grid';
+import { formatCurrency, formatNumber } from '@/lib/format';
+import { ErrorState, EmptyState } from '@/components/shared/page-states';
+import type { PageSpec } from '@/lib/domain';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
+import { TablePagination, type TablePageSize } from '@/components/shared/table-pagination';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, Eye, Search, X, ShieldAlert } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import {
   hasWorkspacePermission,
@@ -23,14 +30,6 @@ import {
 } from './sales-document-api';
 import { defaultSalesDocumentQuery } from './sales-document-query';
 
-function currency(value: number) {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
 function dateTime(value: string) {
   return new Intl.DateTimeFormat('en-IN', {
     day: '2-digit',
@@ -44,17 +43,19 @@ function discountOf(record: QuotationRecord) {
   return record.items.reduce((total, item) => total + Math.abs(Math.min(item.adjustment, 0)), 0);
 }
 
-export function ManagerApprovalsWorkspace() {
+export function ManagerApprovalsWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
   const queryClient = useQueryClient();
   const queryScope = workspaceQueryScope(session);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<TablePageSize>(25);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [comment, setComment] = useState('');
   const requestId = useRef<string | null>(null);
   const debouncedSearch = useDebouncedValue(search, 300);
   const query = useQuery({
-    queryKey: ['manager-approvals', ...queryScope, debouncedSearch],
+    queryKey: ['manager-approvals', ...queryScope, debouncedSearch, page, pageSize],
     queryFn: ({ signal }) =>
       fetchSalesDocumentWorkspace(
         'quotations',
@@ -62,9 +63,12 @@ export function ManagerApprovalsWorkspace() {
           ...defaultSalesDocumentQuery('quotations'),
           status: 'pending-approval',
           search: debouncedSearch,
+          page,
+          pageSize,
         },
         signal,
       ),
+    placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
   const records = useMemo(() => query.data?.records ?? [], [query.data]);
@@ -114,65 +118,50 @@ export function ManagerApprovalsWorkspace() {
 
   if (!canDecide)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <TriangleAlert className="mx-auto size-8 text-destructive" />
-          <h1 className="mt-4 font-semibold">Approval permission is required</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your current role can view sales work but cannot make approval decisions.
-          </p>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <EmptyState
+          icon={ShieldAlert}
+          title="Approval permission is required"
+          description="Your current role can view sales work but cannot make approval decisions."
+        />
+      </PageShell>
     );
   if (query.isPending) return <ManagerApprovalsSkeleton />;
   if (query.isError)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <h1 className="font-semibold">Approvals are unavailable</h1>
-          <Button className="mt-5" variant="outline" onClick={() => void query.refetch()}>
-            Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState title="Approvals are unavailable" onRetry={() => void query.refetch()} />
+      </PageShell>
     );
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div>
-        <div className="mb-2 text-xs">
-          <span className="text-primary">Dashboard</span>
-          <span className="mx-2 text-muted-foreground">›</span>
-          <span className="text-muted-foreground">Approvals</span>
-        </div>
-        <h1 className="text-2xl font-bold tracking-tight">Manager Approvals</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Review pending quotation-discount requests in your authorized sales scope.
-        </p>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="shadow-none">
-          <CardContent className="p-5">
-            <p className="text-xs text-muted-foreground">Pending quotation requests</p>
-            <p className="mt-2 text-2xl font-bold">{query.data?.total ?? 0}</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none">
-          <CardContent className="p-5">
-            <p className="text-xs text-muted-foreground">Visible request value</p>
-            <p className="mt-2 text-2xl font-bold">{currency(pendingValue)}</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none">
-          <CardContent className="p-5">
-            <p className="text-xs text-muted-foreground">Decision rule</p>
-            <p className="mt-2 text-sm font-semibold">A different approver is required</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Requesters cannot approve their own quotation.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Quotation discounts waiting for your decision. A request always needs an approver other than the person who raised it."
+      />
+      <KpiGrid
+        metrics={[
+          {
+            label: 'Pending requests',
+            value: formatNumber(query.data?.total ?? 0),
+            helper: 'Quotation discounts awaiting a decision',
+            icon: Clock3,
+            tone: 'amber',
+          },
+          {
+            // Summed from the rows on screen, so the label says so rather than
+            // passing a page total off as the whole queue.
+            label: 'Value on this page',
+            value: formatCurrency(pendingValue),
+            helper: `Across ${formatNumber(records.length)} listed requests`,
+            icon: WalletCards,
+            tone: 'violet',
+          },
+        ]}
+      />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <Card className="overflow-hidden shadow-none">
           <CardHeader className="border-b">
@@ -181,7 +170,10 @@ export function ManagerApprovalsWorkspace() {
               <Input
                 className="pl-9"
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(1);
+                }}
                 placeholder="Search quotation, customer or mobile"
               />
             </div>
@@ -211,8 +203,10 @@ export function ManagerApprovalsWorkspace() {
                       <p className="text-xs text-muted-foreground">{record.phone ?? 'No phone'}</p>
                     </td>
                     <td className="px-4 py-3">{record.assigned_user_name}</td>
-                    <td className="px-4 py-3 text-rose-600">{currency(discountOf(record))}</td>
-                    <td className="px-4 py-3 font-medium">{currency(record.total_amount)}</td>
+                    <td className="px-4 py-3 text-rose-600">
+                      {formatCurrency(discountOf(record))}
+                    </td>
+                    <td className="px-4 py-3 font-medium">{formatCurrency(record.total_amount)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                       {dateTime(record.updated_at)}
                     </td>
@@ -239,6 +233,16 @@ export function ManagerApprovalsWorkspace() {
               </tbody>
             </table>
           </CardContent>
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            total={query.data?.total ?? 0}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
         </Card>
         <Card className="h-fit shadow-none">
           <CardHeader>
@@ -262,12 +266,12 @@ export function ManagerApprovalsWorkspace() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-xs text-muted-foreground">On-road price</p>
-                    <p className="mt-1 font-semibold">{currency(selected.total_amount)}</p>
+                    <p className="mt-1 font-semibold">{formatCurrency(selected.total_amount)}</p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Requested discount</p>
                     <p className="mt-1 font-semibold text-rose-600">
-                      {currency(discountOf(selected))}
+                      {formatCurrency(discountOf(selected))}
                     </p>
                   </div>
                 </div>

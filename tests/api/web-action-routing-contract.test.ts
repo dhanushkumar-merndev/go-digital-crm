@@ -44,7 +44,7 @@ describe('production web action routing', () => {
   it('renders generic header actions only when a caller provides behavior', () => {
     expect(pageHeader).toContain('primaryActionHref?: string');
     expect(pageHeader).toContain('onPrimaryAction?: () => void');
-    expect(pageHeader).toContain('spec.primaryAction && primaryActionHref');
+    expect(pageHeader).toContain('spec?.primaryAction && primaryActionHref');
     expect(report).toContain('primaryActionHref="#request-export"');
     expect(report).toContain('id="request-export"');
     expect(deliveryFeedback).toContain('primaryAction: undefined');

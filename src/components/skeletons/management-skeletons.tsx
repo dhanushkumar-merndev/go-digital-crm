@@ -1,14 +1,16 @@
 'use client';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { kpiGridColumns } from '@/components/shared/kpi-grid';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 
 // ==========================================
 // 1. TEAM MANAGER PERFORMANCE SKELETON
 // ==========================================
 export function TeamManagerPerformanceSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -19,8 +21,8 @@ export function TeamManagerPerformanceSkeleton() {
         <Skeleton className="h-9 w-48 rounded-md" />
       </div>
 
-      {/* 4 KPI Cards */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* KPI Cards */}
+      <div className={cn('grid gap-2.5', kpiGridColumns(4))}>
         {Array.from({ length: 4 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-4">
@@ -119,7 +121,7 @@ export function TeamManagerPerformanceSkeleton() {
 // ==========================================
 export function TeamCallMonitorSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -130,8 +132,8 @@ export function TeamCallMonitorSkeleton() {
         <Skeleton className="h-9 w-48 rounded-md" />
       </div>
 
-      {/* 4 KPI Cards */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* KPI Cards */}
+      <div className={cn('grid gap-2.5', kpiGridColumns(4))}>
         {Array.from({ length: 4 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-4">
@@ -212,7 +214,7 @@ export function TeamCallMonitorSkeleton() {
 // ==========================================
 export function ShowroomSalesTeamSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -226,9 +228,9 @@ export function ShowroomSalesTeamSkeleton() {
         </div>
       </div>
 
-      {/* 5 KPI Cards */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {Array.from({ length: 5 }).map((_, i) => (
+      {/* KPI Cards */}
+      <div className={cn('grid gap-2.5', kpiGridColumns(6))}>
+        {Array.from({ length: 6 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
@@ -288,7 +290,7 @@ export function ShowroomSalesTeamSkeleton() {
 // ==========================================
 export function ShowroomTargetSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -299,8 +301,8 @@ export function ShowroomTargetSkeleton() {
         <Skeleton className="h-9 w-44 rounded-md" />
       </div>
 
-      {/* 4 KPI Cards */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* KPI Cards */}
+      <div className={cn('grid gap-2.5', kpiGridColumns(4))}>
         {Array.from({ length: 4 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-4">
@@ -375,7 +377,7 @@ export function ShowroomTargetSkeleton() {
 // ==========================================
 export function GmSalesAnalyticsSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -386,8 +388,8 @@ export function GmSalesAnalyticsSkeleton() {
         <Skeleton className="h-9 w-44 rounded-md" />
       </div>
 
-      {/* 5 KPI Cards */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      {/* KPI Cards */}
+      <div className={cn('grid gap-2.5', kpiGridColumns(5))}>
         {Array.from({ length: 5 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-4">
@@ -462,7 +464,7 @@ export function GmSalesAnalyticsSkeleton() {
 // ==========================================
 export function GmTargetSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -473,8 +475,8 @@ export function GmTargetSkeleton() {
         <Skeleton className="h-9 w-44 rounded-md" />
       </div>
 
-      {/* 4 KPI Cards */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* KPI Cards */}
+      <div className={cn('grid gap-2.5', kpiGridColumns(4))}>
         {Array.from({ length: 4 }).map((_, i) => (
           <Card key={i} className="shadow-none">
             <CardContent className="p-4">
@@ -529,7 +531,7 @@ export function GmTargetSkeleton() {
 // ==========================================
 export function LeadAssignmentSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -604,7 +606,7 @@ export function LeadAssignmentSkeleton() {
 // ==========================================
 export function ManagerApprovalsSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -674,7 +676,7 @@ export function ManagerApprovalsSkeleton() {
 // ==========================================
 export function SalesEscalationSkeleton() {
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>

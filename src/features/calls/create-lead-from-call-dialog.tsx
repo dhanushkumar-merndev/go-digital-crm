@@ -137,7 +137,7 @@ export function CreateLeadFromCallDialog({
 
   return (
     <Dialog open={call !== null} onOpenChange={close}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Create lead from call</DialogTitle>
           <DialogDescription>

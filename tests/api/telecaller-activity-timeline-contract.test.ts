@@ -38,6 +38,6 @@ describe('telecaller activity timeline contract', () => {
 
   it('exposes the real timeline only for sales consultants and Telecallers', () => {
     expect(route).toContain("(role === 'sales-consultant' || role === 'telecaller')");
-    expect(route).toContain('<SalesConsultantActivityTimeline role={role} />');
+    expect(route).toContain('<SalesConsultantActivityTimeline spec={spec} role={role} />');
   });
 });

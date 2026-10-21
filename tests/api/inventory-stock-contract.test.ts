@@ -256,7 +256,9 @@ describe('inventory web contract', () => {
     expect(route).toContain("'stock-ageing'");
     expect(route).toContain("'stock-transfer'");
     expect(route).toContain("role === 'sales-consultant' && slug[0] === 'stock-check'");
-    expect(route).toContain("role === 'inventory' && slug[0] === 'my-performance'");
+    // My Performance is the user's own allocations and movements, not the dashboard again.
+    expect(route).toContain("slug[0] === 'my-performance'");
+    expect(route).toContain('<InventoryPerformance spec={spec} role={role} />');
     expect(route).toContain('<InventoryWorkspace');
     expect(api).toContain("'inventory.stock_check'");
   });

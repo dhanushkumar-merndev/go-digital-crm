@@ -37,7 +37,7 @@ export function HeaderCreditBalance() {
       }
     >
       <Coins className="size-3.5" />
-      AI {query.isError ? '—' : (query.data?.ai.toLocaleString() ?? '…')}
+      AI {query.isError ? '—' : (query.data?.ai.toLocaleString('en-IN') ?? '…')}
     </Badge>
   );
 }

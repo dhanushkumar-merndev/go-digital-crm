@@ -1,12 +1,11 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
   Cable,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   ExternalLink,
   Eye,
   Link2,
@@ -28,6 +27,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -190,15 +190,15 @@ function maskIdentifier(value: string | null) {
 
 function toMetrics(kpis: Awaited<ReturnType<typeof fetchIntegrationWorkspace>>['kpis']): Metric[] {
   return [
-    { label: 'Connected', value: kpis.connected.toLocaleString() },
-    { label: 'Healthy', value: kpis.healthy.toLocaleString(), helper: 'No active error' },
+    { label: 'Connected', value: kpis.connected.toLocaleString('en-IN') },
+    { label: 'Healthy', value: kpis.healthy.toLocaleString('en-IN'), helper: 'No active error' },
     {
       label: 'Needs attention',
-      value: kpis.attention.toLocaleString(),
+      value: kpis.attention.toLocaleString('en-IN'),
       helper: 'Reconnect or review',
       trend: kpis.attention ? 'down' : 'neutral',
     },
-    { label: 'Events today', value: kpis.events_today.toLocaleString() },
+    { label: 'Events today', value: kpis.events_today.toLocaleString('en-IN') },
   ];
 }
 
@@ -862,7 +862,7 @@ function ProviderConnectionDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>
             {existing
@@ -2345,7 +2345,7 @@ function ProviderConnectionDialog({
                 </AlertDescription>
               </Alert>
             )}
-            <div className="flex justify-end gap-2">
+            <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>
                 {telecmiSetup || portalSetup || whatsappSetup || websiteSetup ? 'Done' : 'Cancel'}
               </Button>
@@ -2387,7 +2387,7 @@ function ProviderConnectionDialog({
                                 : 'Continue with provider'}
                 </Button>
               ) : null}
-            </div>
+            </DialogFooter>
           </form>
         )}
       </DialogContent>
@@ -2468,7 +2468,7 @@ function ProviderAssetMappingDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-4xl">
+      <DialogContent size="xl">
         <DialogHeader>
           <DialogTitle>Map provider assets</DialogTitle>
           <DialogDescription>
@@ -3011,7 +3011,6 @@ function IntegrationTable({
   );
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({ data: records, columns, getCoreRowModel: getCoreRowModel() });
-  const pages = Math.max(1, Math.ceil(total / query.pageSize));
 
   return (
     <Card className="shadow-none">
@@ -3101,53 +3100,13 @@ function IntegrationTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
-            {total.toLocaleString()} connection{total === 1 ? '' : 's'}
-          </p>
-          <div className="flex items-center gap-2">
-            <Select
-              value={String(query.pageSize)}
-              onValueChange={(value) =>
-                onQueryChange({ pageSize: Number(value) as 25 | 50 | 100, page: 1 })
-              }
-            >
-              <SelectTrigger className="h-8 w-[82px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[25, 50, 100].map((size) => (
-                  <SelectItem key={size} value={String(size)}>
-                    {size}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <span className="text-sm text-muted-foreground">
-              {query.page} / {pages}
-            </span>
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={total}
+          onPageChange={(page) => onQueryChange({ page })}
+          onPageSizeChange={(pageSize) => onQueryChange({ pageSize, page: 1 })}
+        />
       </CardContent>
     </Card>
   );
@@ -3245,18 +3204,22 @@ export function IntegrationWorkspace({ spec, role }: { spec: PageSpec; role: str
 
   const callbackStatus = searchParams.get('integration');
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        {permissions.data.canManage && (
-          <div className="shrink-0 sm:pt-7">
-            <Button onClick={() => setConnectOpen(true)}>
-              <Cable className="size-4" />
-              Connect provider
-            </Button>
-          </div>
-        )}
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        actions={
+          <>
+            {permissions.data.canManage && (
+              <div className="shrink-0">
+                <Button onClick={() => setConnectOpen(true)}>
+                  <Cable className="size-4" />
+                  Connect provider
+                </Button>
+              </div>
+            )}
+          </>
+        }
+      />
       {callbackStatus === 'connected' && (
         <Alert>
           <AlertTitle>Provider connected</AlertTitle>

@@ -190,7 +190,7 @@ export function BranchEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogContent size="xl">
         <DialogHeader>
           <DialogTitle>{record ? 'Edit branch' : 'Create branch'}</DialogTitle>
           <DialogDescription>
@@ -428,7 +428,7 @@ export function TeamEditorDialog({
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{record ? 'Edit team' : 'Create team'}</DialogTitle>
           <DialogDescription>
@@ -603,7 +603,7 @@ export function TeamMembersDialog({
   });
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogContent size="xl">
         <DialogHeader>
           <DialogTitle>Manage {team.name} members</DialogTitle>
           <DialogDescription>
@@ -759,7 +759,7 @@ export function BranchAccessDialog({
   const users = useMemo(() => options.data?.users ?? [], [options.data?.users]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+      <DialogContent size="xl">
         <DialogHeader>
           <DialogTitle>{branch.name} access</DialogTitle>
           <DialogDescription>

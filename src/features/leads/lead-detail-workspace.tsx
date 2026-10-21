@@ -331,7 +331,7 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
     !data.access.read_only &&
     hasWorkspacePermission(workspaceSession, 'customer.link');
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <div className="mx-auto w-full space-y-5">
       <div>
         <Button variant="ghost" size="sm" onClick={returnToLeads} className="-ml-3 mb-3">
           <ArrowLeft className="size-4" /> Back to leads
@@ -341,7 +341,7 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
             <div className="grid gap-5 p-5 sm:grid-cols-2 xl:grid-cols-[1.45fr_repeat(4,minmax(0,1fr))]">
               <div className="min-w-0 xl:border-r xl:pr-5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="truncate text-2xl font-bold tracking-tight">
+                  <h1 className="truncate text-2xl font-bold tracking-tight text-heading">
                     {lead.customer_name}
                   </h1>
                   {lead.work_state && <StatusBadge value={lead.work_state} />}

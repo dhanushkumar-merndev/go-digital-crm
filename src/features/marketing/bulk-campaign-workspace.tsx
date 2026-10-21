@@ -1,5 +1,6 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Megaphone, Plus, Send, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
@@ -12,6 +13,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -102,7 +104,7 @@ function CreateCampaignDialog({ onClose }: { onClose: () => void }) {
   const available = (templates.data ?? []).filter((option) => option.channel === channel);
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>New bulk campaign</DialogTitle>
           <DialogDescription>
@@ -242,14 +244,14 @@ function CreateCampaignDialog({ onClose }: { onClose: () => void }) {
               <Input name="created_within_days" type="number" min={1} max={3650} placeholder="90" />
             </label>
           </div>
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button disabled={create.isPending || !templateId}>
               <Send /> {create.isPending ? 'Queueing…' : 'Create campaign'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -300,15 +302,18 @@ export function BulkCampaignWorkspace({ spec }: { spec: PageSpec }) {
     );
   const records = workspace.data?.records ?? [];
   const total = workspace.data?.total ?? 0;
-  const pages = Math.max(1, Math.ceil(total / 25));
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5">
-      <div className="flex flex-wrap justify-between gap-3">
-        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-        <Button onClick={() => setOpen(true)}>
-          <Plus /> New campaign
-        </Button>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        actions={
+          <>
+            <Button onClick={() => setOpen(true)}>
+              <Plus /> New campaign
+            </Button>
+          </>
+        }
+      />
       <Card className="shadow-none">
         <CardHeader className="border-b p-4 text-sm text-muted-foreground">
           Sending runs in the background. A campaign completes once every recipient has been
@@ -372,30 +377,7 @@ export function BulkCampaignWorkspace({ spec }: { spec: PageSpec }) {
             </TableBody>
           </Table>
         </CardContent>
-        <div className="flex items-center justify-between border-t p-3 text-sm text-muted-foreground">
-          <span>{total} campaigns</span>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={page <= 1}
-              onClick={() => setPage((current) => current - 1)}
-            >
-              Previous
-            </Button>
-            <span>
-              Page {page} / {pages}
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={page >= pages}
-              onClick={() => setPage((current) => current + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
+        <TablePagination page={page} pageSize={25} total={total} onPageChange={setPage} />
       </Card>
       {open && <CreateCampaignDialog onClose={() => setOpen(false)} />}
     </div>

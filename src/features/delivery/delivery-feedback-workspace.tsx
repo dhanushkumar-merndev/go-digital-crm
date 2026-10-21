@@ -1,22 +1,16 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { ErrorState } from '@/components/shared/page-states';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  ChevronLeft,
-  ChevronRight,
-  Link as LinkIcon,
-  MessageSquarePlus,
-  RefreshCw,
-  Search,
-  Star,
-} from 'lucide-react';
+import { Link as LinkIcon, MessageSquarePlus, Search, Star } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import {
   workspaceQueryScope,
   useWorkspaceSession,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { DeliveryFeedbackSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Badge } from '@/components/ui/badge';
@@ -189,7 +183,6 @@ export function DeliveryFeedbackWorkspace({ spec }: { spec: PageSpec }) {
         description: requestError(error),
       }),
   });
-  const totalPages = Math.max(1, Math.ceil((query.data?.total ?? 0) / pageSize));
   const metrics = useMemo(() => {
     const kpis = query.data?.kpis;
     if (!kpis) return [];
@@ -216,21 +209,18 @@ export function DeliveryFeedbackWorkspace({ spec }: { spec: PageSpec }) {
   if (query.isPending) return <DeliveryFeedbackSkeleton />;
   if (query.isError)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <h1 className="font-semibold">Delivery feedback is unavailable</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Confirm your Delivery Manager role, branch access and delivery permission.
-          </p>
-          <Button className="mt-5" variant="outline" onClick={() => void query.refetch()}>
-            <RefreshCw className="size-4" /> Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Delivery feedback is unavailable"
+          description="Confirm your Delivery Manager role, branch access and delivery permission."
+          onRetry={() => void query.refetch()}
+        />
+      </PageShell>
     );
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-4">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader spec={{ ...spec, primaryAction: undefined }} />
       <KpiGrid metrics={metrics} />
       <Card className="overflow-hidden shadow-none">
@@ -411,29 +401,12 @@ export function DeliveryFeedbackWorkspace({ spec }: { spec: PageSpec }) {
               </TableBody>
             </Table>
           </div>
-          <div className="flex items-center justify-between border-t px-4 py-3 text-sm text-muted-foreground">
-            <span>
-              Page {page} of {totalPages}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={page <= 1}
-                onClick={() => setPage((current) => current - 1)}
-              >
-                <ChevronLeft className="size-4" /> Previous
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={page >= totalPages}
-                onClick={() => setPage((current) => current + 1)}
-              >
-                Next <ChevronRight className="size-4" />
-              </Button>
-            </div>
-          </div>
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            total={query.data.total}
+            onPageChange={setPage}
+          />
         </CardContent>
       </Card>
       <Dialog

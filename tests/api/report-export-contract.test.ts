@@ -22,12 +22,14 @@ describe('report export boundary', () => {
   });
 
   it('keeps generated output aggregate-only, private, leased and bounded', async () => {
-    const [worker, download] = await Promise.all([
+    const [worker, download, minuteDispatch] = await Promise.all([
       readFile(`${root}/trigger/report-export.ts`, 'utf8'),
       readFile(`${root}/supabase/functions/presign-download/index.ts`, 'utf8'),
+      readFile(`${root}/trigger/minute-dispatch.ts`, 'utf8'),
     ]);
-    expect(worker).toContain("id: 'report-export'");
-    expect(worker).toContain("pattern: '*/5 * * * *'");
+    expect(worker).toContain('export async function runReportExport');
+    expect(worker).not.toContain('schedules.task');
+    expect(minuteDispatch).toContain('report_export: runReportExport');
     expect(worker).toContain("'get_report_export_payload'");
     expect(worker).toContain("resource_type: 'report_export'");
     expect(worker).toContain('5 * 1024 * 1024');

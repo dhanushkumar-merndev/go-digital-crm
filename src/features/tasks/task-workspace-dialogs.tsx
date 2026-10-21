@@ -709,7 +709,7 @@ export function TaskActionDialog({
               }}
             />
           </div>
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button
               type="button"
               variant="outline"
@@ -724,7 +724,7 @@ export function TaskActionDialog({
             >
               {mutation.isPending ? 'Saving…' : action === 'complete' ? 'Complete' : 'Cancel task'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

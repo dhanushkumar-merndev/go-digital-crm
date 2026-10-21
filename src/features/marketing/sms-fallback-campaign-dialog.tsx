@@ -103,7 +103,7 @@ export function SmsFallbackCampaignDialog({ onComplete }: { onComplete: () => vo
         Create SMS fallback
       </Button>
       <Dialog open={open} onOpenChange={(next) => !mutation.isPending && setOpen(next)}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>SMS thank-you fallback</DialogTitle>
             <DialogDescription>

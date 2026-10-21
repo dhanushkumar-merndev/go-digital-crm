@@ -1,11 +1,13 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
 import { useCallback, useMemo, useState } from 'react';
+import { sortLabel } from '@/lib/format';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, Plus, Search, TriangleAlert } from 'lucide-react';
+import { Plus, Search, TriangleAlert } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
@@ -200,7 +202,6 @@ function CustomerCareTable({
     manualPagination: true,
     rowCount: result.total,
   });
-  const pages = Math.max(1, Math.ceil(result.total / query.pageSize));
   return (
     <Card className="overflow-hidden shadow-none">
       <CardHeader className="border-b p-4">
@@ -227,7 +228,7 @@ function CustomerCareTable({
             <SelectContent>
               {customerCareSorts.map((sort) => (
                 <SelectItem key={sort} value={sort}>
-                  {customerCareLabel(sort.replace(':', '_'))}
+                  {sortLabel(sort)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -294,37 +295,12 @@ function CustomerCareTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {result.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, result.total)} of {result.total}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-            >
-              <ChevronLeft className="size-4" />
-              <span className="sr-only">Previous page</span>
-            </Button>
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-            >
-              <ChevronRight className="size-4" />
-              <span className="sr-only">Next page</span>
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={result.total}
+          onPageChange={(page) => onQueryChange({ page })}
+        />
       </CardContent>
     </Card>
   );
@@ -457,31 +433,33 @@ export function CustomerCareWorkspace({
 
   const permissionData = permissions.data;
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <PageHeader
-          spec={{
-            ...spec,
-            title:
-              slug === 'dashboard'
-                ? 'Customer Relationship Dashboard'
-                : isDashboard
-                  ? 'Customer Care Performance'
-                  : spec.title,
-            description: isDashboard
-              ? slug === 'dashboard'
-                ? 'Monitor customer experience across enquiry, feedback, reviews and complaint resolution.'
-                : 'Monitor your scoped case outcomes, customer feedback and resolution workload.'
-              : spec.description,
-            primaryAction: undefined,
-          }}
-        />
-        {permissionData.canManage && (
-          <Button className="shrink-0" onClick={() => setCreateOpen(true)}>
-            <Plus className="size-4" /> Create case
-          </Button>
-        )}
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{
+          ...spec,
+          title:
+            slug === 'dashboard'
+              ? 'Customer Relationship Dashboard'
+              : isDashboard
+                ? 'Customer Care Performance'
+                : spec.title,
+          description: isDashboard
+            ? slug === 'dashboard'
+              ? 'Monitor customer experience across enquiry, feedback, reviews and complaint resolution.'
+              : 'Monitor your scoped case outcomes, customer feedback and resolution workload.'
+            : spec.description,
+          primaryAction: undefined,
+        }}
+        actions={
+          <>
+            {permissionData.canManage && (
+              <Button className="shrink-0" onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" /> Create case
+              </Button>
+            )}
+          </>
+        }
+      />
       {isDashboard && dashboard.data ? (
         <CustomerRelationshipDashboard
           summary={dashboard.data}

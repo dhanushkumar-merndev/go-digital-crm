@@ -1,21 +1,14 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
+import { PageHeader } from '@/components/shared/page-header';
 import { useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import {
-  Cable,
-  ChevronLeft,
-  ChevronRight,
-  CircleAlert,
-  RadioTower,
-  Search,
-  Workflow,
-} from 'lucide-react';
+import { Cable, CircleAlert, RadioTower, Search, Workflow } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PlatformIntegrationSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
@@ -68,40 +61,39 @@ export function PlatformIntegrationWorkspace({ spec }: { spec: PageSpec }) {
     ? [
         {
           label: 'Connections',
-          value: result.kpis.total_connections.toLocaleString(),
+          value: result.kpis.total_connections.toLocaleString('en-IN'),
           icon: Cable,
         },
         {
           label: 'Healthy',
-          value: result.kpis.healthy_connections.toLocaleString(),
+          value: result.kpis.healthy_connections.toLocaleString('en-IN'),
           icon: RadioTower,
         },
         {
           label: 'Needs attention',
-          value: result.kpis.attention_connections.toLocaleString(),
+          value: result.kpis.attention_connections.toLocaleString('en-IN'),
           icon: CircleAlert,
         },
         {
           label: 'Provider events · 7d',
-          value: result.kpis.events_last_7_days.toLocaleString(),
+          value: result.kpis.events_last_7_days.toLocaleString('en-IN'),
           icon: Workflow,
         },
-        { label: 'Sync runs · 7d', value: result.kpis.sync_runs_last_7_days.toLocaleString() },
+        {
+          label: 'Sync runs · 7d',
+          value: result.kpis.sync_runs_last_7_days.toLocaleString('en-IN'),
+        },
       ]
     : [];
-  const hasNext = Boolean(result && page * 25 < result.total);
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div>
-        <div className="mb-2 text-xs text-muted-foreground">Platform › Providers</div>
-        <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">{spec.title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Monitor tenant provider connections without exposing credentials or provider payloads.
-        </p>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Provider connections across dealerships. Credentials and provider payloads are never shown."
+      />
       {query.isPending ? <PlatformIntegrationSkeleton /> : null}
-      {result ? <KpiGrid metrics={metrics} className="xl:grid-cols-5" /> : null}
+      {result ? <KpiGrid metrics={metrics} /> : null}
       <Card className="shadow-none">
         <CardContent className="flex flex-col gap-3 p-4 md:flex-row">
           <div className="relative flex-1">
@@ -196,8 +188,12 @@ export function PlatformIntegrationWorkspace({ spec }: { spec: PageSpec }) {
                       <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                         {formatDate(connection.last_sync_at)}
                       </TableCell>
-                      <TableCell>{connection.events_last_30_days.toLocaleString()}</TableCell>
-                      <TableCell>{connection.sync_runs_last_30_days.toLocaleString()}</TableCell>
+                      <TableCell>
+                        {connection.events_last_30_days.toLocaleString('en-IN')}
+                      </TableCell>
+                      <TableCell>
+                        {connection.sync_runs_last_30_days.toLocaleString('en-IN')}
+                      </TableCell>
                     </TableRow>
                   ))}
                   {!result.records.length ? (
@@ -213,27 +209,12 @@ export function PlatformIntegrationWorkspace({ spec }: { spec: PageSpec }) {
                 </TableBody>
               </Table>
             </CardContent>
-            <CardContent className="flex items-center justify-between border-t py-3">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page === 1 || query.isFetching}
-                onClick={() => setPage((current) => current - 1)}
-              >
-                <ChevronLeft className="size-4" /> Previous
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                Page {page} · {result.total} connections
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!hasNext || query.isFetching}
-                onClick={() => setPage((current) => current + 1)}
-              >
-                Next <ChevronRight className="size-4" />
-              </Button>
-            </CardContent>
+            <TablePagination
+              page={page}
+              pageSize={25}
+              total={result.total}
+              onPageChange={setPage}
+            />
           </Card>
           <Card className="h-fit shadow-none">
             <CardHeader>

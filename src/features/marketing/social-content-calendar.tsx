@@ -108,7 +108,7 @@ export function SocialContentCalendar() {
         <div className="grid min-w-[840px] grid-cols-7 border-t">
           {dates.map((day) => (
             <div key={day} className="min-h-44 border-b border-r p-2 last:border-r-0">
-              <p className="mb-2 text-xs font-semibold text-[#17233d]">{label(day)}</p>
+              <p className="mb-2 text-xs font-semibold text-heading">{label(day)}</p>
               <div className="space-y-1.5">
                 {(postsByDay.get(day) ?? []).map((post) => (
                   <div key={post.id} className="rounded-md border bg-muted/30 p-2">
@@ -129,7 +129,7 @@ export function SocialContentCalendar() {
                           : ''}
                       </span>
                     </div>
-                    <p className="mt-1 line-clamp-3 text-[11px] leading-4 text-[#263550]">
+                    <p className="mt-1 line-clamp-3 text-[11px] leading-4 text-heading-soft">
                       {post.content}
                     </p>
                   </div>

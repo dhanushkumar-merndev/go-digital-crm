@@ -23,7 +23,17 @@ const failureMessages: Record<string, string> = {
   SARVAM_EMPTY_TRANSCRIPT: 'No speech was found in this recording.',
   SARVAM_JOB_FAILED: 'The recording could not be transcribed. Credits were returned.',
   SARVAM_TIMEOUT: 'Transcription took too long. Credits were returned.',
+  CALL_RECORDING_EMPTY: 'The recording file is empty. Upload it again.',
+  CALL_RECORDING_UNREADABLE: 'The recording file could not be read. Upload it again.',
 };
+
+function failureMessage(code: string) {
+  if (failureMessages[code]) return failureMessages[code];
+  if (/^(SARVAM|GROQ)_/.test(code))
+    return 'The AI service had a problem. Try again in a few minutes.';
+  if (code.startsWith('AI_CREDIT_')) return 'AI credits could not be reserved. Try again shortly.';
+  return 'Try again in a moment.';
+}
 
 function requestMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? '');
@@ -84,8 +94,7 @@ export function CallAiProcessingControl({
         </p>
       ) : failed ? (
         <p className="text-sm text-destructive">
-          Processing failed.{' '}
-          {failureMessages[data.job?.safe_error_code ?? ''] ?? 'Try again in a moment.'}
+          Processing failed. {failureMessage(data.job?.safe_error_code ?? '')}
         </p>
       ) : null}
       {data.can_request && (

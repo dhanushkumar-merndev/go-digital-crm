@@ -69,13 +69,23 @@ function isPage(value: unknown): value is TestDrivePage {
   );
 }
 
-export async function loadTestDrivePage(view: TestDriveView) {
+export type TestDriveQuery = {
+  search: string;
+  model: string;
+  fromDate: string | null;
+  toDate: string | null;
+};
+
+export async function loadTestDrivePage(
+  view: TestDriveView,
+  query: TestDriveQuery = { search: '', model: '', fromDate: null, toDate: null },
+) {
   const { data, error } = await supabase.rpc('get_test_drive_workspace_page', {
     target_view: view,
-    target_search: '',
-    target_model: '',
-    target_from_date: null,
-    target_to_date: null,
+    target_search: query.search,
+    target_model: query.model,
+    target_from_date: query.fromDate,
+    target_to_date: query.toDate,
     target_page: 1,
     target_page_size: 25,
     target_sort: view === 'COMPLETED' ? 'updated:desc' : 'scheduled:asc',

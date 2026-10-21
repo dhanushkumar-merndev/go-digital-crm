@@ -1,8 +1,11 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen } from '@/components/screen';
+import { EmptyState, ErrorState, PrimaryButton, SkeletonList } from '@/components/ui/basics';
 import {
+  aiEditText,
+  aiEditValue,
   callAiErrorMessage,
   callAiFieldLabels,
   displayAiValue,
@@ -10,9 +13,10 @@ import {
   reviewCallAiFields,
   type CallAiDecision,
   type CallAiField,
+  type CallAiFieldKey,
   type CallAiReview,
 } from '@/lib/call-ai';
-import { colors } from '@/theme';
+import { colors, font } from '@/theme';
 
 type Choice = { decision: 'APPLIED' | 'REJECTED' | 'EDITED'; value?: string };
 
@@ -66,7 +70,9 @@ export default function ReviewCallSuggestions() {
     const decisions: CallAiDecision[] = Object.entries(choices).map(([fieldKey, choice]) => ({
       field_key: fieldKey as CallAiDecision['field_key'],
       decision: choice.decision,
-      ...(choice.decision === 'EDITED' ? { value: choice.value?.trim() ?? '' } : {}),
+      ...(choice.decision === 'EDITED'
+        ? { value: aiEditValue(fieldKey as CallAiFieldKey, choice.value ?? '') }
+        : {}),
     }));
     if (!decisions.length) {
       setError('Choose Apply, Edit or Reject for at least one suggestion.');
@@ -86,30 +92,13 @@ export default function ReviewCallSuggestions() {
   };
 
   return (
-    <Screen
-      title="AI suggestions"
-      subtitle={review?.call.customer_name ?? 'Call review'}
-      action={
-        <Pressable onPress={() => router.back()}>
-          <Text style={styles.back}>Back</Text>
-        </Pressable>
-      }
-    >
-      {loading ? (
-        <View style={styles.loading}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : null}
+    <Screen title="AI suggestions" subtitle={review?.call.customer_name ?? undefined} back>
+      {loading ? <SkeletonList rows={4} /> : null}
       {loadError ? (
-        <Pressable style={styles.errorCard} onPress={() => void load()}>
-          <Text style={styles.errorTitle}>Suggestions could not be loaded</Text>
-          <Text style={styles.errorText}>Tap to retry.</Text>
-        </Pressable>
+        <ErrorState title="Suggestions could not be loaded" onRetry={() => void load()} />
       ) : null}
       {review && !review.extraction ? (
-        <View style={styles.card}>
-          <Text style={styles.body}>This call has no AI suggestions.</Text>
-        </View>
+        <EmptyState icon="sparkles-outline" title="This call has no AI suggestions." />
       ) : null}
       {savedFields ? (
         <Text style={styles.success}>
@@ -126,13 +115,15 @@ export default function ReviewCallSuggestions() {
             <View style={styles.compare}>
               <View style={styles.compareSide}>
                 <Text style={styles.compareCaption}>Now</Text>
-                <Text style={styles.compareValue}>{displayAiValue(field.current_value)}</Text>
+                <Text style={styles.compareValue}>
+                  {displayAiValue(field.current_value, field.field_key)}
+                </Text>
               </View>
               <Text style={styles.arrow}>→</Text>
               <View style={styles.compareSide}>
                 <Text style={styles.compareCaption}>Suggested</Text>
                 <Text style={[styles.compareValue, styles.suggested]}>
-                  {displayAiValue(field.suggested_value)}
+                  {displayAiValue(field.suggested_value, field.field_key)}
                 </Text>
               </View>
             </View>
@@ -158,9 +149,7 @@ export default function ReviewCallSuggestions() {
                             decision,
                             value:
                               decision === 'EDITED'
-                                ? field.suggested_value == null
-                                  ? ''
-                                  : String(field.suggested_value)
+                                ? aiEditText(field.field_key, field.suggested_value)
                                 : undefined,
                           },
                     )
@@ -183,11 +172,12 @@ export default function ReviewCallSuggestions() {
       {pending.length ? (
         <>
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Pressable style={styles.primary} onPress={() => void apply()} disabled={saving}>
-            <Text style={styles.primaryText}>
-              {saving ? 'Applying…' : 'Apply selected changes'}
-            </Text>
-          </Pressable>
+          <PrimaryButton
+            label="Apply selected changes"
+            icon="checkmark"
+            busy={saving}
+            onPress={() => void apply()}
+          />
         </>
       ) : review?.extraction ? (
         <Text style={styles.body}>Every suggestion from this call has been reviewed.</Text>
@@ -200,7 +190,7 @@ export default function ReviewCallSuggestions() {
               {callAiFieldLabels[field.field_key]}:{' '}
               {field.decision === 'REJECTED'
                 ? 'rejected'
-                : `${displayAiValue(field.applied_value)} (${field.decision === 'EDITED' ? 'edited' : 'applied'})`}
+                : `${displayAiValue(field.applied_value, field.field_key)} (${field.decision === 'EDITED' ? 'edited' : 'applied'})`}
             </Text>
           ))}
         </View>
@@ -210,17 +200,6 @@ export default function ReviewCallSuggestions() {
 }
 
 const styles = StyleSheet.create({
-  back: { color: colors.primary, fontWeight: '700' },
-  loading: { padding: 36, alignItems: 'center' },
-  errorCard: {
-    borderColor: '#fecaca',
-    borderWidth: 1,
-    backgroundColor: '#fef2f2',
-    borderRadius: 14,
-    padding: 16,
-  },
-  errorTitle: { color: '#991b1b', fontWeight: '800' },
-  errorText: { color: '#b91c1c', fontSize: 12, marginTop: 4 },
   card: {
     backgroundColor: colors.card,
     borderColor: colors.border,
@@ -229,16 +208,16 @@ const styles = StyleSheet.create({
     padding: 15,
     gap: 10,
   },
-  cardTitle: { color: colors.navy, fontSize: 16, fontWeight: '800' },
-  body: { color: colors.muted, fontSize: 13, lineHeight: 19 },
-  success: { color: colors.success, fontSize: 13, fontWeight: '700' },
-  fieldLabel: { color: colors.navy, fontSize: 15, fontWeight: '800' },
+  cardTitle: { color: colors.navy, fontSize: font.heading, fontWeight: '600' },
+  body: { color: colors.muted, fontSize: font.small, lineHeight: 19 },
+  success: { color: colors.success, fontSize: font.small, fontWeight: '700' },
+  fieldLabel: { color: colors.navy, fontSize: font.body, fontWeight: '600' },
   compare: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   compareSide: { flex: 1 },
-  compareCaption: { color: colors.muted, fontSize: 10, fontWeight: '700' },
-  compareValue: { color: colors.text, fontSize: 13, fontWeight: '700', marginTop: 2 },
-  suggested: { color: '#7c3aed' },
-  arrow: { color: colors.muted, fontSize: 16 },
+  compareCaption: { color: colors.muted, fontSize: font.caption, fontWeight: '700' },
+  compareValue: { color: colors.text, fontSize: font.small, fontWeight: '700', marginTop: 2 },
+  suggested: { color: colors.violet },
+  arrow: { color: colors.muted, fontSize: font.heading },
   input: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -256,11 +235,9 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     alignItems: 'center',
   },
-  choiceActive: { borderColor: colors.primary, backgroundColor: '#eff6ff' },
-  choiceText: { color: colors.text, fontWeight: '700', fontSize: 12 },
+  choiceActive: { borderColor: colors.primary, backgroundColor: colors.infoSoft },
+  choiceText: { color: colors.text, fontWeight: '700', fontSize: font.label },
   choiceTextActive: { color: colors.primary },
-  error: { color: colors.danger, fontSize: 13 },
-  primary: { backgroundColor: colors.primary, alignItems: 'center', padding: 14, borderRadius: 11 },
-  primaryText: { color: 'white', fontWeight: '800' },
-  reviewedRow: { color: colors.text, fontSize: 12, lineHeight: 18 },
+  error: { color: colors.danger, fontSize: font.small },
+  reviewedRow: { color: colors.text, fontSize: font.label, lineHeight: 18 },
 });

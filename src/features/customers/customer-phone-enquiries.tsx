@@ -11,6 +11,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -191,7 +192,7 @@ function LinkEnquiryDialog({
   const mutation = useMutation({ mutationFn: resolveLeadCustomer, onSuccess: onLinked });
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Link enquiry to {customerName}?</DialogTitle>
           <DialogDescription>
@@ -231,14 +232,14 @@ function LinkEnquiryDialog({
               this and check the list again.
             </p>
           ) : null}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={mutation.isPending}>
               {mutation.isPending ? 'Linking…' : 'Link enquiry'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

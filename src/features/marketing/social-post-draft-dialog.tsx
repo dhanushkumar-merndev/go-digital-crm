@@ -105,7 +105,7 @@ function SocialPostDraftDialog({
         <Plus className="size-4" /> Create post draft
       </Button>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-xl">
+        <DialogContent size="lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FilePenLine className="size-5 text-blue-600" /> Create social post draft
@@ -168,7 +168,7 @@ function SocialPostDraftDialog({
                 placeholder="Write the approved message for your customer audience…"
               />
               <span className="text-right text-xs font-normal text-muted-foreground">
-                {content.length.toLocaleString()} / 5,000
+                {content.length.toLocaleString('en-IN')} / 5,000
               </span>
             </label>
             <DialogFooter>

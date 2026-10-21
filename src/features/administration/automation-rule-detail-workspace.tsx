@@ -81,11 +81,13 @@ export function AutomationRuleDetailWorkspace({ ruleId, role }: { ruleId: string
     ? Math.round((statistics.succeeded / statistics.total) * 100)
     : 0;
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5 p-5">
+    <div className="mx-auto w-full space-y-5 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm text-muted-foreground">Administration / Automation rules</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight">Automation Rule Details</h1>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-heading">
+            Automation Rule Details
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             View the approved configuration and recent server-side executions.
           </p>
@@ -202,7 +204,7 @@ export function AutomationRuleDetailWorkspace({ ruleId, role }: { ruleId: string
             <CardContent className="grid gap-3">
               <div className="rounded-lg bg-blue-50 p-4">
                 <p className="text-xl font-bold text-blue-700">
-                  {statistics.total.toLocaleString()}
+                  {statistics.total.toLocaleString('en-IN')}
                 </p>
                 <p className="text-xs text-muted-foreground">Total executions</p>
               </div>

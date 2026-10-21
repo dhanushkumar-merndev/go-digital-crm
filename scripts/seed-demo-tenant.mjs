@@ -74,6 +74,9 @@ if (!organizationPreset) {
 // the shape of a dealership still going through onboarding.
 const ownerOnly = process.argv.includes('--owner-only');
 const DEMO_SLUG = organizationPreset.slug;
+const DEMO_GOOGLE_REVIEW_URL =
+  process.env.DEMO_GOOGLE_REVIEW_URL ??
+  'https://www.google.com/search?q=startechindia&sxsrf=APpeQntUJ9hRcIV60k0uFMQjDpfmOrsf8g%3A1792573134731#sv=CAESzQEKuQEStgEKd0FKaVQ0dEpGRWk1X3hYODlSa3daaktaR2ROLVlsTWpYM1RXVG1rckJnUkswYkZ5Vk40cjkyc0xFMFdzMGN5dDcxNFA1TkszV2dIYTR6a2p5R2xhdi1POGY0NTREVHdwaV9VYlUtTFhaYWt2OE0wejQyLU1VY0VVEhczbjdZYXVtbkVZeWJodmNQcU5Ddm1BYxoiQURzcjlmVF9KQ0cxTmU5VFdmZXg5Ym9tT2pyVWRKMVNwURIEODA1MRoBMyoAMAA4AUAAGAAgk4HksQVKAhAB';
 const DEMO_DOMAIN = organizationPreset.domain;
 const DEMO_LABEL = organizationPreset.label;
 
@@ -1864,6 +1867,14 @@ async function main() {
     ownerId = organization[0].primary_owner_id;
   }
   const organizationId = organization[0].id;
+  // Demo dealerships have no Google Business Profile of their own, so the
+  // review form's "post on Google" step opens this profile instead. Only an
+  // empty value is filled: a link set from Branch settings is never replaced.
+  await patch(
+    'organizations',
+    { id: `eq.${organizationId}`, google_review_url: 'is.null' },
+    { google_review_url: DEMO_GOOGLE_REVIEW_URL },
+  );
   await insert(
     'roles',
     rolePresets.map(([role_key, name, authority_level, mfa_required]) => ({

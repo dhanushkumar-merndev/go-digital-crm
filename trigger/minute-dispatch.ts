@@ -12,6 +12,8 @@ import { runPortalInboxDue } from './portal-inbox-sync';
 import { runProviderEventDispatch } from './provider-event-dispatch';
 import { runProviderOutbox } from './provider-outbox';
 import { runStuckRecordingSweep } from './provider-recording-ingest';
+import { runReportExport } from './report-export';
+import { runSupportSessionExpiry } from './support-session-expiry';
 import { runVehicleComparisonAiExpiry } from './vehicle-comparison-ai-expiry';
 
 function requiredEnvironment(name: string) {
@@ -44,6 +46,10 @@ export const minuteDispatch = schedules.task({
       requiredEnvironment('SUPABASE_SERVICE_ROLE_KEY'),
       { auth: { persistSession: false, autoRefreshToken: false } },
     );
+    // Sweeps that only recover stuck rows wait minutes by design, so they run on
+    // a slower beat inside this pass rather than querying every minute.
+    const minute = new Date().getUTCMinutes();
+    const idle = async () => 'skipped';
     const steps = {
       call_processing: runAiCallProcessing,
       image_generation: runAiImageGeneration,
@@ -52,12 +58,18 @@ export const minuteDispatch = schedules.task({
       auto_call: runAutoCallDialer,
       provider_events: runProviderEventDispatch,
       provider_outbox: runProviderOutbox,
-      recording_sweep: runStuckRecordingSweep,
+      // A recording is swept only 10 minutes after its last attempt.
+      recording_sweep: minute % 10 === 3 ? runStuckRecordingSweep : idle,
       marketing: runMarketingDispatch,
       // Each portal mailbox carries its own 10 / 20 / 30 minute interval; this
       // only starts the runs whose next_poll_at has passed.
       portal_inbox: runPortalInboxDue,
-      comparison_expiry: runVehicleComparisonAiExpiry,
+      // Refunds comparisons stuck for over 2 minutes; nobody waits on it.
+      comparison_expiry: minute % 5 === 1 ? runVehicleComparisonAiExpiry : idle,
+      // A lapsed support window keeps the tenant on the maintenance screen
+      // until this ends it, so it keeps the per-minute beat.
+      support_session_expiry: runSupportSessionExpiry,
+      report_export: runReportExport,
     } as const;
 
     const names = Object.keys(steps) as Array<keyof typeof steps>;

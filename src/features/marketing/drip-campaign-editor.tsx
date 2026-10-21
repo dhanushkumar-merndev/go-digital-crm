@@ -161,7 +161,7 @@ export function DripCampaignEditor({
         if (!next && !busy.current) onClose();
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent size="xl">
         <DialogHeader>
           <DialogTitle>{creating ? 'Create drip campaign' : 'Drip campaign'}</DialogTitle>
           <DialogDescription>

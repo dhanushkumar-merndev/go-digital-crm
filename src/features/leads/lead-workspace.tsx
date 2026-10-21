@@ -30,14 +30,12 @@ import {
   PhoneCall,
   Smartphone,
   RefreshCw,
-  RotateCcw,
   Search,
   SlidersHorizontal,
   Star,
   Trash2,
   TrendingDown,
   TrendingUp,
-  TriangleAlert,
   Undo2,
   UserRoundCheck,
   UserRoundPlus,
@@ -115,6 +113,10 @@ import {
   toWhatsAppClickToChatUrl,
 } from '@/lib/phone';
 import { cn } from '@/lib/utils';
+import { ErrorState } from '@/components/shared/page-states';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
+import { kpiGridColumns } from '@/components/shared/kpi-grid';
+import { formatNumber } from '@/lib/format';
 import { CustomerTelecmiCallDialog } from '@/features/customers/customer-360-actions';
 import {
   CustomerMatchDialog,
@@ -199,6 +201,7 @@ import {
   SendReviewRequestDialog,
   type ReviewTarget,
 } from '@/features/reviews/send-review-request-dialog';
+import { leadTemperatureVariant } from '@/features/leads/lead-temperature-variant';
 
 const filterDayFormat = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' });
 
@@ -458,16 +461,8 @@ function TemperatureBadge({ value }: { value: LeadRecord['temperature'] }) {
         Not set
       </Badge>
     );
-  const variant =
-    value === 'HOT'
-      ? 'destructive'
-      : value === 'WARM'
-        ? 'warning'
-        : value === 'DORMANT'
-          ? 'secondary'
-          : 'info';
   return (
-    <Badge variant={variant} className="rounded px-2 py-0 text-[10px]">
+    <Badge variant={leadTemperatureVariant(value)} className="rounded px-2 py-0 text-[10px]">
       {value}
     </Badge>
   );
@@ -511,7 +506,7 @@ function telecallerLeadMetricCards(kpis: LeadWorkspaceResult['kpis']): SalesLead
       helper: 'still active',
       good: true,
       neutral: kpis.total === 0,
-      footnote: `${kpis.transferred_to_sales_count.toLocaleString()} transferred · ${kpis.lost_count.toLocaleString()} lost`,
+      footnote: `${kpis.transferred_to_sales_count.toLocaleString('en-IN')} transferred · ${kpis.lost_count.toLocaleString('en-IN')} lost`,
     },
     {
       status: 'new-today',
@@ -576,7 +571,7 @@ function salesLeadMetricCards(kpis: LeadWorkspaceResult['kpis']): SalesLeadMetri
       helper: 'still active',
       good: true,
       neutral: kpis.total === 0,
-      footnote: `${kpis.booking.toLocaleString()} booked · ${kpis.lost_count.toLocaleString()} lost`,
+      footnote: `${formatNumber(kpis.booking)} booked · ${formatNumber(kpis.lost_count)} lost`,
     },
     {
       status: 'sales-new',
@@ -655,12 +650,12 @@ function SalesLeadMetricCard({
             <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', card.chip)}>
               <Icon className="size-4" />
             </span>
-            <p className="min-w-0 text-[11px] font-semibold leading-4 text-[#263550]">
+            <p className="min-w-0 text-[11px] font-semibold leading-4 text-heading-soft">
               {card.label}
             </p>
           </div>
-          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-[#12213f]">
-            {card.value.toLocaleString()}
+          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-heading">
+            {card.value.toLocaleString('en-IN')}
           </p>
           <p
             className={cn(
@@ -695,18 +690,20 @@ function managerLeadMetricCards(kpis: LeadWorkspaceResult['kpis']): SalesLeadMet
       helper: 'still active',
       good: true,
       neutral: kpis.total === 0,
-      footnote: `${kpis.booking.toLocaleString()} booked · ${kpis.lost_count.toLocaleString()} lost`,
+      footnote: `${formatNumber(kpis.booking)} booked · ${formatNumber(kpis.lost_count)} lost`,
     },
     {
       status: 'new',
-      label: 'New today',
+      // new_count is every lead still at New, not today's intake, so the tile
+      // must not claim "today".
+      label: 'New leads',
       value: kpis.new_count,
       icon: UserRoundPlus,
       chip: 'bg-blue-50 text-blue-600',
       rate: leadShare(kpis.new_count, kpis.total),
       helper: 'of all leads',
       good: true,
-      footnote: 'Fresh leads awaiting progress',
+      footnote: 'Still at New, awaiting first contact',
     },
     {
       status: 'pending',
@@ -842,7 +839,7 @@ function LeadStatusTabs({
               onClick={() => onStatusChange(tab.value)}
               style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
               className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
-                active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
+                active ? 'text-blue-700' : 'text-heading-soft hover:text-blue-700'
               }`}
             >
               <span>{tab.label}</span>
@@ -872,7 +869,7 @@ function LeadStatusTabs({
               onClick={() => onPersonalViewChange(tab.value)}
               style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
               className={`relative flex h-full shrink-0 items-center gap-1.5 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset ${
-                active ? 'text-blue-700' : 'text-[#263550] hover:text-blue-700'
+                active ? 'text-blue-700' : 'text-heading-soft hover:text-blue-700'
               }`}
             >
               <Icon className={`size-3.5 ${active ? 'fill-current' : ''}`} />
@@ -1011,7 +1008,7 @@ function LeadCreateDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Add lead</DialogTitle>
           <DialogDescription>
@@ -1175,14 +1172,14 @@ function LeadCreateDialog({
           {mutation.isError && (
             <p className="text-sm text-destructive">{leadCreateMessage(mutation.error)}</p>
           )}
-          <div className="flex justify-end gap-2 pt-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={!selectedBranchId || mutation.isPending}>
               {mutation.isPending ? 'Creating…' : 'Create lead'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -1304,7 +1301,7 @@ function LeadAssignmentDialog({
               team, and match the required handoff role.
             </p>
           )}
-          <div className="flex justify-end gap-2 pt-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -1315,7 +1312,7 @@ function LeadAssignmentDialog({
                   ? 'Hand over to Sales'
                   : 'Assign to Telecaller'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -1353,7 +1350,7 @@ function PendingFollowupDialog({
   return (
     <>
       <Dialog open={Boolean(request) && !action} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Follow-up still pending</DialogTitle>
             <DialogDescription>
@@ -1606,7 +1603,7 @@ function SalesHandoffDialog({
             onRetry={() => void candidates.refetch()}
             retrying={candidates.isFetching}
           />
-          <div className="flex justify-end gap-2 pt-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -1623,7 +1620,7 @@ function SalesHandoffDialog({
             >
               {mutation.isPending ? 'Transferring…' : 'Transfer to Sales'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -1961,7 +1958,7 @@ function LeadEditDialog({
                 : 'The lead could not be updated. Check the change reason and permitted lifecycle transition, then try again.'}
             </p>
           )}
-          <div className="flex justify-end gap-2 pt-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -1983,7 +1980,7 @@ function LeadEditDialog({
                     ? `Set ${temperatureShortcut}`
                     : 'Save changes'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -2426,7 +2423,7 @@ function LeadTable({
               {!isHistoryLead && lead.phone_lead_count > 1 ? (
                 <Badge
                   variant="outline"
-                  className="border-blue-200 bg-blue-50 px-1.5 text-[9px] font-semibold text-blue-700"
+                  className="border-blue-200 bg-blue-50 px-1.5 text-[10px] font-semibold text-blue-700"
                 >
                   {lead.phone_lead_count} leads
                 </Badge>
@@ -2540,7 +2537,7 @@ function LeadTable({
             <span
               title={formatInternationalPhone(phone)}
               className={
-                isHistoryLead ? 'font-normal text-slate-500' : 'font-medium text-[#263550]'
+                isHistoryLead ? 'font-normal text-slate-500' : 'font-medium text-heading-soft'
               }
             >
               {formatNationalPhone(phone)}
@@ -3400,7 +3397,7 @@ function LeadTable({
                 placeholder="Search by name or mobile…"
               />
             </div>
-            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-label">
               Model
               <Select
                 value={query.model || 'all'}
@@ -3421,7 +3418,7 @@ function LeadTable({
                 </SelectContent>
               </Select>
             </label>
-            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-label">
               Source
               <Select
                 value={query.source || 'all'}
@@ -3443,7 +3440,7 @@ function LeadTable({
               </Select>
             </label>
             {showLeadStageFilter && (
-              <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+              <label className="grid min-w-0 gap-1 text-[10px] font-medium text-label">
                 Lead stage
                 <Select
                   value={query.stage}
@@ -3464,7 +3461,7 @@ function LeadTable({
                 </Select>
               </label>
             )}
-            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-label">
               Temperature
               <Select
                 value={query.temperature}
@@ -3485,7 +3482,7 @@ function LeadTable({
                 </SelectContent>
               </Select>
             </label>
-            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+            <label className="grid min-w-0 gap-1 text-[10px] font-medium text-label">
               Buyer type
               <Select
                 value={query.buyerType}
@@ -3503,14 +3500,16 @@ function LeadTable({
                 </SelectContent>
               </Select>
             </label>
-            <div className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+            <div className="grid min-w-0 gap-1 text-[10px] font-medium text-label">
               Created date
               <Button
                 type="button"
                 variant="outline"
                 className={cn(
                   'h-8 justify-start bg-white px-2 text-[10px] font-normal',
-                  query.createdFrom || query.createdTo ? 'text-[#263550]' : 'text-muted-foreground',
+                  query.createdFrom || query.createdTo
+                    ? 'text-heading-soft'
+                    : 'text-muted-foreground',
                 )}
                 onClick={() => setCreatedRangeOpen(true)}
               >
@@ -3518,7 +3517,7 @@ function LeadTable({
                 <span className="truncate">{createdDateLabel}</span>
               </Button>
             </div>
-            <div className="grid min-w-0 gap-1 text-[10px] font-medium text-[#526079]">
+            <div className="grid min-w-0 gap-1 text-[10px] font-medium text-label">
               Follow-up date
               <Button
                 type="button"
@@ -3528,7 +3527,7 @@ function LeadTable({
                 className={cn(
                   'h-8 justify-start bg-white px-2 text-[10px] font-normal',
                   query.followupFrom || query.followupTo
-                    ? 'text-[#263550]'
+                    ? 'text-heading-soft'
                     : 'text-muted-foreground',
                 )}
                 onClick={() => setDateRangeOpen(true)}
@@ -3652,7 +3651,7 @@ function LeadTable({
                     <TableHead
                       key={header.id}
                       className={cn(
-                        'h-11 whitespace-nowrap bg-slate-50 px-3 text-[10px] font-semibold uppercase tracking-wide text-[#263550]',
+                        'h-11 whitespace-nowrap bg-slate-50 px-3 text-[10px] font-semibold uppercase tracking-wide text-heading-soft',
                         // Actions sits last, so without this it inherits the
                         // table's leftover width and opens a gap between the
                         // icons and the right edge. w-px collapses the column to
@@ -3761,7 +3760,7 @@ function LeadTable({
                         <TableCell
                           key={cell.id}
                           className={cn(
-                            'whitespace-nowrap px-3 py-2.5 text-xs text-[#263550]',
+                            'whitespace-nowrap px-3 py-2.5 text-xs text-heading-soft',
                             cell.column.id === 'lead_id' && 'relative',
                             cell.column.id === 'customer_name' && 'max-w-[190px]',
                             cell.column.id === 'actions' && 'w-px !pr-4',
@@ -3889,7 +3888,7 @@ function LeadTable({
           </Table>
         </div>
         <div className="flex flex-col gap-3 border-t px-5 py-3 text-sm lg:flex-row lg:items-center lg:justify-between">
-          <p className="text-xs text-[#526079]">
+          <p className="text-xs text-label">
             <>
               Showing {data.total ? (query.page - 1) * query.pageSize + 1 : 0} to{' '}
               {Math.min(query.page * query.pageSize, data.total)} of {data.total}{' '}
@@ -3981,7 +3980,7 @@ function LeadTable({
           if (!open) setSavedFilterError(undefined);
         }}
       >
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Save current filters</DialogTitle>
             <DialogDescription>
@@ -4072,14 +4071,6 @@ export function LeadWorkspace({
   const searchParams = useSearchParams();
   const focusLeadId = isUuid(searchParams.get('focus') ?? '') ? searchParams.get('focus') : null;
   const fallbackStatus = getDefaultLeadStatus(slug);
-  const workspaceLabel =
-    role === 'team-manager'
-      ? 'Team Leads'
-      : role === 'showroom-manager'
-        ? 'Showroom Leads'
-        : role === 'gm-sales'
-          ? 'Sales Leads'
-          : 'My Leads';
   const [query, setQuery] = useState<LeadQuery>(() => parseLeadQuery(searchParams, fallbackStatus));
   const salesMyLeadsDefaultApplied = useRef(false);
   const [personalView, setPersonalView] = useState<PersonalLeadView>(() =>
@@ -4584,90 +4575,75 @@ export function LeadWorkspace({
     const slowRead =
       !legacyPermissions.isError && isTransientSupabaseError(workspace.error ?? undefined);
     return (
-      <Card className="mx-auto max-w-xl">
-        <CardContent className="flex flex-col items-center p-10 text-center">
-          <div className="grid size-12 place-items-center rounded-full bg-red-50 text-red-600">
-            <TriangleAlert />
-          </div>
-          <h2 className="mt-4 font-semibold">
-            {slowRead ? 'Leads are taking longer than usual' : 'Leads are not available yet'}
-          </h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {slowRead
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title={slowRead ? 'Leads are taking longer than usual' : 'Leads are not available yet'}
+          description={
+            slowRead
               ? 'The server did not answer in time. Nothing was lost; try again in a moment.'
-              : 'Your session, database access, or the required lead workspace migration needs attention.'}{' '}
-            Reference: GDM-LEADS-QUERY.
-          </p>
-          <Button
-            className="mt-5"
-            variant="outline"
-            onClick={() => {
-              void workspace.refetch();
-              if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
-            }}
-          >
-            <RotateCcw className="size-4" />
-            Try again
-          </Button>
-        </CardContent>
-      </Card>
+              : 'Your session, database access, or the required lead workspace migration needs attention.'
+          }
+          reference="GDM-LEADS-QUERY"
+          retrying={workspace.isFetching}
+          onRetry={() => {
+            void workspace.refetch();
+            if (!useWorkspaceBootstrap) void legacyPermissions.refetch();
+          }}
+        />
+      </PageShell>
     );
   }
   if (!workspace.data) return null;
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6">
+    <PageShell>
       <RefreshFailedNotice
         show={workspace.isError}
         retrying={workspace.isFetching}
         onRetry={() => void workspace.refetch()}
       />
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-            <Link href={`/${role}/dashboard`} className="text-blue-600 hover:underline">
-              Dashboard
-            </Link>
-            <ChevronRight className="size-3" />
-            <span>{workspaceLabel}</span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#12213f] md:text-[28px]">
-            {workspaceLabel}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {role === 'team-manager'
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description={
+          slug === 'lost-leads'
+            ? 'Leads closed as lost in your scope: why they were lost and which can be recovered.'
+            : role === 'team-manager'
               ? 'View and manage leads assigned to your team, including ownership and follow-up progress.'
-              : 'View and manage your leads, track progress and take timely actions.'}
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {role === 'telecaller' ? <AutoCallToggle /> : null}
-          {permissions?.canCreate ? (
-            <>
-              <Button variant="outline" onClick={() => setBulkImportOpen(true)}>
-                <FileUp className="size-4" /> Import CSV
-              </Button>
-              <Button onClick={() => setCreateOpen(true)}>
-                <UserRoundPlus className="size-4" /> Add lead
-              </Button>
-            </>
-          ) : null}
-          <Button
-            variant="outline"
-            onClick={() => void workspace.refetch()}
-            disabled={workspace.isFetching}
-          >
-            <RefreshCw className={`size-4 ${workspace.isFetching ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-        </div>
-      </div>
+              : role === 'showroom-manager' || role === 'gm-sales'
+                ? 'Leads across your showroom scope: owner, stage and next follow-up.'
+                : 'View and manage your leads, track progress and take timely actions.'
+        }
+        actions={
+          <>
+            {role === 'telecaller' ? <AutoCallToggle /> : null}
+            {permissions?.canCreate ? (
+              <>
+                <Button variant="outline" onClick={() => setBulkImportOpen(true)}>
+                  <FileUp className="size-4" /> Import CSV
+                </Button>
+                <Button onClick={() => setCreateOpen(true)}>
+                  <UserRoundPlus className="size-4" /> Add lead
+                </Button>
+              </>
+            ) : null}
+            <Button
+              variant="outline"
+              onClick={() => void workspace.refetch()}
+              disabled={workspace.isFetching}
+            >
+              <RefreshCw className={`size-4 ${workspace.isFetching ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </>
+        }
+      />
       {showMyLeadsSummary ? (
         <section aria-label="My Leads summary">
           <div
             id="my-leads-summary-kpis"
             hidden={!salesLeadMetricsOpen}
-            className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+            className={cn('grid gap-2.5', kpiGridColumns(5))}
           >
             {(role === 'telecaller'
               ? telecallerLeadMetricCards(workspace.data.kpis)
@@ -5000,6 +4976,6 @@ export function LeadWorkspace({
           onOpenChange={(open) => !open && setReviewTarget(null)}
         />
       ) : null}
-    </div>
+    </PageShell>
   );
 }

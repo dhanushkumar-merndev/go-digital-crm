@@ -1,7 +1,8 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { Screen } from '@/components/screen';
+import { SkeletonList } from '@/components/ui/basics';
 import {
   fetchCallAiPreferences,
   saveCallAiPreferences,
@@ -15,7 +16,7 @@ import {
   type RecordingFolder,
 } from '@/lib/recording-sync';
 import { supabase } from '@/lib/supabase';
-import { colors } from '@/theme';
+import { colors, font } from '@/theme';
 
 export default function Settings() {
   const [preferences, setPreferences] = useState<CallAiPreferences | null>(null);
@@ -86,18 +87,10 @@ export default function Settings() {
   };
 
   return (
-    <Screen
-      title="Settings"
-      subtitle={email ?? 'Your account'}
-      action={
-        <Pressable onPress={() => router.back()}>
-          <Text style={styles.back}>Back</Text>
-        </Pressable>
-      }
-    >
+    <Screen title="Settings" subtitle={email ?? undefined} back>
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Call recordings</Text>
-        {!preferences && !error ? <ActivityIndicator color={colors.primary} /> : null}
+        {!preferences && !error ? <SkeletonList rows={2} /> : null}
         {preferences ? (
           <>
             <Setting
@@ -183,7 +176,6 @@ function Setting({
 }
 
 const styles = StyleSheet.create({
-  back: { color: colors.primary, fontWeight: '700' },
   card: {
     backgroundColor: colors.card,
     borderColor: colors.border,
@@ -192,11 +184,11 @@ const styles = StyleSheet.create({
     padding: 15,
     gap: 12,
   },
-  cardTitle: { color: colors.navy, fontSize: 16, fontWeight: '800' },
+  cardTitle: { color: colors.navy, fontSize: font.heading, fontWeight: '600' },
   setting: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   settingMain: { flex: 1 },
-  settingLabel: { color: colors.text, fontSize: 14, fontWeight: '700' },
-  settingDetail: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 2 },
+  settingLabel: { color: colors.text, fontSize: font.row, fontWeight: '700' },
+  settingDetail: { color: colors.muted, fontSize: font.caption, lineHeight: 16, marginTop: 2 },
   folder: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -205,11 +197,11 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   folderMain: { flex: 1 },
-  label: { color: colors.muted, fontSize: 11, fontWeight: '700' },
-  value: { color: colors.text, fontSize: 14, fontWeight: '700', marginTop: 2 },
-  link: { color: colors.primary, fontWeight: '800' },
-  danger: { color: colors.danger, fontSize: 12, fontWeight: '700' },
-  error: { color: colors.danger, fontSize: 12 },
+  label: { color: colors.muted, fontSize: font.caption, fontWeight: '700' },
+  value: { color: colors.text, fontSize: font.row, fontWeight: '700', marginTop: 2 },
+  link: { color: colors.primary, fontWeight: '600' },
+  danger: { color: colors.danger, fontSize: font.label, fontWeight: '700' },
+  error: { color: colors.danger, fontSize: font.label },
   signOut: {
     borderWidth: 1,
     borderColor: colors.danger,
@@ -217,5 +209,5 @@ const styles = StyleSheet.create({
     padding: 12,
     alignItems: 'center',
   },
-  signOutText: { color: colors.danger, fontWeight: '800' },
+  signOutText: { color: colors.danger, fontWeight: '600' },
 });

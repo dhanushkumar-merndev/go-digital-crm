@@ -1,5 +1,6 @@
 'use client';
 
+import { PageHeader } from '@/components/shared/page-header';
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -220,14 +221,11 @@ export function CompetitorComparisonWorkspace({ spec }: { spec: PageSpec }) {
     retry: false,
   });
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">{spec.title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Compare dealership-provided specifications. Missing information is not proof a feature is
-          absent.
-        </p>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Compare dealership-provided specifications side by side. A missing value is not proof a feature is absent."
+      />
       <CatalogSharingCard />
       <Card className="shadow-none">
         <CardContent className="grid gap-5 p-5 lg:grid-cols-[1fr_auto_1fr]">

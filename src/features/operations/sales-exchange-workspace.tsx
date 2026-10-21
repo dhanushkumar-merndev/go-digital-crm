@@ -1,5 +1,8 @@
 'use client';
 
+import { ErrorState } from '@/components/shared/page-states';
+import type { PageSpec } from '@/lib/domain';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { useMemo, useRef, useState, type SetStateAction } from 'react';
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import {
@@ -12,7 +15,6 @@ import {
   Loader2,
   Mail,
   Phone,
-  RotateCcw,
   Save,
   Search,
   Send,
@@ -186,7 +188,7 @@ function Field({
   );
 }
 
-export function SalesExchangeWorkspace({ role }: { role: string }) {
+export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: string }) {
   const workspaceSession = useWorkspaceSession();
   const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
   const queryScope = useMemo(
@@ -356,17 +358,14 @@ export function SalesExchangeWorkspace({ role }: { role: string }) {
     !permissions?.canRequest
   )
     return (
-      <Card className="mx-auto max-w-xl">
-        <CardContent className="p-10 text-center">
-          <h2 className="font-semibold">Exchange workspace is unavailable</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your exchange request permission, assigned scope or workspace migration needs attention.
-          </p>
-          <Button className="mt-5" variant="outline" onClick={() => void options.refetch()}>
-            <RotateCcw className="size-4" /> Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Exchange workspace is unavailable"
+          description="Your exchange request permission, assigned scope or workspace migration needs attention."
+          onRetry={() => void options.refetch()}
+        />
+      </PageShell>
     );
 
   const editable = !selected?.case_status || ['DRAFT', 'REQUESTED'].includes(selected.case_status);
@@ -379,55 +378,48 @@ export function SalesExchangeWorkspace({ role }: { role: string }) {
     selected?.documents.filter((document) => !document.mime_type.startsWith('image/')) ?? [];
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-            <Link href="/sales-consultant/dashboard" className="text-blue-600 hover:underline">
-              Dashboard
-            </Link>
-            <span>›</span>
-            <span>Exchange</span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">Exchange Vehicle</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Capture existing vehicle details and manage the exchange evaluation process.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() => setForm(selected ? formForOption(selected) : emptyForm)}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="outline"
-            disabled={
-              busy ||
-              !selected ||
-              (selected.case_status != null && selected.case_status !== 'DRAFT')
-            }
-            onClick={() => submit('SAVE_DRAFT')}
-          >
-            <Save className="size-4" /> Save draft
-          </Button>
-          <Button
-            variant="outline"
-            disabled={busy || !selected || !editable}
-            onClick={() => submit('REQUEST_EVALUATION')}
-          >
-            <Send className="size-4" /> Request evaluation
-          </Button>
-          <Button
-            disabled={busy || selected?.case_status !== 'OFFERED'}
-            onClick={() => submit('ACCEPT_OFFER')}
-          >
-            <Check className="size-4" /> Submit exchange
-          </Button>
-        </div>
-      </div>
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Capture the customer’s current vehicle and follow its evaluation through to an offer."
+        actions={
+          <>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => setForm(selected ? formForOption(selected) : emptyForm)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="outline"
+                disabled={
+                  busy ||
+                  !selected ||
+                  (selected.case_status != null && selected.case_status !== 'DRAFT')
+                }
+                onClick={() => submit('SAVE_DRAFT')}
+              >
+                <Save className="size-4" /> Save draft
+              </Button>
+              <Button
+                variant="outline"
+                disabled={busy || !selected || !editable}
+                onClick={() => submit('REQUEST_EVALUATION')}
+              >
+                <Send className="size-4" /> Request evaluation
+              </Button>
+              <Button
+                disabled={busy || selected?.case_status !== 'OFFERED'}
+                onClick={() => submit('ACCEPT_OFFER')}
+              >
+                <Check className="size-4" /> Submit exchange
+              </Button>
+            </div>
+          </>
+        }
+      />
 
       {error ? (
         <Alert variant="destructive">

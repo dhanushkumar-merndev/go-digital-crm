@@ -46,8 +46,9 @@ describe('task workspace interaction contract', () => {
     expect(workspace).toContain('aria-pressed={active}');
     expect(workspace).toContain('aria-selected={active}');
     expect(workspace).toContain('onStatusChange={(status) => onQueryChange({ status, page: 1 })}');
-    expect(workspace).toContain('onQueryChange({ page: query.page - 1 })');
-    expect(workspace).toContain('onQueryChange({ page: query.page + 1 })');
+    // Previous / next live in the shared footer, wired to the same query state.
+    expect(workspace).toContain('<TablePagination');
+    expect(workspace).toContain('onPageChange={(page) => onQueryChange({ page })}');
   });
 
   it('uses keyboard-and-pointer safe row actions and remounts a fresh create form', () => {

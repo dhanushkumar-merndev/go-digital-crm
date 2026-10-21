@@ -1,23 +1,16 @@
 'use client';
 
+import { ErrorState } from '@/components/shared/page-states';
 import { useQuery } from '@tanstack/react-query';
-import {
-  Blocks,
-  CalendarClock,
-  CheckCircle2,
-  LockKeyhole,
-  PackageX,
-  RefreshCw,
-} from 'lucide-react';
+import { Blocks, CalendarClock, CheckCircle2, PackageX } from 'lucide-react';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { TenantModuleEntitlementsSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -56,37 +49,32 @@ export function TenantModuleEntitlementsWorkspace({ spec }: { spec: PageSpec }) 
   if (query.isPending) return <TenantModuleEntitlementsSkeleton />;
   if (query.isError || !query.data)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <LockKeyhole className="mx-auto size-6 text-amber-600" />
-          <p className="mt-3 font-semibold">Module access is unavailable</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            This view requires organization-wide Client Admin access. Platform module changes remain
-            restricted to Super Admin.
-          </p>
-          <Button className="mt-5" variant="outline" onClick={() => void query.refetch()}>
-            <RefreshCw className="size-4" /> Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Module access is unavailable"
+          description="This view requires organization-wide Client Admin access. Platform module changes remain restricted to Super Admin."
+          onRetry={() => void query.refetch()}
+        />
+      </PageShell>
     );
 
   const { kpis, records } = query.data;
   const metrics: Metric[] = [
-    { label: 'Enabled modules', value: kpis.enabled.toLocaleString(), icon: CheckCircle2 },
+    { label: 'Enabled modules', value: kpis.enabled.toLocaleString('en-IN'), icon: CheckCircle2 },
     {
       label: 'Expiring in 30 days',
-      value: kpis.expiring_30_days.toLocaleString(),
+      value: kpis.expiring_30_days.toLocaleString('en-IN'),
       icon: CalendarClock,
     },
-    { label: 'Disabled', value: kpis.disabled.toLocaleString(), icon: PackageX },
-    { label: 'Not configured', value: kpis.not_configured.toLocaleString(), icon: Blocks },
+    { label: 'Disabled', value: kpis.disabled.toLocaleString('en-IN'), icon: PackageX },
+    { label: 'Not configured', value: kpis.not_configured.toLocaleString('en-IN'), icon: Blocks },
   ];
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5">
+    <div className="mx-auto w-full space-y-5">
       <PageHeader spec={{ ...spec, primaryAction: undefined }} />
-      <KpiGrid metrics={metrics} className="xl:grid-cols-4" />
+      <KpiGrid metrics={metrics} />
       <Card className="shadow-none">
         <CardHeader className="border-b">
           <CardTitle className="text-base">Tenant module entitlements</CardTitle>
@@ -119,7 +107,7 @@ export function TenantModuleEntitlementsWorkspace({ spec }: { spec: PageSpec }) 
                     {formatDate(record.valid_until)}
                   </TableCell>
                   <TableCell className="text-right font-medium">
-                    {record.usage_last_30_days.toLocaleString()}
+                    {record.usage_last_30_days.toLocaleString('en-IN')}
                   </TableCell>
                 </TableRow>
               ))}

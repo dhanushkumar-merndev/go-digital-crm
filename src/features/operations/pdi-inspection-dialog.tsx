@@ -139,7 +139,7 @@ export function PdiInspectionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] sm:max-w-3xl flex flex-col gap-0 p-0 overflow-hidden">
+      <DialogContent size="xl" className="flex flex-col gap-0 p-0 overflow-hidden">
         <DialogHeader className="border-b px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
@@ -310,7 +310,7 @@ export function PdiInspectionDialog({
                       onChange={(e) => setDefectText(e.target.value)}
                       className="text-xs"
                     />
-                    <div className="flex justify-end gap-2">
+                    <DialogFooter>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -328,7 +328,7 @@ export function PdiInspectionDialog({
                       >
                         Save Defect
                       </Button>
-                    </div>
+                    </DialogFooter>
                   </div>
                 )}
               </div>

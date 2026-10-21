@@ -1,8 +1,9 @@
 'use client';
 
+import { TablePagination } from '@/components/shared/table-pagination';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, Download, Search } from 'lucide-react';
+import { Download, Search } from 'lucide-react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { useCallback, useMemo, useState } from 'react';
@@ -64,14 +65,22 @@ function formatDate(value: string | null) {
 
 function toMetrics(kpis: Awaited<ReturnType<typeof fetchOnboardingReviews>>['kpis']): Metric[] {
   return [
-    { label: 'Awaiting review', value: kpis.submitted.toLocaleString(), helper: 'Action required' },
+    {
+      label: 'Awaiting review',
+      value: kpis.submitted.toLocaleString('en-IN'),
+      helper: 'Action required',
+    },
     {
       label: 'Changes required',
-      value: kpis.changes_required.toLocaleString(),
+      value: kpis.changes_required.toLocaleString('en-IN'),
       helper: 'Returned to Business Owner',
     },
-    { label: 'Approved', value: kpis.approved.toLocaleString(), helper: 'Tenant activated' },
-    { label: 'Rejected', value: kpis.rejected.toLocaleString(), helper: 'Closed submissions' },
+    { label: 'Approved', value: kpis.approved.toLocaleString('en-IN'), helper: 'Tenant activated' },
+    {
+      label: 'Rejected',
+      value: kpis.rejected.toLocaleString('en-IN'),
+      helper: 'Closed submissions',
+    },
   ];
 }
 
@@ -342,7 +351,6 @@ function ReviewTable({
     manualSorting: true,
     rowCount: data.total,
   });
-  const pages = Math.max(1, Math.ceil(data.total / query.pageSize));
 
   return (
     <Card className="overflow-hidden shadow-none">
@@ -452,37 +460,12 @@ function ReviewTable({
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {data.total ? (query.page - 1) * query.pageSize + 1 : 0}–
-            {Math.min(query.page * query.pageSize, data.total)} of {data.total}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="mr-2 text-xs text-muted-foreground">
-              Page {query.page} of {pages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page <= 1}
-              onClick={() => onQueryChange({ page: query.page - 1 })}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={query.page >= pages}
-              onClick={() => onQueryChange({ page: query.page + 1 })}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={query.page}
+          pageSize={query.pageSize}
+          total={data.total}
+          onPageChange={(page) => onQueryChange({ page })}
+        />
       </CardContent>
     </Card>
   );

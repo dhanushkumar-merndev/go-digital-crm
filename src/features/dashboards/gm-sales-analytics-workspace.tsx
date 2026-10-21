@@ -1,7 +1,9 @@
 'use client';
 
+import { ErrorState } from '@/components/shared/page-states';
+import type { PageSpec } from '@/lib/domain';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { useState } from 'react';
-import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { BarChart3, CarFront, FileText, PhoneCall, Trophy, UsersRound } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
@@ -15,7 +17,6 @@ import { PerformanceDateRangeSelector } from '@/components/shared/performance-da
 import { GmSalesAnalyticsSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Card, CardContent } from '@/components/ui/card';
 import { performanceRangeForLastDays, performanceRangeLabel } from '@/lib/performance-date-range';
 import {
   Table,
@@ -79,7 +80,7 @@ function initials(name: string) {
     .join('');
 }
 
-export function GmSalesAnalyticsWorkspace() {
+export function GmSalesAnalyticsWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -111,48 +112,48 @@ export function GmSalesAnalyticsWorkspace() {
   if (query.isPending) return <GmSalesAnalyticsSkeleton />;
   if (query.isError || !query.data)
     return (
-      <Card className="mx-auto max-w-xl shadow-none">
-        <CardContent className="p-10 text-center">
-          <h1 className="font-semibold">GM analytics is unavailable</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Confirm your GM Sales Executive role, branch scope, and the analytics migration.
-          </p>
-        </CardContent>
-      </Card>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="GM analytics is unavailable"
+          description="Confirm your GM Sales Executive role, branch scope, and the analytics migration."
+          onRetry={() => void query.refetch()}
+        />
+      </PageShell>
     );
   const data = query.data;
   const metrics: Metric[] = [
     {
       label: 'Leads',
-      value: data.kpis.leads.toLocaleString(),
+      value: data.kpis.leads.toLocaleString('en-IN'),
       helper: performanceRangeLabel(range),
       icon: UsersRound,
       tone: 'bg-blue-50 text-blue-600',
     },
     {
       label: 'Calls',
-      value: data.kpis.calls.toLocaleString(),
+      value: data.kpis.calls.toLocaleString('en-IN'),
       helper: 'Authorized calls',
       icon: PhoneCall,
       tone: 'bg-emerald-50 text-emerald-600',
     },
     {
       label: 'Test drives',
-      value: data.kpis.test_drives.toLocaleString(),
+      value: data.kpis.test_drives.toLocaleString('en-IN'),
       helper: 'Scheduled drives',
       icon: CarFront,
       tone: 'bg-cyan-50 text-cyan-600',
     },
     {
       label: 'Quotations',
-      value: data.kpis.quotations.toLocaleString(),
+      value: data.kpis.quotations.toLocaleString('en-IN'),
       helper: 'Created in period',
       icon: FileText,
       tone: 'bg-violet-50 text-violet-600',
     },
     {
       label: 'Bookings',
-      value: data.kpis.bookings.toLocaleString(),
+      value: data.kpis.bookings.toLocaleString('en-IN'),
       helper: `${data.kpis.conversion.toFixed(1)}% lead conversion`,
       icon: Trophy,
       tone: 'bg-orange-50 text-orange-600',
@@ -160,21 +161,13 @@ export function GmSalesAnalyticsWorkspace() {
   ];
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <nav aria-label="Breadcrumb" className="mb-2 text-xs text-muted-foreground">
-            <Link href="/gm-sales/dashboard" className="hover:text-foreground hover:underline">
-              Dashboard
-            </Link>{' '}
-            › Sales Analytics
-          </nav>
-          <h1 className="text-2xl font-bold tracking-tight text-[#17233d]">Sales Analytics</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{activeView.description}</p>
-        </div>
-        <PerformanceDateRangeSelector value={range} onChange={setRange} />
-      </div>
-      <KpiGrid metrics={metrics} className="xl:grid-cols-5" />
+    <div className="mx-auto w-full space-y-5">
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description={activeView.description}
+        actions={<PerformanceDateRangeSelector value={range} onChange={setRange} />}
+      />
+      <KpiGrid metrics={metrics} />
       <Tabs value={view} onValueChange={changeView}>
         <div className="overflow-x-auto pb-1">
           <TabsList>
