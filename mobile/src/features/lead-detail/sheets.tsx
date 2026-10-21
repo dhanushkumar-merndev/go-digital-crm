@@ -478,7 +478,12 @@ export function TransferSheet({
 const styles = StyleSheet.create({
   grow: { flex: 1 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-  label: { color: colors.muted, fontSize: font.label, fontWeight: '600', textTransform: 'uppercase' },
+  label: {
+    color: colors.muted,
+    fontSize: font.label,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
   muted: { color: colors.muted, fontSize: font.small },
   more: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start' },
   moreText: { color: colors.primary, fontSize: font.row, fontWeight: '600' },

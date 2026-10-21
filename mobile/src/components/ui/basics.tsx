@@ -322,7 +322,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: space.md,
   },
-  stateTitle: { color: colors.text, fontSize: font.heading, fontWeight: '600', textAlign: 'center' },
+  stateTitle: {
+    color: colors.text,
+    fontSize: font.heading,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   stateDetail: {
     color: colors.muted,
     fontSize: font.small,
