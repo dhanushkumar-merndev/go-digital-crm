@@ -37,7 +37,7 @@ describe('scheduled customer date and five-minute lead alerts', () => {
     // notification inserts and configuration RPC below run unchanged PostgreSQL.
     await db.exec(`
       alter table leads add column first_contacted_at timestamptz;
-      create table calls(id uuid primary key default gen_random_uuid(),organization_id uuid,lead_id uuid,started_at timestamptz,deleted_at timestamptz);
+      create table calls(id uuid primary key default gen_random_uuid(),organization_id uuid,lead_id uuid,started_at timestamptz);
       create table teams(id uuid primary key,organization_id uuid,branch_id uuid,manager_id uuid,active boolean default true);
       create table team_members(organization_id uuid,team_id uuid,user_id uuid,member_type text,active boolean default true);
       create table roles(id uuid primary key,organization_id uuid);
@@ -56,6 +56,7 @@ describe('scheduled customer date and five-minute lead alerts', () => {
     await db.exec(modules.match(/create table public\.notifications \([\s\S]*?\n\);/)![0]);
     await db.exec(source('supabase/migrations/202608220023_custom_field_administration.sql'));
     await db.exec(source('supabase/migrations/202609070103_customer_date_and_lead_sla_alerts.sql'));
+    await db.exec(source('supabase/migrations/202610221901_crm_alert_call_columns.sql'));
     await db.query('insert into organizations(id) values($1)', [org]);
     await db.query('insert into profiles(id,organization_id) values($1,$3),($2,$3)', [
       owner,
