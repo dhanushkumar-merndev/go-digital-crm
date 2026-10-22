@@ -315,7 +315,7 @@ revoke all on function public.update_lead_requirements(uuid, bigint, jsonb, uuid
 grant execute on function public.update_lead_requirements(uuid, bigint, jsonb, uuid) to authenticated;
 
 -- --- 4. Patch the live functions ---------------------------------------------
-create function pg_temp.patch_function(target regprocedure, old_text text, new_text text)
+create or replace function pg_temp.patch_function(target regprocedure, old_text text, new_text text)
 returns void
 language plpgsql
 as $$

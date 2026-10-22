@@ -6,7 +6,7 @@
 
 begin;
 
-create function pg_temp.patch_function(target regprocedure, old_text text, new_text text)
+create or replace function pg_temp.patch_function(target regprocedure, old_text text, new_text text)
 returns void
 language plpgsql
 as $$

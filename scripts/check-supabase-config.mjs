@@ -25,6 +25,9 @@ const publicBoundaryFunctions = new Set([
   'website-widget-config',
   'website-chat-lead',
   'lead-api',
+  // Customer feedback uses live, unspent feedback tokens and IP rate limits.
+  'public-feedback-logo',
+  'public-review-rephrase',
 ]);
 
 const functionNames = readdirSync(functionsDirectory)

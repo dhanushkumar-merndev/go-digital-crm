@@ -108,7 +108,7 @@ revoke all on function app_private.customer_exchange_case_json(uuid, uuid) from 
 revoke all on function app_private.lead_exchange_vehicle_json(uuid) from public, anon, authenticated;
 revoke all on function app_private.lead_latest_call_summary_json(uuid) from public, anon, authenticated;
 
-create function pg_temp.patch_function(target regprocedure, old_text text, new_text text)
+create or replace function pg_temp.patch_function(target regprocedure, old_text text, new_text text)
 returns void
 language plpgsql
 as $$

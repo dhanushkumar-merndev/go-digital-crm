@@ -67,7 +67,7 @@ export type Customer360Core = {
     campaign?: string | null;
     interested_model: string | null;
     lifecycle_status: string;
-    temperature: string | null;
+    temperature: 'COLD' | 'WARM' | 'HOT' | 'DORMANT' | null;
     work_state: string | null;
     branch_name: string;
     team_name: string | null;

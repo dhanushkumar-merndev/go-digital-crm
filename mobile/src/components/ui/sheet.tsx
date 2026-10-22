@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -9,11 +9,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import {
-  GestureDetector,
-  GestureHandlerRootView,
-  usePanGesture,
-} from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
   interpolate,
   useAnimatedStyle,
@@ -52,20 +48,23 @@ export function Sheet({
       if (finished) scheduleOnRN(onClose);
     });
   }, [height, offset, onClose]);
-  const drag = usePanGesture({
-    onUpdate: (event) => {
-      offset.value = Math.max(0, event.translationY);
-    },
-    onDeactivate: (event) => {
-      if (event.translationY > height * 0.25 || event.velocityY > 900) {
-        offset.value = withTiming(height, { duration: 180 }, (finished) => {
-          if (finished) scheduleOnRN(onClose);
-        });
-      } else {
-        offset.value = withSpring(0, gentle);
-      }
-    },
-  });
+  const drag = useMemo(
+    () =>
+      Gesture.Pan()
+        .onUpdate((event) => {
+          offset.value = Math.max(0, event.translationY);
+        })
+        .onEnd((event) => {
+          if (event.translationY > height * 0.25 || event.velocityY > 900) {
+            offset.value = withTiming(height, { duration: 180 }, (finished) => {
+              if (finished) scheduleOnRN(onClose);
+            });
+          } else {
+            offset.value = withSpring(0, gentle);
+          }
+        }),
+    [height, offset, onClose],
+  );
   const panel = useAnimatedStyle(() => ({ transform: [{ translateY: offset.value }] }));
   const backdrop = useAnimatedStyle(() => ({
     opacity: interpolate(offset.value, [0, height * 0.6], [1, 0], 'clamp'),

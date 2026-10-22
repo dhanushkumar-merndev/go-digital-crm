@@ -562,7 +562,7 @@ $$;
 
 -- The review screen compares each suggestion with the lead's current value;
 -- requirement fields live in lead_requirements, not on the lead row.
-create function pg_temp.patch_function(target regprocedure, old_text text, new_text text)
+create or replace function pg_temp.patch_function(target regprocedure, old_text text, new_text text)
 returns void
 language plpgsql
 as $$

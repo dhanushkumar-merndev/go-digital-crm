@@ -23,7 +23,7 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:3000`. Normal development requires configured Supabase public values and fails closed  they are absent.
+Open `http://localhost:3000`. Normal development requires configured Supabase public values and fails closed they are absent.
 
 For local screenshot/manual QA only, set `NEXT_PUBLIC_ENABLE_LOCAL_PREVIEW=true` and run `pnpm dev`. The flag must be the literal `true`, is honored only when `NODE_ENV=development`, and exposes a floating role switcher plus isolated sample workspaces. Open `/` to start on the Sales Consultant dashboard, then use the floating **Dev role** button to jump directly to any role dashboard. This simulates the UI role preset only; it never changes a real account, permission, or data scope. The flag is ignored by production builds even if accidentally set.
 

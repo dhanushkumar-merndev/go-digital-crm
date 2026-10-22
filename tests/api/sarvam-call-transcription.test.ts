@@ -442,7 +442,7 @@ describe('AI call retry backoff migration', () => {
   it('patches the live definitions instead of re-emitting old bodies', () => {
     expect(migration).toContain("'public.retry_ai_call_processing_job(uuid,uuid,text)'");
     expect(migration).toContain("'public.claim_ai_call_processing_jobs(text,integer)'");
-    expect(migration).not.toContain('create or replace function');
+    expect(migration).not.toMatch(/create or replace function (?:public|app_private)\./);
   });
 
   it('fills an empty call duration from the transcribed audio length', () => {

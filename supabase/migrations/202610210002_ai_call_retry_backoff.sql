@@ -17,7 +17,7 @@ begin;
 alter table public.ai_call_processing_jobs
   add column if not exists retry_after timestamptz;
 
-create function pg_temp.patch_function(target regprocedure, old_text text, new_text text)
+create or replace function pg_temp.patch_function(target regprocedure, old_text text, new_text text)
 returns void
 language plpgsql
 as $$
