@@ -18,7 +18,7 @@ import { useToast } from '@/components/ui/toast';
 import { WhenPicker } from '@/components/ui/when-picker';
 import { openDialer, recordCallContact } from '@/lib/contact';
 import { leadActionMessage } from '@/lib/lead-detail';
-import { findRecorderFolder } from '@/lib/recording-sync';
+import { findRecorderFolder, onRecordingSyncFinished } from '@/lib/recording-sync';
 import { completeFollowup, isVersionConflict, setLeadNextFollowup } from '@/lib/work-actions';
 import { tick } from '@/motion/haptics';
 import { RecorderFolderOfferSheet, type RecorderFolderOffer } from './recorder-folder-offer';
@@ -152,6 +152,15 @@ export function CallFlowProvider({ children }: PropsWithChildren) {
     [],
   );
   const notify = useCallback(() => changed('call'), [changed]);
+  // A synced recording adds a call to its lead, so open lists and the lead
+  // screen reload the same way they do after a call made here.
+  useEffect(
+    () =>
+      onRecordingSyncFinished((summary) => {
+        if (summary?.synced) notify();
+      }),
+    [notify],
+  );
   const call = useCallback(
     (target: CallTarget) => {
       tick();

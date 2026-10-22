@@ -34,10 +34,8 @@ import {
   SlidersHorizontal,
   Star,
   Trash2,
-  TrendingDown,
-  TrendingUp,
+  TriangleAlert,
   Undo2,
-  UserRoundCheck,
   UserRoundPlus,
   Users,
   X,
@@ -487,125 +485,70 @@ type SalesLeadMetricCard = {
 };
 
 /**
- * The same five-card summary the Sales Consultant and Follow-ups pages carry,
- * told as the Telecaller's own funnel: everything assigned, what arrived, what
- * has not been called yet, what has, and what reached Sales. Every card maps to
- * a tab that exists for this role, so pressing one filters rather than landing
- * the user somewhere the tab strip cannot represent.
+ * The canonical Leads summary, identical in label and order for every role:
+ * total, today's intake, the two overdue work-states, hot leads and the
+ * follow-up stage. Only the filter each tile applies differs, because a Sales
+ * Consultant's "new" and "pending" are measured from the handoff, not from the
+ * enquiry. Every tile filters the list to the leads it counts.
  */
-function telecallerLeadMetricCards(kpis: LeadWorkspaceResult['kpis']): SalesLeadMetricCard[] {
-  const active = Math.max(0, kpis.total - kpis.lost_count);
+function leadMetricCards(role: string, kpis: LeadWorkspaceResult['kpis']): SalesLeadMetricCard[] {
+  const sales = role === 'sales-consultant';
+  // A lead handed to Sales has left the telecaller's queue; a consultant keeps
+  // a booked lead, so only lost ones drop out of theirs.
+  const active = Math.max(
+    0,
+    kpis.total - kpis.lost_count - (sales ? 0 : kpis.transferred_to_sales_count),
+  );
+  const newToday = sales ? kpis.sales_new_today : kpis.new_today;
+  const pending = sales ? kpis.sales_pending : kpis.pending;
   return [
     {
       status: 'all',
-      label: 'Total my leads',
+      label: 'Total leads',
       value: kpis.total,
       icon: Users,
       chip: 'bg-violet-50 text-violet-600',
       rate: leadShare(active, kpis.total),
-      helper: 'still active',
+      helper: sales ? 'still active' : 'still with you',
       good: true,
       neutral: kpis.total === 0,
-      footnote: `${kpis.transferred_to_sales_count.toLocaleString('en-IN')} transferred · ${kpis.lost_count.toLocaleString('en-IN')} lost`,
+      footnote: `${formatNumber(role === 'telecaller' ? kpis.transferred_to_sales_count : kpis.booking)} ${role === 'telecaller' ? 'transferred' : 'booked'} · ${formatNumber(kpis.lost_count)} lost`,
     },
     {
-      status: 'new-today',
-      label: 'New',
-      value: kpis.new_today,
-      icon: UserRoundPlus,
-      chip: 'bg-blue-50 text-blue-600',
-      rate: leadShare(kpis.new_today, kpis.total),
-      helper: 'of all my leads',
-      good: true,
-      footnote: 'Enquiries that came in today',
-    },
-    {
-      status: 'pending',
-      label: 'Pending',
-      value: kpis.pending,
-      icon: ClockAlert,
-      chip: 'bg-rose-50 text-rose-600',
-      rate: leadShare(kpis.pending, kpis.total),
-      helper: 'need attention',
-      // Zero pending is the good state here, unlike the other cards where a
-      // higher number is the thing to celebrate.
-      good: kpis.pending === 0,
-      neutral: kpis.total === 0,
-      footnote: 'No call logged against the lead yet',
-    },
-    {
-      status: 'contacted',
-      label: 'Contacted',
-      value: kpis.contacted_count,
-      icon: Phone,
-      chip: 'bg-emerald-50 text-emerald-600',
-      rate: leadShare(kpis.contacted_count, kpis.total),
-      helper: 'of all my leads',
-      good: true,
-      footnote: 'Call already recorded',
-    },
-    {
-      status: 'transferred-to-sales',
-      label: 'Transferred to Sales',
-      value: kpis.transferred_to_sales_count,
-      icon: UserRoundCheck,
-      chip: 'bg-orange-50 text-orange-600',
-      rate: leadShare(kpis.transferred_to_sales_count, kpis.total),
-      helper: 'handed to a consultant',
-      good: true,
-      footnote: 'Qualified and passed on',
-    },
-  ];
-}
-
-function salesLeadMetricCards(kpis: LeadWorkspaceResult['kpis']): SalesLeadMetricCard[] {
-  const active = Math.max(0, kpis.total - kpis.lost_count);
-  return [
-    {
-      status: 'all',
-      label: 'Total my leads',
-      value: kpis.total,
-      icon: Users,
-      chip: 'bg-violet-50 text-violet-600',
-      rate: leadShare(active, kpis.total),
-      helper: 'still active',
-      good: true,
-      neutral: kpis.total === 0,
-      footnote: `${formatNumber(kpis.booking)} booked · ${formatNumber(kpis.lost_count)} lost`,
-    },
-    {
-      status: 'sales-new',
+      status: sales ? 'sales-new' : 'new-today',
       label: 'New today',
-      value: kpis.sales_new_today,
+      value: newToday,
       icon: UserRoundPlus,
       chip: 'bg-blue-50 text-blue-600',
-      rate: leadShare(kpis.sales_new_today, kpis.total),
-      helper: 'of all my leads',
+      rate: leadShare(newToday, kpis.total),
+      helper: 'of all leads',
       good: true,
-      footnote: 'Fresh leads awaiting sales progress',
+      footnote: sales ? 'Handed to you today' : 'Enquiries that came in today',
     },
     {
-      status: 'sales-pending',
-      label: 'Pending action',
-      value: kpis.sales_pending,
+      status: sales ? 'sales-pending' : 'pending',
+      label: 'Pending',
+      value: pending,
       icon: ClockAlert,
-      chip: 'bg-rose-50 text-rose-600',
-      rate: leadShare(kpis.sales_pending, kpis.total),
+      chip: 'bg-amber-50 text-amber-600',
+      rate: leadShare(pending, kpis.total),
       helper: 'need attention',
-      good: kpis.sales_pending === 0,
+      // Zero is the good state for the overdue tiles.
+      good: pending === 0,
       neutral: kpis.total === 0,
-      footnote: 'Lead has no completed sales action',
+      footnote: sales ? 'No sales action recorded yet' : 'No call logged against the lead yet',
     },
     {
-      status: 'sales-contacted',
-      label: 'Contacted',
-      value: kpis.sales_contacted,
-      icon: Phone,
-      chip: 'bg-emerald-50 text-emerald-600',
-      rate: leadShare(kpis.sales_contacted, kpis.total),
-      helper: 'of all my leads',
-      good: true,
-      footnote: 'Sales contact already recorded',
+      status: 'sla-risk',
+      label: 'SLA risk',
+      value: kpis.sla_risk,
+      icon: TriangleAlert,
+      chip: 'bg-rose-50 text-rose-600',
+      rate: leadShare(kpis.sla_risk, kpis.total),
+      helper: 'past the SLA',
+      good: kpis.sla_risk === 0,
+      neutral: kpis.total === 0,
+      footnote: 'Uncontacted beyond the configured SLA',
     },
     {
       status: 'hot',
@@ -617,6 +560,17 @@ function salesLeadMetricCards(kpis: LeadWorkspaceResult['kpis']): SalesLeadMetri
       helper: 'high priority',
       good: true,
       footnote: 'Customer ready to buy',
+    },
+    {
+      status: 'follow-up',
+      label: 'Follow-up',
+      value: kpis.follow_up,
+      icon: CalendarDays,
+      chip: 'bg-emerald-50 text-emerald-600',
+      rate: leadShare(kpis.follow_up, kpis.total),
+      helper: 'of all leads',
+      good: true,
+      footnote: 'Next step is a scheduled follow-up',
     },
   ];
 }
@@ -631,7 +585,8 @@ function SalesLeadMetricCard({
   onSelect: () => void;
 }) {
   const Icon = card.icon;
-  const TrendIcon = card.good ? TrendingUp : TrendingDown;
+  // The rate is a share of the leads, not a change over time, so it carries no
+  // trend arrow: a red "down" arrow on SLA risk read as things getting worse.
   return (
     <button
       type="button"
@@ -640,6 +595,7 @@ function SalesLeadMetricCard({
       className="group min-w-0 rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
     >
       <Card
+        data-kpi
         className={cn(
           'h-full min-w-0 shadow-none transition-all group-hover:-translate-y-0.5 group-hover:border-blue-200 group-hover:shadow-sm',
           active ? 'border-blue-300 ring-1 ring-blue-200' : 'border-slate-200/90',
@@ -667,8 +623,7 @@ function SalesLeadMetricCard({
                   : 'text-rose-600',
             )}
           >
-            <TrendIcon className="size-3" /> {card.rate}%
-            <span className="font-normal text-muted-foreground">{card.helper}</span>
+            {card.rate}%<span className="font-normal text-muted-foreground">{card.helper}</span>
           </p>
           <p className="mt-1 text-center text-[10px] text-muted-foreground">{card.footnote}</p>
         </CardContent>
@@ -677,68 +632,14 @@ function SalesLeadMetricCard({
   );
 }
 
-function managerLeadMetricCards(kpis: LeadWorkspaceResult['kpis']): SalesLeadMetricCard[] {
-  const active = Math.max(0, kpis.total - kpis.lost_count);
+function transientLeadTabs(
+  kpis: LeadWorkspaceResult['kpis'],
+): Array<{ label: string; value: LeadStatusFilter; count: number }> {
   return [
-    {
-      status: 'all',
-      label: 'Total leads',
-      value: kpis.total,
-      icon: Users,
-      chip: 'bg-violet-50 text-violet-600',
-      rate: leadShare(active, kpis.total),
-      helper: 'still active',
-      good: true,
-      neutral: kpis.total === 0,
-      footnote: `${formatNumber(kpis.booking)} booked · ${formatNumber(kpis.lost_count)} lost`,
-    },
-    {
-      status: 'new',
-      // new_count is every lead still at New, not today's intake, so the tile
-      // must not claim "today".
-      label: 'New leads',
-      value: kpis.new_count,
-      icon: UserRoundPlus,
-      chip: 'bg-blue-50 text-blue-600',
-      rate: leadShare(kpis.new_count, kpis.total),
-      helper: 'of all leads',
-      good: true,
-      footnote: 'Still at New, awaiting first contact',
-    },
-    {
-      status: 'pending',
-      label: 'Pending action',
-      value: kpis.pending,
-      icon: ClockAlert,
-      chip: 'bg-rose-50 text-rose-600',
-      rate: leadShare(kpis.pending, kpis.total),
-      helper: 'need attention',
-      good: kpis.pending === 0,
-      neutral: kpis.total === 0,
-      footnote: 'Lead has no completed action',
-    },
-    {
-      status: 'contacted',
-      label: 'Contacted',
-      value: kpis.contacted_count,
-      icon: Phone,
-      chip: 'bg-emerald-50 text-emerald-600',
-      rate: leadShare(kpis.contacted_count, kpis.total),
-      helper: 'of all leads',
-      good: true,
-      footnote: 'Contact already recorded',
-    },
-    {
-      status: 'hot',
-      label: 'Hot leads',
-      value: kpis.hot,
-      icon: Flame,
-      chip: 'bg-orange-50 text-orange-600',
-      rate: leadShare(kpis.hot, kpis.total),
-      helper: 'high priority',
-      good: true,
-      footnote: 'Customer ready to buy',
-    },
+    { label: 'SLA risk', value: 'sla-risk', count: kpis.sla_risk },
+    { label: 'Hot', value: 'hot', count: kpis.hot },
+    { label: 'New today', value: 'new-today', count: kpis.new_today },
+    { label: 'Follow-up', value: 'follow-up', count: kpis.follow_up },
   ];
 }
 
@@ -772,7 +673,7 @@ function LeadStatusTabs({
       value: 'appointment-scheduled',
       count: data.kpis.appointment_scheduled_count,
     },
-    { label: 'Test Drive', value: 'test-drive', count: data.kpis.test_drive },
+    { label: 'Test drive', value: 'test-drive', count: data.kpis.test_drive },
     { label: 'Quotation', value: 'quotation', count: data.kpis.quotation },
     { label: 'Booking', value: 'booking', count: data.kpis.booking },
     { label: 'Lost', value: 'lost', count: data.kpis.lost_count },
@@ -788,7 +689,7 @@ function LeadStatusTabs({
       value: 'appointment-scheduled',
       count: data.kpis.appointment_scheduled_count,
     },
-    { label: 'Test Drive', value: 'test-drive', count: data.kpis.test_drive },
+    { label: 'Test drive', value: 'test-drive', count: data.kpis.test_drive },
     { label: 'Quotation', value: 'quotation', count: data.kpis.quotation },
     { label: 'Booking', value: 'booking', count: data.kpis.booking },
     { label: 'Lost', value: 'lost', count: data.kpis.lost_count },
@@ -807,18 +708,25 @@ function LeadStatusTabs({
     { label: 'Contacted', value: 'contacted', count: data.kpis.contacted_count },
     { label: 'Follow-up', value: 'follow-up', count: data.kpis.follow_up },
     {
-      label: 'Transferred to Sales',
+      label: 'Transferred to sales',
       value: 'transferred-to-sales',
       count: data.kpis.transferred_to_sales_count,
     },
     { label: 'Lost', value: 'lost', count: data.kpis.lost_count },
   ];
-  const tabs =
+  const roleTabs =
     role === 'sales-consultant'
       ? salesConsultantTabs
       : role === 'telecaller'
         ? telecallerTabs
         : generalTabs;
+  // A summary tile can filter to a queue the strip has no permanent tab for
+  // (SLA risk, Hot). While that filter is on it gets a tab, so the strip never
+  // reads as unfiltered while the table is.
+  const transientTab = transientLeadTabs(data.kpis).find(
+    (tab) => tab.value === query.status && !roleTabs.some((roleTab) => roleTab.value === tab.value),
+  );
+  const tabs = transientTab ? [...roleTabs, transientTab] : roleTabs;
   const starredCount = data.kpis.starred_count;
 
   return (
@@ -3732,7 +3640,11 @@ function LeadTable({
                           : expandedLeadId === row.original.id
                             ? 'bg-blue-50/40 hover:bg-blue-50/60 transition-colors duration-500'
                             : 'hover:bg-slate-50/70 transition-colors duration-500',
+                        // A lead already handed to Sales is the consultant's
+                        // follow-up now; tinting it made the Telecaller's whole
+                        // list read as overdue work that is not theirs.
                         !row.original.context_only &&
+                          !row.original.read_only &&
                           row.original.lifecycle_status !== 'Lost' &&
                           row.original.next_followup_at &&
                           Date.parse(row.original.next_followup_at) < Date.now() &&
@@ -4643,14 +4555,9 @@ export function LeadWorkspace({
           <div
             id="my-leads-summary-kpis"
             hidden={!salesLeadMetricsOpen}
-            className={cn('grid gap-2.5', kpiGridColumns(5))}
+            className={cn('grid gap-2.5', kpiGridColumns(6))}
           >
-            {(role === 'telecaller'
-              ? telecallerLeadMetricCards(workspace.data.kpis)
-              : role === 'sales-consultant'
-                ? salesLeadMetricCards(workspace.data.kpis)
-                : managerLeadMetricCards(workspace.data.kpis)
-            ).map((card) => (
+            {leadMetricCards(role, workspace.data.kpis).map((card) => (
               <SalesLeadMetricCard
                 key={card.status}
                 card={card}

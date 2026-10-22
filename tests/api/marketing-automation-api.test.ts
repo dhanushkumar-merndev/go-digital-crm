@@ -47,6 +47,7 @@ function workspace(timestamp: string) {
         created_at: timestamp,
         updated_at: timestamp,
         version: 1,
+        safe_error_code: null,
       },
     ],
   };

@@ -10,6 +10,7 @@ import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tan
 import { IndianRupee, MoreHorizontal, Pencil, Search } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import { PerformanceDateRangeSelector } from '@/components/shared/performance-date-range-selector';
 import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { EmptyState, ErrorState } from '@/components/shared/page-states';
 import { SectionCard } from '@/components/shared/section-card';
@@ -41,6 +42,7 @@ import {
 } from '@/components/ui/table';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { PageSpec } from '@/lib/domain';
+import { performanceToday } from '@/lib/performance-date-range';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
 import {
   fetchMarketingWorkspace,
@@ -187,6 +189,38 @@ function workspaceMetrics(result: MarketingWorkspaceResult) {
 }
 
 type CampaignAction = { kind: 'edit' | 'spend'; campaign: MarketingCampaignRecord };
+
+// The selector shows "All time" as 2000-01-01 to today; the query keeps it empty.
+const allTimeFrom = '2000-01-01';
+
+function MarketingDateRange({
+  query,
+  onQueryChange,
+  className,
+}: {
+  query: MarketingQuery;
+  onQueryChange: (next: Partial<MarketingQuery>) => void;
+  className?: string;
+}) {
+  return (
+    <PerformanceDateRangeSelector
+      includeAllTime
+      className={className}
+      value={
+        query.from
+          ? { from: query.from, to: query.to }
+          : { from: allTimeFrom, to: performanceToday() }
+      }
+      onChange={(range) =>
+        onQueryChange(
+          range.from === allTimeFrom
+            ? { from: '', to: '', page: 1 }
+            : { from: range.from, to: range.to, page: 1 },
+        )
+      }
+    />
+  );
+}
 
 function sourceColumns(): ColumnDef<MarketingRecord>[] {
   const source = (record: MarketingRecord) => record as MarketingSourceRecord;
@@ -456,6 +490,7 @@ function MarketingTable({
               ))}
             </SelectContent>
           </Select>
+          <MarketingDateRange query={query} onQueryChange={onQueryChange} className="lg:ml-auto" />
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -490,7 +525,7 @@ function MarketingTable({
                   <TableCell colSpan={columns.length} className="h-40 text-center">
                     <p className="font-medium">No matching marketing records</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Adjust this page’s search or sort options.
+                      Adjust this page’s search, sort or date range.
                     </p>
                   </TableCell>
                 </TableRow>
@@ -579,6 +614,8 @@ export function MarketingWorkspace({ spec, slug }: { spec: PageSpec; slug: strin
   return (
     <PageShell>
       <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+      {/* Pages with a table carry the range in its filter bar; chart-only pages here. */}
+      {layout.table ? null : <MarketingDateRange query={routeQuery} onQueryChange={replaceQuery} />}
       {metrics.length > 0 && <KpiGrid metrics={metrics} />}
       {layout.mapping ? <MarketingAdFieldMapping /> : null}
       {layout.charts && data.view === 'CAMPAIGNS' ? (

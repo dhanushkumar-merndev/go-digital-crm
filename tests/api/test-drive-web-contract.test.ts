@@ -83,8 +83,18 @@ describe('test-drive web runtime contract', () => {
     expect(workspace).toContain('manualPagination: true');
     expect(workspace).toContain('useDebouncedValue(query.search, 300)');
     expect(workspace).toContain('useDebouncedValue(query.model, 300)');
-    expect(workspace).toContain("label: 'Total test drives'");
-    expect(workspace).toContain("label: 'Conversion after Test Drive'");
+    // The canonical Test drives set: Today, Active, Completed, Cancelled, Conversion.
+    for (const label of [
+      'Today',
+      'Active',
+      'Completed',
+      'Cancelled',
+      'Conversion after test drive',
+    ])
+      expect(workspace).toContain(`label: '${label}'`);
+    // The Today queue keeps missed drives, so the tile and the row say so.
+    expect(workspace).toContain('overdue from earlier days');
+    expect(workspace).toContain('isOverdueDrive(row.original)');
     expect(workspace).toContain("setScreen('create')");
     expect(workspace).toContain('<TestDriveActiveView');
     expect(workspace).toContain("resource: 'work'");

@@ -5,7 +5,7 @@ import { ErrorState } from '@/components/shared/page-states';
 import { EChart } from '@/components/charts/e-chart';
 import { SectionCard } from '@/components/shared/section-card';
 import { PageHeader, PageShell } from '@/components/shared/page-header';
-import { KpiGrid, kpiVariantForRole } from '@/components/shared/kpi-grid';
+import { KpiGrid } from '@/components/shared/kpi-grid';
 import { formatNumber, formatPercent } from '@/lib/format';
 import type { Metric } from '@/lib/domain';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -109,6 +109,7 @@ import {
 } from './create-lead-from-call-dialog';
 import { liveCallQueryKeyRoot } from './live-call-api';
 import {
+  defaultCallQuery,
   isCallVersionConflict,
   parseCallQuery,
   toCallQueryString,
@@ -172,7 +173,7 @@ function CallDirectionIcon({ direction }: { direction: string }) {
   return <PhoneOutgoing className="size-4 text-emerald-600" />;
 }
 
-function CallKpis({ data, role }: { data: CallWorkspaceResult; role: string }) {
+function CallKpis({ data }: { data: CallWorkspaceResult }) {
   const { kpis } = data;
   const rate = kpis.total_today ? (kpis.connected_today / kpis.total_today) * 100 : 0;
   // Every count here is today's, so each label says so; "Total calls" used to
@@ -221,7 +222,7 @@ function CallKpis({ data, role }: { data: CallWorkspaceResult; role: string }) {
       helper: 'Per connected call',
     },
   ];
-  return <KpiGrid metrics={metrics} variant={kpiVariantForRole(role)} />;
+  return <KpiGrid metrics={metrics} />;
 }
 
 function ManualCallDialog({
@@ -1220,6 +1221,11 @@ function CallTable({
   onCreateLead?: (call: CallRecord) => void;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const filtered =
+    Boolean(query.search) ||
+    query.status !== defaultCallQuery.status ||
+    query.outcome !== defaultCallQuery.outcome ||
+    query.source !== defaultCallQuery.source;
   const columns = useMemo<ColumnDef<CallRecord>[]>(
     () => [
       {
@@ -1402,7 +1408,9 @@ function CallTable({
                 Calls ({data.total.toLocaleString('en-IN')})
               </CardTitle>
               <CardDescription className="mt-1 text-xs">
-                Live calls in your authorized sales scope
+                {role === 'telecaller' || role === 'sales-consultant'
+                  ? 'Calls you made or received'
+                  : 'Calls by the people in your scope'}
               </CardDescription>
             </div>
             <div className="relative min-w-0 lg:w-72">
@@ -1546,10 +1554,16 @@ function CallTable({
                 <TableRow>
                   <TableCell colSpan={columns.length} className="h-44 text-center">
                     <PhoneCall className="mx-auto size-6 text-muted-foreground" />
-                    <p className="mt-2 font-medium">No calls match this view</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Try another filter or page-local search.
-                    </p>
+                    {filtered ? (
+                      <>
+                        <p className="mt-2 font-medium">No calls match these filters</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Clear a filter or the search to see more calls.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="mt-2 font-medium">No calls here yet</p>
+                    )}
                   </TableCell>
                 </TableRow>
               )}
@@ -1762,17 +1776,26 @@ export function CallWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
       </div>
       <div className="space-y-5">
         <div id="call-summary-kpis" hidden={!summaryOpen} className="space-y-5">
-          <CallKpis data={workspace.data} role={role} />
+          <CallKpis data={workspace.data} />
           {workspace.data.trend.length ? (
             <SectionCard
               title="Calls this week"
               description="Calls made and connected per day, last 7 days"
             >
+              {/* Bars side by side: as lines, Connected sat exactly on top of
+                  Calls on a day every call connected, and Calls read as 0. */}
               <EChart
-                kind="line"
+                kind="bar"
                 className="h-64"
                 data={workspace.data.trend}
-                seriesNames={['Calls', 'Connected']}
+                series={[
+                  { name: 'Calls', values: workspace.data.trend.map((day) => day.value) },
+                  {
+                    name: 'Connected',
+                    values: workspace.data.trend.map((day) => day.secondary),
+                  },
+                ]}
+                colors={['#2563eb', '#14b8a6']}
               />
             </SectionCard>
           ) : null}

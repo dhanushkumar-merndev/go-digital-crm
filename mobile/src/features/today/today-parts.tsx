@@ -1,7 +1,7 @@
 import { router, type Href } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { relativeWhen } from '@/components/lead-row';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { LeadTile, relativeWhen, type LeadRowData } from '@/components/lead-row';
 import { RecordingSyncButton } from '@/components/recording-sync-button';
 import { SwipeRow } from '@/components/swipe-row';
 import { Avatar, Card, EmptyState, SectionHeader } from '@/components/ui/basics';
@@ -11,6 +11,7 @@ import { RowIcon, RowPressable } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
 import { useCallFlow, useWorkRefresh } from '@/features/call-flow/call-flow';
 import { resetRoleCache } from '@/lib/contact';
+import type { TodayTarget } from '@/lib/today-targets';
 import { supabase } from '@/lib/supabase';
 import { colors, font, priorityTone, radius, shadow, space } from '@/theme';
 
@@ -161,6 +162,86 @@ export function KpiTiles({
   );
 }
 
+const targetTones = [colors.primary, colors.success, colors.warning, colors.violet];
+
+/** Progress against today's targets; renders nothing when none are set. */
+export function TargetsCard({ items }: { items: TodayTarget[] | undefined }) {
+  if (!items?.length) return null;
+  return (
+    <Card style={styles.targets}>
+      <Text style={styles.targetsTitle}>Today&apos;s targets</Text>
+      <View style={styles.targetRow}>
+        {items.map((item, index) => {
+          const tone = targetTones[index % targetTones.length]!;
+          const share = Math.min(1, item.done / item.target);
+          return (
+            <View key={item.key} style={styles.targetCell}>
+              <Text style={styles.targetValue}>
+                {item.done}
+                <Text style={styles.targetOf}> / {item.target}</Text>
+              </Text>
+              <Text style={styles.targetLabel} numberOfLines={1}>
+                {item.label}
+              </Text>
+              <View style={styles.track}>
+                <View style={[styles.fill, { width: `${share * 100}%`, backgroundColor: tone }]} />
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    </Card>
+  );
+}
+
+/** One-tap shortcuts to screens that exist for this role; no dead buttons. */
+export function QuickActions({
+  items,
+}: {
+  items: Array<{ label: string; icon: IconName; tone: string; href: Href }>;
+}) {
+  return (
+    <Card style={styles.quick}>
+      {items.map((item) => (
+        <PressableScale
+          key={item.label}
+          scaleTo={0.94}
+          accessibilityRole="button"
+          accessibilityLabel={item.label}
+          onPress={() => router.push(item.href)}
+          style={styles.quickItem}
+        >
+          <View style={[styles.quickIcon, { backgroundColor: item.tone }]}>
+            <Icon name={item.icon} size={22} color={colors.onColor} />
+          </View>
+          <Text style={styles.quickLabel} numberOfLines={1}>
+            {item.label}
+          </Text>
+        </PressableScale>
+      ))}
+    </Card>
+  );
+}
+
+/** The latest leads as a sideways strip, so Home stays one screen tall. */
+export function RecentLeadsStrip({ leads, href }: { leads: LeadRowData[]; href: Href }) {
+  if (!leads.length) return null;
+  return (
+    <View style={styles.section}>
+      <SectionHeader title="Recent leads" action="View all" onAction={() => router.push(href)} />
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.strip}
+      >
+        {leads.map((lead) => (
+          <LeadTile key={lead.id} lead={lead} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 type CallNextRow = {
   id: string;
   version: number;
@@ -294,6 +375,37 @@ const styles = StyleSheet.create({
   tileValue: { color: colors.text, fontSize: font.display, fontWeight: '700', letterSpacing: -0.4 },
   tileLabel: { flexShrink: 1, color: colors.muted, fontSize: font.label, fontWeight: '500' },
   section: { gap: space.sm },
+  targets: { padding: space.lg, gap: space.md },
+  targetsTitle: { color: colors.text, fontSize: font.heading, fontWeight: '700' },
+  targetRow: { flexDirection: 'row', gap: space.md },
+  targetCell: { flex: 1, alignItems: 'center', gap: 4 },
+  targetValue: { color: colors.text, fontSize: font.title, fontWeight: '700' },
+  targetOf: { color: colors.muted, fontSize: font.small, fontWeight: '600' },
+  targetLabel: { color: colors.muted, fontSize: font.label },
+  track: {
+    alignSelf: 'stretch',
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.subtle,
+    overflow: 'hidden',
+  },
+  fill: { height: 5, borderRadius: 3 },
+  quick: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: space.md,
+    paddingHorizontal: space.sm,
+  },
+  quickItem: { flex: 1, alignItems: 'center', gap: 6 },
+  quickIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickLabel: { color: colors.text, fontSize: font.label, fontWeight: '500' },
+  strip: { gap: space.md, paddingRight: space.lg },
   main: { flex: 1, minWidth: 0, gap: 2 },
   callName: { color: colors.text, fontSize: font.body, fontWeight: '600' },
   callMeta: { color: colors.muted, fontSize: font.small },

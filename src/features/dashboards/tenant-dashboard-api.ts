@@ -101,10 +101,25 @@ export type TenantDashboardLeadPreview = z.infer<typeof leadPreviewSchema>;
 /** Prefix for every tenant dashboard query; Realtime invalidates by it. */
 export const tenantDashboardKey = ['tenant-performance-dashboard'] as const;
 
+async function readTenantDashboardSummary(signal?: AbortSignal) {
+  const request = createClient().rpc('get_tenant_dashboard_summary', {
+    target_days: 14,
+    target_timezone: 'Asia/Kolkata',
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return { ...tenantDashboardSummarySchema.parse(data), cache: null, refresh_budget: null };
+}
+
 export async function fetchTenantDashboardSummary(
   signal?: AbortSignal,
-  options: { manualRefresh?: boolean } = {},
+  options: { manualRefresh?: boolean; direct?: boolean } = {},
 ): Promise<TenantDashboardSummaryResult> {
+  // An own-records summary is about 170 ms in PostgreSQL, while the Redis hop
+  // through the Edge function costs 380–840 ms even on a hit and shares
+  // nothing across users. A manual refresh still goes through Edge, which is
+  // where its quota is enforced.
+  if (options.direct && !options.manualRefresh) return readTenantDashboardSummary(signal);
   try {
     const { result, cache, manualRefresh } = await fetchCachedDashboard({
       resource: 'tenant-dashboard',
@@ -118,13 +133,7 @@ export async function fetchTenantDashboardSummary(
     // quota stays enforced. An ordinary read falls back to PostgreSQL rather
     // than leave the dashboard blank while the Edge function is unreachable.
     if (options.manualRefresh || signal?.aborted) throw error;
-    const request = createClient().rpc('get_tenant_dashboard_summary', {
-      target_days: 14,
-      target_timezone: 'Asia/Kolkata',
-    });
-    const { data, error: rpcError } = await (signal ? request.abortSignal(signal) : request);
-    if (rpcError) throw rpcError;
-    return { ...tenantDashboardSummarySchema.parse(data), cache: null, refresh_budget: null };
+    return readTenantDashboardSummary(signal);
   }
 }
 

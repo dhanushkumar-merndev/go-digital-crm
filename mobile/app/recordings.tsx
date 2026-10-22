@@ -331,6 +331,7 @@ function DetailsSheet({
         style={styles.input}
         keyboardType="phone-pad"
         placeholder="98765 43210"
+        placeholderTextColor={colors.faint}
       />
       <View style={styles.row}>
         {(['OUTBOUND', 'INBOUND'] as const).map((value) => (

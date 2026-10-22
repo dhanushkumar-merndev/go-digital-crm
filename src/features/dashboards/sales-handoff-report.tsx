@@ -249,10 +249,7 @@ export function SalesHandoffReport({
           </p>
         ) : data ? (
           <>
-            <KpiGrid
-              metrics={summaryMetrics(data, preset)}
-              variant={preset === 'TELECALLER' ? 'classic' : 'metric'}
-            />
+            <KpiGrid metrics={summaryMetrics(data, preset)} />
             {preset === 'ORGANIZATION' && !branchId && data.by_branch.length > 0 ? (
               <BranchTable
                 rows={data.by_branch}
@@ -261,7 +258,8 @@ export function SalesHandoffReport({
               />
             ) : null}
             <div className="grid min-w-0 gap-4 xl:grid-cols-12">
-              <Card className="min-w-0 shadow-none xl:col-span-6">
+              {/* The table has ten columns, so it takes the wider share. */}
+              <Card className="min-w-0 shadow-none xl:col-span-5">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm">
                     Where each consultant&apos;s leads are now
@@ -271,7 +269,7 @@ export function SalesHandoffReport({
                   <ConsultantStageChart rows={data.by_consultant} onHoverIndex={setHoveredIndex} />
                 </CardContent>
               </Card>
-              <div className="min-w-0 xl:col-span-6">
+              <div className="min-w-0 xl:col-span-7">
                 <ConsultantTable
                   rows={data.by_consultant}
                   selected={consultant?.id ?? null}
@@ -380,7 +378,7 @@ function summaryMetrics(data: SalesHandoffSummary, preset: SalesHandoffPreset): 
       value: String(inProgress),
       icon: CarFront,
       tone: 'bg-violet-50 text-violet-600',
-      helper: `${kpis.test_drive} test drive · ${kpis.quotation} quotation`,
+      helper: `${kpis.test_drive} at test drive · ${kpis.quotation} at quotation`,
     },
     {
       label: 'Booked',
@@ -448,7 +446,7 @@ function ConsultantTable({
       <Table>
         <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow>
-            <TableHead>Sales Consultant</TableHead>
+            <TableHead>Sales consultant</TableHead>
             <TableHead className="text-right">Received</TableHead>
             {stages.map((stage) => (
               <TableHead key={stage.bucket} className="text-right">
@@ -848,9 +846,9 @@ function SummarySkeleton() {
           <Skeleton key={index} className="h-[118px] w-full" />
         ))}
       </div>
-      <div className="grid gap-4 xl:grid-cols-5">
-        <Skeleton className="h-80 xl:col-span-2" />
-        <Skeleton className="h-80 xl:col-span-3" />
+      <div className="grid gap-4 xl:grid-cols-12">
+        <Skeleton className="h-80 xl:col-span-5" />
+        <Skeleton className="h-80 xl:col-span-7" />
       </div>
     </div>
   );

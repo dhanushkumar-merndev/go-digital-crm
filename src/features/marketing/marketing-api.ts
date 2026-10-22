@@ -109,6 +109,8 @@ export async function fetchMarketingWorkspace(query: MarketingQuery, signal?: Ab
     target_page_size: query.pageSize,
     target_sort: query.sort,
     target_timezone: 'Asia/Kolkata',
+    // Omitted for all time, which the function treats as no range.
+    ...(query.from && query.to ? { target_from: query.from, target_to: query.to } : {}),
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;

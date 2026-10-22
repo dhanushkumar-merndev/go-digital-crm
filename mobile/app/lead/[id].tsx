@@ -100,6 +100,12 @@ export default function LeadDetail() {
     void load();
   }, [load]);
   useWorkRefresh(() => void load());
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  };
   const done = (message: string) => {
     setSheet(null);
     toast({ message });
@@ -121,6 +127,8 @@ export default function LeadDetail() {
       back
       title={lead?.customer_name ?? 'Lead'}
       subtitle={lead ? lead.branch_name : undefined}
+      refreshing={refreshing}
+      onRefresh={() => void refresh()}
       footer={
         detail && lead ? (
           <>

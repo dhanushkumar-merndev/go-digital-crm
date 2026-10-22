@@ -61,14 +61,43 @@ Deno.serve(async (request) => {
       return failure('INVALID_PAYLOAD', 'Message request is invalid.', requestId, 422);
     const input = parsed.data;
     const client = authenticatedClient(request);
-    const { data: auth } = await client.auth.getUser();
+    // These three are independent reads, run together to keep a reply fast.
+    // Each one carries the caller's JWT, so PostgREST still rejects an invalid
+    // token; the user check below only decides which error to return.
+    const conversationLookup = client
+      .from('conversations')
+      .select(
+        'id,organization_id,branch_id,connection_id,external_contact,service_window_expires_at,channel,status',
+      )
+      .eq('id', input.conversation_id)
+      .eq('organization_id', input.organization_id)
+      .maybeSingle();
+    const personalPrepare =
+      input.content.type === 'text'
+        ? client.rpc(
+            input.expected_lead_id === undefined
+              ? 'personal_whatsapp_send_prepare'
+              : 'personal_whatsapp_send_for_lead',
+            {
+              target_conversation_id: input.conversation_id,
+              target_application_message_id: input.application_message_id,
+              target_body: input.content.body,
+              ...(input.expected_lead_id === undefined
+                ? {}
+                : { expected_lead_id: input.expected_lead_id }),
+            },
+          )
+        : null;
+    const [{ data: auth }, prepareResult, conversationResult] = await Promise.all([
+      client.auth.getUser(),
+      personalPrepare,
+      conversationLookup,
+    ]);
     if (!auth.user)
       return failure('UNAUTHENTICATED', 'Authentication is required.', requestId, 401);
     // The prepare RPC already verifies the authenticated owner, eligible role,
     // message permission, branch/record scope, reply window and rate limits.
-    // Trying it first avoids a redundant conversation lookup plus a second auth
-    // and access-context round trip on every personal WhatsApp reply.
-    if (input.content.type === 'text') {
+    if (input.content.type === 'text' && prepareResult) {
       let prepared:
         | {
             message_id: string;
@@ -79,19 +108,7 @@ Deno.serve(async (request) => {
           }
         | undefined;
       try {
-        const { data, error } = await client.rpc(
-          input.expected_lead_id === undefined
-            ? 'personal_whatsapp_send_prepare'
-            : 'personal_whatsapp_send_for_lead',
-          {
-            target_conversation_id: input.conversation_id,
-            target_application_message_id: input.application_message_id,
-            target_body: input.content.body,
-            ...(input.expected_lead_id === undefined
-              ? {}
-              : { expected_lead_id: input.expected_lead_id }),
-          },
-        );
+        const { data, error } = prepareResult;
         if (error) {
           if (error.message === 'PERSONAL_WHATSAPP_NOT_FOUND') {
             prepared = undefined;
@@ -140,21 +157,44 @@ Deno.serve(async (request) => {
         );
       }
     }
-    const { data: conversation } = await client
-      .from('conversations')
-      .select(
-        'id,organization_id,branch_id,connection_id,external_contact,service_window_expires_at,channel,status',
-      )
-      .eq('id', input.conversation_id)
-      .eq('organization_id', input.organization_id)
-      .maybeSingle();
+    const { data: conversation } = conversationResult;
     if (!conversation)
       return failure('CONVERSATION_NOT_FOUND', 'The conversation was not found.', requestId, 404);
-    const { data: permitted } = await client.rpc('authorize_action', {
-      target_organization_id: input.organization_id,
-      target_permission: 'message.send',
-      target_branch_id: conversation.branch_id,
-    });
+    // Started with the permission check and awaited only after it passes, so
+    // nothing they read is returned to a caller who may not send.
+    const admin = serviceClient();
+    const connectionLookup = admin
+      .from('connected_accounts')
+      .select('id,provider_key,status')
+      .eq('id', conversation.connection_id)
+      .eq('organization_id', input.organization_id)
+      .eq('provider_key', 'whatsapp_cloud')
+      .eq('status', 'CONNECTED')
+      .is('deleted_at', null)
+      .maybeSingle();
+    const secretLookup = admin
+      .from('integration_credentials')
+      .select('encrypted_payload')
+      .eq('connected_account_id', conversation.connection_id)
+      .maybeSingle();
+    const existingLookup = admin
+      .from('conversation_messages')
+      .select('id,provider_message_id,delivery_status,request_hash,last_attempt_at,attempt_count')
+      .eq('organization_id', input.organization_id)
+      .eq('application_message_id', input.application_message_id)
+      .maybeSingle();
+    const [{ data: permitted }, connectionResult, secretResult, existingResult] = await Promise.all(
+      [
+        client.rpc('authorize_action', {
+          target_organization_id: input.organization_id,
+          target_permission: 'message.send',
+          target_branch_id: conversation.branch_id,
+        }),
+        connectionLookup,
+        secretLookup,
+        existingLookup,
+      ],
+    );
     if (!permitted)
       return failure('PERMISSION_DENIED', 'You cannot send this message.', requestId, 403);
     if (conversation.channel !== 'WHATSAPP_BUSINESS' || conversation.status !== 'OPEN')
@@ -291,23 +331,8 @@ Deno.serve(async (request) => {
         409,
       );
 
-    const admin = serviceClient();
-    const { data: connection } = await admin
-      .from('connected_accounts')
-      .select('id,provider_key,status')
-      .eq('id', conversation.connection_id)
-      .eq('organization_id', input.organization_id)
-      .eq('provider_key', 'whatsapp_cloud')
-      .eq('status', 'CONNECTED')
-      .is('deleted_at', null)
-      .maybeSingle();
-    const { data: secret } = connection
-      ? await admin
-          .from('integration_credentials')
-          .select('encrypted_payload')
-          .eq('connected_account_id', connection.id)
-          .maybeSingle()
-      : { data: null };
+    const connection = connectionResult.data;
+    const secret = connection ? secretResult.data : null;
     if (!connection || !secret)
       return failure(
         'WHATSAPP_CONNECTION_UNAVAILABLE',
@@ -322,12 +347,7 @@ Deno.serve(async (request) => {
       JSON.stringify({ conversation_id: conversation.id, recipient, content: input.content }),
     );
 
-    const { data: existing } = await admin
-      .from('conversation_messages')
-      .select('id,provider_message_id,delivery_status,request_hash,last_attempt_at,attempt_count')
-      .eq('organization_id', input.organization_id)
-      .eq('application_message_id', input.application_message_id)
-      .maybeSingle();
+    const { data: existing } = existingResult;
     let message: { id: string } | null = null;
     if (existing) {
       if (existing.request_hash !== requestHash)
@@ -553,25 +573,27 @@ Deno.serve(async (request) => {
         retryable ? 202 : 422,
       );
     }
-    const { error: sentUpdateError } = await admin
-      .from('conversation_messages')
-      .update({ provider_message_id: providerMessageId, delivery_status: 'SENT' })
-      .eq('id', message.id)
-      // A callback can finish before Meta's send response. It has already set
-      // the provider ID and final status; never overwrite that receipt.
-      .is('provider_status_at', null);
+    const [{ error: sentUpdateError }] = await Promise.all([
+      admin
+        .from('conversation_messages')
+        .update({ provider_message_id: providerMessageId, delivery_status: 'SENT' })
+        .eq('id', message.id)
+        // A callback can finish before Meta's send response. It has already set
+        // the provider ID and final status; never overwrite that receipt.
+        .is('provider_status_at', null),
+      admin.from('conversations').update({ last_message_at: sentAt }).eq('id', conversation.id),
+      admin.from('audit_logs').insert({
+        organization_id: input.organization_id,
+        actor_id: auth.user.id,
+        action: 'message.sent',
+        resource_type: 'conversation_message',
+        resource_id: message.id,
+        branch_id: conversation.branch_id,
+        request_id: requestId,
+        metadata: { channel: 'WHATSAPP_BUSINESS', content_type: input.content.type },
+      }),
+    ]);
     if (sentUpdateError) throw sentUpdateError;
-    await admin.from('conversations').update({ last_message_at: sentAt }).eq('id', conversation.id);
-    await admin.from('audit_logs').insert({
-      organization_id: input.organization_id,
-      actor_id: auth.user.id,
-      action: 'message.sent',
-      resource_type: 'conversation_message',
-      resource_id: message.id,
-      branch_id: conversation.branch_id,
-      request_id: requestId,
-      metadata: { channel: 'WHATSAPP_BUSINESS', content_type: input.content.type },
-    });
     activeMessage = undefined;
     return success(
       {

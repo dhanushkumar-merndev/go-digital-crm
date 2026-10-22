@@ -58,6 +58,8 @@ import {
   fetchMarketingAutomationWorkspace,
   fetchMarketingAutomationPermissions,
   fetchMarketingReviewCustomerOptions,
+  fetchMarketingReviewTemplateOptions,
+  type MarketingReviewTemplate,
 } from './marketing-automation-api';
 import { SmsFallbackCampaignDialog } from './sms-fallback-campaign-dialog';
 import { DripCampaignEditor } from './drip-campaign-editor';
@@ -83,12 +85,66 @@ function ChannelIcon({ channel }: { channel: Channel | 'MANUAL' }) {
   return <MessageCircle className="size-4" />;
 }
 
+const reviewErrorMessages: Record<string, string> = {
+  REVIEW_TEMPLATE_REQUIRED: 'Choose an approved template for this channel.',
+  REVIEW_TEMPLATE_NOT_AVAILABLE:
+    'That template is no longer approved or connected for this booking’s branch.',
+  REVIEW_TEMPLATE_VARIABLE_REQUIRED:
+    'Every template field needs a value. A field such as review link is empty for this booking.',
+  REVIEW_RECIPIENT_MISSING: 'The customer has no phone or email for this channel.',
+  REVIEW_CUSTOMER_OPTED_OUT: 'The customer opted out of messages on this channel.',
+  REVIEW_CHANNEL_NOT_CONNECTED: 'This channel is not connected for the booking’s branch.',
+};
+
+/** Why a request failed or is waiting to retry, in words a marketer can act on. */
+const reviewFailureLabels: Record<string, string> = {
+  REVIEW_TEMPLATE_REQUIRED: 'Queued without a template; request it again',
+  REVIEW_TEMPLATE_NOT_APPROVED: 'Template no longer approved',
+  REVIEW_RECIPIENT_MISSING: 'No phone or email on file',
+  REVIEW_RECIPIENT_INVALID: 'Phone or email is invalid',
+  REVIEW_CUSTOMER_OPTED_OUT: 'Customer opted out',
+  REVIEW_WHATSAPP_NOT_CONNECTED: 'WhatsApp not connected',
+  REVIEW_WHATSAPP_REJECTED: 'WhatsApp rejected the template message',
+  REVIEW_WHATSAPP_INVALID_PARAMETER:
+    'WhatsApp refused a field value (too long or wrong type); shorten it and resend',
+  REVIEW_WHATSAPP_TEMPLATE_MISMATCH: 'Template changed in WhatsApp Manager; sync templates',
+  REVIEW_WHATSAPP_RATE_LIMITED: 'WhatsApp rate limit; retrying',
+  REVIEW_WHATSAPP_DELIVERY_FAILED: 'WhatsApp could not deliver it',
+  REVIEW_EMAIL_REJECTED: 'Email provider rejected it',
+  REVIEW_SMS_REJECTED: 'SMS provider rejected it',
+};
+
+function reviewErrorMessage(error: unknown) {
+  const code = error instanceof Error ? error.message : '';
+  return reviewErrorMessages[code] ?? 'Check the customer booking and try again.';
+}
+
+// Fields are `body:1` / `header:name` for WhatsApp and `FIRST_NAME` for SMS / email.
+function fieldLabel(field: string) {
+  const [part, name] = field.includes(':') ? field.split(':') : ['', field];
+  return part ? `${part === 'header' ? 'Header' : 'Body'} {{${name}}}` : `{{${name}}}`;
+}
+
+function templatePreview(template: MarketingReviewTemplate, values: Record<string, string>) {
+  const fill = (text: string | null, prefix: string) =>
+    (text ?? '').replace(/\{\{\s*([A-Za-z0-9_]{1,40})\s*\}\}/g, (match, name: string) => {
+      const value = values[`${prefix}${name}`]?.trim();
+      return value || match;
+    });
+  if (template.channel !== 'WHATSAPP') return fill(template.body, '');
+  return [fill(template.header, 'header:'), fill(template.body, 'body:'), template.footer]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 function CreateReviewRequestDialog({ onComplete }: { onComplete: () => void }) {
   const queryScope = workspaceQueryScope(useWorkspaceSession());
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [bookingId, setBookingId] = useState('');
   const [channel, setChannel] = useState<Channel | 'MANUAL'>('WHATSAPP');
+  const [templateId, setTemplateId] = useState('');
+  const [values, setValues] = useState<Record<string, string>>({});
   const [message, setMessage] = useState(
     'Thank you for choosing us. We would value your Google review.',
   );
@@ -100,6 +156,19 @@ function CreateReviewRequestDialog({ onComplete }: { onComplete: () => void }) {
     enabled: open,
   });
   const selected = options.data?.find((option) => option.booking_id === bookingId);
+  const templateOptions = useQuery({
+    queryKey: ['marketing-review-template-options', ...queryScope, selected?.branch_id],
+    queryFn: ({ signal }) => fetchMarketingReviewTemplateOptions(selected!.branch_id, signal),
+    enabled: open && Boolean(selected),
+  });
+  const templates = (templateOptions.data?.templates ?? []).filter(
+    (template) => template.channel === channel,
+  );
+  const template = templates.find((option) => option.id === templateId);
+  const resetTemplate = () => {
+    setTemplateId('');
+    setValues({});
+  };
   const mutation = useMutation({
     meta: { toast: false },
     mutationFn: () => {
@@ -107,31 +176,42 @@ function CreateReviewRequestDialog({ onComplete }: { onComplete: () => void }) {
       return createMarketingReviewRequest({
         option: selected,
         channel,
-        messageBody: message.trim(),
+        messageBody: channel === 'MANUAL' ? message.trim() : '',
         requestId,
+        templateId: channel === 'MANUAL' ? undefined : templateId,
+        templateVariables: channel === 'MANUAL' ? undefined : values,
       });
     },
     onSuccess: () => {
       toast.add({
         type: 'success',
-        title: 'Review request queued',
+        title: channel === 'MANUAL' ? 'Recorded as sent manually' : 'Review request queued',
         description:
-          'The request is recorded against the customer and awaits the approved delivery adapter.',
+          channel === 'MANUAL'
+            ? 'Logged against the customer. The CRM did not send this message.'
+            : 'It is sent within a minute; the status updates when the provider confirms.',
       });
       setOpen(false);
       setSearch('');
       setBookingId('');
+      resetTemplate();
       setRequestId(newRequestId());
       onComplete();
     },
-    onError: () =>
+    onError: (error) =>
       toast.add({
         type: 'error',
         title: 'Review request could not be queued',
-        description: 'Check the customer booking and try again.',
+        description: reviewErrorMessage(error),
       }),
   });
-  const valid = Boolean(selected) && message.trim().length > 0 && message.trim().length <= 4000;
+  const valid =
+    Boolean(selected) &&
+    (channel === 'MANUAL'
+      ? message.trim().length > 0 && message.trim().length <= 4000
+      : Boolean(template) && template!.fields.every((field) => values[field]?.trim()));
+  const channelConnected =
+    channel === 'MANUAL' || templateOptions.data?.channels[channel] !== false;
   return (
     <>
       <Button onClick={() => setOpen(true)}>
@@ -142,8 +222,8 @@ function CreateReviewRequestDialog({ onComplete }: { onComplete: () => void }) {
           <DialogHeader>
             <DialogTitle>Request a Google review</DialogTitle>
             <DialogDescription>
-              Queue a consent-aware request against an existing customer and booking. The selected
-              provider adapter performs delivery server-side.
+              Sent with an approved template on the customer’s channel. Manual records a message you
+              send yourself.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -164,7 +244,13 @@ function CreateReviewRequestDialog({ onComplete }: { onComplete: () => void }) {
             </label>
             <label className="grid gap-1.5 text-sm font-medium">
               Customer and booking
-              <Select value={bookingId} onValueChange={setBookingId}>
+              <Select
+                value={bookingId}
+                onValueChange={(value) => {
+                  setBookingId(value);
+                  resetTemplate();
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select an accessible booking" />
                 </SelectTrigger>
@@ -187,7 +273,10 @@ function CreateReviewRequestDialog({ onComplete }: { onComplete: () => void }) {
               Channel
               <Select
                 value={channel}
-                onValueChange={(value) => setChannel(value as Channel | 'MANUAL')}
+                onValueChange={(value) => {
+                  setChannel(value as Channel | 'MANUAL');
+                  resetTemplate();
+                }}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -201,27 +290,129 @@ function CreateReviewRequestDialog({ onComplete }: { onComplete: () => void }) {
                           ? 'SMS'
                           : value === 'EMAIL'
                             ? 'Email'
-                            : 'Manual'}
+                            : 'Manual (I send it myself)'}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </label>
-            <label className="grid gap-1.5 text-sm font-medium">
-              Request message
-              <Textarea
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                rows={4}
-                maxLength={4000}
-              />
-            </label>
+            {channel === 'MANUAL' ? (
+              <label className="grid gap-1.5 text-sm font-medium">
+                Message you sent
+                <Textarea
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  rows={4}
+                  maxLength={4000}
+                />
+              </label>
+            ) : !selected ? null : (
+              <>
+                {!channelConnected ? (
+                  <Alert>
+                    <AlertDescription>
+                      {channel === 'WHATSAPP' ? 'WhatsApp' : channel} is not connected for this
+                      booking’s branch.
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+                <label className="grid gap-1.5 text-sm font-medium">
+                  Approved template
+                  <Select
+                    value={templateId}
+                    onValueChange={(value) => {
+                      setTemplateId(value);
+                      setValues({});
+                    }}
+                    disabled={templateOptions.isPending || templates.length === 0}
+                  >
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          templateOptions.isPending
+                            ? 'Loading templates…'
+                            : templates.length
+                              ? 'Choose a template'
+                              : 'No approved templates for this channel'
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {templates.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.name}
+                          {option.language ? ` (${option.language})` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+                {!templateOptions.isPending && templates.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {channel === 'WHATSAPP'
+                      ? 'Create a review template in WhatsApp Manager, then sync and enable it under Integrations.'
+                      : 'Add an approved provider template for this channel under Templates.'}
+                  </p>
+                ) : null}
+                {template?.fields.map((field) => (
+                  <div className="grid gap-1.5" key={field}>
+                    <span className="text-sm font-medium">{fieldLabel(field)}</span>
+                    <div className="flex gap-2">
+                      <Input
+                        aria-label={fieldLabel(field)}
+                        value={values[field] ?? ''}
+                        maxLength={1000}
+                        placeholder="Text, or insert a customer field"
+                        onChange={(event) =>
+                          setValues((current) => ({ ...current, [field]: event.target.value }))
+                        }
+                      />
+                      <Select
+                        value=""
+                        onValueChange={(token) =>
+                          setValues((current) => ({
+                            ...current,
+                            [field]: `${current[field] ?? ''}{{${token}}}`,
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="w-40 shrink-0" aria-label="Insert field">
+                          <SelectValue placeholder="Insert field" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(templateOptions.data?.tokens ?? []).map((token) => (
+                            <SelectItem key={token} value={token}>
+                              {token.replaceAll('_', ' ')}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ))}
+                {template ? (
+                  <div className="grid gap-1.5">
+                    <span className="text-sm font-medium">Preview</span>
+                    <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-sm">
+                      {templatePreview(template, values)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Fields in braces are filled from the customer and booking when queued.
+                    </p>
+                  </div>
+                ) : null}
+              </>
+            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
               <Button type="submit" disabled={!valid || mutation.isPending}>
-                {mutation.isPending ? 'Queuing…' : 'Queue request'}
+                {mutation.isPending
+                  ? 'Saving…'
+                  : channel === 'MANUAL'
+                    ? 'Record as sent'
+                    : 'Send request'}
               </Button>
             </DialogFooter>
           </form>
@@ -308,7 +499,7 @@ export function MarketingAutomationWorkspace({
             {
               label: 'Queued',
               value: String(workspace.data.review_kpis.queued),
-              helper: 'Awaiting adapter delivery',
+              helper: 'Sending within a minute',
               icon: CalendarClock,
               tone: 'bg-amber-50 text-amber-600',
             },
@@ -470,8 +661,8 @@ export function MarketingAutomationWorkspace({
             <CardHeader className="border-b">
               <CardTitle className="text-base">Google review requests</CardTitle>
               <CardDescription>
-                Each request is linked to a real customer and booking, with delivery status supplied
-                by the provider workflow.
+                Each request is linked to a real customer and booking. Status comes from the
+                provider: sent, then delivered when WhatsApp confirms it.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
@@ -505,6 +696,15 @@ export function MarketingAutomationWorkspace({
                           </TableCell>
                           <TableCell>
                             <StatusBadge value={review.status} />
+                            {review.safe_error_code &&
+                            (review.status === 'FAILED' ||
+                              review.status === 'QUEUED' ||
+                              review.status === 'CANCELLED') ? (
+                              <p className="mt-1 max-w-56 text-xs text-muted-foreground">
+                                {reviewFailureLabels[review.safe_error_code] ??
+                                  review.safe_error_code.replaceAll('_', ' ').toLowerCase()}
+                              </p>
+                            ) : null}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-muted-foreground">
                             {formatDate(review.created_at)}

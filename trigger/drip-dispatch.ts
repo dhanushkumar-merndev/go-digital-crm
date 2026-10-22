@@ -8,7 +8,7 @@ import {
   type Msg91Credential,
 } from '../src/lib/providers/msg91-sms-adapter';
 
-type DripMessage = {
+export type DripMessage = {
   id: string;
   organization_id: string;
   channel: 'WHATSAPP' | 'SMS' | 'EMAIL';
@@ -19,6 +19,10 @@ type DripMessage = {
   connected_account_id: string | null;
   application_message_id: string;
   lease_token: string;
+  /** Review requests send Meta templates with header or named parameters; the
+   * component list and language are built by the caller. Drips leave these unset. */
+  template_language?: string | null;
+  template_components?: unknown[] | null;
 };
 type WhatsAppCredential = {
   access_token: string;
@@ -40,7 +44,7 @@ function fromBase64Url(value: string) {
   return Uint8Array.from(Buffer.from(padded, 'base64'));
 }
 
-async function decryptCredential<T>(value: unknown): Promise<T> {
+export async function decryptCredential<T>(value: unknown): Promise<T> {
   if (typeof value !== 'string') throw new Error('INTEGRATION_CREDENTIAL_INVALID');
   const bytes = value.startsWith('\\x')
     ? Uint8Array.from(Buffer.from(value.slice(2), 'hex'))
@@ -106,8 +110,12 @@ async function sendWhatsApp(
         type: 'template',
         template: {
           name: message.template_provider_id,
-          language: { code: process.env.META_TEMPLATE_LANGUAGE?.trim() || 'en' },
-          components: parameters.length ? [{ type: 'body', parameters }] : [],
+          language: {
+            code: message.template_language || process.env.META_TEMPLATE_LANGUAGE?.trim() || 'en',
+          },
+          components:
+            message.template_components ??
+            (parameters.length ? [{ type: 'body', parameters }] : []),
         },
         biz_opaque_callback_data: message.application_message_id,
       }),
@@ -116,11 +124,23 @@ async function sendWhatsApp(
   );
   const payload = (await response.json().catch(() => null)) as {
     messages?: Array<{ id?: string }>;
+    error?: { code?: number };
   } | null;
-  if (!response.ok || !payload?.messages?.[0]?.id)
+  if (!response.ok || !payload?.messages?.[0]?.id) {
+    const code = payload?.error?.code;
+    // Named so the person who filled the template can see what to change:
+    // 100 is a field Meta refused (too long, wrong type), 132xxx a template
+    // that no longer matches what Meta approved.
     throw new Error(
-      response.status === 429 ? 'DRIP_WHATSAPP_RATE_LIMITED' : 'DRIP_WHATSAPP_REJECTED',
+      response.status === 429
+        ? 'DRIP_WHATSAPP_RATE_LIMITED'
+        : code === 100
+          ? 'DRIP_WHATSAPP_INVALID_PARAMETER'
+          : code !== undefined && code >= 132000 && code < 133000
+            ? 'DRIP_WHATSAPP_TEMPLATE_MISMATCH'
+            : 'DRIP_WHATSAPP_REJECTED',
     );
+  }
   return payload.messages[0].id;
 }
 
@@ -205,7 +225,7 @@ async function sendEmail(
   return payload.messageId;
 }
 
-async function deliver(supabase: ReturnType<typeof createClient>, message: DripMessage) {
+export async function deliver(supabase: ReturnType<typeof createClient>, message: DripMessage) {
   // An unapproved or missing template is why this feature could not send at all.
   // Failing with a named code makes that visible instead of silently retrying.
   if (!message.template_provider_id) throw new Error('DRIP_TEMPLATE_NOT_APPROVED');

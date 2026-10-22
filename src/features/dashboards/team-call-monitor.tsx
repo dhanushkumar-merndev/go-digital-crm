@@ -3,7 +3,7 @@
 import { ErrorState } from '@/components/shared/page-states';
 import type { PageSpec } from '@/lib/domain';
 import { PageHeader, PageShell } from '@/components/shared/page-header';
-import { CheckCircle2, Clock3, PhoneCall } from 'lucide-react';
+import { CheckCircle2, Clock3, PhoneCall, PhoneMissed } from 'lucide-react';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import {
@@ -74,7 +74,12 @@ export function TeamCallMonitor({ spec }: { spec: PageSpec }) {
   const connectionRate = data.kpis.calls
     ? Math.round((data.kpis.connected_calls / data.kpis.calls) * 100)
     : 0;
-  const average = data.kpis.calls ? Math.round(data.kpis.talk_seconds / data.kpis.calls) : 0;
+  const notConnected = Math.max(0, data.kpis.calls - data.kpis.connected_calls);
+  // Per connected call, as on the Calls page, so the two averages agree.
+  const average = data.kpis.connected_calls
+    ? Math.round(data.kpis.talk_seconds / data.kpis.connected_calls)
+    : 0;
+  // The same six tiles, in the same order, as every role's Calls page.
   const metrics: Metric[] = [
     {
       label: 'Calls',
@@ -86,23 +91,37 @@ export function TeamCallMonitor({ spec }: { spec: PageSpec }) {
     {
       label: 'Connected',
       value: data.kpis.connected_calls.toLocaleString('en-IN'),
-      helper: `${connectionRate}% connection rate`,
+      helper: 'Customer answered',
       icon: CheckCircle2,
       tone: 'bg-emerald-50 text-emerald-600',
     },
     {
+      label: 'Connection rate',
+      value: `${connectionRate}%`,
+      helper: 'Connected of all calls',
+      icon: PhoneCall,
+      tone: 'bg-cyan-50 text-cyan-600',
+    },
+    {
+      label: 'Not connected',
+      value: notConnected.toLocaleString('en-IN'),
+      helper: 'No answer, busy or failed',
+      icon: PhoneMissed,
+      tone: 'bg-orange-50 text-orange-600',
+    },
+    {
       label: 'Talk time',
       value: duration(data.kpis.talk_seconds),
-      helper: 'Connected and logged calls',
+      helper: 'Total connected time',
       icon: Clock3,
       tone: 'bg-violet-50 text-violet-600',
     },
     {
       label: 'Average duration',
       value: duration(average),
-      helper: 'Per logged call',
+      helper: 'Per connected call',
       icon: Clock3,
-      tone: 'bg-orange-50 text-orange-600',
+      tone: 'bg-blue-50 text-blue-600',
     },
   ];
   return (

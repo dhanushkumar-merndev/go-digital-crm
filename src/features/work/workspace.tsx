@@ -7,12 +7,12 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ZodError } from 'zod';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import {
-  Building2,
   CalendarCheck2,
   CalendarClock,
   CalendarDays,
   CheckCircle2,
   CircleCheckBig,
+  CircleX,
   ClockAlert,
   List,
   MoreHorizontal,
@@ -20,8 +20,6 @@ import {
   Phone,
   Plus,
   Search,
-  TrendingDown,
-  TrendingUp,
   XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -99,6 +97,7 @@ import {
 import {
   appointmentFilters,
   followupFilters,
+  defaultWorkSort,
   parseWorkQuery,
   toWorkQueryString,
   type WorkKind,
@@ -155,11 +154,12 @@ function followupMetricCards(
   const dueTodayTotal = kpis.completed_today + kpis.today;
   const clearedRate = percentOf(kpis.completed_today, dueTodayTotal);
   const overdueRate = percentOf(kpis.overdue, open);
-  // The total card mirrors the All tab, so its open share is taken from
-  // status_counts as well. `kpis` ignores the search box while status_counts
-  // honours it; mixing the two here would let the share exceed 100% the moment
-  // someone typed in the search field.
+  // `kpis` ignores the search box while status_counts honours it, so the total
+  // card's open share is taken from status_counts too; mixing the two would let
+  // the share pass 100% the moment someone typed in the search field.
   const openInView = statusCounts.today + statusCounts.overdue + statusCounts.upcoming;
+  // Six tiles, as on My Leads and Tasks: the total, the four working queues, and
+  // what was cancelled.
   return [
     {
       status: 'all' as const,
@@ -169,10 +169,19 @@ function followupMetricCards(
       chip: 'bg-violet-50 text-violet-600',
       rate: percentOf(openInView, statusCounts.all),
       helper: 'still open',
-      rising: true,
       good: true,
       neutral: true,
-      footnote: `${statusCounts.completed.toLocaleString('en-IN')} completed · ${statusCounts.cancelled.toLocaleString('en-IN')} cancelled`,
+      footnote: `${statusCounts.completed.toLocaleString('en-IN')} completed in all`,
+    },
+    {
+      status: 'overdue' as const,
+      label: 'Overdue',
+      value: kpis.overdue,
+      icon: ClockAlert,
+      chip: 'bg-rose-50 text-rose-600',
+      rate: overdueRate,
+      helper: 'of open follow-ups',
+      good: kpis.overdue === 0,
     },
     {
       status: 'today' as const,
@@ -182,35 +191,7 @@ function followupMetricCards(
       chip: 'bg-blue-50 text-blue-600',
       rate: percentOf(kpis.today, open),
       helper: 'of open follow-ups',
-      rising: true,
       good: true,
-    },
-    {
-      status: 'overdue' as const,
-      label: 'Overdue',
-      value: kpis.overdue,
-      icon: ClockAlert,
-      chip: 'bg-rose-50 text-rose-600',
-      rate: overdueRate,
-      helper: 'missed against open workload',
-      rising: kpis.overdue > 0,
-      good: kpis.overdue === 0,
-    },
-    {
-      status: 'completed' as const,
-      label: 'Completed today',
-      value: kpis.completed_today,
-      icon: CircleCheckBig,
-      chip: 'bg-emerald-50 text-emerald-600',
-      rate: clearedRate,
-      helper: dueTodayTotal ? 'of today’s commitments cleared' : 'nothing was due today',
-      rising: clearedRate >= 50,
-      good: clearedRate >= 50,
-      neutral: dueTodayTotal === 0,
-      // The tab lists every completed follow-up ever; the card counts only
-      // today's. Naming the tab total keeps that difference from reading as a
-      // second contradiction between the KPIs and the tabs.
-      footnote: `${statusCounts.completed.toLocaleString('en-IN')} completed all time`,
     },
     {
       status: 'upcoming' as const,
@@ -220,8 +201,33 @@ function followupMetricCards(
       chip: 'bg-orange-50 text-orange-600',
       rate: percentOf(kpis.upcoming, open),
       helper: 'of open follow-ups',
-      rising: true,
       good: true,
+    },
+    {
+      status: 'completed' as const,
+      label: 'Completed today',
+      value: kpis.completed_today,
+      icon: CircleCheckBig,
+      chip: 'bg-emerald-50 text-emerald-600',
+      rate: clearedRate,
+      helper: dueTodayTotal ? 'of today’s commitments cleared' : 'nothing was due today',
+      good: clearedRate >= 50,
+      neutral: dueTodayTotal === 0,
+      // The tab lists every completed follow-up ever; the card counts only
+      // today's. Naming the tab total keeps that difference from reading as a
+      // second contradiction between the KPIs and the tabs.
+      footnote: `${statusCounts.completed.toLocaleString('en-IN')} completed all time`,
+    },
+    {
+      status: 'cancelled' as const,
+      label: 'Cancelled',
+      value: statusCounts.cancelled,
+      icon: CircleX,
+      chip: 'bg-slate-100 text-slate-600',
+      rate: percentOf(statusCounts.cancelled, statusCounts.all),
+      helper: 'of all follow-ups',
+      good: true,
+      neutral: true,
     },
   ];
 }
@@ -236,7 +242,7 @@ function FollowupMetricCard({
   onSelect: () => void;
 }) {
   const Icon = card.icon;
-  const TrendIcon = card.rising ? TrendingUp : TrendingDown;
+  // A share of the list, not a change over time, so no trend arrow.
   return (
     <button
       type="button"
@@ -245,6 +251,7 @@ function FollowupMetricCard({
       className="group min-w-0 rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
     >
       <Card
+        data-kpi
         className={cn(
           'h-full min-w-0 shadow-none transition-all group-hover:-translate-y-0.5 group-hover:border-blue-200 group-hover:shadow-sm',
           active ? 'border-blue-300 ring-1 ring-blue-200' : 'border-slate-200/90',
@@ -272,8 +279,7 @@ function FollowupMetricCard({
                   : 'text-rose-600',
             )}
           >
-            <TrendIcon className="size-3" /> {card.rate}%
-            <span className="font-normal text-muted-foreground">{card.helper}</span>
+            {card.rate}%<span className="font-normal text-muted-foreground">{card.helper}</span>
           </p>
           {card.footnote && (
             <p className="mt-1 text-center text-[10px] text-muted-foreground">{card.footnote}</p>
@@ -1432,6 +1438,10 @@ export function WorkWorkspace({
       'followupTo',
     ].some((key) => key in next);
     const updated = { ...query, ...next, appointmentId: changesFilter ? '' : query.appointmentId };
+    // A view change keeps the reader's own sort, but a default sort follows
+    // the new view (Upcoming soonest first, History newest first).
+    if (next.status && !next.sort && query.sort === defaultWorkSort(kind, query.status))
+      updated.sort = defaultWorkSort(kind, next.status);
     setQuery(updated);
     replaceQueryString(pathname, toWorkQueryString(updated, kind));
   };
@@ -1522,7 +1532,7 @@ export function WorkWorkspace({
             <div
               id="followup-summary-kpis"
               hidden={!summaryOpen}
-              className={cn('grid gap-2.5', kpiGridColumns(5))}
+              className={cn('grid gap-2.5', kpiGridColumns(6))}
             >
               {followupMetricCards(followupData.kpis, followupData.status_counts).map((card) => (
                 <FollowupMetricCard

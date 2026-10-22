@@ -27,11 +27,18 @@ const SUMMARY_PERSIST_VERSION = 1;
 export function useTenantDashboard(
   dashboardKey: readonly unknown[],
   manualRefreshRequest: RefObject<boolean>,
+  options: {
+    /** Read PostgreSQL directly for an own-records summary; see fetchTenantDashboardSummary. */
+    direct?: boolean;
+  } = {},
 ) {
   const summary = usePersistedQuery({
     queryKey: [...dashboardKey, 'summary'],
     queryFn: ({ signal }) =>
-      fetchTenantDashboardSummary(signal, { manualRefresh: manualRefreshRequest.current }),
+      fetchTenantDashboardSummary(signal, {
+        manualRefresh: manualRefreshRequest.current,
+        direct: options.direct,
+      }),
     staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
     gcTime: DASHBOARD_QUERY_GC_TIME_MS,
     // Another request is rebuilding this entry; check back once it has.

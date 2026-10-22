@@ -12,7 +12,9 @@ import {
   type ColumnDef,
 } from '@tanstack/react-table';
 import {
+  CalendarClock,
   CheckCircle2,
+  CircleX,
   Flag,
   MapPin,
   MessageSquareText,
@@ -39,7 +41,8 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
-import { KpiGrid, kpiVariantForRole } from '@/components/shared/kpi-grid';
+import { KpiGrid } from '@/components/shared/kpi-grid';
+import { overdueTableRowClassName } from '@/components/shared/table-row-styles';
 import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import { TestDrivesSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -120,17 +123,35 @@ function expectedEnd(record: TestDriveRecord) {
   );
 }
 
+/** Still Ready on a day that has already passed: the Today tab keeps these in
+ * the queue so a missed drive is not hidden, and the row says so. */
+function isOverdueDrive(record: TestDriveRecord) {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  return record.status === 'READY' && new Date(record.scheduled_at) < startOfToday;
+}
+
+// The canonical Test drives set, in the same order on every role's page.
 function testDriveMetrics(result: TestDriveWorkspaceResult): Metric[] {
   const conversion = result.kpis.completed
     ? Math.round((result.kpis.converted / result.kpis.completed) * 100)
     : 0;
   return [
     {
-      label: 'Total test drives',
-      value: result.kpis.total.toLocaleString('en-IN'),
-      helper: `${result.kpis.cancelled.toLocaleString('en-IN')} cancelled all time`,
+      label: 'Today',
+      value: result.kpis.today.toLocaleString('en-IN'),
+      helper: result.kpis.overdue
+        ? `${result.kpis.overdue.toLocaleString('en-IN')} overdue from earlier days`
+        : 'Scheduled for today',
       icon: Route,
       tone: 'bg-blue-50 text-blue-600',
+    },
+    {
+      label: 'Upcoming',
+      value: result.kpis.upcoming.toLocaleString('en-IN'),
+      helper: 'Booked after today',
+      icon: CalendarClock,
+      tone: 'bg-indigo-50 text-indigo-600',
     },
     {
       label: 'Active',
@@ -147,7 +168,14 @@ function testDriveMetrics(result: TestDriveWorkspaceResult): Metric[] {
       tone: 'bg-emerald-50 text-emerald-600',
     },
     {
-      label: 'Conversion after Test Drive',
+      label: 'Cancelled',
+      value: result.kpis.cancelled.toLocaleString('en-IN'),
+      helper: `Of ${result.kpis.total.toLocaleString('en-IN')} booked`,
+      icon: CircleX,
+      tone: 'bg-rose-50 text-rose-600',
+    },
+    {
+      label: 'Conversion after test drive',
       value: `${conversion}%`,
       helper: 'Completed drives with a quotation',
       icon: TrendingUp,
@@ -258,24 +286,31 @@ function TestDriveTable({
           </div>
         ),
       },
-      {
-        id: 'owner',
-        header: 'Consultant / scope',
-        cell: ({ row }) => (
-          <div className="min-w-36">
-            <p className="font-medium">{row.original.assigned_user_name}</p>
-            <p className="text-xs text-muted-foreground">
-              {row.original.team_name ?? row.original.branch_name}
-            </p>
-          </div>
-        ),
-      },
+      // A consultant sees only their own drives, so the column would repeat
+      // their name on every row.
+      ...(role === 'sales-consultant'
+        ? []
+        : [
+            {
+              id: 'owner',
+              header: 'Consultant / scope',
+              cell: ({ row }: { row: { original: TestDriveRecord } }) => (
+                <div className="min-w-36">
+                  <p className="font-medium">{row.original.assigned_user_name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {row.original.team_name ?? row.original.branch_name}
+                  </p>
+                </div>
+              ),
+            },
+          ]),
       {
         id: 'status',
         header: 'Status',
         cell: ({ row }) => (
           <div className="space-y-1">
-            <StatusBadge value={row.original.status} />
+            {/* Still Ready on a past day: the drive was missed, not ready. */}
+            <StatusBadge value={isOverdueDrive(row.original) ? 'OVERDUE' : row.original.status} />
             {row.original.started_at && (
               <p className="text-xs text-muted-foreground">
                 {row.original.completed_at ? 'Ended' : 'Started'}{' '}
@@ -449,20 +484,26 @@ function TestDriveTable({
               <SelectItem value="customer:asc">Customer A–Z</SelectItem>
             </SelectContent>
           </Select>
-          <Input
-            type="date"
-            aria-label="From date"
-            value={query.fromDate}
-            max={query.toDate || undefined}
-            onChange={(event) => onQueryChange({ fromDate: event.target.value, page: 1 })}
-          />
-          <Input
-            type="date"
-            aria-label="To date"
-            value={query.toDate}
-            min={query.fromDate || undefined}
-            onChange={(event) => onQueryChange({ toDate: event.target.value, page: 1 })}
-          />
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            From
+            <Input
+              type="date"
+              aria-label="From date"
+              value={query.fromDate}
+              max={query.toDate || undefined}
+              onChange={(event) => onQueryChange({ fromDate: event.target.value, page: 1 })}
+            />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            To
+            <Input
+              type="date"
+              aria-label="To date"
+              value={query.toDate}
+              min={query.fromDate || undefined}
+              onChange={(event) => onQueryChange({ toDate: event.target.value, page: 1 })}
+            />
+          </label>
           <Select
             value={String(query.pageSize)}
             onValueChange={(value) =>
@@ -505,7 +546,9 @@ function TestDriveTable({
                     className={
                       focusedRowIds.has(row.original.id)
                         ? focusedRowClassName
-                        : 'hover:bg-slate-50/80'
+                        : isOverdueDrive(row.original)
+                          ? overdueTableRowClassName
+                          : 'hover:bg-slate-50/80'
                     }
                   >
                     {row.getVisibleCells().map((cell) => (
@@ -741,6 +784,7 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
           retrying={workspace.isFetching}
           onRetry={() => void workspace.refetch()}
         />
+        <KpiGrid metrics={testDriveMetrics(workspace.data)} />
         <div className="flex h-10 gap-2 overflow-x-auto border-b">
           {testDriveViews.map((view) => {
             const active = query.view === view;
@@ -759,7 +803,6 @@ export function TestDriveWorkspace({ spec, role }: { spec: PageSpec; role: strin
             );
           })}
         </div>
-        <KpiGrid metrics={testDriveMetrics(workspace.data)} variant={kpiVariantForRole(role)} />
         <TestDriveTable
           result={workspace.data}
           query={query}

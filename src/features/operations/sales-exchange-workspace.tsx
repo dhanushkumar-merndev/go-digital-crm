@@ -6,6 +6,7 @@ import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { useMemo, useRef, useState, type SetStateAction } from 'react';
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import {
+  ArrowLeft,
   CarFront,
   Check,
   CircleUserRound,
@@ -21,6 +22,7 @@ import {
   Upload,
 } from 'lucide-react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   hasWorkspacePermission,
   useWorkspaceSession,
@@ -32,6 +34,14 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -188,6 +198,98 @@ function Field({
   );
 }
 
+function sentenceCase(value: string) {
+  const words = value.replaceAll('_', ' ').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * The consultant's exchange bookings, each with where its exchange stands. A
+ * row opens the request form; the page used to open straight into the form for
+ * whichever booking happened to be first.
+ */
+function ExchangeList({
+  options,
+  onOpen,
+}: {
+  options: SalesExchangeOption[];
+  onOpen: (bookingId: string) => void;
+}) {
+  return (
+    <Card className="sales-consultant-list-card overflow-hidden shadow-none">
+      <Table>
+        <TableHeader className="bg-slate-50/80">
+          <TableRow>
+            <TableHead>Customer</TableHead>
+            <TableHead>Booking</TableHead>
+            <TableHead>Existing vehicle</TableHead>
+            <TableHead>Exchange status</TableHead>
+            <TableHead>Customer expects</TableHead>
+            <TableHead>Evaluated value</TableHead>
+            <TableHead>Updated</TableHead>
+            <TableHead className="text-right">Action</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {options.map((option) => {
+            const vehicle =
+              option.vehicles.find((item) => item.id === option.vehicle_id) ?? option.vehicles[0];
+            return (
+              <TableRow
+                key={option.booking_id}
+                className="cursor-pointer"
+                onClick={() => onOpen(option.booking_id)}
+              >
+                <TableCell>
+                  <p className="font-semibold">{option.customer_name}</p>
+                  <p className="text-xs text-muted-foreground">{option.phone ?? '—'}</p>
+                </TableCell>
+                <TableCell>{option.booking_number}</TableCell>
+                <TableCell>
+                  {vehicle ? (
+                    <>
+                      <p>{[vehicle.brand, vehicle.model].filter(Boolean).join(' ') || '—'}</p>
+                      <p className="text-xs text-muted-foreground">{vehicle.registration ?? ''}</p>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">Not entered</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {option.case_status ? (
+                    <StatusBadge value={option.case_status} />
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Not started</span>
+                  )}
+                </TableCell>
+                <TableCell>{money(option.customer_expected_value)}</TableCell>
+                <TableCell>
+                  {money(option.evaluation?.quoted_value ?? option.estimated_value)}
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                  {option.updated_at ? shortDate(option.updated_at) : '—'}
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpen(option.booking_id);
+                    }}
+                  >
+                    {option.case_status ? 'Open' : 'Start request'}
+                  </Button>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </Card>
+  );
+}
+
 export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: string }) {
   const workspaceSession = useWorkspaceSession();
   const useWorkspaceBootstrap = Boolean(workspaceSession?.organizationId);
@@ -212,7 +314,18 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
   const salesConsultantCache = useSalesConsultantCache();
   const [bookingSearch, setBookingSearch] = useState('');
   const debouncedBookingSearch = useDebouncedValue(bookingSearch, 300);
-  const [selectedBookingId, setSelectedBookingId] = useState('');
+  // The open request lives in the URL, so Back returns to the list.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const selectedBookingId = searchParams.get('booking') ?? '';
+  const setSelectedBookingId = (bookingId: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (bookingId) params.set('booking', bookingId);
+    else params.delete('booking');
+    const next = params.toString();
+    router.push(next ? `${pathname}?${next}` : pathname);
+  };
   const [formState, setFormState] = useState<{
     bookingId: string;
     value: ExchangeForm;
@@ -248,8 +361,7 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
   const selectedBookingIsVisible = options.data?.some(
     (option) => option.booking_id === selectedBookingId,
   );
-  const effectiveBookingId =
-    (selectedBookingIsVisible ? selectedBookingId : '') || options.data?.[0]?.booking_id || '';
+  const effectiveBookingId = selectedBookingIsVisible ? selectedBookingId : '';
   const selected = useMemo(
     () => options.data?.find((option) => option.booking_id === effectiveBookingId),
     [effectiveBookingId, options.data],
@@ -383,41 +495,43 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
         spec={{ ...spec, primaryAction: undefined }}
         description="Capture the customer’s current vehicle and follow its evaluation through to an offer."
         actions={
-          <>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => setForm(selected ? formForOption(selected) : emptyForm)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="outline"
-                disabled={
-                  busy ||
-                  !selected ||
-                  (selected.case_status != null && selected.case_status !== 'DRAFT')
-                }
-                onClick={() => submit('SAVE_DRAFT')}
-              >
-                <Save className="size-4" /> Save draft
-              </Button>
-              <Button
-                variant="outline"
-                disabled={busy || !selected || !editable}
-                onClick={() => submit('REQUEST_EVALUATION')}
-              >
-                <Send className="size-4" /> Request evaluation
-              </Button>
-              <Button
-                disabled={busy || selected?.case_status !== 'OFFERED'}
-                onClick={() => submit('ACCEPT_OFFER')}
-              >
-                <Check className="size-4" /> Submit exchange
-              </Button>
-            </div>
-          </>
+          selected ? (
+            <>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => setForm(selected ? formForOption(selected) : emptyForm)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={
+                    busy ||
+                    !selected ||
+                    (selected.case_status != null && selected.case_status !== 'DRAFT')
+                  }
+                  onClick={() => submit('SAVE_DRAFT')}
+                >
+                  <Save className="size-4" /> Save draft
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={busy || !selected || !editable}
+                  onClick={() => submit('REQUEST_EVALUATION')}
+                >
+                  <Send className="size-4" /> Request evaluation
+                </Button>
+                <Button
+                  disabled={busy || selected?.case_status !== 'OFFERED'}
+                  onClick={() => submit('ACCEPT_OFFER')}
+                >
+                  <Check className="size-4" /> Submit exchange
+                </Button>
+              </div>
+            </>
+          ) : null
         }
       />
 
@@ -431,25 +545,33 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
         </Alert>
       ) : null}
 
-      <Card className="sales-consultant-list-card shadow-none">
-        <CardContent className="p-4">
-          <Field label="Find an eligible booking">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={bookingSearch}
-                onChange={(event) => {
-                  setBookingSearch(event.target.value);
-                  setSelectedBookingId('');
-                }}
-                className="pl-9"
-                placeholder="Search customer, booking, phone or model"
-                maxLength={160}
-              />
-            </div>
-          </Field>
-        </CardContent>
-      </Card>
+      {selected ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-2"
+          onClick={() => setSelectedBookingId('')}
+        >
+          <ArrowLeft className="size-4" /> All exchange bookings
+        </Button>
+      ) : (
+        <Card className="sales-consultant-list-card shadow-none">
+          <CardContent className="p-4">
+            <Field label="Find an eligible booking">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={bookingSearch}
+                  onChange={(event) => setBookingSearch(event.target.value)}
+                  className="pl-9"
+                  placeholder="Search customer, booking, phone or model"
+                  maxLength={160}
+                />
+              </div>
+            </Field>
+          </CardContent>
+        </Card>
+      )}
 
       {!options.data?.length ? (
         <Card>
@@ -503,7 +625,7 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
 
             <Card className="shadow-none">
               <CardHeader className="pb-3">
-                <SectionTitle icon={CarFront}>Existing Vehicle</SectionTitle>
+                <SectionTitle icon={CarFront}>Existing vehicle</SectionTitle>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-3">
                 {selected.vehicles.length ? (
@@ -569,7 +691,7 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
                     onChange={(event) => update('variant', event.target.value)}
                   />
                 </Field>
-                <Field label="Registration No." required>
+                <Field label="Registration no." required>
                   <Input
                     value={form.registration}
                     disabled={!editable}
@@ -587,7 +709,7 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
                     onChange={(event) => update('modelYear', event.target.value)}
                   />
                 </Field>
-                <Field label="KM Driven" required>
+                <Field label="KM driven" required>
                   <Input
                     type="number"
                     min={0}
@@ -597,7 +719,7 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
                     onChange={(event) => update('odometerKm', event.target.value)}
                   />
                 </Field>
-                <Field label="Fuel Type" required>
+                <Field label="Fuel type" required>
                   <Select
                     value={form.fuelType}
                     disabled={!editable}
@@ -645,7 +767,7 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
                 <SectionTitle icon={FileText}>Evaluation</SectionTitle>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-3">
-                <Field label="Customer Expected Price (₹)" required>
+                <Field label="Customer expected price (₹)" required>
                   <Input
                     type="number"
                     min={0}
@@ -657,14 +779,12 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
                 <Field label="Evaluation status">
                   <Input
                     value={
-                      selected.case_status
-                        ? selected.case_status.replaceAll('_', ' ')
-                        : 'Not requested'
+                      selected.case_status ? sentenceCase(selected.case_status) : 'Not requested'
                     }
                     readOnly
                   />
                 </Field>
-                <Field label="Evaluated Price (₹)">
+                <Field label="Evaluated price (₹)">
                   <Input value={evaluationValue ?? ''} readOnly placeholder="Pending evaluation" />
                 </Field>
                 <div className="md:col-span-3">
@@ -772,7 +892,7 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
 
             <Card className="shadow-none">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Exchange Status</CardTitle>
+                <CardTitle className="text-base">Exchange status</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-4 gap-2">
@@ -805,7 +925,7 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
           <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
             <Card className="shadow-none">
               <CardHeader>
-                <CardTitle className="text-base">Customer Profile</CardTitle>
+                <CardTitle className="text-base">Customer profile</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center gap-3">
@@ -842,7 +962,7 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
             </Card>
             <Card className="shadow-none">
               <CardHeader>
-                <CardTitle className="text-base">Vehicle Snapshot</CardTitle>
+                <CardTitle className="text-base">Vehicle snapshot</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-3">
@@ -873,7 +993,7 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
             </Card>
             <Card className="shadow-none">
               <CardHeader>
-                <CardTitle className="text-base">Evaluation Status</CardTitle>
+                <CardTitle className="text-base">Evaluation status</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
                 {[
@@ -903,16 +1023,20 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
             </Card>
             <Card className="border-emerald-200 bg-emerald-50/30 shadow-none">
               <CardHeader>
-                <CardTitle className="text-base">Estimated Exchange Value</CardTitle>
+                <CardTitle className="text-base">Estimated exchange value</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground">Based on the latest evaluator quote</p>
-                <p className="mt-2 flex items-center text-3xl font-bold text-emerald-600">
-                  <IndianRupee className="size-6" />
-                  {evaluationValue == null
-                    ? 'Pending'
-                    : Number(evaluationValue).toLocaleString('en-IN')}
-                </p>
+                {evaluationValue == null ? (
+                  <p className="mt-2 text-sm font-semibold text-heading-soft">
+                    Waiting for the evaluator&apos;s quote
+                  </p>
+                ) : (
+                  <p className="mt-2 flex items-center text-3xl font-bold text-emerald-600">
+                    <IndianRupee className="size-6" />
+                    {Number(evaluationValue).toLocaleString('en-IN')}
+                  </p>
+                )}
                 <p className="mt-3 rounded-md border border-emerald-200 bg-white/70 p-3 text-xs text-muted-foreground">
                   Final exchange value may vary after physical inspection and documentation
                   verification.
@@ -921,7 +1045,9 @@ export function SalesExchangeWorkspace({ spec, role }: { spec: PageSpec; role: s
             </Card>
           </aside>
         </div>
-      ) : null}
+      ) : (
+        <ExchangeList options={options.data} onOpen={setSelectedBookingId} />
+      )}
       {busy ? (
         <div className="fixed bottom-5 right-5 flex items-center gap-2 rounded-md border bg-background px-4 py-3 text-sm shadow-lg">
           <Loader2 className="size-4 animate-spin" /> Saving exchange…

@@ -133,6 +133,8 @@ const aiSummaryEnvelopeSchema = z.object({
     summary: z.string().min(1).max(2_000),
     generated_at: z.string(),
     provider: z.enum(['RULE_BASED', 'AI']),
+    // Credits this request spent: 0 for a saved summary or the rule-based text.
+    credits_charged: z.coerce.number().int().nonnegative().default(0),
     cache: cacheDiagnosticSchema.extend({ resource: z.literal('sales-consultant-ai-summary') }),
   }),
   error: z.null(),
@@ -234,14 +236,37 @@ export async function fetchSalesConsultantDashboard(
   } satisfies SalesConsultantDashboardResult;
 }
 
-export async function generateSalesConsultantAiSummary(
-  forceRefresh: boolean,
+export class DashboardAiSummaryError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+
+export type DashboardAiSummary = z.infer<typeof aiSummaryEnvelopeSchema>['data'];
+
+/**
+ * The dashboard AI summary for the signed-in Sales Consultant or Telecaller.
+ * `requestId` names the click, so a retried request is charged once.
+ */
+export async function generateDashboardAiSummary(
+  input: { forceRefresh: boolean; requestId: string },
   signal?: AbortSignal,
-) {
+): Promise<DashboardAiSummary> {
   const { data, error } = await createClient().functions.invoke('sales-consultant-ai-summary', {
-    body: { force_refresh: forceRefresh },
+    body: { force_refresh: input.forceRefresh, request_id: input.requestId },
     signal,
   });
-  if (error) throw error;
+  if (error) {
+    // supabase-js does not read the body of a non-2xx reply; the code is in it.
+    const context = (error as { context?: unknown }).context;
+    const body =
+      context instanceof Response
+        ? ((await context
+            .clone()
+            .json()
+            .catch(() => null)) as { error?: { code?: string } } | null)
+        : null;
+    throw new DashboardAiSummaryError(body?.error?.code ?? 'SALES_SUMMARY_FAILED');
+  }
   return aiSummaryEnvelopeSchema.parse(data).data;
 }

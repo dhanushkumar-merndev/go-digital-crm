@@ -29,8 +29,17 @@ describe('sales consultant appointment workspace contract', () => {
     for (const type of ['Showroom Visit', 'Video Call', 'Consultant Call']) {
       expect(migration).toContain(type);
       expect(query).toContain(type);
-      expect(view).toContain(type);
     }
+    // The view filters by the shared schedulable list rather than its own copy.
+    expect(view).toContain('const appointmentTypes = schedulableAppointmentTypes;');
+  });
+
+  it('shows six status tiles from the page RPC, not a per-type summary call', () => {
+    for (const label of ["'Today'", "'Upcoming'", "'Confirmed'", "'Completed'", "'No show'"])
+      expect(view).toContain(`label: ${label}`);
+    expect(view).toContain("label: 'Arrived'");
+    expect(view).toContain('value: result.kpis.no_show');
+    expect(view).not.toContain('fetchAppointmentTypeSummary');
   });
 
   it('does not offer Test Drive as an appointment type', () => {

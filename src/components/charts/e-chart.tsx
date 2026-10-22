@@ -60,7 +60,9 @@ function optionFor(
       textStyle,
       tooltip: { trigger: 'item', textStyle },
       legend: { bottom: 0, textStyle: { color: text, ...textStyle } },
-      color: data.length > 5 ? palette : ['#2563eb', '#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444'],
+      color:
+        extra.colors ??
+        (data.length > 5 ? palette : ['#2563eb', '#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444']),
       series: [
         {
           type: 'pie',
@@ -91,9 +93,10 @@ function optionFor(
         formatter: funnelMode === 'staged' ? stagedTooltip : undefined,
       },
       color:
-        funnelMode === 'staged'
+        extra.colors ??
+        (funnelMode === 'staged'
           ? ['#1769e8', '#58a4e8', '#18b8bd', '#8b5de7', '#55c58a', '#f2a33a', '#e5679a']
-          : ['#1d4ed8', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'],
+          : ['#1d4ed8', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd']),
       series: [
         {
           type: 'funnel',
@@ -285,7 +288,7 @@ export function EChart({
   funnelStages?: number;
   /** Staged funnel only: where the stage names and counts go (default inside the bands). */
   funnelLabels?: FunnelLabels;
-  /** Bar/line with `series` only: one colour per series, in series order. */
+  /** Bar/line with `series`: one colour per series. Donut and funnel: one colour per slice or band, in data order. */
   colors?: string[];
   /** Cartesian charts only; defaults to the existing top legend. */
   legendPosition?: 'top' | 'bottom';

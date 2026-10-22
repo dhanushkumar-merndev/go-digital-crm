@@ -6,8 +6,12 @@ import { serviceClient } from '../_shared/supabase.ts';
 
 // The customer feedback page has no session: the 64-hex feedback token is the
 // only credential. begin_public_review_rephrase checks it is live and unspent,
-// spends one of the link's five rephrases and one dealership AI credit, and
-// a failed provider call is refunded.
+// spends one of the link's rephrases and one dealership AI credit, and a failed
+// provider call is refunded. A link gets three rounds of 10 with a 10-minute
+// pause between them, then no more (enforced there, per lead's link).
+//
+// The dealership's own OpenRouter model is used when connected; otherwise the
+// platform Groq model, the same one the dashboard AI summary uses.
 //
 // The model only rewrites what the customer gave it. It must not add facts,
 // names or praise they did not express, and the customer edits the result
@@ -44,6 +48,54 @@ const SYSTEM_PROMPT = [
   'No hashtags, emojis, links, quotation marks or headings. Output only the review text.',
 ].join(' ');
 
+type Provider = { endpoint: string; apiKey: string; model: string };
+
+/**
+ * Same provider rule as the other organization-wide AI features: only an
+ * organization-wide OpenRouter text model, never another tenant's key. Without
+ * one, the platform Groq model.
+ */
+async function resolveProvider(
+  admin: ReturnType<typeof serviceClient>,
+  organizationId: string,
+): Promise<Provider> {
+  const { data: connections, error: connectionError } = await admin
+    .from('connected_accounts')
+    .select('id,connection_config')
+    .eq('organization_id', organizationId)
+    .eq('provider_key', 'openrouter')
+    .eq('scope_mode', 'ALL_BRANCHES')
+    .eq('status', 'CONNECTED')
+    .is('deleted_at', null)
+    .order('updated_at', { ascending: false })
+    .limit(25);
+  if (connectionError) throw connectionError;
+  const connection = connections?.find(
+    (row) =>
+      row.connection_config?.models?.text_model &&
+      row.connection_config?.capabilities?.includes('TEXT_GENERATION'),
+  );
+  if (connection) {
+    const { data: secret, error: secretError } = await admin
+      .from('integration_credentials')
+      .select('encrypted_payload')
+      .eq('organization_id', organizationId)
+      .eq('connected_account_id', connection.id)
+      .single();
+    if (secretError || !secret) throw new Error('PROVIDER_UNAVAILABLE');
+    const credential = await decryptJson<{ api_key: string }>(secret.encrypted_payload);
+    return {
+      endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+      apiKey: credential.api_key,
+      model: connection.connection_config.models.text_model,
+    };
+  }
+  const apiKey = Deno.env.get('GROQ_API_KEY');
+  const model = Deno.env.get('GROQ_ANALYSIS_MODEL');
+  if (!apiKey || !model) throw new Error('AI_PROVIDER_NOT_CONFIGURED');
+  return { endpoint: 'https://api.groq.com/openai/v1/chat/completions', apiKey, model };
+}
+
 Deno.serve(async (request) => {
   const preflightResponse = preflight(request);
   if (preflightResponse) return preflightResponse;
@@ -63,8 +115,9 @@ Deno.serve(async (request) => {
 
     const ip = clientIp(request) ?? 'unknown';
     const limited = await consumeRateLimits(admin, [
-      { bucket: `review-rephrase:ip:${ip}`, limit: 15, windowSeconds: 600 },
-      { bucket: `review-rephrase:token:${input.token}`, limit: 8, windowSeconds: 600 },
+      // Above one link's round of 10, so the database's rounds decide; this
+      // only stops one address hammering many links.
+      { bucket: `review-rephrase:ip:${ip}`, limit: 40, windowSeconds: 600 },
     ]);
     if (!limited.allowed)
       return failure('RATE_LIMITED', 'Too many requests. Please try again later.', trace, 429);
@@ -75,6 +128,19 @@ Deno.serve(async (request) => {
     });
     if (beginError) {
       const message = beginError.message ?? '';
+      if (message.includes('REPHRASE_COOLDOWN')) {
+        // Postgres text form ("2026-10-22 12:38:51.5+00") as ISO 8601.
+        const lockedUntil = Date.parse(
+          (beginError.details ?? '').replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00'),
+        );
+        return failure(
+          'REPHRASE_COOLDOWN',
+          'You have used 10 in a row. Writing help is back in a few minutes; you can still edit and submit.',
+          trace,
+          429,
+          Number.isFinite(lockedUntil) ? { locked_until: new Date(lockedUntil).toISOString() } : {},
+        );
+      }
       if (message.includes('REPHRASE_LIMIT_REACHED'))
         return failure(
           'REPHRASE_LIMIT_REACHED',
@@ -103,42 +169,12 @@ Deno.serve(async (request) => {
       );
     reserved = { token: input.token, requestId: input.request_id };
 
-    // Same provider rule as the other organization-wide AI features: only an
-    // organization-wide OpenRouter text model, never another tenant's key.
-    const { data: connections, error: connectionError } = await admin
-      .from('connected_accounts')
-      .select('id,connection_config')
-      .eq('organization_id', job.organization_id)
-      .eq('provider_key', 'openrouter')
-      .eq('scope_mode', 'ALL_BRANCHES')
-      .eq('status', 'CONNECTED')
-      .is('deleted_at', null)
-      .order('updated_at', { ascending: false })
-      .limit(25);
-    if (connectionError) throw connectionError;
-    const connection = connections?.find(
-      (row) =>
-        row.connection_config?.models?.text_model &&
-        row.connection_config?.capabilities?.includes('TEXT_GENERATION'),
-    );
-    if (!connection) throw new Error('AI_PROVIDER_NOT_CONFIGURED');
-    const { data: secret, error: secretError } = await admin
-      .from('integration_credentials')
-      .select('encrypted_payload')
-      .eq('organization_id', job.organization_id)
-      .eq('connected_account_id', connection.id)
-      .single();
-    if (secretError || !secret) throw new Error('PROVIDER_UNAVAILABLE');
-    const credential = await decryptJson<{ api_key: string }>(secret.encrypted_payload);
-
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const provider = await resolveProvider(admin, job.organization_id);
+    const response = await fetch(provider.endpoint, {
       method: 'POST',
-      headers: {
-        authorization: 'Bearer ' + credential.api_key,
-        'content-type': 'application/json',
-      },
+      headers: { authorization: 'Bearer ' + provider.apiKey, 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: connection.connection_config.models.text_model,
+        model: provider.model,
         stream: false,
         max_tokens: 300,
         temperature: 0.5,

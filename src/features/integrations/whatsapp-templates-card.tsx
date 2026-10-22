@@ -1,11 +1,20 @@
 'use client';
 
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Star } from 'lucide-react';
 import { z } from 'zod';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/toast';
 import { createClient } from '@/lib/supabase/client';
@@ -67,6 +76,171 @@ function blockedReason(template: CatalogTemplate) {
     return `${template.meta_status.toLowerCase().replaceAll('_', ' ')} in Meta`;
   if (!template.supported) return `Not supported yet: ${template.unsupported_reason}`;
   return null;
+}
+
+const reviewSettingSchema = z.object({
+  tokens: z.array(z.string()),
+  template_id: z.uuid().nullable(),
+  variable_map: z.record(z.string(), z.string()),
+});
+
+/** `body:1` reads as "Body {{1}}"; Meta numbers fields per component. */
+function fieldLabel(field: string) {
+  const [part, name] = field.split(':');
+  return name ? `${part === 'header' ? 'Header' : 'Body'} {{${name}}}` : field;
+}
+
+/**
+ * Which template "Send review link" uses in the inbox when Official WhatsApp's
+ * 24-hour window is closed. Inside the window the link goes as a normal message.
+ */
+function ReviewTemplateSetting({
+  organizationId,
+  connectionId,
+  templates,
+}: {
+  organizationId: string;
+  connectionId: string;
+  templates: CatalogTemplate[];
+}) {
+  const queryClient = useQueryClient();
+  const queryKey = ['whatsapp-review-template', organizationId, connectionId];
+  const setting = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const { data, error } = await createClient().rpc('get_whatsapp_review_template', {
+        target_connection_id: connectionId,
+      });
+      if (error) throw error;
+      return reviewSettingSchema.parse(data);
+    },
+    staleTime: 60_000,
+    retry: false,
+    meta: { persist: false },
+  });
+  // Null until the admin edits; until then the saved setting is shown.
+  const [draft, setDraft] = useState<{ templateId: string; values: Record<string, string> } | null>(
+    null,
+  );
+  const enabled = templates.filter((template) => template.enabled);
+  const current = draft ?? {
+    templateId: setting.data?.template_id ?? '',
+    values: setting.data?.variable_map ?? {},
+  };
+  const template = enabled.find((row) => row.id === current.templateId);
+  const save = useMutation({
+    meta: { toast: false },
+    mutationFn: async () => {
+      const { error } = await createClient().rpc('set_whatsapp_review_template', {
+        target_connection_id: connectionId,
+        target_template_id: current.templateId || null,
+        target_variable_map: current.values,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setDraft(null);
+      void queryClient.invalidateQueries({ queryKey });
+      toast.add({ type: 'success', title: 'Review template saved' });
+    },
+    onError: (error) =>
+      toast.add({
+        type: 'error',
+        title: 'Review template not saved',
+        description:
+          error instanceof Error && error.message === 'REVIEW_TEMPLATE_FIELD_REQUIRED'
+            ? 'Fill in every field of the template.'
+            : 'Only a template switched on below can be used. Sync and try again.',
+      }),
+  });
+  // Managers only; a reader without integration.manage sees the list but not this.
+  if (setting.isError) return null;
+  const complete = !template || template.fields.every((field) => current.values[field]?.trim());
+  return (
+    <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+      <div className="flex items-center gap-2">
+        <Star className="size-4 text-amber-500" />
+        <p className="text-sm font-medium">Review link template</p>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Sent by “Send review link” in the inbox when the 24-hour reply window is closed. Use{' '}
+        {'{{review_link}}'} in a field to include the customer’s review link.
+      </p>
+      <Select
+        value={current.templateId || 'none'}
+        onValueChange={(value) =>
+          setDraft({ templateId: value === 'none' ? '' : value, values: {} })
+        }
+        disabled={setting.isPending || save.isPending}
+      >
+        <SelectTrigger aria-label="Review link template">
+          <SelectValue placeholder="Choose a template" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">None — text only inside the window</SelectItem>
+          {enabled.map((row) => (
+            <SelectItem key={row.id} value={row.id}>
+              {row.name} ({row.language})
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {template?.fields.map((field) => (
+        <div className="flex gap-2" key={field}>
+          <Input
+            aria-label={fieldLabel(field)}
+            placeholder={fieldLabel(field)}
+            maxLength={500}
+            value={current.values[field] ?? ''}
+            onChange={(event) =>
+              setDraft({ ...current, values: { ...current.values, [field]: event.target.value } })
+            }
+          />
+          <Select
+            value=""
+            onValueChange={(token) =>
+              setDraft({
+                ...current,
+                values: {
+                  ...current.values,
+                  [field]: `${current.values[field] ?? ''}{{${token}}}`,
+                },
+              })
+            }
+          >
+            <SelectTrigger
+              className="w-40 shrink-0"
+              aria-label={`Insert a field into ${fieldLabel(field)}`}
+            >
+              <SelectValue placeholder="Insert field" />
+            </SelectTrigger>
+            <SelectContent>
+              {(setting.data?.tokens ?? []).map((token) => (
+                <SelectItem key={token} value={token}>
+                  {token.replaceAll('_', ' ')}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ))}
+      {draft ? (
+        <div className="flex justify-end gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setDraft(null)}
+            disabled={save.isPending}
+          >
+            Cancel
+          </Button>
+          <Button size="sm" onClick={() => save.mutate()} disabled={!complete || save.isPending}>
+            {save.isPending ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 /**
@@ -165,6 +339,13 @@ export function WhatsAppTemplatesCard({
             {sync.error instanceof Error ? sync.error.message : 'Templates could not be synced.'}
           </AlertDescription>
         </Alert>
+      )}
+      {records.length > 0 && (
+        <ReviewTemplateSetting
+          organizationId={organizationId}
+          connectionId={connectionId}
+          templates={records}
+        />
       )}
       {catalog.isPending ? (
         <p className="text-sm text-muted-foreground">Loading templates…</p>

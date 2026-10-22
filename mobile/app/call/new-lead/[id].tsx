@@ -151,6 +151,7 @@ export default function NewLeadFromCall() {
               onChangeText={setName}
               style={styles.input}
               placeholder="Customer name"
+              placeholderTextColor={colors.faint}
               maxLength={200}
             />
             <Text style={styles.label}>Email (optional)</Text>
@@ -159,6 +160,7 @@ export default function NewLeadFromCall() {
               onChangeText={setEmail}
               style={styles.input}
               placeholder="name@example.com"
+              placeholderTextColor={colors.faint}
               autoCapitalize="none"
               keyboardType="email-address"
               maxLength={320}
@@ -169,6 +171,7 @@ export default function NewLeadFromCall() {
               onChangeText={setModel}
               style={styles.input}
               placeholder="Model"
+              placeholderTextColor={colors.faint}
               maxLength={200}
             />
           </View>

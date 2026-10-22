@@ -21,6 +21,188 @@ import { extractWhatsAppEvents } from '../../../src/lib/providers/whatsapp-cloud
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
+type StoredReceipt = {
+  id: string;
+  organization_id: string;
+  connected_account_id: string;
+  provider_event_id: string;
+  event_type: string;
+};
+
+// Database errors that a retry cannot fix (bad input, constraint), as in the
+// Trigger.dev dispatcher.
+function permanentDatabaseError(error: { code?: string } | null) {
+  return Boolean(error?.code && (error.code.startsWith('22') || error.code.startsWith('23')));
+}
+
+/**
+ * Applies the receipts of this callback before the request ends, so a customer
+ * message reaches the inbox in about a second instead of waiting for a worker.
+ * Each step is one database call. Receipts are claimed with the same lease as
+ * the Trigger.dev dispatcher, so the two never process one event twice; any
+ * receipt that fails here is released to RETRY and picked up by that worker.
+ */
+async function applyReceiptsInline(
+  admin: ReturnType<typeof serviceClient>,
+  stored: StoredReceipt[],
+  events: ReturnType<typeof extractWhatsAppEvents>,
+) {
+  const workerId = `edge:whatsapp-webhook:${crypto.randomUUID()}`;
+  const { data: claimed, error: claimError } = await admin.rpc('claim_provider_event_receipts', {
+    target_worker_id: workerId,
+    target_event_ids: stored.map((receipt) => receipt.id),
+  });
+  if (claimError) throw claimError;
+  const messages = new Map(events.messages.map((message) => [message.eventId, message]));
+  const statuses = new Map(events.statuses.map((status) => [status.eventId, status]));
+  const branches = new Map<string, string | null>();
+  const branchFor = async (receipt: StoredReceipt, phoneNumberId: string) => {
+    const key = `${receipt.connected_account_id}:${phoneNumberId}`;
+    if (!branches.has(key)) {
+      const { data } = await admin
+        .from('integration_branch_mappings')
+        .select('branch_id')
+        .eq('organization_id', receipt.organization_id)
+        .eq('connected_account_id', receipt.connected_account_id)
+        .eq('external_resource_type', 'WHATSAPP_PHONE_NUMBER')
+        .eq('external_resource_id', phoneNumberId)
+        .is('deleted_at', null)
+        .limit(1)
+        .maybeSingle();
+      branches.set(key, data?.branch_id ? String(data.branch_id) : null);
+    }
+    return branches.get(key) ?? null;
+  };
+  const finish = (
+    receipt: StoredReceipt,
+    status: 'PROCESSED' | 'UNMAPPED',
+    patch = {},
+    code?: string,
+  ) =>
+    admin.rpc('complete_provider_event', {
+      target_event_id: receipt.id,
+      target_worker_id: workerId,
+      target_status: status,
+      target_safe_error_code: code ?? null,
+      target_payload_patch: patch,
+    });
+  const release = (receipt: StoredReceipt, code: string, permanent: boolean) =>
+    admin.rpc('retry_provider_event', {
+      target_event_id: receipt.id,
+      target_worker_id: workerId,
+      target_safe_error_code: code,
+      // A status can arrive before send-message has stored the provider ID; a
+      // short delay lets that settle without waiting for the minute pass.
+      target_delay_seconds: 5,
+      target_permanent: permanent,
+    });
+
+  // In arrival order, so a reply is stored before the receipts that follow it.
+  for (const receipt of (claimed ?? []) as StoredReceipt[]) {
+    try {
+      if (receipt.event_type === 'WHATSAPP_INBOUND_MESSAGE') {
+        const message = messages.get(receipt.provider_event_id);
+        if (!message) {
+          await release(receipt, 'WHATSAPP_INBOUND_RECEIPT_INVALID', false);
+          continue;
+        }
+        const branchId = await branchFor(receipt, message.phoneNumberId);
+        if (!branchId) {
+          await finish(receipt, 'UNMAPPED', {}, 'WHATSAPP_NUMBER_NOT_MAPPED');
+          continue;
+        }
+        const { data, error } = await admin.rpc('ingest_whatsapp_inbound_message', {
+          target_organization_id: receipt.organization_id,
+          target_connection_id: receipt.connected_account_id,
+          target_branch_id: branchId,
+          target_phone_number_id: message.phoneNumberId,
+          target_provider_message_id: message.eventId.replace(/^whatsapp-message:/, ''),
+          target_sender: message.sender,
+          target_sender_name: message.senderName ?? null,
+          target_sent_at: message.sentAt,
+          target_message_type: message.messageType,
+          target_body: message.body ?? null,
+          target_provider_payload: message.providerPayload,
+        });
+        if (error) {
+          if (String(error.message).includes('WHATSAPP_NUMBER_NOT_MAPPED'))
+            await finish(receipt, 'UNMAPPED', {}, 'WHATSAPP_NUMBER_NOT_MAPPED');
+          else
+            await release(
+              receipt,
+              'WHATSAPP_INBOUND_MESSAGE_REJECTED',
+              permanentDatabaseError(error),
+            );
+          continue;
+        }
+        const result = (data ?? {}) as {
+          conversation_id?: string;
+          message_id?: string;
+          duplicate?: boolean;
+        };
+        await finish(receipt, 'PROCESSED', {
+          conversation_id: result.conversation_id ?? null,
+          message_id: result.message_id ?? null,
+          duplicate: result.duplicate ?? false,
+        });
+      } else if (receipt.event_type === 'WHATSAPP_MESSAGE_STATUS') {
+        const status = statuses.get(receipt.provider_event_id);
+        if (!status || !['SENT', 'DELIVERED', 'READ', 'FAILED'].includes(status.status)) {
+          // A missing status is a parsing mismatch worth retrying; an unknown
+          // state ("deleted", "warning") never becomes valid.
+          await release(receipt, 'WHATSAPP_STATUS_RECEIPT_INVALID', Boolean(status));
+          continue;
+        }
+        const applicationMessageId =
+          status.applicationMessageId && uuidPattern.test(status.applicationMessageId)
+            ? status.applicationMessageId
+            : null;
+        const apply = () =>
+          admin.rpc('apply_whatsapp_message_status', {
+            target_organization_id: receipt.organization_id,
+            target_connection_id: receipt.connected_account_id,
+            target_provider_message_id: status.providerMessageId,
+            target_application_message_id: applicationMessageId,
+            target_delivery_status: status.status,
+            target_occurred_at: status.occurredAt,
+          });
+        let { data, error } = await apply();
+        // Meta can report SENT before send-message has stored the provider ID.
+        if (!error && !(data as { matched?: boolean } | null)?.matched) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          ({ data, error } = await apply());
+        }
+        if (error) {
+          await release(receipt, 'WHATSAPP_MESSAGE_STATUS_REJECTED', permanentDatabaseError(error));
+          continue;
+        }
+        const result = (data ?? {}) as {
+          matched?: boolean;
+          updated?: boolean;
+          message_id?: string;
+        };
+        if (!result.matched) {
+          await release(receipt, 'WHATSAPP_OUTBOUND_MESSAGE_NOT_FOUND', false);
+          continue;
+        }
+        await finish(receipt, 'PROCESSED', {
+          message_id: result.message_id ?? null,
+          stale_status_ignored: result.updated === false,
+        });
+      } else {
+        await release(receipt, 'PROVIDER_EVENT_TYPE_UNSUPPORTED', true);
+      }
+    } catch {
+      // Network or runtime failure: release it for the worker to retry.
+      try {
+        await release(receipt, 'PROVIDER_EVENT_PROCESSING_RETRY', false);
+      } catch {
+        // The lease lapses on its own; the worker reclaims the receipt.
+      }
+    }
+  }
+}
+
 type DealershipWebhookCredential = { app_secret?: string; webhook_verify_token?: string };
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -195,17 +377,24 @@ Deno.serve(async (request) => {
         onConflict: 'organization_id,connected_account_id,provider_event_id',
         ignoreDuplicates: true,
       })
-      .select('id');
+      .select('id,organization_id,connected_account_id,provider_event_id,event_type');
     if (error) throw error;
     const queued = inserted?.length ?? 0;
     if (queued > 0) {
-      // Acknowledge durable receipt storage promptly; waking the worker must
-      // not hold Meta's response open. If enqueue fails or the runtime stops,
-      // the existing minute schedule still claims these RECEIVED events.
+      // Acknowledge durable receipt storage promptly, then apply the receipts
+      // here. Only if that fails is the Trigger.dev worker woken; the minute
+      // schedule still claims anything left RECEIVED or RETRY.
       EdgeRuntime.waitUntil(
         (async () => {
+          const receipts = inserted as StoredReceipt[];
           try {
-            const eventIds = inserted!.map((event) => String(event.id));
+            await applyReceiptsInline(admin, receipts, events);
+            return;
+          } catch {
+            console.warn('WHATSAPP_INLINE_APPLY_FAILED');
+          }
+          try {
+            const eventIds = receipts.map((event) => String(event.id));
             await enqueueTriggerTask(
               'provider-event-dispatch-now',
               { eventIds },

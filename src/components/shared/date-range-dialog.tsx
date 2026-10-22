@@ -15,6 +15,8 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 export type DateRangeValue = { from: string; to: string };
+/** A ready-made range a page offers on top of, or instead of, the default offsets. */
+export type DateRangeChoice = { label: string; from: string; to: string };
 
 type DateRangePreset = {
   label: string;
@@ -74,11 +76,15 @@ function rangeSummary(from: string, to: string) {
 function DateRangeForm({
   value,
   pastOnly,
+  choices,
+  clearable,
   onApply,
   onCancel,
 }: {
   value: DateRangeValue;
   pastOnly: boolean;
+  choices?: DateRangeChoice[];
+  clearable: boolean;
   onApply: (range: DateRangeValue) => void;
   onCancel: () => void;
 }) {
@@ -89,7 +95,16 @@ function DateRangeForm({
   // the whole table into an error state; refuse it here instead.
   const inverted = Boolean(draftFrom && draftTo && draftFrom > draftTo);
   const unchanged = draftFrom === value.from && draftTo === value.to;
-  const hasApplied = Boolean(value.from || value.to);
+  // A range that cannot be cleared (a report period) also cannot be open-ended.
+  const incomplete = !clearable && (!draftFrom || !draftTo);
+  const hasApplied = clearable && Boolean(value.from || value.to);
+  const quickRanges: DateRangeChoice[] =
+    choices ??
+    (pastOnly ? pastPresets : presets).map((preset) => ({
+      label: preset.label,
+      from: shiftDay(today, preset.fromOffset),
+      to: shiftDay(today, preset.toOffset),
+    }));
 
   return (
     <>
@@ -101,15 +116,12 @@ function DateRangeForm({
         <div
           className={cn(
             'grid gap-1.5',
-            pastOnly ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3 sm:grid-cols-5',
+            choices || pastOnly ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3 sm:grid-cols-5',
           )}
           role="group"
         >
-          {(pastOnly ? pastPresets : presets).map((preset) => {
-            const range = {
-              from: shiftDay(today, preset.fromOffset),
-              to: shiftDay(today, preset.toOffset),
-            };
+          {quickRanges.map((preset) => {
+            const range = { from: preset.from, to: preset.to };
             const active = value.from === range.from && value.to === range.to;
             return (
               <Button
@@ -180,7 +192,7 @@ function DateRangeForm({
           </Button>
           <Button
             type="button"
-            disabled={inverted || unchanged}
+            disabled={inverted || unchanged || incomplete}
             onClick={() => onApply({ from: draftFrom, to: draftTo })}
           >
             Apply range
@@ -202,6 +214,8 @@ export function DateRangeDialog({
   description,
   value,
   pastOnly = false,
+  choices,
+  clearable = true,
   onApply,
 }: {
   open: boolean;
@@ -211,6 +225,10 @@ export function DateRangeDialog({
   value: DateRangeValue;
   /** Offer only ranges that end today or earlier, and cap the pickers at today. */
   pastOnly?: boolean;
+  /** Replaces the default quick ranges. */
+  choices?: DateRangeChoice[];
+  /** False for a period that must always have both ends, such as a report range. */
+  clearable?: boolean;
   onApply: (range: DateRangeValue) => void;
 }) {
   return (
@@ -225,6 +243,8 @@ export function DateRangeDialog({
         <DateRangeForm
           value={value}
           pastOnly={pastOnly}
+          choices={choices}
+          clearable={clearable}
           onCancel={() => onOpenChange(false)}
           onApply={(range) => {
             onApply(range);

@@ -381,6 +381,7 @@ export function TestDriveScreen({ bare }: { bare?: boolean } = {}) {
                       setOdometers((current) => ({ ...current, [record.id]: value }))
                     }
                     placeholder="e.g. 12540"
+                    placeholderTextColor={colors.faint}
                     style={styles.input}
                     value={odometers[record.id] ?? ''}
                   />
@@ -427,6 +428,7 @@ export function TestDriveScreen({ bare }: { bare?: boolean } = {}) {
                           setOdometers((current) => ({ ...current, [record.id]: value }))
                         }
                         placeholder={`At least ${record.start_odometer ?? 0}`}
+                        placeholderTextColor={colors.faint}
                         style={styles.input}
                         value={odometers[record.id] ?? ''}
                       />
@@ -518,6 +520,7 @@ export function TestDriveScreen({ bare }: { bare?: boolean } = {}) {
                         updateFeedback(record.id, 'competitorCompared', value)
                       }
                       placeholder="Competitor compared (optional)"
+                      placeholderTextColor={colors.faint}
                       style={styles.input}
                       value={draft.competitorCompared}
                     />
@@ -526,6 +529,7 @@ export function TestDriveScreen({ bare }: { bare?: boolean } = {}) {
                       multiline
                       onChangeText={(value) => updateFeedback(record.id, 'comments', value)}
                       placeholder="Customer comments (optional)"
+                      placeholderTextColor={colors.faint}
                       style={[styles.input, styles.textarea]}
                       value={draft.comments}
                     />

@@ -40,14 +40,18 @@ function Reveal({
 
 // Swipe right for the left action (Call), left for the right action (Done).
 // Releasing past the threshold triggers it and the row springs back.
+// `radius` matches a rounded card's corners, so the coloured strip behind it
+// is clipped to the same shape instead of showing square corners.
 export function SwipeRow({
   children,
   left,
   right,
+  radius,
 }: {
   children: ReactNode;
   left?: SwipeAction;
   right?: SwipeAction;
+  radius?: number;
 }) {
   const ref = useRef<SwipeableMethods>(null);
   return (
@@ -58,7 +62,7 @@ export function SwipeRow({
       rightThreshold={84}
       overshootLeft={false}
       overshootRight={false}
-      containerStyle={styles.container}
+      containerStyle={[styles.container, radius ? { borderRadius: radius } : null]}
       renderLeftActions={
         left ? (progress) => <Reveal action={left} progress={progress} align="left" /> : undefined
       }

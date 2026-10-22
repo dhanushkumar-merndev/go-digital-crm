@@ -49,15 +49,21 @@ describe('sales exchange page contract', () => {
     expect(workspace).not.toContain('/sales-consultant/customers/');
   });
 
+  it('opens on a list of exchange bookings and keeps the open request in the URL', () => {
+    expect(workspace).toContain('function ExchangeList(');
+    expect(workspace).toContain("searchParams.get('booking')");
+    expect(workspace).not.toContain('options.data?.[0]?.booking_id');
+  });
+
   it('exposes the reference workflow and real actions', () => {
     for (const text of [
-      'Existing Vehicle',
+      'Existing vehicle',
       'Request evaluation',
       'Submit exchange',
       'Vehicle Photos (Max 8)',
       'RC Copy',
-      'Exchange Status',
-      'Estimated Exchange Value',
+      'Exchange status',
+      'Estimated exchange value',
     ])
       expect(workspace).toContain(text);
     expect(workspace).toContain("submit('SAVE_DRAFT')");

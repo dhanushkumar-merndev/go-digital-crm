@@ -334,6 +334,7 @@ export default function CallSummary() {
             style={styles.input}
             maxLength={240}
             placeholder="Reason for follow-up"
+            placeholderTextColor={colors.faint}
           />
           <Text style={styles.inputLabel}>When</Text>
           <WhenPicker value={dueAt} onChange={setDueAt} />

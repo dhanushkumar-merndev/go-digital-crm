@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
+import { kpiGridColumns } from '@/components/shared/kpi-grid';
+import { AiDashboardSummary } from './ai-dashboard-summary';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
@@ -30,6 +32,7 @@ import { TelecallerDashboardSkeleton } from '@/components/skeletons/sales-consul
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Table,
@@ -44,6 +47,7 @@ import { retryRpcRead } from '@/lib/supabase/read-rpc';
 import { leadStageVariant } from '@/features/leads/lead-stage-variant';
 import {
   fetchLeadWorkspaceMeta,
+  leadsQualifiedOrLater,
   toLeadMetaQuery,
   type LeadWorkspaceResult,
 } from '@/features/leads/lead-workspace-api';
@@ -51,7 +55,7 @@ import { defaultLeadQuery } from '@/features/leads/lead-workspace-query';
 import { fetchWorkWorkspace } from '@/features/work/workspace-api';
 import { defaultWorkQuery } from '@/features/work/workspace-query';
 import { focusRowHref } from '@/lib/navigation/focus-row';
-import { leadDetailHref } from '@/lib/navigation/record-links';
+import { leadDetailHref, myLeadsFocusHref } from '@/lib/navigation/record-links';
 import { ManualDashboardRefreshLimitError } from '@/lib/query/cached-dashboard-api';
 import {
   AGGREGATE_REALTIME_MIN_INTERVAL_MS,
@@ -83,7 +87,8 @@ const PIPELINE_TRANSFERRED = 'Transferred to Sales';
 type MetricCardModel = {
   key: string;
   label: string;
-  value: number;
+  /** `undefined` while the query that owns the number is still loading. */
+  value: number | undefined;
   icon: LucideIcon;
   tone: Tone;
   href: string;
@@ -130,10 +135,49 @@ function pipelineStage(data: TenantDashboardResult, name: string) {
   return data.pipeline.find((stage) => stage.name === name)?.value ?? 0;
 }
 
-function pipelineConversionRate(data: TenantDashboardResult) {
-  const first = data.pipeline[0]?.value ?? 0;
-  const last = data.pipeline.at(-1)?.value ?? 0;
-  return first > 0 ? (last / first) * 100 : 0;
+/**
+ * The pipeline RPC reports where each lead is now, not how many passed through a
+ * stage, so stage-over-stage "conversion" read 233% when more leads sat in
+ * Contacted than in New. Each stage's share of the queue is what these numbers
+ * can honestly show.
+ */
+/** The free text shown until the telecaller asks for an AI summary. */
+function telecallerSummaryText(
+  data: TenantDashboardResult,
+  followups: FollowupDashboardKpis | undefined,
+) {
+  const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+  const overdue = followups?.overdue ?? data.kpis.followups_overdue;
+  const dueToday = followups?.today ?? data.kpis.followups_due_today;
+  return `${plural(data.kpis.new_leads_today, 'new lead')} today and ${plural(dueToday, 'follow-up')} due. ${
+    overdue
+      ? `Clear ${plural(overdue, 'overdue follow-up')} first, then call the new leads.`
+      : 'No follow-ups are overdue, so start with the new leads.'
+  }`;
+}
+
+type FunnelStage = { name: string; value: number; color: string };
+
+/**
+ * The telecaller's leads counted at every stage they have passed, so each stage
+ * holds no more than the one before it. The summary's pipeline only lists open
+ * leads by their current stage, which left the 373 already handed to Sales out
+ * of the funnel and drew Contacted wider than New. Lost leads drop out after
+ * contact, so they count as contacted and are reported beside the funnel.
+ * Colours follow AGENTS.md 9.8.
+ */
+function pipelineFunnel(kpis: LeadWorkspaceResult['kpis']): FunnelStage[] {
+  const qualified = leadsQualifiedOrLater(kpis);
+  return [
+    { name: 'Assigned', value: kpis.total, color: '#2563eb' },
+    {
+      name: 'Contacted',
+      value: Math.max(kpis.total - kpis.new_count, qualified),
+      color: '#0891b2',
+    },
+    { name: 'Qualified', value: qualified, color: '#0d9488' },
+    { name: 'Transferred to sales', value: kpis.transferred_to_sales_count, color: '#059669' },
+  ];
 }
 
 /**
@@ -178,18 +222,23 @@ function handoffRate(data: TenantDashboardResult, leadKpis?: LeadWorkspaceResult
 
 function metricCards(
   data: TenantDashboardResult,
-  leadKpis?: LeadWorkspaceResult['kpis'],
-  followupKpis?: FollowupDashboardKpis,
+  leadKpis: LeadWorkspaceResult['kpis'] | undefined,
+  followupKpis: FollowupDashboardKpis | undefined,
+  pending: { leads: boolean; followups: boolean },
 ): MetricCardModel[] {
   const leads = `/${DASHBOARD_ROLE}/my-leads`;
   const followups = `/${DASHBOARD_ROLE}/follow-ups`;
+  // A tile owned by the lead or follow-up workspace waits for that query rather
+  // than showing the summary's number first and then jumping to a different one.
+  const fromLeads = (value: number) => (pending.leads ? undefined : value);
+  const fromFollowups = (value: number) => (pending.followups ? undefined : value);
   return [
     {
       key: 'new_leads_today',
       label: 'New leads',
       // My Leads calls this same derived queue “New”. Keeping both surfaces on
       // NEW_TODAY means a click always lands on the tab showing this count.
-      value: leadKpis?.new_today ?? data.kpis.new_leads_today,
+      value: fromLeads(leadKpis?.new_today ?? data.kpis.new_leads_today),
       icon: UserRoundPlus,
       tone: 'blue',
       href: `${leads}?status=new-today`,
@@ -201,7 +250,7 @@ function metricCards(
       label: 'Total my leads',
       // “Assigned” was previously the active-only dashboard number while its
       // destination was My Leads > All. Use the exact All-tab total instead.
-      value: leadKpis?.total ?? data.kpis.open_leads,
+      value: fromLeads(leadKpis?.total ?? data.kpis.open_leads),
       icon: UsersRound,
       tone: 'violet',
       href: leads,
@@ -220,7 +269,7 @@ function metricCards(
     {
       key: 'followups_due_today',
       label: 'Follow-ups today',
-      value: followupKpis?.today ?? data.kpis.followups_due_today,
+      value: fromFollowups(followupKpis?.today ?? data.kpis.followups_due_today),
       icon: CalendarClock,
       tone: 'orange',
       href: `${followups}?status=today`,
@@ -229,7 +278,7 @@ function metricCards(
     {
       key: 'followups_overdue',
       label: 'Overdue follow-ups',
-      value: followupKpis?.overdue ?? data.kpis.followups_overdue,
+      value: fromFollowups(followupKpis?.overdue ?? data.kpis.followups_overdue),
       icon: Clock3,
       tone: 'rose',
       href: `${followups}?status=overdue`,
@@ -238,11 +287,11 @@ function metricCards(
     {
       key: 'contacted_leads',
       label: 'Contacted leads',
-      value: leadKpis?.contacted_count ?? pipelineStage(data, 'Contacted'),
+      value: fromLeads(leadKpis?.contacted_count ?? pipelineStage(data, 'Contacted')),
       icon: PhoneOutgoing,
       tone: 'cyan',
       href: `${leads}?status=contacted`,
-      caption: 'Customer reached',
+      caption: 'Reached, not yet qualified',
     },
     {
       key: 'handoff_rate',
@@ -252,7 +301,7 @@ function metricCards(
       // replaces it with 'Transferred to Sales' inside the same transaction, so
       // no lead is ever at rest in it. This reports the telecaller's actual
       // output instead -- how much of the queue reached Sales.
-      value: handoffRate(data, leadKpis),
+      value: fromLeads(handoffRate(data, leadKpis)),
       suffix: '%',
       icon: BadgeCheck,
       tone: 'amber',
@@ -262,120 +311,13 @@ function metricCards(
     {
       key: 'transferred_leads',
       label: 'Transferred to sales',
-      value: leadKpis?.transferred_to_sales_count ?? pipelineStage(data, PIPELINE_TRANSFERRED),
+      value: fromLeads(
+        leadKpis?.transferred_to_sales_count ?? pipelineStage(data, PIPELINE_TRANSFERRED),
+      ),
       icon: UserRoundCheck,
       tone: 'emerald',
       href: `${leads}?status=transferred-to-sales`,
       caption: 'Handed to consultants',
-    },
-  ];
-}
-
-function attentionTiles(
-  data: TenantDashboardResult,
-  leadKpis?: LeadWorkspaceResult['kpis'],
-  followupKpis?: FollowupDashboardKpis,
-) {
-  const leads = `/${DASHBOARD_ROLE}/my-leads`;
-  const followups = `/${DASHBOARD_ROLE}/follow-ups`;
-  return [
-    {
-      key: 'OVERDUE_FOLLOWUPS',
-      label: 'Overdue follow-up',
-      value: followupKpis?.overdue ?? data.kpis.followups_overdue,
-      action: 'View follow-ups',
-      icon: Clock3,
-      tone: 'rose' as Tone,
-      href: `${followups}?status=overdue`,
-    },
-    {
-      key: 'FOLLOWUPS_TODAY',
-      label: 'Follow-up due today',
-      value: followupKpis?.today ?? data.kpis.followups_due_today,
-      action: 'View follow-ups',
-      icon: CalendarClock,
-      tone: 'orange' as Tone,
-      href: `${followups}?status=today`,
-    },
-    {
-      key: 'AWAITING_FIRST_CALL',
-      label: 'Lead awaiting first call',
-      value: leadKpis?.new_today ?? pipelineStage(data, 'New'),
-      action: 'View leads',
-      icon: PhoneOutgoing,
-      tone: 'violet' as Tone,
-      href: `${leads}?status=new`,
-    },
-    {
-      key: 'CONTACTED_AWAITING_HANDOFF',
-      label: 'Contacted, not yet handed off',
-      // Replaces a 'Qualified' tile that could not be non-zero. These are the
-      // leads the customer has been reached on and that still need a decision.
-      value: leadKpis?.contacted_count ?? pipelineStage(data, 'Contacted'),
-      action: 'Review contacted leads',
-      icon: BadgeCheck,
-      tone: 'cyan' as Tone,
-      href: `${leads}?status=contacted`,
-    },
-    {
-      key: 'OPEN_QUEUE',
-      label: 'Open lead in your queue',
-      value: leadKpis?.total ?? data.kpis.open_leads,
-      action: 'View leads',
-      icon: UsersRound,
-      tone: 'blue' as Tone,
-      href: leads,
-    },
-  ];
-}
-
-function alertRows(
-  data: TenantDashboardResult,
-  leadKpis?: LeadWorkspaceResult['kpis'],
-  followupKpis?: FollowupDashboardKpis,
-) {
-  const leads = `/${DASHBOARD_ROLE}/my-leads`;
-  const followups = `/${DASHBOARD_ROLE}/follow-ups`;
-  return [
-    {
-      key: 'FOLLOWUPS_DUE',
-      label: 'Follow-ups due today',
-      value: followupKpis?.today ?? data.kpis.followups_due_today,
-      icon: Clock3,
-      tone: 'rose' as Tone,
-      href: `${followups}?status=today`,
-    },
-    {
-      key: 'FOLLOWUPS_OVERDUE',
-      label: 'Follow-ups overdue',
-      value: followupKpis?.overdue ?? data.kpis.followups_overdue,
-      icon: BellRing,
-      tone: 'rose' as Tone,
-      href: `${followups}?status=overdue`,
-    },
-    {
-      key: 'TRANSFERRED_TO_SALES',
-      label: 'Transferred to Sales',
-      value: leadKpis?.transferred_to_sales_count ?? pipelineStage(data, PIPELINE_TRANSFERRED),
-      icon: UserRoundCheck,
-      tone: 'blue' as Tone,
-      href: `${leads}?status=transferred-to-sales`,
-    },
-    {
-      key: 'CALLS_TODAY',
-      label: 'Calls logged today',
-      value: data.kpis.calls_today,
-      icon: PhoneCall,
-      tone: 'emerald' as Tone,
-      href: `/${DASHBOARD_ROLE}/calls`,
-    },
-    {
-      key: 'NEW_LEADS_TODAY',
-      label: 'New leads',
-      value: leadKpis?.new_today ?? data.kpis.new_leads_today,
-      icon: UserRoundPlus,
-      tone: 'violet' as Tone,
-      href: `${leads}?status=new-today`,
     },
   ];
 }
@@ -389,7 +331,10 @@ function MetricCard({ metric }: { metric: MetricCardModel }) {
       href={metric.href}
       className="group min-w-0 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
     >
-      <Card className="h-full min-w-0 border-slate-200/90 shadow-none transition-all group-hover:-translate-y-0.5 group-hover:border-blue-200 group-hover:shadow-sm">
+      <Card
+        data-kpi
+        className="h-full min-w-0 border-slate-200/90 shadow-none transition-all group-hover:-translate-y-0.5 group-hover:border-blue-200 group-hover:shadow-sm"
+      >
         <CardContent className="p-4">
           <div className="flex items-center gap-2.5">
             <span
@@ -404,10 +349,16 @@ function MetricCard({ metric }: { metric: MetricCardModel }) {
               {metric.label}
             </p>
           </div>
-          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-heading">
-            {metric.value}
-            {metric.suffix}
-          </p>
+          <div className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-heading">
+            {metric.value === undefined ? (
+              <Skeleton className="mx-auto h-[26px] w-14" />
+            ) : (
+              <>
+                {metric.value}
+                {metric.suffix}
+              </>
+            )}
+          </div>
           {metric.change ? (
             <p
               className={cn(
@@ -540,16 +491,20 @@ function OverdueQueue({ data, className }: { data: TenantDashboardResult; classN
 
 function RecentLeads({
   leads,
+  syncedAt,
   className,
 }: {
   leads: TenantDashboardLeadPreview[];
+  /** When the rows were read; a follow-up due before it is overdue. */
+  syncedAt: string;
   className?: string;
 }) {
+  const syncedTime = new Date(syncedAt).getTime();
   const router = useRouter();
   // The row and the arrow go to the same place, so the arrow stays as the
   // visible affordance for anyone who does not know the row is clickable.
-  const openLead = (leadId: string) =>
-    router.push(`/${DASHBOARD_ROLE}/my-leads?status=all&focus=${encodeURIComponent(leadId)}`);
+  const openLead = (lead: { id: string; phone: string | null }) =>
+    router.push(myLeadsFocusHref(DASHBOARD_ROLE, lead));
 
   return (
     <Card className={cn('flex flex-col overflow-hidden shadow-none', className)}>
@@ -599,11 +554,11 @@ function RecentLeads({
                   role="link"
                   tabIndex={0}
                   aria-label={`Open ${lead.customer_name} in My Leads`}
-                  onClick={() => openLead(lead.id)}
+                  onClick={() => openLead(lead)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
-                      openLead(lead.id);
+                      openLead(lead);
                     }
                   }}
                   className="cursor-pointer text-[10px] hover:bg-slate-50"
@@ -623,8 +578,18 @@ function RecentLeads({
                   <TableCell className="hidden max-w-36 truncate px-3 py-2 lg:table-cell">
                     {lead.interested_model ?? '—'}
                   </TableCell>
-                  <TableCell className="hidden whitespace-nowrap px-3 py-2 lg:table-cell">
+                  <TableCell
+                    className={cn(
+                      'hidden whitespace-nowrap px-3 py-2 lg:table-cell',
+                      lead.next_followup_at &&
+                        new Date(lead.next_followup_at).getTime() < syncedTime &&
+                        'font-semibold text-rose-600',
+                    )}
+                  >
                     {formatDateTime(lead.next_followup_at)}
+                    {lead.next_followup_at && new Date(lead.next_followup_at).getTime() < syncedTime
+                      ? ' · overdue'
+                      : null}
                   </TableCell>
                   <TableCell className="px-3 py-2">
                     <Badge
@@ -646,7 +611,7 @@ function RecentLeads({
                     <div className="flex justify-end">
                       <Button asChild variant="ghost" size="icon" className="size-7 text-blue-600">
                         <Link
-                          href={`/${DASHBOARD_ROLE}/my-leads?status=all&focus=${encodeURIComponent(lead.id)}`}
+                          href={myLeadsFocusHref(DASHBOARD_ROLE, lead)}
                           aria-label={`Open ${lead.customer_name} in My Leads`}
                           title={`Open ${lead.customer_name} in My Leads`}
                           onClick={(event) => event.stopPropagation()}
@@ -692,8 +657,9 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
   );
   const manualRefreshRequest = useRef(false);
   // Browser first: memory, then the IndexedDB copy (a reload inside 30 minutes
-  // makes no request for these counts), then Redis, then PostgreSQL.
-  const dashboard = useTenantDashboard(dashboardQueryKey, manualRefreshRequest);
+  // makes no request for these counts), then PostgreSQL. The telecaller's
+  // summary is their own records, so the Redis hop is skipped.
+  const dashboard = useTenantDashboard(dashboardQueryKey, manualRefreshRequest, { direct: true });
   // The shared workspace RPC owns the Telecaller tab definitions (including
   // “Contacted” excluding leads already in Follow-up). Reusing it here keeps
   // dashboard cards and their destinations mathematically identical. Only the
@@ -790,8 +756,9 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
     }
   }
 
-  if (dashboard.isPending || leadMetrics.isPending || followupMetrics.isPending)
-    return <TelecallerDashboardSkeleton />;
+  // Only the summary holds the page back; the tiles owned by the lead and
+  // follow-up queries show their own placeholder until those land.
+  if (dashboard.isPending) return <TelecallerDashboardSkeleton />;
   // A rejected Refresh (such as the 3-per-30-minute quota) must not replace a
   // rendered dashboard with a blank error page. Only the initial load has no
   // previous data to keep visible.
@@ -823,10 +790,11 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
       </div>
     );
 
-  const metrics = metricCards(data, leadMetrics.data, followupMetrics.data);
-  const attention = attentionTiles(data, leadMetrics.data, followupMetrics.data);
-  const alerts = alertRows(data, leadMetrics.data, followupMetrics.data);
-  const conversionRate = pipelineConversionRate(data);
+  const metrics = metricCards(data, leadMetrics.data, followupMetrics.data, {
+    leads: leadMetrics.isPending,
+    followups: followupMetrics.isPending,
+  });
+  const funnel = leadMetrics.data ? pipelineFunnel(leadMetrics.data) : undefined;
 
   return (
     <div className="mx-auto w-full space-y-5 pb-8">
@@ -854,7 +822,7 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
         }
       />
 
-      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-8">
+      <div className={cn('grid gap-2.5', kpiGridColumns(metrics.length))}>
         {metrics.map((metric) => (
           <MetricCard key={metric.key} metric={metric} />
         ))}
@@ -862,102 +830,71 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
 
       <div className="grid gap-4 xl:grid-cols-12">
         <div className="space-y-4 xl:col-span-8">
-          <Card className="shadow-none">
-            <CardHeader className="border-b px-4 py-3.5">
-              <CardTitle className="text-sm">Requires attention</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-2.5 p-3 sm:grid-cols-2 lg:grid-cols-5">
-              {attention.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.key}
-                    href={item.href}
-                    className={cn(
-                      'group flex min-h-32 flex-col rounded-lg border p-3 transition-all hover:-translate-y-0.5 hover:shadow-sm',
-                      toneStyles[item.tone].soft,
-                      toneStyles[item.tone].border,
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={cn(
-                          'grid size-8 place-items-center rounded-lg bg-white/90',
-                          toneStyles[item.tone].icon,
-                        )}
-                      >
-                        <Icon className="size-4" />
-                      </span>
-                      <span className="text-xl font-bold text-heading">{item.value}</span>
-                    </div>
-                    <p className="mt-3 text-[11px] font-medium leading-4 text-heading-soft">
-                      {item.label}
-                    </p>
-                    <span className="mt-auto flex items-center gap-1 pt-3 text-[10px] font-semibold text-blue-600">
-                      {item.action}
-                      <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
-                    </span>
-                  </Link>
-                );
-              })}
-            </CardContent>
-          </Card>
-
           <div className="grid gap-4 lg:grid-cols-12">
             <Card className="flex h-full flex-col overflow-hidden shadow-none lg:col-span-7">
               <CardHeader className="border-b px-4 py-3">
-                <CardTitle className="text-sm">Lead pipeline funnel</CardTitle>
+                <CardTitle className="text-sm">Lead pipeline</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col p-3">
-                <div className="flex gap-3">
-                  <EChart
-                    kind="funnel"
-                    funnelMode="staged"
-                    data={data.pipeline}
-                    className="h-[235px] min-w-0 flex-1"
-                  />
-                  <div className="grid h-[235px] w-44 shrink-0 grid-rows-[25px_repeat(5,minmax(0,1fr))] text-[10px]">
-                    <div className="flex items-center justify-between border-b font-medium text-muted-foreground">
-                      <span>Stage</span>
-                      <span>Count</span>
-                    </div>
-                    {data.pipeline.slice(0, 5).map((stage, index) => {
-                      const previous = data.pipeline[index - 1]?.value ?? stage.value;
-                      const conversion = previous > 0 ? (stage.value / previous) * 100 : 0;
-                      return (
+                {/* The same card as the Sales Consultant dashboard: the funnel
+                    with each stage's count beside it, then the AI summary.
+                    Every stage is a share of the leads assigned. */}
+                {funnel ? (
+                  <div className="flex gap-3">
+                    <EChart
+                      kind="funnel"
+                      funnelMode="staged"
+                      funnelStages={funnel.length}
+                      data={funnel}
+                      colors={funnel.map((stage) => stage.color)}
+                      className="h-[235px] min-w-0 flex-1"
+                    />
+                    <div className="flex w-52 shrink-0 flex-col justify-center text-[11px]">
+                      <div className="flex items-center justify-between border-b pb-1.5 text-[10px] font-medium text-muted-foreground">
+                        <span>Stage</span>
+                        <span>Leads · of assigned</span>
+                      </div>
+                      {funnel.map((stage) => (
                         <div
                           key={stage.name}
-                          className="flex items-center justify-between gap-2 border-b border-slate-100 last:border-0"
+                          className="flex items-center justify-between gap-2 border-b border-slate-100 py-2 last:border-0"
                         >
-                          <span className="min-w-0">
+                          <span className="flex min-w-0 items-center gap-2">
                             <span
-                              className="block truncate font-medium text-heading-soft"
+                              className="size-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: stage.color }}
+                            />
+                            <span
+                              className="truncate font-medium text-heading-soft"
                               title={stage.name}
                             >
                               {stage.name}
                             </span>
-                            <span className="block text-[10px] text-emerald-600">
-                              {index === 0
-                                ? 'Starting stage'
-                                : `${conversion.toFixed(1)}% conversion`}
+                          </span>
+                          <span className="shrink-0 text-right">
+                            <span className="font-semibold text-heading">{stage.value}</span>
+                            <span className="ml-1 text-[10px] text-muted-foreground">
+                              {funnel[0]!.value
+                                ? Math.round((stage.value / funnel[0]!.value) * 100)
+                                : 0}
+                              %
                             </span>
                           </span>
-                          <span className="shrink-0 rounded bg-slate-50 px-1.5 py-0.5 font-semibold text-heading-soft">
-                            {stage.value}
-                          </span>
                         </div>
-                      );
-                    })}
+                      ))}
+                      <p className="pt-2 text-[10px] text-muted-foreground">
+                        {leadMetrics.data?.lost_count ?? 0} lost after contact
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="mt-auto flex items-center justify-between rounded-lg bg-slate-50 px-4 py-2.5 text-xs">
-                  <span className="text-muted-foreground">Lead to handoff conversion</span>
-                  <span className="font-bold text-heading">{conversionRate.toFixed(1)}%</span>
-                  <span className="flex items-center gap-1 text-emerald-600">
-                    <TrendingUp className="size-3.5" />
-                    Live
-                  </span>
-                </div>
+                ) : (
+                  <Skeleton className="h-[235px] w-full" />
+                )}
+                <AiDashboardSummary
+                  title="AI calling summary"
+                  defaultSummary={telecallerSummaryText(data, followupMetrics.data)}
+                  timezone={DASHBOARD_TIMEZONE}
+                />
               </CardContent>
             </Card>
             <div className="space-y-4 lg:col-span-5">
@@ -1042,50 +979,12 @@ export function TelecallerDashboard({ spec }: { spec: PageSpec }) {
         <div className="flex flex-col xl:col-span-4 xl-fill-row">
           <OverdueQueue data={data} className="flex-1 min-h-0" />
         </div>
-        <div className="flex flex-col xl:col-span-8">
-          <RecentLeads leads={data.lead_preview} className="h-full flex-1" />
-        </div>
-        <div className="flex flex-col xl:col-span-4">
-          <Card className="flex h-full flex-1 flex-col overflow-hidden shadow-none">
-            <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
-              <CardTitle className="text-sm">Tasks &amp; alerts</CardTitle>
-              <Button
-                asChild
-                variant="link"
-                size="sm"
-                className="h-auto px-0 text-[11px] text-blue-600"
-              >
-                <Link href={`/${DASHBOARD_ROLE}/tasks`}>
-                  View all <ArrowRight className="size-3" />
-                </Link>
-              </Button>
-            </CardHeader>
-            <CardContent className="flex flex-1 flex-col divide-y p-0">
-              {alerts.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.key}
-                    href={item.href}
-                    className="flex flex-1 items-center gap-3 px-4 py-2.5 hover:bg-slate-50"
-                  >
-                    <span
-                      className={cn(
-                        'grid size-7 place-items-center rounded-md',
-                        toneStyles[item.tone].icon,
-                      )}
-                    >
-                      <Icon className="size-3.5" />
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-heading-soft">
-                      {item.label}
-                    </span>
-                    <span className="text-xs font-bold text-heading">{item.value}</span>
-                  </Link>
-                );
-              })}
-            </CardContent>
-          </Card>
+        <div className="flex flex-col xl:col-span-12">
+          <RecentLeads
+            leads={data.lead_preview}
+            syncedAt={data.generated_at}
+            className="h-full flex-1"
+          />
         </div>
       </div>
     </div>

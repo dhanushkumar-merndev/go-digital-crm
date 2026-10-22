@@ -5,8 +5,10 @@ const source = readFileSync(
   new URL('../../supabase/functions/send-message/index.ts', import.meta.url),
   'utf8',
 );
+// The prepare RPC starts alongside the user check and conversation read, so the
+// personal path runs from that parallel start to the official-path fallthrough.
 const personalPath = source.slice(
-  source.indexOf("if (input.content.type === 'text')"),
+  source.indexOf('const personalPrepare'),
   source.indexOf('const { data: conversation }'),
 );
 
@@ -17,6 +19,11 @@ describe('personal WhatsApp send latency contract', () => {
     expect(personalPath).toContain("error.message === 'PERSONAL_WHATSAPP_NOT_FOUND'");
     expect(personalPath).not.toContain("from('personal_whatsapp_conversations')");
     expect(personalPath).not.toContain('personalWhatsAppActor');
+  });
+
+  it('reads the personal probe and the conversation in one parallel step', () => {
+    expect(personalPath).toContain('await Promise.all([');
+    expect(personalPath).toContain('client.auth.getUser(),');
   });
 
   it('retains reservation recovery and idempotent duplicate handling', () => {

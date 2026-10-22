@@ -298,17 +298,53 @@ export async function saveMyProfile(input: {
   } satisfies SavedProfile;
 }
 
-export async function fetchProfileAvatarUrl() {
+type ProfileAvatarUrl = z.infer<typeof avatarUrlSchema>;
+
+/** A signed URL is reused only while it has at least this long left to live. */
+const AVATAR_URL_MIN_REMAINING_MS = 60_000;
+const avatarUrlStorageKey = (avatarObjectFileId: string) =>
+  `gdm-profile-avatar-url:${avatarObjectFileId}`;
+
+/**
+ * The header's signed avatar URL from this tab's session storage, while it is
+ * still inside its own five-minute life. Every full page load used to presign
+ * again (an Edge call of up to a second); the URL is never kept past its
+ * expiry and never written to IndexedDB.
+ */
+export function readCachedProfileAvatarUrl(avatarObjectFileId: string | null) {
+  if (!avatarObjectFileId) return undefined;
+  try {
+    const parsed = avatarUrlSchema.safeParse(
+      JSON.parse(sessionStorage.getItem(avatarUrlStorageKey(avatarObjectFileId)) ?? 'null'),
+    );
+    if (!parsed.success) return undefined;
+    const remaining = new Date(parsed.data.expires_at).getTime() - Date.now();
+    return remaining > AVATAR_URL_MIN_REMAINING_MS ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function fetchProfileAvatarUrl(
+  avatarObjectFileId: string | null = null,
+): Promise<ProfileAvatarUrl> {
   if (!hasSupabaseConfig()) throw new ProfileSettingsError('SUPABASE_NOT_CONFIGURED');
   const supabase = createClient();
   const result = await throwEdgeError(
-    await invokeAuthenticatedEdge<EdgeEnvelope<z.infer<typeof avatarUrlSchema>>>(
+    await invokeAuthenticatedEdge<EdgeEnvelope<ProfileAvatarUrl>>(
       supabase,
       'profile-avatar-url',
       {},
     ),
   );
-  return avatarUrlSchema.parse(result);
+  const avatar = avatarUrlSchema.parse(result);
+  if (avatarObjectFileId)
+    try {
+      sessionStorage.setItem(avatarUrlStorageKey(avatarObjectFileId), JSON.stringify(avatar));
+    } catch {
+      /* Storage blocked: the next load presigns again. */
+    }
+  return avatar;
 }
 
 export function getProfileSettingsErrorMessage(error: unknown) {

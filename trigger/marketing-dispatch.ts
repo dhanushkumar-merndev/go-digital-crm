@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { runBulkCampaignDispatch } from './bulk-campaign-dispatch';
 import { runDripAutoMatch, runEventDripMatches } from './drip-auto-match';
 import { runDripDispatch } from './drip-dispatch';
+import { runReviewRequestDispatch } from './review-request-dispatch';
 import { runSocialPostPublish } from './social-post-publish';
 import { runCrmAlerts } from './crm-alerts';
 
@@ -28,8 +29,9 @@ export async function runMarketingDispatch(supabase: ReturnType<typeof createCli
   // queue is claimed: a new lead's thank-you goes out in this same pass.
   const [eventMatch] = await Promise.allSettled([runEventDripMatches(supabase)]);
 
-  const [drip, bulk, social, autoMatch, alerts] = await Promise.allSettled([
+  const [drip, reviews, bulk, social, autoMatch, alerts] = await Promise.allSettled([
     runDripDispatch(supabase),
+    runReviewRequestDispatch(supabase),
     runBulkCampaignDispatch(supabase),
     runSocialPostPublish(supabase),
     runAutoMatch ? runDripAutoMatch(supabase) : Promise.resolve(null),
@@ -44,6 +46,7 @@ export async function runMarketingDispatch(supabase: ReturnType<typeof createCli
   return {
     event_match: settled(eventMatch),
     drip: settled(drip),
+    reviews: settled(reviews),
     bulk: settled(bulk),
     social: settled(social),
     auto_match: runAutoMatch ? settled(autoMatch) : 'skipped',

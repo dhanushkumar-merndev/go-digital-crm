@@ -38,7 +38,7 @@ export const activityKindDefinitions: Record<
   CALL: { label: 'Call logged', icon: Phone, tone: 'bg-emerald-50 text-emerald-600' },
   MESSAGE: { label: 'Message activity', icon: MessageCircle, tone: 'bg-green-50 text-green-600' },
   FOLLOW_UP: {
-    label: 'Follow-up scheduled',
+    label: 'Follow-up',
     icon: CalendarClock,
     tone: 'bg-violet-50 text-violet-600',
   },
@@ -140,9 +140,40 @@ export function activityDayKey(value: string) {
   }).format(new Date(value));
 }
 
+/** Activity codes that name the event better than their kind does. */
+const activityCodeTitles: Record<string, string> = {
+  FOLLOWUP_SCHEDULED: 'Follow-up scheduled',
+  FOLLOWUP_COMPLETED: 'Follow-up completed',
+  FOLLOWUP_RESCHEDULED: 'Follow-up rescheduled',
+  FOLLOWUP_CANCELLED: 'Follow-up cancelled',
+};
+
+const isActivityCode = (value: string) => /^[A-Z0-9_ ]+$/.test(value);
+const codeKey = (value: string) => value.trim().replaceAll(' ', '_');
+
+/**
+ * A row's title and its one line of detail. The RPC sends either free text or a
+ * raw code such as `FOLLOWUP_COMPLETED` / `INBOUND`; a code is turned into
+ * words, and a code the title already says is not repeated underneath it.
+ */
+export function activityRowText(record: ActivityTimelineRecord) {
+  const kindLabel = activityKindDefinitions[record.activity_kind].label;
+  const code = [record.detail, record.activity_type].find(
+    (value): value is string =>
+      !!value && isActivityCode(value) && !!activityCodeTitles[codeKey(value)],
+  );
+  const title = code ? activityCodeTitles[codeKey(code)]! : kindLabel;
+  const raw = record.detail ?? record.activity_type;
+  if (!raw || (code && codeKey(raw) === codeKey(code))) return { title, detail: null };
+  if (!isActivityCode(raw)) return { title, detail: raw };
+  const words = raw.replaceAll('_', ' ').toLowerCase();
+  return { title, detail: words.charAt(0).toUpperCase() + words.slice(1) };
+}
+
 function TimelineRecordRow({ record }: { record: ActivityTimelineRecord }) {
   const definition = activityKindDefinitions[record.activity_kind];
   const Icon = definition.icon;
+  const text = activityRowText(record);
   return (
     <div className="relative grid grid-cols-[58px_34px_minmax(0,1fr)_auto] gap-3 py-3 first:pt-1">
       <p className="pt-2 text-right text-[11px] font-medium text-muted-foreground">
@@ -154,10 +185,10 @@ function TimelineRecordRow({ record }: { record: ActivityTimelineRecord }) {
         </span>
       </span>
       <div className="min-w-0 pt-1">
-        <p className="text-xs font-semibold text-heading">{definition.label}</p>
-        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-          {record.detail ?? record.activity_type.replaceAll('_', ' ')}
-        </p>
+        <p className="text-xs font-semibold text-heading">{text.title}</p>
+        {text.detail && (
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{text.detail}</p>
+        )}
         <p className="mt-1 text-[10px] text-slate-500">
           {record.customer_name} · {record.lead_reference}
           {record.interested_model ? ` · ${record.interested_model}` : ''}

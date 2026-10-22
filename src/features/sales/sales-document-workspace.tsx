@@ -13,6 +13,7 @@ import {
   Clock3,
   Eye,
   FileText,
+  Files,
   IndianRupee,
   MoreHorizontal,
   Pencil,
@@ -35,7 +36,7 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
-import { KpiGrid, kpiVariantForRole } from '@/components/shared/kpi-grid';
+import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { RefreshFailedNotice } from '@/components/shared/refresh-failed-notice';
 import {
@@ -118,52 +119,71 @@ function dateOnly(value: string | null) {
   );
 }
 
+// Sentence case, as everywhere else: "Ready for delivery", not "Ready For Delivery".
 function label(value: string) {
-  return value
-    .replaceAll('-', ' ')
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const words = value.replaceAll('-', ' ').replaceAll('_', ' ').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+// Six tiles, as on every Sales list page.
 function quotationMetrics(result: QuotationWorkspaceResult): Metric[] {
   return [
     {
-      label: 'Open Quotations',
+      label: 'Total quotations',
+      value: result.total.toLocaleString('en-IN'),
+      helper: 'Every status',
+      icon: Files,
+      tone: 'bg-slate-100 text-slate-600',
+    },
+    {
+      label: 'Open',
       value: result.kpis.open.toLocaleString('en-IN'),
+      helper: 'Draft, awaiting approval or sent',
       icon: FileText,
       tone: 'bg-blue-50 text-blue-600',
     },
     {
       label: 'Sent',
       value: result.kpis.sent.toLocaleString('en-IN'),
+      helper: 'Waiting on the customer',
       icon: Send,
       tone: 'bg-emerald-50 text-emerald-600',
     },
     {
-      label: 'Approval required',
+      label: 'Approval pending',
       value: result.kpis.approval_required.toLocaleString('en-IN'),
-      helper: 'Distinct manager decision required',
+      helper: 'Discount waiting on a manager',
       icon: Clock3,
       tone: 'bg-amber-50 text-amber-600',
     },
     {
+      label: 'Converted',
+      value: result.kpis.converted.toLocaleString('en-IN'),
+      helper: 'Turned into a booking',
+      icon: CircleCheck,
+      tone: 'bg-emerald-50 text-emerald-600',
+    },
+    {
       label: 'Pipeline value',
       value: currency(result.kpis.pipeline_value),
-      helper: `${result.kpis.converted.toLocaleString('en-IN')} converted`,
+      helper: 'Sent and accepted quotations',
       icon: IndianRupee,
       tone: 'bg-violet-50 text-violet-600',
     },
   ];
 }
 
+// Canonical Bookings order. The server's `pending` is the same
+// AWAITING_ALLOCATION filter as Stock awaited, so it is one tile, named as the
+// tab names it, rather than the same number twice.
 function bookingMetrics(result: BookingWorkspaceResult): Metric[] {
   return [
     {
-      label: 'Pending bookings',
-      value: (result.kpis.pending ?? result.kpis.awaiting_allocation).toLocaleString('en-IN'),
-      helper: 'Awaiting stock allocation',
-      icon: CalendarClock,
-      tone: 'bg-blue-50 text-blue-600',
+      label: 'Total bookings',
+      value: result.kpis.bookings.toLocaleString('en-IN'),
+      helper: 'Excluding cancelled',
+      icon: Files,
+      tone: 'bg-slate-100 text-slate-600',
     },
     {
       label: 'Confirmed',
@@ -173,7 +193,14 @@ function bookingMetrics(result: BookingWorkspaceResult): Metric[] {
       tone: 'bg-emerald-50 text-emerald-600',
     },
     {
-      label: 'Delivery ready',
+      label: 'Stock awaited',
+      value: (result.kpis.pending ?? result.kpis.awaiting_allocation).toLocaleString('en-IN'),
+      helper: 'Waiting for a vehicle to be allocated',
+      icon: CalendarClock,
+      tone: 'bg-amber-50 text-amber-600',
+    },
+    {
+      label: 'Ready for delivery',
       value: (result.kpis.ready_for_delivery ?? result.kpis.delivery_this_week).toLocaleString(
         'en-IN',
       ),
@@ -184,8 +211,15 @@ function bookingMetrics(result: BookingWorkspaceResult): Metric[] {
     {
       label: 'Delivered this month',
       value: (result.kpis.delivered_this_month ?? result.kpis.delivered).toLocaleString('en-IN'),
-      helper: 'Completed in the current month',
+      helper: `${result.kpis.delivered.toLocaleString('en-IN')} delivered in all`,
       icon: CarFront,
+      tone: 'bg-violet-50 text-violet-600',
+    },
+    {
+      label: 'Booking value',
+      value: currency(result.kpis.booking_value),
+      helper: 'Order value of open and delivered bookings',
+      icon: IndianRupee,
       tone: 'bg-violet-50 text-violet-600',
     },
   ];
@@ -296,7 +330,7 @@ function TableFrame<T>({
                   <SelectContent>
                     {statuses.map((status) => (
                       <SelectItem key={status} value={status}>
-                        {status === 'awaiting-allocation' ? 'Stock Awaited' : label(status)}
+                        {status === 'awaiting-allocation' ? 'Stock awaited' : label(status)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -571,6 +605,23 @@ export function SalesDocumentWorkspace({
     enabled: Boolean(permissions) && !directCreate,
     placeholderData: keepPreviousData,
   });
+  // The quotation RPC counts its tiles after the status tab is applied, so on
+  // the Draft tab Sent and Approval pending always read 0. The tiles read the
+  // same filters on every status instead; the rows still come from the tab.
+  const quotationKpiQuery = useMemo(
+    () => ({ ...requestQuery, status: 'all' as const, page: 1 }),
+    [requestQuery],
+  );
+  const quotationKpis = useQuery({
+    queryKey: ['sales-document-workspace', ...queryScope, kind, 'kpis', quotationKpiQuery],
+    queryFn: ({ signal }) => fetchSalesDocumentWorkspace(kind, quotationKpiQuery, signal),
+    enabled:
+      kind === 'quotations' &&
+      requestQuery.status !== 'all' &&
+      Boolean(permissions) &&
+      !directCreate,
+    placeholderData: keepPreviousData,
+  });
   // Arrived from a lead's Quotation or Booking stage badge on My Leads.
   const focusId = readFocusParam(searchParams);
   const focusMatchedIds = useMemo(() => {
@@ -660,24 +711,29 @@ export function SalesDocumentWorkspace({
             <StatusBadge value={row.original.status} />
             {row.original.approval_status !== 'NOT_REQUIRED' && (
               <p className="text-xs text-muted-foreground">
-                Approval {label(row.original.approval_status)}
+                Discount {label(row.original.approval_status).toLowerCase()}
               </p>
             )}
           </div>
         ),
       },
-      {
-        id: 'owner',
-        header: 'Owner / scope',
-        cell: ({ row }) => (
-          <div>
-            <p className="font-medium">{row.original.assigned_user_name}</p>
-            <p className="text-xs text-muted-foreground">
-              {row.original.team_name ?? row.original.branch_name}
-            </p>
-          </div>
-        ),
-      },
+      // A consultant's own list would repeat their name on every row.
+      ...(role === 'sales-consultant'
+        ? []
+        : [
+            {
+              id: 'owner',
+              header: 'Owner / scope',
+              cell: ({ row }: { row: { original: QuotationRecord } }) => (
+                <div>
+                  <p className="font-medium">{row.original.assigned_user_name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {row.original.team_name ?? row.original.branch_name}
+                  </p>
+                </div>
+              ),
+            },
+          ]),
       {
         accessorKey: 'updated_at',
         header: 'Updated',
@@ -842,13 +898,20 @@ export function SalesDocumentWorkspace({
           <span className="whitespace-nowrap font-semibold">{currency(getValue<number>())}</span>
         ),
       },
-      {
-        id: 'owner',
-        header: 'Consultant',
-        cell: ({ row }) => (
-          <span className="whitespace-nowrap font-medium">{row.original.assigned_user_name}</span>
-        ),
-      },
+      // A consultant's own list would repeat their name on every row.
+      ...(role === 'sales-consultant'
+        ? []
+        : [
+            {
+              id: 'owner',
+              header: 'Consultant',
+              cell: ({ row }: { row: { original: BookingRecord } }) => (
+                <span className="whitespace-nowrap font-medium">
+                  {row.original.assigned_user_name}
+                </span>
+              ),
+            },
+          ]),
       {
         accessorKey: 'created_at',
         header: 'Booking date',
@@ -1027,6 +1090,17 @@ export function SalesDocumentWorkspace({
         }
       />
       <div className="space-y-6">
+        {/* Summary above the status tabs, as on every other worklist. */}
+        <KpiGrid
+          metrics={
+            kind === 'quotations'
+              ? quotationMetrics(
+                  ((requestQuery.status === 'all' ? result : quotationKpis.data) ??
+                    result) as QuotationWorkspaceResult,
+                )
+              : bookingMetrics(result as BookingWorkspaceResult)
+          }
+        />
         {kind === 'quotations' && (
           <div className="flex h-10 gap-2 overflow-x-auto border-b">
             {(['draft', 'sent', 'pending-approval', 'accepted', 'expired'] as const).map(
@@ -1040,7 +1114,7 @@ export function SalesDocumentWorkspace({
                     className={`relative h-full shrink-0 px-3 text-xs font-semibold ${active ? 'text-blue-700' : 'text-heading-soft hover:text-blue-700'}`}
                     style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
                   >
-                    {status === 'pending-approval' ? 'Approval Pending' : label(status)}
+                    {status === 'pending-approval' ? 'Approval pending' : label(status)}
                   </button>
                 );
               },
@@ -1059,20 +1133,12 @@ export function SalesDocumentWorkspace({
                   className={`relative h-full shrink-0 px-3 text-xs font-semibold ${active ? 'text-blue-700' : 'text-heading-soft hover:text-blue-700'}`}
                   style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
                 >
-                  {status === 'awaiting-allocation' ? 'Stock Awaited' : label(status)}
+                  {status === 'awaiting-allocation' ? 'Stock awaited' : label(status)}
                 </button>
               );
             })}
           </div>
         )}
-        <KpiGrid
-          variant={kpiVariantForRole(role)}
-          metrics={
-            kind === 'quotations'
-              ? quotationMetrics(result as QuotationWorkspaceResult)
-              : bookingMetrics(result as BookingWorkspaceResult)
-          }
-        />
         {kind === 'quotations' ? (
           <TableFrame
             role={role}

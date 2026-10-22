@@ -1,20 +1,28 @@
 'use client';
 
 import { TablePagination } from '@/components/shared/table-pagination';
-import { KpiGrid, kpiVariantForRole } from '@/components/shared/kpi-grid';
+import { KpiGrid } from '@/components/shared/kpi-grid';
 import { formatNumber } from '@/lib/format';
 import { useQuery } from '@tanstack/react-query';
 import {
   Building2,
+  CalendarClock,
+  CalendarDays,
   CarFront,
+  CheckCheck,
+  CircleCheck,
   ChevronLeft,
   ChevronRight,
   MoreHorizontal,
   Pencil,
   Phone,
+  MapPinCheck,
   Search,
+  UserX,
   Video,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import type { Tone } from '@/features/dashboards/dashboard-tone';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -46,7 +54,6 @@ import {
 } from '@/components/ui/table';
 import {
   fetchAppointmentCalendar,
-  fetchAppointmentTypeSummary,
   type AppointmentRecord,
   type AppointmentWorkspaceResult,
   type WorkRecord,
@@ -80,6 +87,11 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit' }).format(
     new Date(value),
   );
+}
+
+/** "Showroom Visit" → "Showroom visit": the stored names are Title Case. */
+function typeLabel(type: AppointmentRecord['appointment_type']) {
+  return type.charAt(0) + type.slice(1).toLowerCase();
 }
 
 function typeVisual(type: AppointmentRecord['appointment_type']) {
@@ -198,7 +210,7 @@ function AppointmentDetail({
       <div className="grid gap-4 rounded-lg border bg-slate-50 p-4 sm:grid-cols-2">
         <div>
           <p className="text-xs text-muted-foreground">Appointment</p>
-          <p className="mt-1 text-sm font-semibold">{record.appointment_type}</p>
+          <p className="mt-1 text-sm font-semibold">{typeLabel(record.appointment_type)}</p>
         </div>
         <div>
           <p className="text-xs text-muted-foreground">Scheduled</p>
@@ -277,6 +289,9 @@ export function AppointmentWorkspaceView({
   scopeKey: string;
   focusedRowIds: ReadonlySet<string>;
 }) {
+  // A consultant's or telecaller's own list: the consultant and branch are the
+  // same on every row, so those columns are left out.
+  const personal = role === 'sales-consultant' || role === 'telecaller';
   const [displayedMonth, setDisplayedMonth] = useState(() => {
     const value = new Date();
     value.setDate(1);
@@ -285,10 +300,6 @@ export function AppointmentWorkspaceView({
   });
   const [selectedDay, setSelectedDay] = useState(() => dateKey(new Date()));
   const [selectedRecord, setSelectedRecord] = useState<AppointmentRecord | null>(null);
-  const summary = useQuery({
-    queryKey: ['appointment-type-summary', organizationId, permissions.userId, scopeKey, timezone],
-    queryFn: ({ signal }) => fetchAppointmentTypeSummary(timezone, signal),
-  });
   const calendar = useQuery({
     queryKey: [
       'appointment-calendar',
@@ -352,18 +363,64 @@ export function AppointmentWorkspaceView({
   });
   const today = dateKey(new Date());
   const selectedItems = dayRecords.data?.days[0]?.items ?? [];
-  const typeCounts = summary.data ?? {
-    showroom_visit: 0,
-    video_call: 0,
-    test_drive: 0,
-    consultant_call: 0,
-  };
-  // No test-drive card: that count belongs to the Test Drives module, and
-  // showing it here is what made the two modules look like one feature.
-  const cards = [
-    { type: 'Showroom Visit' as const, value: typeCounts.showroom_visit },
-    { type: 'Video Call' as const, value: typeCounts.video_call },
-    { type: 'Consultant Call' as const, value: typeCounts.consultant_call },
+  // Six tiles, as on every Sales list page, read from the page RPC's own KPI
+  // bundle rather than a second per-type summary call.
+  const cards: Array<{
+    label: string;
+    value: number;
+    status: WorkStatusFilter;
+    helper: string;
+    icon: LucideIcon;
+    tone: Tone;
+  }> = [
+    {
+      label: 'Today',
+      value: result.kpis.today,
+      status: 'today',
+      helper: 'Scheduled for today',
+      icon: CalendarDays,
+      tone: 'blue',
+    },
+    {
+      label: 'Upcoming',
+      value: result.kpis.upcoming,
+      status: 'upcoming',
+      helper: 'After today',
+      icon: CalendarClock,
+      tone: 'violet',
+    },
+    {
+      label: 'Confirmed',
+      value: result.kpis.confirmed,
+      status: 'confirmed',
+      helper: 'Customer confirmed',
+      icon: CircleCheck,
+      tone: 'cyan',
+    },
+    {
+      label: 'Arrived',
+      value: result.kpis.arrived,
+      status: 'arrived',
+      helper: 'Customer at the showroom',
+      icon: MapPinCheck,
+      tone: 'amber',
+    },
+    {
+      label: 'Completed',
+      value: result.kpis.completed,
+      status: 'completed',
+      helper: 'Visit or call done',
+      icon: CheckCheck,
+      tone: 'emerald',
+    },
+    {
+      label: 'No show',
+      value: result.kpis.no_show,
+      status: 'no-show',
+      helper: 'Customer missed it',
+      icon: UserX,
+      tone: 'rose',
+    },
   ];
   const moveMonth = (delta: number) =>
     setDisplayedMonth((current) => {
@@ -493,13 +550,13 @@ export function AppointmentWorkspaceView({
   return (
     <div className="space-y-4">
       <KpiGrid
-        variant={kpiVariantForRole(role)}
-        metrics={cards.map(({ type, value }) => ({
-          label: type,
+        metrics={cards.map(({ label, value, status, helper, icon, tone }) => ({
+          label,
           value: formatNumber(value),
-          icon: typeVisual(type).icon,
-          tone: typeVisual(type).tone,
-          helper: 'Today in your scope',
+          helper,
+          icon,
+          tone,
+          href: `?status=${status}`,
         }))}
       />
       {filters}
@@ -518,8 +575,12 @@ export function AppointmentWorkspaceView({
                     <TableHead>Date</TableHead>
                     <TableHead>Time</TableHead>
                     <TableHead>Model</TableHead>
-                    <TableHead>Consultant</TableHead>
-                    <TableHead>Branch</TableHead>
+                    {personal ? null : (
+                      <>
+                        <TableHead>Consultant</TableHead>
+                        <TableHead>Branch</TableHead>
+                      </>
+                    )}
                     <TableHead>Status</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
@@ -554,14 +615,18 @@ export function AppointmentWorkspaceView({
                               >
                                 <Icon className="size-3.5" />
                               </span>
-                              {record.appointment_type}
+                              {typeLabel(record.appointment_type)}
                             </span>
                           </TableCell>
                           <TableCell>{formatDate(record.scheduled_at)}</TableCell>
                           <TableCell>{formatTime(record.scheduled_at)}</TableCell>
                           <TableCell>{record.interested_model ?? '—'}</TableCell>
-                          <TableCell>{record.assigned_user_name}</TableCell>
-                          <TableCell>{record.branch_name}</TableCell>
+                          {personal ? null : (
+                            <>
+                              <TableCell>{record.assigned_user_name}</TableCell>
+                              <TableCell>{record.branch_name}</TableCell>
+                            </>
+                          )}
                           <TableCell>
                             <StatusBadge value={record.status} />
                           </TableCell>
@@ -578,7 +643,7 @@ export function AppointmentWorkspaceView({
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={9} className="h-40 text-center">
+                      <TableCell colSpan={personal ? 7 : 9} className="h-40 text-center">
                         No matching appointments
                       </TableCell>
                     </TableRow>
@@ -654,7 +719,8 @@ export function AppointmentWorkspaceView({
                         {formatTime(record.scheduled_at)} · {record.customer_name}
                       </span>
                       <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
-                        {record.appointment_type} · {record.interested_model ?? 'No model'}
+                        {typeLabel(record.appointment_type)} ·{' '}
+                        {record.interested_model ?? 'No model'}
                       </span>
                     </span>
                   </button>

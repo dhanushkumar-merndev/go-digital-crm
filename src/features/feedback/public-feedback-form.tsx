@@ -267,12 +267,24 @@ export function composeReview({
 // lead the list for a low rating so the customer does not scroll past praise.
 const IMPROVEMENT_KEYWORDS = 4;
 
+// Mirrors begin_public_review_rephrase: 10 AI writes, then a 10-minute pause.
+const ROUND_SIZE = 10;
+const PAUSE_MS = 10 * 60_000;
+
+function countdown(ms: number) {
+  const seconds = Math.ceil(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
 export function PublicFeedbackForm({ token }: { token: string }) {
   const [rating, setRating] = useState(0);
   const [keywords, setKeywords] = useState<string[]>([]);
   const [review, setReview] = useState('');
   const [beforeRephrase, setBeforeRephrase] = useState<string | null>(null);
   const [aiRemaining, setAiRemaining] = useState<number | null>(null);
+  const [roundRemaining, setRoundRemaining] = useState<number | null>(null);
+  const [lockedUntil, setLockedUntil] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [copied, setCopied] = useState<boolean | null>(null);
   const [done, setDone] = useState<PublicFeedbackResult | null>(null);
   const form = useQuery({
@@ -298,6 +310,8 @@ export function PublicFeedbackForm({ token }: { token: string }) {
         : submitPublicFeedback({ token, rating: input.rating, comments: input.review }),
     onSuccess: setDone,
   });
+  // AI writes left on this lead's link; 0 when the dealership has no AI at all.
+  const aiLeft = open?.ai_available ? (aiRemaining ?? open.ai_remaining) : 0;
   const rephrase = useMutation({
     // Generate always produces a review: the AI rewrite when this tenant has it
     // and the link has rewrites left, otherwise (or if the AI call fails) one
@@ -313,15 +327,24 @@ export function PublicFeedbackForm({ token }: { token: string }) {
           branch: open?.branch ?? 'the showroom',
           sender: open?.sender_first_name ?? null,
         });
-      if (open?.ai_available && (aiRemaining ?? open.ai_remaining) > 0) {
+      if (aiLeft > 0) {
         try {
           return {
             text: await rephrasePublicReview({ token, rating, keywords, notes }),
             usedAi: true,
           };
         } catch (error) {
-          if (error instanceof ReviewRephraseError && error.code === 'REPHRASE_LIMIT_REACHED')
+          // A pause or the end of the link's rounds blocks generating; any other
+          // failure still gets the review composed from their own words.
+          if (error instanceof ReviewRephraseError && error.code === 'REPHRASE_LIMIT_REACHED') {
             setAiRemaining(0);
+            throw error;
+          }
+          if (error instanceof ReviewRephraseError && error.code === 'REPHRASE_COOLDOWN') {
+            setLockedUntil(error.lockedUntil ?? new Date(Date.now() + PAUSE_MS).toISOString());
+            setNow(Date.now());
+            throw error;
+          }
         }
       }
       return { text: local(), usedAi: false };
@@ -329,10 +352,25 @@ export function PublicFeedbackForm({ token }: { token: string }) {
     onSuccess: ({ text, usedAi }) => {
       setBeforeRephrase((current) => current ?? review);
       setReview(text);
-      if (usedAi)
-        setAiRemaining((current) => Math.max((current ?? open?.ai_remaining ?? 1) - 1, 0));
+      if (!usedAi) return;
+      const total = Math.max(aiLeft - 1, 0);
+      const round = (roundRemaining ?? open?.ai_round_remaining ?? ROUND_SIZE) - 1;
+      setAiRemaining(total);
+      if (round <= 0 && total > 0) {
+        // The 10th of a round: the server has paused this link for 10 minutes.
+        setLockedUntil(new Date(Date.now() + PAUSE_MS).toISOString());
+        setNow(Date.now());
+        setRoundRemaining(ROUND_SIZE);
+      } else setRoundRemaining(round);
     },
   });
+  const lockedAt = lockedUntil ?? open?.ai_locked_until ?? null;
+  const pausedMs = lockedAt ? Math.max(Date.parse(lockedAt) - now, 0) : 0;
+  useEffect(() => {
+    if (!pausedMs) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [pausedMs]);
 
   if (form.isPending) return <Message title="Loading" body="One moment." />;
   if (form.isError || form.data.status === 'INVALID')
@@ -373,6 +411,12 @@ export function PublicFeedbackForm({ token }: { token: string }) {
     return <ThankYou branding={branding} branch={branch} result={done} comment={submittedReview} />;
 
   const canRephrase = reviewStep && rating > 0 && (keywords.length > 0 || review.trim().length > 0);
+  // All 30 AI writes on this link are spent: generating is over for good. (A
+  // form from before the rounds migration has no round field and keeps the
+  // locally composed fallback instead.)
+  const aiUsedUp =
+    aiRemaining === 0 || (open?.ai_round_remaining != null && open.ai_remaining === 0);
+  const generateBlocked = aiUsedUp || pausedMs > 0;
   const orderedKeywords =
     rating > 0 && rating <= 3
       ? [
@@ -469,7 +513,7 @@ export function PublicFeedbackForm({ token }: { token: string }) {
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={rephrase.isPending}
+                    disabled={rephrase.isPending || generateBlocked}
                     onClick={() => rephrase.mutate()}
                   >
                     {rephrase.isPending ? (
@@ -477,7 +521,11 @@ export function PublicFeedbackForm({ token }: { token: string }) {
                     ) : (
                       <Sparkles className="size-4" aria-hidden />
                     )}
-                    {beforeRephrase === null ? 'Generate review' : 'Generate again'}
+                    {pausedMs > 0
+                      ? `Generate again in ${countdown(pausedMs)}`
+                      : beforeRephrase === null
+                        ? 'Generate review'
+                        : 'Generate again'}
                   </Button>
                 ) : null}
                 {beforeRephrase !== null ? (
@@ -495,13 +543,17 @@ export function PublicFeedbackForm({ token }: { token: string }) {
                 ) : null}
               </div>
               <p className="text-xs text-muted-foreground" role="status">
-                {rephrase.isError
-                  ? rephrase.error.message
-                  : beforeRephrase !== null
-                    ? 'Written from your words. Change anything before you submit.'
-                    : rating >= 4
-                      ? 'Pick what stood out, add a few words, then generate. You can edit it before you submit.'
-                      : 'Uses only the words you picked and typed.'}
+                {aiUsedUp
+                  ? 'You have used all the writing help for this link. Edit your review and submit.'
+                  : pausedMs > 0
+                    ? 'You have generated 10 in a row. Writing help is back when the timer ends; you can still edit and submit.'
+                    : rephrase.isError
+                      ? rephrase.error.message
+                      : beforeRephrase !== null
+                        ? 'Written from your words. Change anything before you submit.'
+                        : rating >= 4
+                          ? 'Pick what stood out, add a few words, then generate. You can edit it before you submit.'
+                          : 'Uses only the words you picked and typed.'}
               </p>
             </div>
           ) : null}

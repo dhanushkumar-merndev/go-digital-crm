@@ -26,7 +26,7 @@ describe('Telecaller lead workflow', () => {
     expect(workspace).toContain('const telecallerTabs');
     expect(workspace).toContain("{ label: 'Pending', value: 'pending'");
     expect(workspace).toContain("{ label: 'Contacted', value: 'contacted'");
-    expect(workspace).toContain("label: 'Transferred to Sales'");
+    expect(workspace).toContain("label: 'Transferred to sales'");
     expect(workspace).toContain("{ label: 'Follow-up', value: 'follow-up'");
     expect(workspace).toContain("{ label: 'Lost', value: 'lost'");
     expect(workspace).toContain("role === 'telecaller'");

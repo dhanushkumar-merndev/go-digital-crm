@@ -237,6 +237,15 @@ export async function fetchLeadWorkspaceRecords(
   return { records };
 }
 
+/**
+ * Leads that reached qualification, whatever came next: Qualified is never at
+ * rest (AGENTS.md 9.8), so it is the leads now booked for a visit or handed to
+ * Sales.
+ */
+export function leadsQualifiedOrLater(kpis: LeadKpis) {
+  return kpis.qualified + kpis.appointment_scheduled_count + kpis.transferred_to_sales_count;
+}
+
 export async function fetchLeadWorkspaceMeta(
   query: LeadMetaQuery,
   signal?: AbortSignal,

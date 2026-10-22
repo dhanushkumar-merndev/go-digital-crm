@@ -61,6 +61,16 @@ export function CatalogSharingCard() {
       </Card>
     );
   const enabled = query.data.enabled;
+  // Only an owner can change sharing; everyone else just needs to know which
+  // models the "Compare with" list holds.
+  if (!query.data.can_manage)
+    return (
+      <p className="text-xs text-muted-foreground">
+        {enabled
+          ? 'Compare with your own models and models shared by other dealerships.'
+          : 'Comparing your dealership’s own models.'}
+      </p>
+    );
   return (
     <>
       <Card className="shadow-none">

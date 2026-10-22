@@ -11,6 +11,12 @@ import { test, expect as baseExpect } from '@playwright/test';
 //
 // Needs `next dev` with DEMO_ROLE_LOGIN_ENABLED=true (E2E_BASE_URL, default :3000).
 // E2E_ROLES=finance,gm-sales limits the run to some roles.
+// E2E_AUDIT_DIR=<dir> also saves a full-page screenshot of every page and tab and a
+// <dir>/<role>/manifest.json with each page's Supabase calls, their durations and
+// its KPI tile count, for the manual UI and latency audit.
+
+import fs from 'node:fs';
+import path from 'node:path';
 
 const expect = baseExpect.configure({ timeout: 45_000 });
 test.use({
@@ -108,6 +114,55 @@ const brokenStates = [
   'is not available yet',
 ];
 
+const auditDir = process.env.E2E_AUDIT_DIR;
+
+// Supabase calls finished since the last reset, as { name, status, ms }.
+function trackSupabaseCalls(page) {
+  let calls = [];
+  page.on('requestfinished', async (request) => {
+    const url = new URL(request.url());
+    const match = url.pathname.match(/\/(?:rest\/v1\/rpc|rest\/v1|functions\/v1)\/([^/]+)/);
+    if (!match) return;
+    const timing = request.timing();
+    const response = await request.response().catch(() => null);
+    calls.push({
+      name: url.pathname.includes('/functions/v1/') ? `edge:${match[1]}` : match[1],
+      status: response?.status() ?? 0,
+      ms: Math.round(timing.responseEnd),
+    });
+  });
+  return {
+    reset: () => {
+      calls = [];
+    },
+    take: () => calls,
+  };
+}
+
+function auditName(href) {
+  const url = new URL(href, baseURL);
+  const slug = url.pathname.split('/').slice(2).join('-') || 'root';
+  const query = [...url.searchParams.values()].join('-');
+  return query ? `${slug}--${query}` : slug;
+}
+
+async function auditPage(page, role, name, calls, startedAt, manifest) {
+  if (!auditDir) return;
+  const dir = path.join(auditDir, role);
+  fs.mkdirSync(dir, { recursive: true });
+  await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: true });
+  const taken = calls.take();
+  manifest.push({
+    page: name,
+    url: new URL(page.url()).pathname + new URL(page.url()).search,
+    settledMs: Date.now() - startedAt,
+    kpiTiles: await page.locator('main [data-kpi]').count(),
+    supabaseCalls: taken.length,
+    slowestMs: Math.max(0, ...taken.map((call) => call.ms)),
+    calls: taken,
+  });
+}
+
 async function signInAs(page, role) {
   const response = await page.request.post(`${baseURL}/api/development/demo-role-login`, {
     data: { role, organization: 'demo' },
@@ -155,11 +210,16 @@ for (const role of roles) {
     expect(hrefs.length, `${role} has sidebar pages`).toBeGreaterThan(1);
 
     const failures = [];
+    const calls = trackSupabaseCalls(page);
+    const manifest = [];
     for (const href of hrefs) {
+      calls.reset();
+      const startedAt = Date.now();
       const failure = await expectRenderedPage(page, href).catch(
         (error) => `${href}: ${String(error.message ?? error).split('\n')[0]}`,
       );
       if (failure) failures.push(failure);
+      await auditPage(page, role, auditName(href), calls, startedAt, manifest);
     }
 
     for (const [path, parameter] of tabbedPages[role] ?? []) {
@@ -169,8 +229,14 @@ for (const role of roles) {
       const count = await tabs.count();
       expect(count, `${path} has tabs`).toBeGreaterThan(1);
       for (let index = count - 1; index >= 0; index -= 1) {
+        calls.reset();
+        const startedAt = Date.now();
         await tabs.nth(index).click();
         await expect(tabs.nth(index)).toHaveAttribute('data-state', 'active');
+        if (auditDir) {
+          await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => undefined);
+          await auditPage(page, role, auditName(page.url()), calls, startedAt, manifest);
+        }
         // The first tab is the page default and is omitted from the URL.
         if (index > 0)
           await expect
@@ -193,6 +259,12 @@ for (const role of roles) {
         })
         .toBe(target);
     }
+
+    if (auditDir)
+      fs.writeFileSync(
+        path.join(auditDir, role, 'manifest.json'),
+        `${JSON.stringify(manifest, null, 2)}\n`,
+      );
 
     expect(failures, `${role} pages in a broken state`).toEqual([]);
   });

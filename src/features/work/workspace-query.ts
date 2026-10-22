@@ -121,6 +121,19 @@ export function defaultWorkStatus(kind: WorkKind): WorkStatusFilter {
   return kind === 'followups' ? 'today' : 'all';
 }
 
+/**
+ * Follow-ups and the forward-looking appointment views read soonest first. The
+ * full appointment list and its history views read newest first: oldest first
+ * opened on April's completed visits and put the one upcoming visit on the last
+ * page.
+ */
+export function defaultWorkSort(kind: WorkKind, status: WorkStatusFilter): WorkSort {
+  if (kind === 'followups') return 'scheduled:asc';
+  return status === 'today' || status === 'upcoming' || status === 'confirmed'
+    ? 'scheduled:asc'
+    : 'scheduled:desc';
+}
+
 export function parseWorkQuery(params: URLSearchParams, kind: WorkKind): WorkQuery {
   const page = Number.parseInt(params.get('page') ?? '', 10);
   const pageSize = Number.parseInt(params.get('pageSize') ?? '', 10);
@@ -130,15 +143,16 @@ export function parseWorkQuery(params: URLSearchParams, kind: WorkKind): WorkQue
   const priority = params.get('priority');
   const appointmentType = params.get('type');
   const appointmentId = params.get('appointment') ?? '';
+  const parsedStatus: WorkStatusFilter = filters.includes(status as never)
+    ? (status as WorkStatusFilter)
+    : defaultWorkStatus(kind);
 
   return {
     page: Number.isSafeInteger(page) && page > 0 ? page : 1,
     pageSize: workPageSizes.includes(pageSize as WorkPageSize) ? (pageSize as WorkPageSize) : 25,
     search: (params.get('q') ?? '').trim().slice(0, 160),
     appointmentId: kind === 'appointments' && isUuid(appointmentId) ? appointmentId : '',
-    status: filters.includes(status as never)
-      ? (status as WorkStatusFilter)
-      : defaultWorkStatus(kind),
+    status: parsedStatus,
     priority: ['LOW', 'NORMAL', 'HIGH', 'URGENT'].includes(priority ?? '')
       ? (priority as WorkPriorityFilter)
       : 'all',
@@ -162,7 +176,9 @@ export function parseWorkQuery(params: URLSearchParams, kind: WorkKind): WorkQue
         : 'all',
     followupFrom: (params.get('followupFrom') ?? '').slice(0, 10),
     followupTo: (params.get('followupTo') ?? '').slice(0, 10),
-    sort: workSorts.includes(sort as WorkSort) ? (sort as WorkSort) : 'scheduled:asc',
+    sort: workSorts.includes(sort as WorkSort)
+      ? (sort as WorkSort)
+      : defaultWorkSort(kind, parsedStatus),
   };
 }
 
@@ -188,7 +204,8 @@ export function toWorkQueryString(query: WorkQuery, kind?: WorkKind) {
   if (query.buyerType !== 'all') params.set('buyer', query.buyerType);
   if (query.followupFrom) params.set('followupFrom', query.followupFrom);
   if (query.followupTo) params.set('followupTo', query.followupTo);
-  if (query.sort !== 'scheduled:asc') params.set('sort', query.sort);
+  if (query.sort !== (kind ? defaultWorkSort(kind, query.status) : 'scheduled:asc'))
+    params.set('sort', query.sort);
   return params.toString();
 }
 

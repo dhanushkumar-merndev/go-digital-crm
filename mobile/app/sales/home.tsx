@@ -3,16 +3,23 @@ import { useCallback, useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LeadRow } from '@/components/lead-row';
 import { Card, ErrorState, SectionHeader, SkeletonList } from '@/components/ui/basics';
 import { Icon, type IconName } from '@/components/ui/icon';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { RowPressable } from '@/components/ui/row';
 import { SwipeRow } from '@/components/swipe-row';
 import { useCallFlow, useWorkRefresh } from '@/features/call-flow/call-flow';
-import { CallNext, KpiTiles, TodayHeader } from '@/features/today/today-parts';
+import {
+  CallNext,
+  KpiTiles,
+  QuickActions,
+  RecentLeadsStrip,
+  TargetsCard,
+  TodayHeader,
+} from '@/features/today/today-parts';
 import { fetchMobileSalesDashboard, type MobileSalesDashboard } from '@/lib/sales-dashboard';
 import { getTestDriveTrackingState } from '@/lib/test-drive-tracking';
+import { fetchTodayTargets, type TodayTarget } from '@/lib/today-targets';
 import { colors, font, radius, space } from '@/theme';
 
 type ScheduleKind = MobileSalesDashboard['schedule'][number]['kind'];
@@ -38,8 +45,12 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [version, setVersion] = useState(0);
   const [driveActive, setDriveActive] = useState(false);
+  const [targets, setTargets] = useState<TodayTarget[]>();
   const load = useCallback(async () => {
     setError(false);
+    void fetchTodayTargets('sales')
+      .then(setTargets)
+      .catch(() => setTargets(undefined));
     try {
       setDashboard(await fetchMobileSalesDashboard());
     } catch {
@@ -93,6 +104,20 @@ export default function Home() {
           <ErrorState title="Today could not load" onRetry={() => void load()} />
         ) : null}
         {!dashboard && !error ? <SkeletonList rows={3} /> : null}
+        <TargetsCard items={targets} />
+        <QuickActions
+          items={[
+            { label: 'Add lead', icon: 'add', tone: colors.primary, href: '/new-lead' },
+            {
+              label: 'Test drive',
+              icon: 'car-sport',
+              tone: colors.violetStrong,
+              href: '/sales/test-drives',
+            },
+            { label: 'Schedule', icon: 'calendar', tone: colors.warning, href: '/sales/schedule' },
+            { label: 'Stock', icon: 'cube', tone: '#0891b2', href: '/sales/stock-check' },
+          ]}
+        />
         {dashboard ? (
           <>
             {/* A month with no target configured reads 0%; show the count instead. */}
@@ -118,6 +143,13 @@ export default function Home() {
             </Card>
             <KpiTiles
               items={[
+                {
+                  label: 'New today',
+                  value: dashboard.metrics.leadsAssignedToday,
+                  icon: 'sparkles',
+                  tone: colors.primary,
+                  href: '/sales/my-leads',
+                },
                 {
                   label: 'Due today',
                   value: dashboard.metrics.followupsToday,
@@ -215,32 +247,20 @@ export default function Home() {
           </>
         ) : null}
         <CallNext key={version} followupsHref="/sales/schedule" />
-        {dashboard?.recentLeads.length ? (
-          <View style={styles.section}>
-            <SectionHeader
-              title="Recent leads"
-              action="See all"
-              onAction={() => router.push('/sales/my-leads')}
-            />
-            <Card>
-              {dashboard.recentLeads.slice(0, 5).map((lead, index) => (
-                <View key={lead.id} style={index > 0 ? styles.divider : undefined}>
-                  <LeadRow
-                    lead={{
-                      id: lead.id,
-                      name: lead.customerName,
-                      phone: lead.phone,
-                      model: lead.interestedModel,
-                      source: lead.source,
-                      stage: lead.lifecycleStatus,
-                      temperature: lead.temperature,
-                      nextFollowupAt: lead.nextFollowupAt,
-                    }}
-                  />
-                </View>
-              ))}
-            </Card>
-          </View>
+        {dashboard ? (
+          <RecentLeadsStrip
+            href="/sales/my-leads"
+            leads={dashboard.recentLeads.slice(0, 8).map((lead) => ({
+              id: lead.id,
+              name: lead.customerName,
+              phone: lead.phone,
+              model: lead.interestedModel,
+              source: lead.source,
+              stage: lead.lifecycleStatus,
+              temperature: lead.temperature,
+              nextFollowupAt: lead.nextFollowupAt,
+            }))}
+          />
         ) : null}
       </ScrollView>
     </SafeAreaView>

@@ -34,6 +34,7 @@ const reviewSchema = z.object({
   created_at: requiredTimestamp,
   updated_at: requiredTimestamp,
   version: z.coerce.number().int().positive(),
+  safe_error_code: nullableString.default(null),
 });
 
 const workspaceSchema = z.object({
@@ -280,6 +281,35 @@ export async function fetchMarketingReviewCustomerOptions(search: string, signal
   return z.array(customerOptionSchema).parse(data ?? []);
 }
 
+const reviewTemplateOptionsSchema = z.object({
+  tokens: z.array(z.string()),
+  channels: z.object({ WHATSAPP: z.boolean(), SMS: z.boolean(), EMAIL: z.boolean() }),
+  templates: z.array(
+    z.object({
+      id: z.uuid(),
+      channel: z.enum(['WHATSAPP', 'SMS', 'EMAIL']),
+      name: z.string(),
+      language: nullableString,
+      header: nullableString,
+      body: nullableString,
+      footer: nullableString,
+      fields: z.array(z.string()),
+    }),
+  ),
+});
+export type MarketingReviewTemplateOptions = z.infer<typeof reviewTemplateOptionsSchema>;
+export type MarketingReviewTemplate = MarketingReviewTemplateOptions['templates'][number];
+
+/** Approved templates a review request can be sent with, for the booking's branch. */
+export async function fetchMarketingReviewTemplateOptions(branchId: string, signal?: AbortSignal) {
+  const request = createClient().rpc('get_marketing_review_template_options', {
+    target_branch_id: branchId,
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return reviewTemplateOptionsSchema.parse(data);
+}
+
 export async function fetchMarketingAutomationScopeOptions(signal?: AbortSignal) {
   const request = createClient().rpc('get_marketing_automation_scope_options');
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
@@ -320,6 +350,9 @@ export async function createMarketingReviewRequest(input: {
   messageBody: string;
   scheduledFor?: string;
   requestId: string;
+  /** Required for every channel but MANUAL: the provider only sends approved templates. */
+  templateId?: string;
+  templateVariables?: Record<string, string>;
 }) {
   const { data, error } = await createClient().rpc('create_marketing_review_request', {
     target_customer_id: input.option.customer_id,
@@ -328,6 +361,8 @@ export async function createMarketingReviewRequest(input: {
     target_message_body: input.messageBody,
     target_scheduled_for: input.scheduledFor || null,
     target_request_id: input.requestId,
+    target_template_id: input.templateId ?? null,
+    target_template_variables: input.templateVariables ?? {},
   });
   if (error) throw error;
   return mutationResultSchema.parse(data);

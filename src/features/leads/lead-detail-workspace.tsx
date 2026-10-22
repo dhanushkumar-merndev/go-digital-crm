@@ -17,6 +17,7 @@ import {
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
+import { cn } from '@/lib/utils';
 import { useTrackRecentLead } from './recent-leads';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { WhatsAppIcon } from '@/components/shared/whatsapp-icon';
@@ -67,6 +68,12 @@ function formatDate(value: string | null | undefined, includeTime = true) {
   ).format(new Date(value));
 }
 
+const workStateLabels: Record<string, string> = {
+  NEW_TODAY: 'New today',
+  PENDING: 'Pending',
+  SLA_RISK: 'SLA risk',
+};
+
 function temperatureLabel(value: LeadDetail['lead']['temperature']) {
   if (!value) return 'Not set';
   return value[0] + value.slice(1).toLowerCase();
@@ -96,14 +103,17 @@ function LeadHeaderValue({ label, children }: { label: string; children: React.R
 
 function LeadOverview({
   data,
-  role,
   onRequirementsSaved,
 }: {
   data: LeadDetail;
-  role: string;
   onRequirementsSaved: () => void;
 }) {
   const lead = data.lead;
+  // When the page was opened; a follow-up due before it is overdue.
+  const [openedAt] = useState(() => Date.now());
+  const followupOverdue = Boolean(
+    lead.next_followup_at && new Date(lead.next_followup_at).getTime() < openedAt,
+  );
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,.8fr)]">
       <div className="space-y-4">
@@ -143,7 +153,7 @@ function LeadOverview({
                 ],
                 ['Preferred branch', lead.branch_name],
                 ['Team', lead.team_name ?? '—'],
-                ['Assigned consultant', lead.assigned_user_name ?? 'Unassigned'],
+                ['Lead owner', lead.assigned_user_name ?? 'Unassigned'],
               ]}
             />
           </CardContent>
@@ -201,8 +211,18 @@ function LeadOverview({
               </div>
               <div className="rounded-lg border bg-slate-50 p-3">
                 <p className="text-[11px] text-muted-foreground">Work state</p>
-                <p className="mt-1 font-semibold">
-                  {lead.work_state?.replaceAll('_', ' ') ?? 'On track'}
+                <p
+                  className={cn(
+                    'mt-1 font-semibold',
+                    (lead.work_state === 'SLA_RISK' || (!lead.work_state && followupOverdue)) &&
+                      'text-rose-600',
+                  )}
+                >
+                  {lead.work_state
+                    ? workStateLabels[lead.work_state]
+                    : followupOverdue
+                      ? 'Follow-up overdue'
+                      : 'On track'}
                 </p>
               </div>
             </div>
@@ -214,7 +234,10 @@ function LeadOverview({
             </div>
             <div className="border-t pt-3">
               <p className="text-[11px] text-muted-foreground">Next follow-up</p>
-              <p className="mt-1 text-sm font-semibold">{formatDate(lead.next_followup_at)}</p>
+              <p className={cn('mt-1 text-sm font-semibold', followupOverdue && 'text-rose-600')}>
+                {formatDate(lead.next_followup_at)}
+                {followupOverdue ? ' · overdue' : null}
+              </p>
             </div>
             <LeadCallLanguage
               leadId={lead.id}
@@ -222,11 +245,6 @@ function LeadOverview({
               canEdit={data.access.can_update && !data.access.read_only}
               onSaved={onRequirementsSaved}
             />
-            {lead.customer_id && (
-              <Button asChild variant="outline" className="w-full">
-                <Link href={`/${role}/customers/${lead.customer_id}`}>Open customer 360</Link>
-              </Button>
-            )}
           </CardContent>
         </Card>
         {lead.source === 'Website' && <LeadWebsiteAnswers leadId={lead.id} />}
@@ -366,7 +384,7 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
               <LeadHeaderValue label="Temperature">
                 {lead.temperature ? <StatusBadge value={lead.temperature} /> : 'Not recorded'}
               </LeadHeaderValue>
-              <LeadHeaderValue label="Sales owner">
+              <LeadHeaderValue label="Lead owner">
                 {lead.assigned_user_name ?? 'Unassigned'}
                 <span className="mt-1 block text-xs font-normal text-muted-foreground">
                   {lead.branch_name}
@@ -470,7 +488,6 @@ export function LeadDetailWorkspace({ role, leadId }: { role: string; leadId: st
         <TabsContent value="overview">
           <LeadOverview
             data={data}
-            role={role}
             onRequirementsSaved={() => {
               void detail.refetch();
               // The save writes a timeline entry and may change the list's Model column.

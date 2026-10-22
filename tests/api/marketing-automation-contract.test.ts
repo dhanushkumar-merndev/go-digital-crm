@@ -62,7 +62,7 @@ describe('marketing automation contract', () => {
     expect(workspace).toContain('creating={creating}');
     expect(editor).toContain('saveMarketingDripCampaign(payload, requestId.current, true)');
     expect(workspace).toContain('Request a Google review');
-    expect(workspace).toContain('Queue request');
+    expect(workspace).toContain('Send request');
     expect(workspace).toContain('useTenantRealtimeInvalidation');
     expect(route).toContain("['drip-campaigns', 'reviews'].includes(slug[0])");
     expect(route).toContain('<MarketingAutomationWorkspace');

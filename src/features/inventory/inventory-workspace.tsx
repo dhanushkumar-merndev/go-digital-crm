@@ -33,6 +33,7 @@ import { StockCheckSkeleton, InventoryWorkspaceSkeleton } from '@/components/ske
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
@@ -211,7 +212,7 @@ function pageMetrics(page: InventoryPage): Metric[] {
       {
         label: 'Available vehicles',
         value: page.kpis.available_units.toLocaleString('en-IN'),
-        helper: 'Ready in your authorized scope',
+        helper: 'Ready to sell now',
         icon: CarFront,
         tone: 'bg-emerald-50 text-emerald-600',
       },
@@ -230,7 +231,7 @@ function pageMetrics(page: InventoryPage): Metric[] {
         tone: 'bg-violet-50 text-violet-600',
       },
       {
-        label: 'Unavailable requests',
+        label: 'Unavailable',
         value: page.kpis.unavailable_groups.toLocaleString('en-IN'),
         helper: 'Choices without available stock',
         icon: CarFront,
@@ -896,7 +897,14 @@ function StockCheckTable({
         accessorKey: 'available',
         header: 'Available qty',
         cell: ({ getValue }) => (
-          <span className="font-semibold text-emerald-600">{getValue<number>()}</span>
+          <span
+            className={cn(
+              'font-semibold',
+              getValue<number>() > 0 ? 'text-emerald-600' : 'text-muted-foreground',
+            )}
+          >
+            {getValue<number>()}
+          </span>
         ),
       },
       { accessorKey: 'reserved', header: 'Reserved' },
@@ -1157,10 +1165,7 @@ function ListWorkspace({
         retrying={page.isFetching}
         onRetry={() => void page.refetch()}
       />
-      <KpiGrid
-        metrics={pageMetrics(page.data)}
-        variant={view === 'stock-check' ? 'classic' : 'metric'}
-      />
+      <KpiGrid metrics={pageMetrics(page.data)} />
       <Card className="sales-consultant-list-card shadow-none">
         <CardHeader className="p-4">
           <Filters

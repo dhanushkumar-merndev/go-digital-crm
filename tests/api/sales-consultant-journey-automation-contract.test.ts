@@ -74,7 +74,7 @@ describe('Sales Consultant journey actions', () => {
       'Contacted',
       'Follow-up',
       'Appointments',
-      'Test Drive',
+      'Test drive',
       'Quotation',
       'Booking',
     ])

@@ -39,6 +39,7 @@ import { MobileLinkDialog } from '@/features/auth/mobile-link-dialog';
 import {
   fetchProfileAvatarUrl,
   profileAvatarUrlKey,
+  readCachedProfileAvatarUrl,
   type SavedProfile,
 } from '@/features/auth/profile-settings-api';
 import { ProfileSettingsDialog } from '@/features/auth/profile-settings-dialog';
@@ -150,8 +151,15 @@ export function AppHeader({ role, previewMode }: { role: RoleKey; previewMode: b
   });
   const profileAvatar = useQuery({
     queryKey: profileAvatarUrlKey(profile.avatarObjectFileId),
-    queryFn: fetchProfileAvatarUrl,
+    queryFn: () => fetchProfileAvatarUrl(profile.avatarObjectFileId),
     enabled: !previewMode && Boolean(profile.avatarObjectFileId) && hasSupabaseConfig(),
+    // A URL presigned on an earlier page load in this tab, still well inside its
+    // five-minute life, paints at once; it is refetched once it nears expiry.
+    initialData: () => readCachedProfileAvatarUrl(profile.avatarObjectFileId),
+    initialDataUpdatedAt: () => {
+      const cached = readCachedProfileAvatarUrl(profile.avatarObjectFileId);
+      return cached ? new Date(cached.expires_at).getTime() - 5 * 60_000 : undefined;
+    },
     staleTime: 4 * 60_000,
     refetchInterval: 4 * 60_000,
     retry: 0,

@@ -4,7 +4,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
   BellRing,
@@ -21,7 +21,6 @@ import {
   PhoneCall,
   Plus,
   RefreshCw,
-  Sparkles,
   Target,
   TrendingDown,
   TrendingUp,
@@ -39,13 +38,6 @@ import { SalesConsultantDashboardSkeleton } from '@/components/skeletons/sales-c
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Table,
@@ -63,15 +55,25 @@ import {
   DASHBOARD_QUERY_GC_TIME_MS,
   DASHBOARD_QUERY_STALE_TIME_MS,
 } from '@/lib/query/cache-policy';
+import { kpiGridColumns } from '@/components/shared/kpi-grid';
+import { AiDashboardSummary } from './ai-dashboard-summary';
 import { cn } from '@/lib/utils';
 import {
   fetchSalesConsultantDashboard,
-  generateSalesConsultantAiSummary,
   salesConsultantDashboardKey,
   type SalesConsultantDashboardResult,
 } from './sales-consultant-dashboard-api';
 import { leadStageVariant } from '@/features/leads/lead-stage-variant';
-import { leadDetailHref } from '@/lib/navigation/record-links';
+import {
+  fetchLeadWorkspaceMeta,
+  toLeadMetaQuery,
+  type LeadWorkspaceResult,
+} from '@/features/leads/lead-workspace-api';
+import { defaultLeadQuery } from '@/features/leads/lead-workspace-query';
+import { retryRpcRead } from '@/lib/supabase/read-rpc';
+import { countRecordSchema, usePersistedQuery } from '@/lib/query/persisted-query';
+import { Skeleton } from '@/components/ui/skeleton';
+import { leadDetailHref, myLeadsFocusHref } from '@/lib/navigation/record-links';
 import { toneStyles, type Tone } from './dashboard-tone';
 
 type DashboardMetric =
@@ -233,6 +235,15 @@ const alertDefinitions: Record<
   },
 };
 
+// Follow-ups today and test drives today are KPI tiles, and quotations awaiting
+// a response is a Requires attention card with a different definition; listing
+// them again here showed two different numbers for the same question.
+const followThroughAlertKeys = new Set<SalesConsultantDashboardResult['alerts'][number]['key']>([
+  'TASKS_DUE',
+  'INSURANCE_DOCUMENTS',
+  'RTO_PENDING',
+]);
+
 const scheduleDefinitions: Record<
   SalesConsultantDashboardResult['schedule'][number]['kind'],
   { label: string; icon: LucideIcon; tone: Tone; href: string }
@@ -361,9 +372,12 @@ function scheduleItemAriaLabel(
 function MetricCard({
   definition,
   metric,
+  unsetCaption,
 }: {
   definition: (typeof metricDefinitions)[number];
   metric: DashboardMetric;
+  /** Set when the number has nothing behind it, e.g. no target for the month. */
+  unsetCaption?: string;
 }) {
   const Icon = definition.icon;
   const positive = metric.change >= 0;
@@ -373,7 +387,10 @@ function MetricCard({
       href={definition.href}
       className="group min-w-0 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
     >
-      <Card className="h-full min-w-0 border-slate-200/90 shadow-none transition-all group-hover:-translate-y-0.5 group-hover:border-blue-200 group-hover:shadow-sm">
+      <Card
+        data-kpi
+        className="h-full min-w-0 border-slate-200/90 shadow-none transition-all group-hover:-translate-y-0.5 group-hover:border-blue-200 group-hover:shadow-sm"
+      >
         <CardContent className="p-4">
           <div className="flex items-center gap-2.5">
             <span
@@ -389,20 +406,24 @@ function MetricCard({
             </p>
           </div>
           <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-heading">
-            {metric.value}
-            {definition.suffix}
+            {unsetCaption ? '—' : metric.value}
+            {unsetCaption ? null : definition.suffix}
           </p>
-          <p
-            className={cn(
-              'mt-3 flex items-center justify-center gap-1 text-[10px] font-semibold',
-              positive ? 'text-emerald-600' : 'text-rose-600',
-            )}
-          >
-            <TrendIcon className="size-3" /> {Math.abs(metric.change)}%
-            <span className="font-normal text-muted-foreground">
-              vs {metric.comparison === 'YESTERDAY' ? 'yesterday' : 'last month'}
-            </span>
-          </p>
+          {unsetCaption ? (
+            <p className="mt-3 text-center text-[10px] text-muted-foreground">{unsetCaption}</p>
+          ) : (
+            <p
+              className={cn(
+                'mt-3 flex items-center justify-center gap-1 text-[10px] font-semibold',
+                positive ? 'text-emerald-600' : 'text-rose-600',
+              )}
+            >
+              <TrendIcon className="size-3" /> {Math.abs(metric.change)}%
+              <span className="font-normal text-muted-foreground">
+                vs {metric.comparison === 'YESTERDAY' ? 'yesterday' : 'last month'}
+              </span>
+            </p>
+          )}
         </CardContent>
       </Card>
     </Link>
@@ -587,8 +608,8 @@ function RecentLeads({
   const router = useRouter();
   // The row and the arrow go to the same place, so the arrow stays as the
   // visible affordance for anyone who does not know the row is clickable.
-  const openLead = (leadId: string) =>
-    router.push(`/${DASHBOARD_ROLE}/my-leads?status=all&focus=${encodeURIComponent(leadId)}`);
+  const openLead = (lead: { id: string; phone: string | null }) =>
+    router.push(myLeadsFocusHref(DASHBOARD_ROLE, lead));
 
   return (
     <Card className="overflow-hidden shadow-none">
@@ -627,7 +648,7 @@ function RecentLeads({
                   Status
                 </TableHead>
                 <TableHead className="h-9 px-3 text-[10px] normal-case tracking-normal">
-                  Priority
+                  Temperature
                 </TableHead>
                 <TableHead className="h-9 px-3 text-right text-[10px] normal-case tracking-normal">
                   Actions
@@ -641,11 +662,11 @@ function RecentLeads({
                   role="link"
                   tabIndex={0}
                   aria-label={`Open ${lead.customer_name} in My Leads`}
-                  onClick={() => openLead(lead.id)}
+                  onClick={() => openLead(lead)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
-                      openLead(lead.id);
+                      openLead(lead);
                     }
                   }}
                   className="cursor-pointer text-[10px] hover:bg-slate-50"
@@ -701,7 +722,7 @@ function RecentLeads({
                     <div className="flex justify-end">
                       <Button asChild variant="ghost" size="icon" className="size-7 text-blue-600">
                         <Link
-                          href={`/${DASHBOARD_ROLE}/my-leads?status=all&focus=${encodeURIComponent(lead.id)}`}
+                          href={myLeadsFocusHref(DASHBOARD_ROLE, lead)}
                           aria-label={`Open ${lead.customer_name} in My Leads`}
                           title={`Open ${lead.customer_name} in My Leads`}
                           onClick={(event) => event.stopPropagation()}
@@ -725,94 +746,34 @@ function RecentLeads({
   );
 }
 
-function AiPipelineSummary({
-  data,
-  conversionRate,
-}: {
-  data: SalesConsultantDashboardResult;
-  conversionRate: number;
-}) {
-  const [open, setOpen] = useState(false);
+type FunnelStage = { name: string; value: number; color: string };
+
+/**
+ * The consultant's leads counted at every sales stage they have reached, so a
+ * stage never holds more than the one before it. The dashboard's own pipeline
+ * counts records created this month (a lead can carry several quotations), which
+ * drew 81 quotations under 53 test drives. Colours follow AGENTS.md 9.8.
+ */
+function salesFunnel(kpis: LeadWorkspaceResult['kpis']): FunnelStage[] {
+  const quotationOrLater = kpis.quotation + kpis.booking;
+  const testDriveOrLater = kpis.test_drive + quotationOrLater;
+  return [
+    { name: 'Assigned', value: kpis.total, color: '#2563eb' },
+    { name: 'Followed up', value: kpis.follow_up + testDriveOrLater, color: '#d97706' },
+    { name: 'Test drive', value: testDriveOrLater, color: '#7c3aed' },
+    { name: 'Quotation', value: quotationOrLater, color: '#ea580c' },
+    { name: 'Booked', value: kpis.booking, color: '#059669' },
+  ];
+}
+
+function salesSummaryText(data: SalesConsultantDashboardResult, conversionRate: number) {
   const hotLeads = data.metrics.hot_leads.value;
   const followupsToday = data.metrics.followups_today.value;
   const overdueFollowups =
     data.attention.find((item) => item.key === 'OVERDUE_FOLLOWUPS')?.value ?? 0;
-  const nextStage = data.pipeline[1]?.name ?? 'qualified opportunities';
-  const firstStage = data.pipeline[0]?.value ?? 0;
-  const nextStageValue = data.pipeline[1]?.value ?? 0;
-  const nextStageRate = firstStage > 0 ? (nextStageValue / firstStage) * 100 : 0;
-  const defaultSummary = `Prioritize ${hotLeads} hot lead${hotLeads === 1 ? '' : 's'} and ${followupsToday} follow-up${followupsToday === 1 ? '' : 's'} today. ${nextStageRate.toFixed(1)}% of starting leads have reached ${nextStage}; overall conversion is ${conversionRate.toFixed(1)}%. ${overdueFollowups ? `Clear ${overdueFollowups} overdue follow-up${overdueFollowups === 1 ? '' : 's'} first.` : 'No overdue follow-ups are waiting.'}`;
-  const summary = useMutation({
-    mutationFn: (forceRefresh: boolean) => generateSalesConsultantAiSummary(forceRefresh),
-  });
-  const summaryText = summary.data?.summary ?? defaultSummary;
-
-  return (
-    <div className="mt-auto border-t border-dashed pt-3">
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="w-full rounded-lg border border-violet-100 bg-violet-50/50 p-3 text-left transition-colors hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-        aria-label="Open AI sales summary"
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="grid size-7 place-items-center rounded-md bg-violet-100 text-violet-700">
-              <Sparkles className="size-3.5" />
-            </span>
-            <div>
-              <p className="text-xs font-semibold text-heading-soft">AI sales summary</p>
-              <p className="text-[10px] text-muted-foreground">Open for the full summary</p>
-            </div>
-          </div>
-          <Badge variant="info" className="text-[10px]">
-            {summary.data
-              ? summary.data.provider === 'AI'
-                ? 'AI cached'
-                : 'Signal cached'
-              : 'AI ready'}
-          </Badge>
-        </div>
-        <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-[#334155]">{summaryText}</p>
-      </button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent size="lg">
-          <DialogHeader>
-            <DialogTitle>AI sales summary</DialogTitle>
-            <DialogDescription>
-              Generated from your current dashboard signals. It remains cached until you regenerate
-              it.
-            </DialogDescription>
-          </DialogHeader>
-          <p className="rounded-lg bg-slate-50 p-3 text-sm leading-6 text-heading-soft">
-            {summaryText}
-          </p>
-          {summary.isError && (
-            <p className="text-sm text-rose-600">The summary could not be generated. Try again.</p>
-          )}
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-muted-foreground">
-              {summary.data
-                ? `Generated ${formatTime(summary.data.generated_at, data.timezone)}`
-                : 'No generated summary yet'}
-            </span>
-            <Button
-              type="button"
-              onClick={() => summary.mutate(Boolean(summary.data))}
-              disabled={summary.isPending}
-            >
-              <Sparkles className="size-4" />
-              {summary.isPending
-                ? 'Generating…'
-                : summary.data
-                  ? 'Regenerate summary'
-                  : 'Generate summary'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
+  const assigned = data.pipeline[0]?.value ?? 0;
+  const booked = data.pipeline.at(-1)?.value ?? 0;
+  return `Prioritize ${hotLeads} hot lead${hotLeads === 1 ? '' : 's'} and ${followupsToday} follow-up${followupsToday === 1 ? '' : 's'} today. This month: ${assigned} lead${assigned === 1 ? '' : 's'} assigned and ${booked} booking${booked === 1 ? '' : 's'} (${conversionRate.toFixed(1)}% per lead assigned). ${overdueFollowups ? `Clear ${overdueFollowups} overdue follow-up${overdueFollowups === 1 ? '' : 's'} first.` : 'No overdue follow-ups are waiting.'}`;
 }
 
 export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
@@ -835,6 +796,22 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
     refetchInterval: (query) =>
       query.state.data?.cache.status === 'STALE' ? AGGREGATE_REALTIME_MIN_INTERVAL_MS : false,
   });
+  const leadMetricsQueryKey = useMemo(
+    () => ['lead-workspace-meta', ...workspaceQueryScope(workspaceSession), 'dashboard'] as const,
+    [workspaceSession],
+  );
+  // The funnel reads My Leads' own stage counts, so a click on a stage lands on
+  // a tab showing the same number. Only the counts are persisted.
+  const leadMetrics = usePersistedQuery({
+    queryKey: leadMetricsQueryKey,
+    retry: retryRpcRead,
+    queryFn: async ({ signal }) =>
+      (await fetchLeadWorkspaceMeta(toLeadMetaQuery(defaultLeadQuery), signal)).kpis,
+    staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
+    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+    persist: { version: 1, schema: countRecordSchema<LeadWorkspaceResult['kpis']>() },
+  });
+  const funnel = leadMetrics.data ? salesFunnel(leadMetrics.data) : undefined;
   const [refreshMessage, setRefreshMessage] = useState<string>();
   const [manualRefreshRemaining, setManualRefreshRemaining] = useState(3);
   const data = dashboard.data;
@@ -864,11 +841,14 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
       data
         ? (['leads', 'work', 'communications', 'sales', 'inventory'] as const).map((resource) => ({
             resource,
-            queryKeys: [dashboardQueryKey],
+            queryKeys:
+              resource === 'leads' || resource === 'sales'
+                ? [dashboardQueryKey, leadMetricsQueryKey]
+                : [dashboardQueryKey],
             minIntervalMs: AGGREGATE_REALTIME_MIN_INTERVAL_MS,
           }))
         : [],
-    [dashboardQueryKey, data],
+    [dashboardQueryKey, data, leadMetricsQueryKey],
   );
   useTenantRealtimeInvalidation(data?.organization_id, realtimeSubscriptions);
   const conversionRate = useMemo(() => {
@@ -881,7 +861,7 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
   async function refresh(manual = true) {
     setRefreshMessage(undefined);
     manualRefreshRequest.current = manual;
-    const result = await dashboard.refetch();
+    const [result] = await Promise.all([dashboard.refetch(), leadMetrics.refetch()]);
     manualRefreshRequest.current = false;
     if (manual && result.error instanceof ManualDashboardRefreshLimitError) {
       setManualRefreshRemaining(0);
@@ -969,12 +949,21 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
         }
       />
 
-      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-8">
+      <div className={cn('grid gap-2.5', kpiGridColumns(metricDefinitions.length))}>
         {metricDefinitions.map((definition) => (
           <MetricCard
             key={definition.key}
             definition={definition}
             metric={data.metrics[definition.key]}
+            // Achievement is bookings over the month's booking target, so
+            // bookings with 0% can only mean no target is set.
+            unsetCaption={
+              definition.key === 'target_achievement' &&
+              data.metrics.target_achievement.value === 0 &&
+              data.metrics.bookings_month.value > 0
+                ? 'No booking target set'
+                : undefined
+            }
           />
         ))}
       </div>
@@ -1029,56 +1018,60 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
                 <CardTitle className="text-sm">Sales pipeline funnel</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col p-3">
-                <div className="flex gap-3">
-                  <EChart
-                    kind="funnel"
-                    funnelMode="staged"
-                    data={data.pipeline}
-                    className="h-[235px] min-w-0 flex-1"
-                  />
-                  <div className="grid h-[235px] w-44 shrink-0 grid-rows-[25px_repeat(5,minmax(0,1fr))] text-[10px]">
-                    <div className="flex items-center justify-between border-b font-medium text-muted-foreground">
-                      <span>Stage</span>
-                      <span>Count</span>
-                    </div>
-                    {data.pipeline.slice(0, 5).map((stage, index) => {
-                      const previous = data.pipeline[index - 1]?.value ?? stage.value;
-                      const conversion = previous > 0 ? (stage.value / previous) * 100 : 0;
-                      return (
+                {/* Every stage is a share of the consultant's assigned leads. */}
+                {funnel ? (
+                  <div className="flex gap-3">
+                    <EChart
+                      kind="funnel"
+                      funnelMode="staged"
+                      funnelStages={funnel.length}
+                      data={funnel}
+                      colors={funnel.map((stage) => stage.color)}
+                      className="h-[235px] min-w-0 flex-1"
+                    />
+                    <div className="flex w-52 shrink-0 flex-col justify-center text-[11px]">
+                      <div className="flex items-center justify-between border-b pb-1.5 text-[10px] font-medium text-muted-foreground">
+                        <span>Stage</span>
+                        <span>Leads · of assigned</span>
+                      </div>
+                      {funnel.map((stage) => (
                         <div
                           key={stage.name}
-                          className="flex items-center justify-between gap-2 border-b border-slate-100 last:border-0"
+                          className="flex items-center justify-between gap-2 border-b border-slate-100 py-2 last:border-0"
                         >
-                          <span className="min-w-0">
+                          <span className="flex min-w-0 items-center gap-2">
                             <span
-                              className="block truncate font-medium text-heading-soft"
-                              title={stage.name}
-                            >
+                              className="size-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: stage.color }}
+                            />
+                            <span className="truncate font-medium text-heading-soft">
                               {stage.name}
                             </span>
-                            <span className="block text-[10px] text-emerald-600">
-                              {index === 0
-                                ? 'Starting stage'
-                                : `${conversion.toFixed(1)}% conversion`}
+                          </span>
+                          <span className="shrink-0 text-right">
+                            <span className="font-semibold text-heading">{stage.value}</span>
+                            <span className="ml-1 text-[10px] text-muted-foreground">
+                              {funnel[0]!.value
+                                ? Math.round((stage.value / funnel[0]!.value) * 100)
+                                : 0}
+                              %
                             </span>
                           </span>
-                          <span className="shrink-0 rounded bg-slate-50 px-1.5 py-0.5 font-semibold text-heading-soft">
-                            {stage.value}
-                          </span>
                         </div>
-                      );
-                    })}
+                      ))}
+                      <p className="pt-2 text-[10px] text-muted-foreground">
+                        {leadMetrics.data?.lost_count ?? 0} lost along the way
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="mt-1 flex items-center justify-between rounded-lg bg-slate-50 px-4 py-2.5 text-xs">
-                  <span className="text-muted-foreground">Overall conversion rate</span>
-                  <span className="font-bold text-heading">{conversionRate.toFixed(1)}%</span>
-                  <span className="flex items-center gap-1 text-emerald-600">
-                    <TrendingUp className="size-3.5" />
-                    Live
-                  </span>
-                </div>
-                <AiPipelineSummary data={data} conversionRate={conversionRate} />
+                ) : (
+                  <Skeleton className="h-[235px] w-full" />
+                )}
+                <AiDashboardSummary
+                  title="AI sales summary"
+                  defaultSummary={salesSummaryText(data, conversionRate)}
+                  timezone={data.timezone}
+                />
               </CardContent>
             </Card>
             <div className="space-y-4 lg:col-span-5">
@@ -1151,30 +1144,32 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
               </Button>
             </CardHeader>
             <CardContent className="divide-y p-0">
-              {data.alerts.map((item) => {
-                const definition = alertDefinitions[item.key];
-                const Icon = definition.icon;
-                return (
-                  <Link
-                    key={item.key}
-                    href={definition.href}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50"
-                  >
-                    <span
-                      className={cn(
-                        'grid size-7 place-items-center rounded-md',
-                        toneStyles[definition.tone].icon,
-                      )}
+              {data.alerts
+                .filter((item) => followThroughAlertKeys.has(item.key))
+                .map((item) => {
+                  const definition = alertDefinitions[item.key];
+                  const Icon = definition.icon;
+                  return (
+                    <Link
+                      key={item.key}
+                      href={definition.href}
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50"
                     >
-                      <Icon className="size-3.5" />
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-heading-soft">
-                      {definition.label}
-                    </span>
-                    <span className="text-xs font-bold text-heading">{item.value}</span>
-                  </Link>
-                );
-              })}
+                      <span
+                        className={cn(
+                          'grid size-7 place-items-center rounded-md',
+                          toneStyles[definition.tone].icon,
+                        )}
+                      >
+                        <Icon className="size-3.5" />
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-heading-soft">
+                        {definition.label}
+                      </span>
+                      <span className="text-xs font-bold text-heading">{item.value}</span>
+                    </Link>
+                  );
+                })}
             </CardContent>
           </Card>
         </div>

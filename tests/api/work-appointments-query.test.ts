@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { isUuid, parseWorkQuery, toWorkQueryString } from '../../src/features/work/workspace-query';
+import {
+  defaultWorkSort,
+  isUuid,
+  parseWorkQuery,
+  toWorkQueryString,
+} from '../../src/features/work/workspace-query';
 
 describe('work workspace query boundary', () => {
   it('accepts only bounded pagination, filters, UUID scopes, and whitelisted sorting', () => {
@@ -95,5 +100,17 @@ describe('work workspace query boundary', () => {
   it('treats only canonical UUIDs as resource identifiers', () => {
     expect(isUuid('123e4567-e89b-42d3-a456-426614174000')).toBe(true);
     expect(isUuid('9876543210')).toBe(false);
+  });
+
+  it('opens the appointment list newest first and the forward-looking views soonest first', () => {
+    expect(parseWorkQuery(new URLSearchParams(), 'appointments').sort).toBe('scheduled:desc');
+    expect(parseWorkQuery(new URLSearchParams('status=upcoming'), 'appointments').sort).toBe(
+      'scheduled:asc',
+    );
+    expect(parseWorkQuery(new URLSearchParams(), 'followups').sort).toBe('scheduled:asc');
+    expect(defaultWorkSort('appointments', 'completed')).toBe('scheduled:desc');
+    // The default for the view is left out of the URL, so the link round-trips.
+    const parsed = parseWorkQuery(new URLSearchParams(), 'appointments');
+    expect(toWorkQueryString(parsed, 'appointments')).not.toContain('sort=');
   });
 });

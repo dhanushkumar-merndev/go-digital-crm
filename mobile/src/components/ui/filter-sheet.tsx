@@ -93,7 +93,7 @@ export function useFilters(groups: ReadonlyArray<FilterGroup>) {
 
 export type Filters = ReturnType<typeof useFilters>;
 
-/** Search box with a Filter button that shows how many filters are on. */
+/** Search box, plus a Filter button showing how many filters are on when `filters` is given. */
 export function FilterBar({
   search,
   onSearch,
@@ -103,7 +103,7 @@ export function FilterBar({
   search: string;
   onSearch: (value: string) => void;
   placeholder: string;
-  filters: Filters;
+  filters?: Filters;
 }) {
   return (
     <View style={styles.bar}>
@@ -124,6 +124,14 @@ export function FilterBar({
           </PressableScale>
         ) : null}
       </View>
+      {filters ? <FilterButton filters={filters} /> : null}
+    </View>
+  );
+}
+
+function FilterButton({ filters }: { filters: Filters }) {
+  return (
+    <>
       <PressableScale
         onPress={filters.show}
         style={[styles.filterButton, filters.active ? styles.filterButtonOn : null]}
@@ -142,7 +150,7 @@ export function FilterBar({
         ) : null}
       </PressableScale>
       {filters.open ? <FilterSheet filters={filters} /> : null}
-    </View>
+    </>
   );
 }
 

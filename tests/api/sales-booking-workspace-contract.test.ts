@@ -34,7 +34,7 @@ describe('sales booking workspace contract', () => {
     expect(migration).toContain('public.quotation_items');
     expect(migration).toContain('public.stock_allocations');
     expect(migration).toContain('public.stock_units');
-    expect(workspace).toContain("'Stock Awaited'");
+    expect(workspace).toContain("'Stock awaited'");
     expect(workspace).toContain('Delivered this month');
     expect(workspace).toContain('Create booking');
   });

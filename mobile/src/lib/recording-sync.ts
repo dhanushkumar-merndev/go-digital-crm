@@ -50,7 +50,7 @@ export type RecordingRow = {
   updatedAt: number;
 };
 
-export type RecordingFolder = { uri: string; name: string; grantedAt: number };
+export type RecordingFolder = { uri: string; name: string; grantedAt: number; userId?: string };
 
 export type SyncSummary = { synced: number; failed: number; remaining: number };
 
@@ -144,10 +144,23 @@ async function currentUserId() {
   return data.session?.user.id ?? null;
 }
 
+// The folder belongs to the user who chose it. On a phone that changes hands,
+// the next user picks it again, so their own grant time decides which files
+// are older and another user's calls are never filed under them. A folder
+// saved before folders had an owner goes to whoever is signed in.
 export async function getRecordingFolder(): Promise<RecordingFolder | null> {
   try {
     const value = await AsyncStorage.getItem(folderKey);
-    return value ? (JSON.parse(value) as RecordingFolder) : null;
+    if (!value) return null;
+    const folder = JSON.parse(value) as RecordingFolder;
+    const userId = await currentUserId();
+    if (!userId) return null;
+    if (!folder.userId) {
+      const owned = { ...folder, userId };
+      await AsyncStorage.setItem(folderKey, JSON.stringify(owned));
+      return owned;
+    }
+    return folder.userId === userId ? folder : null;
   } catch {
     return null;
   }
@@ -190,6 +203,7 @@ export async function chooseRecordingFolder(initialUri?: string): Promise<Record
     // Only calls recorded from now on are picked up automatically; older
     // recordings wait in "Older" until the user asks for them.
     grantedAt: previous?.uri === directory.uri ? previous.grantedAt : Date.now(),
+    userId: (await currentUserId()) ?? undefined,
   };
   await AsyncStorage.setItem(folderKey, JSON.stringify(folder));
   await registerRecordingSyncTask();
@@ -458,11 +472,12 @@ async function syncOne(userId: string, record: LedgerRecord) {
 }
 
 let running: Promise<SyncSummary> | null = null;
-const finishedListeners = new Set<() => void>();
+const finishedListeners = new Set<(summary?: SyncSummary) => void>();
 
 // Lets an open screen redraw after a run it did not start (app open, return
-// to the foreground, the background task). Returns the unsubscribe function.
-export function onRecordingSyncFinished(listener: () => void) {
+// to the foreground, the background task). The summary is missing when the run
+// failed. Returns the unsubscribe function.
+export function onRecordingSyncFinished(listener: (summary?: SyncSummary) => void) {
   finishedListeners.add(listener);
   return () => {
     finishedListeners.delete(listener);
@@ -515,9 +530,13 @@ export function syncRecordings(options: { userId?: string; scan?: boolean } = {}
     return { synced, failed, remaining };
   })().finally(() => {
     running = null;
-    for (const listener of finishedListeners) listener();
   });
-  return running;
+  const run = running;
+  void run.then(
+    (summary) => finishedListeners.forEach((listener) => listener(summary)),
+    () => finishedListeners.forEach((listener) => listener()),
+  );
+  return run;
 }
 
 // Foreground trigger: app start and every return to the foreground.

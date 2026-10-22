@@ -52,7 +52,6 @@ function VehicleSelector({
     queryKey: ['comparison-vehicles', ...workspaceQueryScope(session), ownOnly, term, page],
     queryFn: ({ signal }) => searchComparisonVehicles(term, ownOnly, page, signal),
     staleTime: 60_000,
-    refetchOnWindowFocus: true,
   });
   return (
     <div className="space-y-2">
@@ -214,10 +213,9 @@ export function CompetitorComparisonWorkspace({ spec }: { spec: PageSpec }) {
     queryKey: ['vehicle-comparison', ...workspaceQueryScope(session), ourId, otherId],
     queryFn: ({ signal }) => fetchVehicleComparison(ourId, otherId, signal),
     enabled: Boolean(ourId && otherId),
-    staleTime: 0,
-    gcTime: 0,
-    refetchInterval: 15_000,
-    refetchOnWindowFocus: true,
+    // Specifications change rarely; a withdrawn share surfaces on the next read
+    // instead of polling every 15 seconds while the page is open.
+    staleTime: 5 * 60_000,
     retry: false,
   });
   return (

@@ -18,6 +18,9 @@ const formSchema = z.discriminatedUnion('status', [
     keywords: z.array(z.string()).catch([]),
     ai_available: z.boolean().catch(false),
     ai_remaining: z.coerce.number().int().nonnegative().catch(0),
+    // Added by 202610221753: rounds of 10 with a 10-minute pause between them.
+    ai_round_remaining: z.coerce.number().int().nonnegative().nullable().catch(null),
+    ai_locked_until: z.string().nullable().catch(null),
   }),
   z.object({ status: z.literal('INVALID') }),
   z.object({ status: z.literal('EXPIRED') }),
@@ -28,12 +31,37 @@ const submitSchema = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('RECORDED'),
     rating: z.coerce.number().int().min(1).max(5),
-    review_url: z.string().nullable(),
+    review_url: z.string().nullable().transform(googleWriteReviewUrl),
   }),
   z.object({ status: z.literal('INVALID') }),
   z.object({ status: z.literal('EXPIRED') }),
   z.object({ status: z.literal('ALREADY_SUBMITTED') }),
 ]);
+
+/**
+ * Google's "write a review" form for the listing, when the stored link names
+ * it: a place ID becomes the writereview link and a g.page short link gets its
+ * /review path, so the customer lands on the stars instead of the listing.
+ * Any other Google link is kept as it is.
+ */
+export function googleWriteReviewUrl(url: string | null) {
+  if (!url) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  const placeId =
+    parsed.searchParams.get('placeid') ??
+    parsed.searchParams.get('place_id') ??
+    parsed.searchParams.get('query_place_id');
+  if (placeId && /^[\w-]+$/.test(placeId))
+    return `https://search.google.com/local/writereview?placeid=${placeId}`;
+  const shortLink = parsed.hostname === 'g.page' && parsed.pathname.match(/^\/r\/([\w-]+)\/?$/);
+  if (shortLink) return `https://g.page/r/${shortLink[1]}/review`;
+  return url;
+}
 
 const logoEnvelopeSchema = z.object({
   ok: z.literal(true),
@@ -98,6 +126,8 @@ export class ReviewRephraseError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    /** Set on REPHRASE_COOLDOWN: when writing help is back. */
+    readonly lockedUntil: string | null = null,
   ) {
     super(message);
   }
@@ -110,7 +140,8 @@ const rephraseEnvelopeSchema = z.object({
 
 /**
  * Turns the customer's own keywords and notes into a short review. Each call
- * spends one of the link's five rephrases; a failed one is refunded.
+ * spends one of the link's rephrases (three rounds of 10, a 10-minute pause
+ * between rounds); a failed one is refunded.
  */
 export async function rephrasePublicReview(input: {
   token: string;
@@ -132,10 +163,20 @@ export async function rephrasePublicReview(input: {
             .catch(() => null)
         : null;
     const failure = z
-      .object({ error: z.object({ code: z.string(), message: z.string() }) })
+      .object({
+        error: z.object({
+          code: z.string(),
+          message: z.string(),
+          details: z.object({ locked_until: z.string().optional() }).optional(),
+        }),
+      })
       .safeParse(body);
     throw failure.success
-      ? new ReviewRephraseError(failure.data.error.code, failure.data.error.message)
+      ? new ReviewRephraseError(
+          failure.data.error.code,
+          failure.data.error.message,
+          failure.data.error.details?.locked_until ?? null,
+        )
       : new ReviewRephraseError('REPHRASE_FAILED', 'Writing help did not work this time.');
   }
   return rephraseEnvelopeSchema.parse(data).data.review;

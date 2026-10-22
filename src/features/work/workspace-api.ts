@@ -388,22 +388,6 @@ export async function fetchAppointmentCalendar(
   return appointmentCalendarSchema.parse(data);
 }
 
-export async function fetchAppointmentTypeSummary(timezone: string, signal?: AbortSignal) {
-  const request = createClient().rpc('get_appointment_type_summary', {
-    target_timezone: timezone,
-  });
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
-  if (error) throw error;
-  return z
-    .object({
-      showroom_visit: z.coerce.number().int().nonnegative(),
-      video_call: z.coerce.number().int().nonnegative(),
-      test_drive: z.coerce.number().int().nonnegative(),
-      consultant_call: z.coerce.number().int().nonnegative(),
-    })
-    .parse(data);
-}
-
 const entityOptionSchema = z.object({
   lead_id: z.uuid().nullable(),
   customer_id: z.uuid().nullable(),

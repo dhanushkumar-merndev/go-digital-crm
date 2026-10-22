@@ -16,17 +16,29 @@ import { WorkCreateDialog } from '@/features/work/workspace-dialogs';
 import { CustomerTelecmiCallDialog } from '@/features/customers/customer-360-actions';
 import { useTrackRecentLead } from '@/features/leads/recent-leads';
 import { fetchInboxLeadOptions, setInboxWorkingLead, type InboxConversation } from './inbox-api';
+import { InboxReviewLinkButton } from './inbox-review-link';
+
+/** Present only on a WhatsApp chat the user can send in. */
+export type InboxReviewLinkOptions = {
+  organizationId: string;
+  personal: boolean;
+  windowOpen: boolean | undefined;
+  onSendText: (body: string) => void;
+  onTemplateSent: () => void;
+};
 
 export function InboxLeadContext({
   conversation,
   leadId,
   onViewLeadChange,
   disabled,
+  reviewLink,
 }: {
   conversation: InboxConversation;
   leadId?: string;
   onViewLeadChange?: (leadId: string) => void;
   disabled: boolean;
+  reviewLink?: InboxReviewLinkOptions;
 }) {
   const session = useWorkspaceSession();
   const scope = workspaceQueryScope(session);
@@ -162,6 +174,18 @@ export function InboxLeadContext({
             >
               Appointment
             </Button>
+          )}
+          {reviewLink && (
+            <InboxReviewLinkButton
+              conversation={conversation}
+              leadId={selected.id}
+              organizationId={reviewLink.organizationId}
+              personal={reviewLink.personal}
+              windowOpen={reviewLink.windowOpen}
+              disabled={disabled || change.isPending}
+              onSendText={reviewLink.onSendText}
+              onTemplateSent={reviewLink.onTemplateSent}
+            />
           )}
         </div>
       )}

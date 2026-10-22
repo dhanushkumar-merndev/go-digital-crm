@@ -252,3 +252,27 @@ export async function setInboxWorkingLead(input: {
   });
   if (error) throw error;
 }
+
+const reviewTemplateSchema = z.union([
+  z.object({ configured: z.literal(false) }),
+  z.object({
+    configured: z.literal(true),
+    template_id: z.uuid(),
+    template_name: z.string(),
+    variables: z.record(z.string(), z.string()),
+  }),
+]);
+
+/**
+ * The review template a Client Admin chose for this conversation's WhatsApp
+ * connection, filled for this customer and the given review link. Used only
+ * outside the 24-hour window, when Meta accepts nothing but a template.
+ */
+export async function resolveInboxReviewTemplate(conversationId: string, reviewLink: string) {
+  const { data, error } = await createClient().rpc('resolve_inbox_review_template', {
+    target_conversation_id: conversationId,
+    target_review_link: reviewLink,
+  });
+  if (error) throw new Error(error.message || 'REVIEW_TEMPLATE_UNAVAILABLE');
+  return reviewTemplateSchema.parse(data);
+}

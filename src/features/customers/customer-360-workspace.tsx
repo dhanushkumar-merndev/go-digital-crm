@@ -96,8 +96,8 @@ const customer360Tabs = [
 
 type Customer360Tab = (typeof customer360Tabs)[number];
 
+// Overview has no entry: the header already carries Edit customer.
 const customerTabCreateLabel: Partial<Record<Customer360Tab, string>> = {
-  overview: 'Edit customer',
   leads: 'Add lead',
   followups: 'Add follow-up',
   'test-drives': 'Schedule test drive',
@@ -328,7 +328,7 @@ function Overview({
                 ['City', addressPart(primaryAddress?.address, 'city') || '—'],
                 ['Pincode', addressPart(primaryAddress?.address, 'postal_code') || '—'],
                 ['Customer since', formatDate(data.customer.created_at, false)],
-                ['Customer UUID', data.customer.id],
+                ['Customer ID', data.customer.id],
               ]}
             />
           </CardContent>
@@ -372,7 +372,7 @@ function Overview({
                     ),
                   ],
                   ['Branch', data.current_opportunity.branch_name],
-                  ['Sales owner', data.current_opportunity.assigned_user_name ?? 'Unassigned'],
+                  ['Lead owner', data.current_opportunity.assigned_user_name ?? 'Unassigned'],
                   ['Source', data.current_opportunity.source],
                   ['Campaign', data.current_opportunity.campaign ?? '—'],
                   ['Last activity', formatDate(data.current_opportunity.updated_at)],
@@ -451,9 +451,7 @@ function Overview({
         <Card className="shadow-none">
           <CardHeader>
             <CardTitle className="text-base">Contact identifiers</CardTitle>
-            <CardDescription>
-              Identifiers may repeat across different customer UUIDs.
-            </CardDescription>
+            <CardDescription>The same number can belong to more than one customer.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {data.contacts.length ? (
@@ -1371,7 +1369,7 @@ export function Customer360Workspace({ role, customerId }: { role: string; custo
                   'Not recorded'
                 )}
               </CustomerHeaderValue>
-              <CustomerHeaderValue label="Sales owner">
+              <CustomerHeaderValue label="Lead owner">
                 {data.current_opportunity?.assigned_user_name ?? 'Unassigned'}
                 {data.current_opportunity?.assigned_user_phone && (
                   <a

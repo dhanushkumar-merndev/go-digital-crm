@@ -45,6 +45,7 @@ export function MetricCard({
   const TrendIcon = trend === 'down' ? TrendingDown : TrendingUp;
   const card = (
     <Card
+      data-kpi
       className={cn(
         'h-full min-w-0 border-slate-200/90 shadow-none',
         href &&

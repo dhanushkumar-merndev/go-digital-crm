@@ -1845,14 +1845,23 @@ it is audited (`feedback.rating_without_customer`) and shown on the sender's
 Reviews page, and the e-mail review invitation is refused until a customer is linked.
 
 - `create_lead_review_request` reuses the lead's open request and reissues its
-  token rather than adding a second row. Sending is manual (WhatsApp / SMS / copy),
-  so the CRM records that a link was issued, not that it was delivered.
+  token rather than adding a second row. WhatsApp goes from the CRM, never a
+  wa.me redirect (product decision 2026-10-22): **My WhatsApp** or **Official
+  WhatsApp** opens the lead's chat (`open_lead_whatsapp_conversation`) and sends
+  through `send-message`, so the message sits in that Inbox thread; Official
+  WhatsApp outside the 24-hour window sends the admin's review template. SMS and
+  copy stay manual, and for those the CRM records only that a link was issued.
 - The page reads only the caller's own requests (`get_my_review_requests`):
   sent, filled, awaiting, expired, average stars, five-star, sent to Google.
 - On the form the customer picks keywords and writes a line; `public-review-rephrase`
-  can rewrite it from their words only (one AI credit, five per link, refunded on
-  failure). Submitting copies the review and opens the branch's Google review URL.
-  The CRM cannot see whether they posted; "sent to Google" means the page was opened.
+  can rewrite it from their words only (one AI credit each, refunded on failure).
+  Per lead's link: 10 generations, a 10-minute pause, 10 more, a pause, a last 10,
+  then generating is off for good (product decision 2026-10-22), enforced by
+  `begin_public_review_rephrase`. It uses the dealership's OpenRouter model when
+  connected, else the platform Groq model. Submitting copies the review and opens
+  the branch's Google review URL, rewritten to Google's write-a-review form when
+  the stored link names a place ID or a g.page short link. The CRM cannot see
+  whether they posted; "sent to Google" means the page was opened.
 
 ## 25. Operational department presets
 

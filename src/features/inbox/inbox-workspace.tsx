@@ -10,6 +10,7 @@ import {
 } from '@tanstack/react-query';
 import {
   Check,
+  ChevronRight,
   CheckCheck,
   ChevronLeft,
   CircleAlert,
@@ -26,7 +27,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { PersonalWhatsAppDialog } from './personal-whatsapp-dialog';
 import { PersonalWhatsAppTemplatePicker } from './personal-whatsapp-template-picker';
-import { InboxLeadContext } from './inbox-lead-context';
+import { InboxLeadContext, type InboxReviewLinkOptions } from './inbox-lead-context';
 import { InboxMessageScroller } from './inbox-message-scroller';
 import {
   formatWindowExpiry,
@@ -74,6 +75,7 @@ import {
 } from '@/features/leads/lead-whatsapp-api';
 import { fetchLeadWorkspaceRecords } from '@/features/leads/lead-workspace-api';
 import { retryRpcRead } from '@/lib/supabase/read-rpc';
+import { useFillViewportHeight } from '@/lib/layout/use-fill-viewport-height';
 import { defaultLeadQuery } from '@/features/leads/lead-workspace-query';
 
 // WhatsApp-style ticks, kept to three states: Sending, Sent, Seen. An
@@ -244,6 +246,8 @@ export function InboxWorkspace({
   const [selectedId, setSelectedId] = useState<string | null>(initialConversationId);
   const [draft, setDraft] = useState('');
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  // Bottom edge sits the page padding (main's py-5) above the window.
+  const fillViewport = useFillViewportHeight(20);
   const [draftConversation, setDraftConversation] = useState<string | null>(null);
   const [outbox, setOutbox] = useState<OutboxItem[]>([]);
   const dispatching = useRef<string | null>(null);
@@ -574,7 +578,14 @@ export function InboxWorkspace({
   ]);
   function sendReply() {
     const body = visibleDraft.trim();
-    if (!session?.organizationId || !activeConversation || !canCompose || !body) return;
+    if (!enqueueReply(body)) return;
+    setDraft('');
+    composerRef.current?.focus();
+  }
+  // A typed reply and the sidebar's review link share one outbox, so personal
+  // WhatsApp pacing, retries and idempotency apply to both.
+  function enqueueReply(body: string) {
+    if (!session?.organizationId || !activeConversation || !canCompose || !body) return false;
     setOutbox((items) => [
       ...items,
       {
@@ -590,9 +601,30 @@ export function InboxWorkspace({
         createdAt: Date.now(),
       },
     ]);
-    setDraft('');
-    composerRef.current?.focus();
+    return true;
   }
+  const reviewLink: InboxReviewLinkOptions | undefined =
+    session?.organizationId && activeConversation && (personalConversation || canSendBusiness)
+      ? {
+          organizationId: session.organizationId,
+          personal: Boolean(personalConversation),
+          windowOpen: replyTemplates.data?.window_open,
+          onSendText: (body) => {
+            if (!enqueueReply(body))
+              toast.add({
+                type: 'error',
+                title: 'Review link not sent',
+                description: 'This chat cannot send right now. Check My WhatsApp is connected.',
+              });
+          },
+          onTemplateSent: () => {
+            salesConsultantCache.invalidate('inbox.message.sent');
+            void queryClient.invalidateQueries({
+              queryKey: ['shared-inbox-messages', ...queryScope],
+            });
+          },
+        }
+      : undefined;
   function retryOutbox(id: string) {
     // An explicit retry is a new send attempt, so it gets a new idempotency key.
     setOutbox((items) =>
@@ -657,12 +689,29 @@ export function InboxWorkspace({
 
   return (
     <div
+      ref={embedded ? undefined : fillViewport}
       className={`mx-auto w-full ${embedded ? 'space-y-4' : 'flex flex-col gap-3'}`}
+      // First paint only; the measured height replaces it before the frame shows.
       style={!embedded ? { height: 'calc(100vh / var(--canvas-zoom, 1) - 110px)' } : undefined}
     >
       <div className="flex shrink-0 flex-wrap items-end justify-between gap-3">
         <div>
-          {!embedded && <div className="mb-2 text-xs text-muted-foreground">Workspace / Inbox</div>}
+          {!embedded && (
+            // The same trail every other page opens with.
+            <nav aria-label="Breadcrumb" className="mb-2">
+              <ol className="flex items-center gap-1 text-xs text-muted-foreground">
+                <li>
+                  <Link href={`/${role}/dashboard`} className="text-primary hover:underline">
+                    Dashboard
+                  </Link>
+                </li>
+                <li className="flex items-center gap-1">
+                  <ChevronRight className="size-3" aria-hidden />
+                  <span aria-current="page">Inbox</span>
+                </li>
+              </ol>
+            </nav>
+          )}
           <h2 className={embedded ? 'text-lg font-semibold' : 'text-2xl font-bold tracking-tight'}>
             {leadId ? 'This lead’s conversations' : 'Customer inbox'}
           </h2>
@@ -920,6 +969,7 @@ export function InboxWorkspace({
                     leadId={historyLeadId}
                     onViewLeadChange={viewLeadHistory}
                     disabled={outboxBusy || readOnly}
+                    reviewLink={reviewLink}
                   />
                 </div>
                 <InboxMessageScroller
@@ -949,14 +999,14 @@ export function InboxWorkspace({
                         className={`flex ${message.direction === 'OUTBOUND' ? 'justify-end' : 'justify-start'}`}
                       >
                         <div
-                          className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm ${message.direction === 'OUTBOUND' ? 'bg-emerald-100 text-slate-900' : 'bg-white border'}`}
+                          className={`max-w-[85%] min-w-0 rounded-2xl px-3 py-2 text-sm shadow-sm ${message.direction === 'OUTBOUND' ? 'bg-emerald-100 text-slate-900' : 'bg-white border'}`}
                         >
                           {message.metadata.message_type === 'template' && (
                             <p className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-emerald-800">
                               <FileText className="size-3" /> Template
                             </p>
                           )}
-                          <p className="whitespace-pre-wrap">
+                          <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
                             {message.body ?? 'Attachment or provider event'}
                           </p>
                           {!historyLeadId && typeof message.metadata.lead_id === 'string' && (
@@ -1002,9 +1052,9 @@ export function InboxWorkspace({
                   {visibleOutbox.map((item) => (
                     <div key={item.id} className="flex justify-end" aria-live="polite">
                       <div
-                        className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm text-slate-900 shadow-sm ${item.state === 'failed' ? 'border border-red-200 bg-red-50' : 'bg-emerald-100'}`}
+                        className={`max-w-[85%] min-w-0 rounded-2xl px-3 py-2 text-sm text-slate-900 shadow-sm ${item.state === 'failed' ? 'border border-red-200 bg-red-50' : 'bg-emerald-100'}`}
                       >
-                        <p className="whitespace-pre-wrap">{item.body}</p>
+                        <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{item.body}</p>
                         <p className="mt-1 flex justify-end text-[10px] text-muted-foreground">
                           <MessageStatus
                             status={
@@ -1193,6 +1243,7 @@ export function InboxWorkspace({
                   leadId={historyLeadId}
                   onViewLeadChange={viewLeadHistory}
                   disabled={outboxBusy || readOnly}
+                  reviewLink={reviewLink}
                 />
                 <div className="space-y-3 border-t pt-4">
                   <Detail label="Channel" value={channelLabel(activeConversation.channel)} />

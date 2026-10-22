@@ -1,15 +1,21 @@
-import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LeadRow } from '@/components/lead-row';
-import { Card, ErrorState, SectionHeader, SkeletonList } from '@/components/ui/basics';
+import { ErrorState, SkeletonList } from '@/components/ui/basics';
 import { useWorkRefresh } from '@/features/call-flow/call-flow';
-import { CallNext, KpiTiles, TodayHeader } from '@/features/today/today-parts';
+import {
+  CallNext,
+  KpiTiles,
+  QuickActions,
+  RecentLeadsStrip,
+  TargetsCard,
+  TodayHeader,
+} from '@/features/today/today-parts';
 import {
   fetchMobileTelecallerDashboard,
   type MobileTelecallerDashboard,
 } from '@/lib/telecaller-dashboard';
+import { fetchTodayTargets, type TodayTarget } from '@/lib/today-targets';
 import { colors, space } from '@/theme';
 
 export default function Home() {
@@ -17,8 +23,14 @@ export default function Home() {
   const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [version, setVersion] = useState(0);
+  const [targets, setTargets] = useState<TodayTarget[]>();
   const load = useCallback(async () => {
     setError(false);
+    // Targets are optional decoration: they load beside the dashboard and a
+    // failure only hides their card.
+    void fetchTodayTargets('telecaller')
+      .then(setTargets)
+      .catch(() => setTargets(undefined));
     try {
       setDashboard(await fetchMobileTelecallerDashboard());
     } catch {
@@ -52,6 +64,20 @@ export default function Home() {
           <ErrorState title="Today could not load" onRetry={() => void load()} />
         ) : null}
         {!dashboard && !error ? <SkeletonList rows={3} /> : null}
+        <TargetsCard items={targets} />
+        <QuickActions
+          items={[
+            { label: 'Add lead', icon: 'add', tone: colors.primary, href: '/new-lead' },
+            { label: 'My leads', icon: 'people', tone: '#0891b2', href: '/telecaller/my-leads' },
+            {
+              label: 'Follow-ups',
+              icon: 'alarm',
+              tone: colors.warning,
+              href: '/telecaller/follow-ups',
+            },
+            { label: 'Call log', icon: 'call', tone: colors.success, href: '/telecaller/calls' },
+          ]}
+        />
         {dashboard ? (
           <KpiTiles
             items={[
@@ -70,6 +96,13 @@ export default function Home() {
                 href: '/telecaller/follow-ups',
               },
               {
+                label: 'Overdue',
+                value: dashboard.kpis.followupsOverdue,
+                icon: 'alert-circle',
+                tone: colors.danger,
+                href: '/telecaller/follow-ups',
+              },
+              {
                 label: 'Calls today',
                 value: dashboard.kpis.callsToday,
                 icon: 'call',
@@ -80,32 +113,20 @@ export default function Home() {
           />
         ) : null}
         <CallNext key={version} followupsHref="/telecaller/follow-ups" />
-        {dashboard?.recentLeads.length ? (
-          <View style={styles.section}>
-            <SectionHeader
-              title="Recent leads"
-              action="See all"
-              onAction={() => router.push('/telecaller/my-leads')}
-            />
-            <Card>
-              {dashboard.recentLeads.slice(0, 5).map((lead, index) => (
-                <View key={lead.id} style={index > 0 ? styles.divider : undefined}>
-                  <LeadRow
-                    lead={{
-                      id: lead.id,
-                      name: lead.customerName,
-                      phone: lead.phone,
-                      model: lead.interestedModel,
-                      source: lead.source,
-                      stage: lead.lifecycleStatus,
-                      temperature: lead.temperature,
-                      nextFollowupAt: null,
-                    }}
-                  />
-                </View>
-              ))}
-            </Card>
-          </View>
+        {dashboard ? (
+          <RecentLeadsStrip
+            href="/telecaller/my-leads"
+            leads={dashboard.recentLeads.slice(0, 8).map((lead) => ({
+              id: lead.id,
+              name: lead.customerName,
+              phone: lead.phone,
+              model: lead.interestedModel,
+              source: lead.source,
+              stage: lead.lifecycleStatus,
+              temperature: lead.temperature,
+              nextFollowupAt: null,
+            }))}
+          />
         ) : null}
       </ScrollView>
     </SafeAreaView>
@@ -115,6 +136,4 @@ export default function Home() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   content: { padding: space.lg, paddingBottom: 40, gap: space.lg },
-  section: { gap: space.sm },
-  divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
 });

@@ -100,10 +100,16 @@ export function ListScreen<T>({
   onEndReached,
   onRetry,
   bare,
+  cards,
+  floating,
   ...header
 }: HeaderProps & {
   // Rendered inside another screen (Sales Schedule) that owns the header.
   bare?: boolean;
+  // Each item is its own card with a gap between, instead of one flat surface.
+  cards?: boolean;
+  // Drawn over the list, e.g. a floating Add button the caller positions.
+  floating?: ReactNode;
   data: T[];
   renderItem: ListRenderItem<T>;
   keyExtractor: (item: T) => string;
@@ -136,8 +142,8 @@ export function ListScreen<T>({
             data={error ? [] : data}
             renderItem={renderItem}
             keyExtractor={keyExtractor}
-            contentContainerStyle={styles.listContent}
-            ItemSeparatorComponent={Separator}
+            contentContainerStyle={[styles.listContent, cards && styles.cardList]}
+            ItemSeparatorComponent={cards ? CardGap : Separator}
             ListHeaderComponent={listHeader}
             ListEmptyComponent={
               error ? (
@@ -172,13 +178,24 @@ export function ListScreen<T>({
       )}
     </>
   );
-  if (bare) return <View style={styles.bare}>{body}</View>;
+  if (bare)
+    return (
+      <View style={styles.bare}>
+        {body}
+        {floating}
+      </View>
+    );
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <Header {...header} />
       {body}
+      {floating}
     </SafeAreaView>
   );
+}
+
+function CardGap() {
+  return <View style={styles.cardGap} />;
 }
 
 // Rows share one flat surface; the divider starts after the avatar column.
@@ -210,6 +227,9 @@ const styles = StyleSheet.create({
   content: { padding: space.lg, paddingTop: space.sm, paddingBottom: 40, gap: space.md },
   toolbar: { paddingHorizontal: space.lg, paddingBottom: space.sm, gap: space.sm },
   listContent: { paddingBottom: 40, flexGrow: 1 },
+  // Room under the last card for a floating button.
+  cardList: { paddingHorizontal: space.lg, paddingTop: space.xs, paddingBottom: 96 },
+  cardGap: { height: space.md },
   separator: { backgroundColor: colors.card },
   separatorLine: {
     height: StyleSheet.hairlineWidth,

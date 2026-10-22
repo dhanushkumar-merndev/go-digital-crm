@@ -32,6 +32,12 @@ const scheduleDeepLinksMigration = readFileSync(
 const api = readFileSync('src/features/dashboards/sales-consultant-dashboard-api.ts', 'utf8');
 const workspace = readFileSync('src/features/dashboards/sales-consultant-dashboard.tsx', 'utf8');
 const leadWorkspace = readFileSync('src/features/leads/lead-workspace.tsx', 'utf8');
+const recordLinks = readFileSync('src/lib/navigation/record-links.ts', 'utf8');
+const aiSummaryCard = readFileSync('src/features/dashboards/ai-dashboard-summary.tsx', 'utf8');
+const telecallerDashboard = readFileSync(
+  'src/features/dashboards/telecaller-dashboard.tsx',
+  'utf8',
+);
 const taskWorkspace = readFileSync('src/features/tasks/task-workspace.tsx', 'utf8');
 const dashboardHandler = readFileSync(
   'supabase/functions/sales-consultant-dashboard/index.ts',
@@ -156,7 +162,11 @@ describe('sales consultant dashboard contract', () => {
   });
 
   it('opens recent leads in the All list with a temporary focused row instead of call shortcuts', () => {
-    expect(workspace).toContain('/my-leads?status=all&focus=${encodeURIComponent(lead.id)}');
+    // Focus alone only marks a row already on the loaded page, so the mobile
+    // goes in as the search and the lead is the result.
+    expect(workspace).toContain('href={myLeadsFocusHref(DASHBOARD_ROLE, lead)}');
+    expect(recordLinks).toContain("params.set('q', mobile);");
+    expect(recordLinks).toContain("params.set('focus', lead.id);");
     expect(workspace).not.toContain('toWhatsAppClickToChatUrl(lead.phone)');
     expect(workspace).not.toContain('href={`tel:${lead.phone}`}');
     expect(leadWorkspace).toContain('lead-row-${focusLeadId}');
@@ -254,19 +264,39 @@ describe('sales consultant dashboard contract', () => {
   });
 
   it('keeps a two-line AI-summary preview and only generates through the cached API on demand', () => {
-    expect(workspace).toContain('function AiPipelineSummary');
-    expect(workspace).toContain('AI sales summary');
-    expect(workspace).toContain('line-clamp-2');
-    expect(workspace).toContain('Generate summary');
-    expect(workspace).toContain('Regenerate summary');
-    expect(workspace).toContain('generateSalesConsultantAiSummary');
+    expect(workspace).toContain('<AiDashboardSummary');
+    expect(workspace).toContain('title="AI sales summary"');
+    expect(aiSummaryCard).toContain('line-clamp-2');
+    expect(aiSummaryCard).toContain("'Generate · 1 credit'");
+    expect(aiSummaryCard).toContain("'Regenerate · 1 credit'");
     expect(api).toContain("functions.invoke('sales-consultant-ai-summary'");
     expect(aiSummaryHandler).toContain("resource: 'sales-consultant-ai-summary'");
     expect(aiSummaryHandler).toContain('forceRefresh: parsed.data.force_refresh');
     expect(aiSummaryHandler).toContain('ttlSeconds: CACHE_TTL_SECONDS');
-    expect(workspace).toContain(
-      '<AiPipelineSummary data={data} conversionRate={conversionRate} />',
-    );
     expect(workspace).toContain("item.key === 'OVERDUE_FOLLOWUPS'");
+  });
+
+  it('charges one AI credit per generated summary and refunds a failed one', () => {
+    // AGENTS.md section 20: generation consumes credits, a saved summary is free.
+    expect(aiSummaryHandler).toContain("admin.rpc('reserve_ai_credits'");
+    expect(aiSummaryHandler).toContain("admin.rpc('commit_ai_credit_reservation'");
+    expect(aiSummaryHandler).toContain("admin.rpc('reverse_ai_credit_reservation'");
+    expect(aiSummaryHandler).toContain(
+      "const generatedHere = ['MISS', 'BYPASS', 'FALLBACK'].includes(cached.diagnostic.status);",
+    );
+    expect(aiSummaryHandler).toContain("'INSUFFICIENT_CREDITS'");
+    // One click is one charge even if the request is retried.
+    expect(api).toContain(
+      'body: { force_refresh: input.forceRefresh, request_id: input.requestId }',
+    );
+    expect(aiSummaryCard).toContain('requestId: crypto.randomUUID()');
+    // The header balance is refreshed so the spend shows straight away.
+    expect(aiSummaryCard).toContain("queryKey: ['header-credit-balance']");
+  });
+
+  it('serves the same summary card and function to the Telecaller dashboard', () => {
+    expect(aiSummaryHandler).toContain("role_key: z.enum(['sales-consultant', 'telecaller'])");
+    expect(aiSummaryHandler).toContain("client.rpc('get_tenant_dashboard_summary'");
+    expect(telecallerDashboard).toContain('<AiDashboardSummary');
   });
 });

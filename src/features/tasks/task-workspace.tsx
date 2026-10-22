@@ -13,10 +13,9 @@ import {
   CircleCheckBig,
   ClipboardList,
   ClockAlert,
+  Loader,
   Pencil,
   Search,
-  TrendingDown,
-  TrendingUp,
   XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -143,10 +142,19 @@ function taskMetricCards(
       chip: 'bg-violet-50 text-violet-600',
       rate: percentOf(openInView, statusCounts.all),
       helper: 'still to do',
-      rising: true,
       good: true,
       neutral: true,
       footnote: `${statusCounts.completed.toLocaleString('en-IN')} completed \u00b7 ${statusCounts.cancelled.toLocaleString('en-IN')} cancelled`,
+    },
+    {
+      status: 'overdue' as const,
+      label: 'Overdue',
+      value: kpis.overdue,
+      icon: ClockAlert,
+      chip: 'bg-rose-50 text-rose-600',
+      rate: percentOf(kpis.overdue, open),
+      helper: 'of open tasks',
+      good: kpis.overdue === 0,
     },
     {
       status: 'today' as const,
@@ -156,34 +164,7 @@ function taskMetricCards(
       chip: 'bg-blue-50 text-blue-600',
       rate: percentOf(kpis.today, open),
       helper: 'of tasks still to do',
-      rising: true,
       good: true,
-    },
-    {
-      status: 'overdue' as const,
-      label: 'Overdue',
-      value: kpis.overdue,
-      icon: ClockAlert,
-      chip: 'bg-rose-50 text-rose-600',
-      rate: percentOf(kpis.overdue, open),
-      helper: 'missed against open workload',
-      rising: kpis.overdue > 0,
-      good: kpis.overdue === 0,
-    },
-    {
-      status: 'completed' as const,
-      label: 'Completed today',
-      value: kpis.completed_today,
-      icon: CircleCheckBig,
-      chip: 'bg-emerald-50 text-emerald-600',
-      rate: clearedRate,
-      helper: dueTodayTotal ? 'of today\u2019s tasks cleared' : 'nothing was due today',
-      rising: clearedRate >= 50,
-      good: clearedRate >= 50,
-      neutral: dueTodayTotal === 0,
-      // The Completed tab lists every completed task; this card counts only
-      // today's. Naming the tab total stops that reading as a contradiction.
-      footnote: `${statusCounts.completed.toLocaleString('en-IN')} completed all time`,
     },
     {
       status: 'upcoming' as const,
@@ -193,8 +174,32 @@ function taskMetricCards(
       chip: 'bg-orange-50 text-orange-600',
       rate: percentOf(kpis.upcoming, open),
       helper: 'of tasks still to do',
-      rising: true,
       good: true,
+    },
+    {
+      status: 'completed' as const,
+      label: 'Completed today',
+      value: kpis.completed_today,
+      icon: CircleCheckBig,
+      chip: 'bg-emerald-50 text-emerald-600',
+      rate: clearedRate,
+      helper: dueTodayTotal ? 'of today\u2019s tasks cleared' : 'nothing was due today',
+      good: clearedRate >= 50,
+      neutral: dueTodayTotal === 0,
+      // The Completed tab lists every completed task; this card counts only
+      // today's. Naming the tab total stops that reading as a contradiction.
+      footnote: `${statusCounts.completed.toLocaleString('en-IN')} completed all time`,
+    },
+    {
+      status: 'in-progress' as const,
+      label: 'In progress',
+      value: statusCounts.in_progress,
+      icon: Loader,
+      chip: 'bg-cyan-50 text-cyan-600',
+      rate: percentOf(statusCounts.in_progress, openInView),
+      helper: 'of tasks still to do',
+      good: true,
+      neutral: true,
     },
   ];
 }
@@ -209,7 +214,7 @@ function TaskMetricCard({
   onSelect: () => void;
 }) {
   const Icon = card.icon;
-  const TrendIcon = card.rising ? TrendingUp : TrendingDown;
+  // A share of the list, not a change over time, so no trend arrow.
   return (
     <button
       type="button"
@@ -218,6 +223,7 @@ function TaskMetricCard({
       className="group min-w-0 rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
     >
       <Card
+        data-kpi
         className={cn(
           'h-full min-w-0 shadow-none transition-all group-hover:-translate-y-0.5 group-hover:border-blue-200 group-hover:shadow-sm',
           active ? 'border-blue-300 ring-1 ring-blue-200' : 'border-slate-200/90',
@@ -245,8 +251,7 @@ function TaskMetricCard({
                   : 'text-rose-600',
             )}
           >
-            <TrendIcon className="size-3" /> {card.rate}%
-            <span className="font-normal text-muted-foreground">{card.helper}</span>
+            {card.rate}%<span className="font-normal text-muted-foreground">{card.helper}</span>
           </p>
           {card.footnote && (
             <p className="mt-1 text-center text-[10px] text-muted-foreground">{card.footnote}</p>
@@ -282,7 +287,7 @@ function TaskStatusTabs({
     { label: 'Today', value: 'today', count: statusCounts.today },
     { label: 'Upcoming', value: 'upcoming', count: statusCounts.upcoming },
     { label: 'Overdue', value: 'overdue', count: statusCounts.overdue },
-    { label: 'In Progress', value: 'in-progress', count: statusCounts.in_progress },
+    { label: 'In progress', value: 'in-progress', count: statusCounts.in_progress },
     { label: 'Completed', value: 'completed', count: statusCounts.completed },
     { label: 'Cancelled', value: 'cancelled', count: statusCounts.cancelled },
   ];
@@ -511,14 +516,14 @@ function TaskTable({
               onChange={(event) => onSearchChange(event.target.value)}
             />
           </div>
-          <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2 xl:flex">
+          <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2 xl:flex xl:justify-end">
             <Select
               value={query.priority}
               onValueChange={(priority) =>
                 onQueryChange({ priority: priority as TaskQuery['priority'], page: 1 })
               }
             >
-              <SelectTrigger className="w-full xl:flex-1" aria-label="Filter by priority">
+              <SelectTrigger className="w-full xl:w-[170px]" aria-label="Filter by priority">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -533,7 +538,7 @@ function TaskTable({
               value={query.sort}
               onValueChange={(sort) => onQueryChange({ sort: sort as TaskQuery['sort'], page: 1 })}
             >
-              <SelectTrigger className="w-full xl:flex-1" aria-label="Sort tasks">
+              <SelectTrigger className="w-full xl:w-[170px]" aria-label="Sort tasks">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -605,10 +610,32 @@ function TaskTable({
               ) : (
                 <TableRow>
                   <TableCell colSpan={columns.length} className="h-44 text-center">
-                    <p className="font-medium">No matching tasks</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Clear the page-local filters or create a lead-linked task.
-                    </p>
+                    {query.status === 'today' && result.status_counts.overdue > 0 ? (
+                      // The page opens on Today; an empty Today with overdue work
+                      // behind it should send the user there, not to the filters.
+                      <>
+                        <p className="font-medium">Nothing is due today</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {result.status_counts.overdue.toLocaleString('en-IN')} overdue{' '}
+                          {result.status_counts.overdue === 1 ? 'task is' : 'tasks are'} still open.
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-3"
+                          onClick={() => onQueryChange({ status: 'overdue', page: 1 })}
+                        >
+                          View overdue tasks
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-medium">No matching tasks</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Clear the page-local filters or create a lead-linked task.
+                        </p>
+                      </>
+                    )}
                   </TableCell>
                 </TableRow>
               )}
@@ -755,7 +782,7 @@ export function TaskWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
         <div
           id="task-summary-kpis"
           hidden={!summaryOpen}
-          className={cn('grid gap-2.5', kpiGridColumns(5))}
+          className={cn('grid gap-2.5', kpiGridColumns(6))}
         >
           {taskMetricCards(workspace.data.kpis, workspace.data.status_counts).map((card) => (
             <TaskMetricCard

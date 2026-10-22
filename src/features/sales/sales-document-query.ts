@@ -64,7 +64,9 @@ export function defaultSalesDocumentQuery(kind: SalesDocumentKind): SalesDocumen
     pageSize: 25,
     search: '',
     status: kind === 'quotations' ? 'draft' : 'all',
-    sort: kind === 'bookings' ? 'delivery:asc' : 'updated:desc',
+    // Newest first for both: "Earliest delivery" opened Bookings on May's
+    // already-delivered orders. Delivery order is still one click away.
+    sort: 'updated:desc',
     model: '',
     branchId: '',
     fromDate: '',

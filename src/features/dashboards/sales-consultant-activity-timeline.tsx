@@ -56,8 +56,8 @@ import {
   type SalesConsultantActivityTimeline,
 } from './sales-consultant-activity-api';
 
-function summaryItems(data: SalesConsultantActivityTimeline) {
-  return [
+function summaryItems(data: SalesConsultantActivityTimeline, role: ActivityTimelineRole) {
+  const items = [
     ['Calls', data.summary.calls, Phone, 'bg-emerald-50 text-emerald-600'],
     ['Messages', data.summary.messages, MessageCircle, 'bg-green-50 text-green-600'],
     ['Follow-ups', data.summary.followups, CalendarClock, 'bg-violet-50 text-violet-600'],
@@ -65,6 +65,11 @@ function summaryItems(data: SalesConsultantActivityTimeline) {
     ['Quotations', data.summary.quotations, FileText, 'bg-orange-50 text-orange-600'],
     ['Notes', data.summary.notes, NotebookPen, 'bg-amber-50 text-amber-600'],
   ] as const;
+  // A telecaller books no test drives and sends no quotations, so those two
+  // tiles could only ever read 0 for them.
+  return role === 'telecaller'
+    ? items.filter(([label]) => label !== 'Test drives' && label !== 'Quotations')
+    : items;
 }
 
 function SideRail({
@@ -112,7 +117,7 @@ function SideRail({
                   </div>
                 );
               })
-            : summaryItems(data).map(([label, value, Icon, tone]) => (
+            : summaryItems(data, role).map(([label, value, Icon, tone]) => (
                 <div key={label} className="flex items-center gap-2">
                   <span className={cn('grid size-7 place-items-center rounded-md', tone)}>
                     <Icon className="size-3.5" />
@@ -162,7 +167,7 @@ function SideRail({
             ))
           ) : (
             <p className="py-5 text-center text-xs text-muted-foreground">
-              No follow-ups are scheduled.
+              Nothing scheduled ahead. Overdue follow-ups are on the Follow-ups page.
             </p>
           )}
         </CardContent>

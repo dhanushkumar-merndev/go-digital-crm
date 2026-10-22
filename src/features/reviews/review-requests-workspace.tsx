@@ -15,7 +15,7 @@ import {
   Star,
   TriangleAlert,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import {
   useWorkspaceSession,
@@ -26,6 +26,13 @@ import { PerformanceDateRangeSelector } from '@/components/shared/performance-da
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -59,6 +66,12 @@ const stateBadge: Record<
 };
 const channelLabel: Record<string, string> = { WHATSAPP: 'WhatsApp', SMS: 'SMS', LINK: 'Link' };
 
+const dayLabel = new Intl.DateTimeFormat('en-IN', {
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'UTC',
+});
+
 function Stars({ rating }: { rating: number }) {
   return (
     <span className="flex items-center gap-0.5" aria-label={`${rating} out of 5`}>
@@ -83,6 +96,101 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function Detail({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-0.5">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="text-sm">{children}</dd>
+    </div>
+  );
+}
+
+/** Everything about one request, including the full review the table clips. */
+function ReviewRequestDetailDialog({
+  record,
+  onOpenChange,
+  onResend,
+}: {
+  record: ReviewRequestRecord | null;
+  onOpenChange: (open: boolean) => void;
+  onResend: (record: ReviewRequestRecord) => void;
+}) {
+  const badge = record ? stateBadge[record.state] : null;
+  return (
+    <Dialog open={Boolean(record)} onOpenChange={onOpenChange}>
+      {record && badge ? (
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex flex-wrap items-center gap-2">
+              {record.customer_name}
+              <Badge variant={badge.variant}>{badge.label}</Badge>
+            </DialogTitle>
+            <DialogDescription>
+              {[record.phone && formatNationalPhone(record.phone), record.interested_model]
+                .filter(Boolean)
+                .join(' · ') || 'Review request'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {record.rating ? (
+              <div className="flex items-center gap-2">
+                <Stars rating={record.rating} />
+                <span className="text-sm font-medium">{record.rating} out of 5</span>
+              </div>
+            ) : null}
+            {record.keywords.length ? (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">What stood out</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {record.keywords.map((keyword) => (
+                    <Badge key={keyword} variant="secondary">
+                      {keyword}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">Review</p>
+              <p className="max-h-60 overflow-y-auto rounded-md border bg-muted/30 p-3 text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
+                {record.comments ||
+                  (record.state === 'FILLED' ? 'No written review.' : 'Not filled yet.')}
+              </p>
+            </div>
+            <dl className="grid grid-cols-2 gap-3">
+              <Detail label="Sent">{formatDate(record.sent_at)}</Detail>
+              <Detail label="Sent via">{channelLabel[record.channel] ?? record.channel}</Detail>
+              <Detail label={record.state === 'FILLED' ? 'Filled' : 'Link expires'}>
+                {formatDate(record.state === 'FILLED' ? record.completed_at : record.expires_at)}
+              </Detail>
+              <Detail label="Google">
+                {record.sent_to_google ? (
+                  <Badge variant="violet">Opened</Badge>
+                ) : (
+                  <span className="text-muted-foreground">Not opened</span>
+                )}
+              </Detail>
+            </dl>
+            {record.sent_to_google ? (
+              <p className="text-xs text-muted-foreground">
+                The customer opened your Google review page. The CRM cannot see whether they posted
+                there.
+              </p>
+            ) : null}
+          </div>
+          {record.state !== 'FILLED' && record.lead_id ? (
+            <div className="flex justify-end">
+              <Button size="sm" variant="outline" onClick={() => onResend(record)}>
+                <Send className="size-3.5" /> Resend
+              </Button>
+            </div>
+          ) : null}
+        </DialogContent>
+      ) : null}
+    </Dialog>
+  );
+}
+
 const percent = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : 0);
 
 /**
@@ -100,6 +208,18 @@ export function ReviewRequestsWorkspace({ spec }: { spec: PageSpec }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<TablePageSize>(25);
   const [sending, setSending] = useState<{ target: ReviewTarget | null } | null>(null);
+  const [viewing, setViewing] = useState<ReviewRequestRecord | null>(null);
+  const resend = (record: ReviewRequestRecord) => {
+    if (!record.lead_id) return;
+    setViewing(null);
+    setSending({
+      target: {
+        leadId: record.lead_id,
+        customerName: record.customer_name,
+        phone: record.phone,
+      },
+    });
+  };
   const debouncedTerm = useDebouncedValue(term.trim());
   if (debouncedTerm !== search) {
     setSearch(debouncedTerm);
@@ -134,14 +254,23 @@ export function ReviewRequestsWorkspace({ spec }: { spec: PageSpec }) {
       }
     />
   );
-  const dialog = sending ? (
-    <SendReviewRequestDialog
-      key={sending.target?.leadId ?? 'pick'}
-      open
-      onOpenChange={(open) => !open && setSending(null)}
-      target={sending.target}
-    />
-  ) : null;
+  const dialog = (
+    <>
+      {sending ? (
+        <SendReviewRequestDialog
+          key={sending.target?.leadId ?? 'pick'}
+          open
+          onOpenChange={(open) => !open && setSending(null)}
+          target={sending.target}
+        />
+      ) : null}
+      <ReviewRequestDetailDialog
+        record={viewing}
+        onOpenChange={(open) => !open && setViewing(null)}
+        onResend={resend}
+      />
+    </>
+  );
 
   if (query.isPending)
     return (
@@ -183,14 +312,14 @@ export function ReviewRequestsWorkspace({ spec }: { spec: PageSpec }) {
   const { kpis, ratings, daily, records, total } = query.data;
   const metrics: Metric[] = [
     {
-      label: 'Requests Sent',
+      label: 'Requests sent',
       value: String(kpis.sent),
       icon: Send,
       tone: 'bg-blue-50 text-blue-600',
       helper: 'Links you sent in this period',
     },
     {
-      label: 'Customers Filled',
+      label: 'Customers filled',
       value: String(kpis.filled),
       icon: CircleCheck,
       tone: 'bg-emerald-50 text-emerald-600',
@@ -204,7 +333,7 @@ export function ReviewRequestsWorkspace({ spec }: { spec: PageSpec }) {
       helper: `${kpis.expired} expired unanswered`,
     },
     {
-      label: 'Average Rating',
+      label: 'Average rating',
       value: kpis.average_rating === null ? '—' : `${kpis.average_rating.toFixed(1)} ★`,
       icon: Star,
       tone: 'bg-yellow-50 text-yellow-600',
@@ -218,7 +347,7 @@ export function ReviewRequestsWorkspace({ spec }: { spec: PageSpec }) {
       helper: 'Opened your Google review page',
     },
     {
-      label: 'Needs Attention',
+      label: 'Needs attention',
       value: String(kpis.low_rating),
       icon: MessageSquareHeart,
       tone: 'bg-rose-50 text-rose-600',
@@ -229,32 +358,38 @@ export function ReviewRequestsWorkspace({ spec }: { spec: PageSpec }) {
   return (
     <div className="mx-auto w-full space-y-5">
       {header}
-      <KpiGrid metrics={metrics} variant="classic" />
+      <KpiGrid metrics={metrics} />
       <div className="grid gap-4 xl:grid-cols-3">
         <Card className="shadow-none xl:col-span-2">
           <CardHeader>
-            <CardTitle className="text-sm">Requests Sent vs Filled</CardTitle>
+            <CardTitle className="text-sm">Requests sent vs filled</CardTitle>
           </CardHeader>
           <CardContent>
+            {/* Bars, so a day where every request was filled still shows Sent
+                instead of hiding it behind the Filled line. */}
             <EChart
-              kind="line"
+              kind="bar"
               data={daily.map((row) => ({
-                name: row.day.slice(5),
+                name: dayLabel.format(new Date(`${row.day}T12:00:00Z`)),
                 value: row.sent,
-                secondary: row.filled,
               }))}
-              seriesNames={['Sent', 'Filled']}
+              series={[
+                { name: 'Sent', values: daily.map((row) => row.sent) },
+                { name: 'Filled', values: daily.map((row) => row.filled) },
+              ]}
+              colors={['#2563eb', '#14b8a6']}
             />
           </CardContent>
         </Card>
         <Card className="shadow-none">
           <CardHeader>
-            <CardTitle className="text-sm">Star Ratings</CardTitle>
+            <CardTitle className="text-sm">Star ratings</CardTitle>
           </CardHeader>
           <CardContent>
             <EChart
               kind="bar"
               data={ratings.map((row) => ({ name: `${row.rating} ★`, value: row.count }))}
+              series={[{ name: 'Reviews', values: ratings.map((row) => row.count) }]}
             />
           </CardContent>
         </Card>
@@ -306,7 +441,11 @@ export function ReviewRequestsWorkspace({ spec }: { spec: PageSpec }) {
                 records.map((record) => {
                   const badge = stateBadge[record.state];
                   return (
-                    <TableRow key={record.feedback_id}>
+                    <TableRow
+                      key={record.feedback_id}
+                      className="cursor-pointer"
+                      onClick={() => setViewing(record)}
+                    >
                       <TableCell>
                         <p className="font-medium">{record.customer_name}</p>
                         {record.phone ? (
@@ -351,19 +490,25 @@ export function ReviewRequestsWorkspace({ spec }: { spec: PageSpec }) {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() =>
-                              setSending({
-                                target: {
-                                  leadId: record.lead_id!,
-                                  customerName: record.customer_name,
-                                  phone: record.phone,
-                                },
-                              })
-                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              resend(record);
+                            }}
                           >
                             Resend
                           </Button>
-                        ) : null}
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setViewing(record);
+                            }}
+                          >
+                            View
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   );

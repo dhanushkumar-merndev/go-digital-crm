@@ -17,7 +17,7 @@ describe('Telecaller dashboard queue consistency', () => {
   it('routes the New dashboard card and My Leads tab to the same fresh queue', () => {
     expect(dashboard).toContain('href: `${leads}?status=new-today`');
     expect(workspace).toContain("{ label: 'New', value: 'new-today', count: data.kpis.new_today }");
-    expect(workspace).toContain("status: 'new-today'");
+    expect(workspace).toContain("status: sales ? 'sales-new' : 'new-today'");
   });
 
   it('uses the My Leads KPI source for dashboard totals and Contacted counts', () => {

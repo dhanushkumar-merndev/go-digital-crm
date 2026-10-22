@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '@/components/screen';
 import { Badge, Card, Chip, EmptyState, ErrorState, SkeletonList } from '@/components/ui/basics';
+import { FilterBar } from '@/components/ui/filter-sheet';
 import { fetchMobileStockCheck, type MobileStockCheckPage } from '@/lib/stock-check';
 import { colors, font } from '@/theme';
 
@@ -56,13 +57,12 @@ export function MobileStockCheckScreen() {
 
   return (
     <Screen back title="Stock check">
-      <TextInput
-        value={searchInput}
-        onChangeText={(value) => {
+      <FilterBar
+        search={searchInput}
+        onSearch={(value) => {
           setSearchInput(value);
           setPage(1);
         }}
-        style={styles.search}
         placeholder="Search model, variant, fuel or colour"
       />
       <ScrollView
@@ -167,16 +167,6 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: st
 }
 
 const styles = StyleSheet.create({
-  search: {
-    minHeight: 44,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 11,
-    backgroundColor: colors.card,
-    paddingHorizontal: 12,
-    color: colors.text,
-    fontSize: font.small,
-  },
   filters: { gap: 8 },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   metric: {
@@ -191,6 +181,7 @@ const styles = StyleSheet.create({
   metricLabel: { color: colors.muted, fontSize: font.caption, fontWeight: '700', marginTop: 4 },
   row: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 10,
     padding: 13,
     borderBottomWidth: 1,

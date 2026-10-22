@@ -21,7 +21,9 @@ import {
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PerformanceDateRangeSelector } from '@/components/shared/performance-date-range-selector';
 import { SalesConsultantPerformanceSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
 import type { Metric } from '@/lib/domain';
 import { performanceRangeForLastDays } from '@/lib/performance-date-range';
 import {
@@ -42,10 +44,15 @@ import {
   type TelecallerPerformance,
 } from './sales-consultant-performance-api';
 import { SalesHandoffReport } from './sales-handoff-report';
-import { TelecallerActivityChart } from './telecaller-activity-chart';
+import { SalesActivityChart, TelecallerActivityChart } from './telecaller-activity-chart';
 
 const duration = (seconds: number) =>
   `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+
+/** Whether every step is at most the one before it, so a funnel shape is honest. */
+function funnelNarrows(stages: Array<{ value: number }>) {
+  return stages.every((stage, index) => index === 0 || stage.value <= stages[index - 1]!.value);
+}
 
 export function SalesConsultantPerformance({
   spec,
@@ -111,122 +118,156 @@ export function SalesConsultantPerformance({
   const telecaller = role === 'telecaller';
   const salesKpis = 'appointments' in d.kpis ? d.kpis : null;
   const telecallerKpis = 'transferred' in d.kpis ? d.kpis : null;
-  const contact = d.kpis.leads ? Math.round((d.kpis.contacted / d.kpis.leads) * 100) : 0;
+  const percent = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : 0);
+  // One row of eight, the same frame for both roles: who was assigned and
+  // reached, the call effort, the two outcomes that role owns, the conversion
+  // between them, and the target. Talk time, connection rate, response time and
+  // follow-ups ride on the tile they explain instead of taking a tile each.
+  const outcome = telecallerKpis
+    ? { key: 'transferred', value: telecallerKpis.transferred, label: 'transfers' }
+    : { key: 'bookings', value: salesKpis?.bookings ?? 0, label: 'bookings' };
+  const outcomeTarget = d.targets[outcome.key];
   const metrics: Metric[] = [
     {
-      label: 'Leads Assigned',
+      label: 'Leads assigned',
       value: String(d.kpis.leads),
+      helper: 'In the selected period',
       icon: UserPlus,
       tone: 'bg-blue-50 text-blue-600',
     },
     {
-      label: telecaller ? 'Connection Rate' : 'Contact Rate',
-      value: `${telecaller ? (d.kpis.calls ? Math.round((d.kpis.connected_calls / d.kpis.calls) * 100) : 0) : contact}%`,
+      label: 'Contacted',
+      value: String(d.kpis.contacted),
+      helper: salesKpis
+        ? `${percent(d.kpis.contacted, d.kpis.leads)}% · first reply ${duration(salesKpis.average_response_seconds)}`
+        : `${percent(d.kpis.contacted, d.kpis.leads)}% of leads assigned`,
       icon: Users,
       tone: 'bg-indigo-50 text-indigo-600',
     },
     {
       label: 'Calls',
       value: String(d.kpis.calls),
+      helper: `${duration(d.kpis.talk_seconds)} talk time`,
       icon: Phone,
       tone: 'bg-orange-50 text-orange-600',
     },
     {
-      label: 'Connected Calls',
+      label: 'Connected calls',
       value: String(d.kpis.connected_calls),
+      helper: `${percent(d.kpis.connected_calls, d.kpis.calls)}% connection rate`,
       icon: CheckCircle2,
       tone: 'bg-emerald-50 text-emerald-600',
     },
+    ...(telecallerKpis
+      ? [
+          {
+            label: 'Qualified',
+            value: String(telecallerKpis.qualified),
+            helper: `${telecallerKpis.followups_completed} follow-ups completed`,
+            icon: Target,
+            tone: 'bg-teal-50 text-teal-600',
+          },
+          {
+            label: 'Transferred to sales',
+            value: String(telecallerKpis.transferred),
+            helper: `${percent(telecallerKpis.transferred, telecallerKpis.qualified)}% of qualified`,
+            icon: UserPlus,
+            tone: 'bg-emerald-50 text-emerald-600',
+          },
+        ]
+      : [
+          {
+            label: 'Test drives',
+            value: String(salesKpis?.test_drives ?? 0),
+            helper: `${salesKpis?.appointments ?? 0} appointments`,
+            icon: Target,
+            tone: 'bg-cyan-50 text-cyan-600',
+          },
+          {
+            label: 'Bookings',
+            value: String(salesKpis?.bookings ?? 0),
+            // Bookings and test drives in one period are not one cohort, so no ratio.
+            helper: 'Created in the selected period',
+            icon: CarFront,
+            tone: 'bg-green-50 text-green-600',
+          },
+        ]),
     {
-      label: 'Talk Time',
-      value: duration(d.kpis.talk_seconds),
-      icon: Clock3,
+      label: 'Conversion',
+      value: `${percent(outcome.value, d.kpis.leads)}%`,
+      helper: `${outcome.label} per lead assigned`,
+      icon: CalendarDays,
       tone: 'bg-violet-50 text-violet-600',
     },
     {
-      label: 'Appointments',
-      value: String(salesKpis?.appointments ?? 0),
-      icon: CalendarDays,
+      label: 'Target achievement',
+      value: outcomeTarget ? `${percent(outcome.value, outcomeTarget)}%` : '—',
+      helper: outcomeTarget
+        ? `${outcome.value} of ${outcomeTarget} ${outcome.label}`
+        : `No ${outcome.label} target set`,
+      icon: Clock3,
       tone: 'bg-rose-50 text-rose-600',
     },
-    {
-      label: 'Test Drives',
-      value: String(salesKpis?.test_drives ?? 0),
-      icon: Target,
-      tone: 'bg-cyan-50 text-cyan-600',
-    },
-    {
-      label: 'Bookings',
-      value: String(salesKpis?.bookings ?? 0),
-      icon: CarFront,
-      tone: 'bg-green-50 text-green-600',
-    },
-    {
-      label: 'Average Response Time',
-      value: duration(salesKpis?.average_response_seconds ?? 0),
-      icon: Clock3,
-      tone: 'bg-orange-50 text-orange-600',
-    },
   ];
-  if (telecallerKpis) {
-    metrics.splice(
-      5,
-      metrics.length - 5,
-      {
-        label: 'Leads Contacted',
-        value: String(telecallerKpis.contacted),
-        icon: Users,
-        tone: 'bg-indigo-50 text-indigo-600',
-      },
-      {
-        label: 'Qualified Leads',
-        value: String(telecallerKpis.qualified),
-        icon: Target,
-        tone: 'bg-teal-50 text-teal-600',
-        helper: `${d.kpis.leads ? Math.round((telecallerKpis.qualified / d.kpis.leads) * 100) : 0}% of leads assigned`,
-      },
-      {
-        label: 'Follow-ups Completed',
-        value: String(telecallerKpis.followups_completed),
-        icon: CheckCircle2,
-        tone: 'bg-amber-50 text-amber-600',
-      },
-      {
-        label: 'Leads Transferred to Sales',
-        value: String(telecallerKpis.transferred),
-        icon: UserPlus,
-        tone: 'bg-emerald-50 text-emerald-600',
-        helper: `${telecallerKpis.qualified ? Math.round((telecallerKpis.transferred / telecallerKpis.qualified) * 100) : 0}% of qualified leads`,
-      },
-    );
-  }
+  // Lead steps only: connected calls count calls, not leads, so they are a tile.
   const funnel = [
-    { name: 'Leads Assigned', value: d.kpis.leads },
+    { name: 'Leads assigned', value: d.kpis.leads },
     { name: 'Contacted', value: d.kpis.contacted },
-    { name: 'Connected Calls', value: d.kpis.connected_calls },
     { name: 'Appointments', value: salesKpis?.appointments ?? 0 },
-    { name: 'Test Drives', value: salesKpis?.test_drives ?? 0 },
+    { name: 'Test drives', value: salesKpis?.test_drives ?? 0 },
     { name: 'Bookings', value: salesKpis?.bookings ?? 0 },
   ];
   const summary: readonly (readonly [string, number, string])[] = telecallerKpis
     ? [
-        ['leads', telecallerKpis.leads, 'Leads Assigned'],
-        ['contacted', telecallerKpis.contacted, 'Leads Contacted'],
-        ['connected_calls', telecallerKpis.connected_calls, 'Connected Calls'],
-        ['qualified', telecallerKpis.qualified, 'Qualified Leads'],
-        ['followups_completed', telecallerKpis.followups_completed, 'Follow-ups Completed'],
-        ['transferred', telecallerKpis.transferred, 'Leads Transferred to Sales'],
+        ['leads', telecallerKpis.leads, 'Leads assigned'],
+        ['contacted', telecallerKpis.contacted, 'Leads contacted'],
+        ['connected_calls', telecallerKpis.connected_calls, 'Connected calls'],
+        ['qualified', telecallerKpis.qualified, 'Qualified leads'],
+        ['followups_completed', telecallerKpis.followups_completed, 'Follow-ups completed'],
+        ['transferred', telecallerKpis.transferred, 'Transferred to sales'],
       ]
     : ([
-        ['leads', d.kpis.leads, 'Leads Assigned'],
+        ['leads', d.kpis.leads, 'Leads assigned'],
         ['contacted', d.kpis.contacted, 'Contacted'],
-        ['connected_calls', d.kpis.connected_calls, 'Connected Calls'],
+        ['connected_calls', d.kpis.connected_calls, 'Connected calls'],
         ['appointments', salesKpis?.appointments ?? 0, 'Appointments'],
-        ['test_drives', salesKpis?.test_drives ?? 0, 'Test Drives'],
+        ['test_drives', salesKpis?.test_drives ?? 0, 'Test drives'],
         ['bookings', salesKpis?.bookings ?? 0, 'Bookings'],
       ] as const);
-  // The KPI cards already show every count; this card only adds progress
-  // against a target, so a metric without one is left out.
+  const rateOf = (label: string, part: number, whole: number) => ({
+    label,
+    part,
+    whole,
+    percent: whole ? Math.round((part / whole) * 100) : 0,
+  });
+  // Each step against the one it follows from, so every bar answers "of those,
+  // how many went further".
+  const rates = telecallerKpis
+    ? {
+        description: 'How your leads moved in the period',
+        rows: [
+          rateOf('Contacted of leads assigned', d.kpis.contacted, d.kpis.leads),
+          rateOf('Connected of calls made', d.kpis.connected_calls, d.kpis.calls),
+          rateOf('Qualified of leads contacted', telecallerKpis.qualified, d.kpis.contacted),
+          rateOf(
+            'Transferred of leads qualified',
+            telecallerKpis.transferred,
+            telecallerKpis.qualified,
+          ),
+          rateOf('Transferred of leads assigned', telecallerKpis.transferred, d.kpis.leads),
+        ],
+      }
+    : {
+        description: 'Each step per lead assigned in the period',
+        rows: [
+          rateOf('Contacted', d.kpis.contacted, d.kpis.leads),
+          rateOf('Connected of calls made', d.kpis.connected_calls, d.kpis.calls),
+          rateOf('Appointments', salesKpis?.appointments ?? 0, d.kpis.leads),
+          rateOf('Test drives', salesKpis?.test_drives ?? 0, d.kpis.leads),
+          rateOf('Bookings', salesKpis?.bookings ?? 0, d.kpis.leads),
+        ],
+      };
+  // Progress against a target only; a metric without one is left out.
   const targeted = summary.filter(([key]) => d.targets[key]);
 
   return (
@@ -242,74 +283,105 @@ export function SalesConsultantPerformance({
           </>
         }
       />
-      <KpiGrid metrics={metrics.slice(0, 5)} variant="classic" />
-      <KpiGrid metrics={metrics.slice(5)} variant="classic" />
+      <KpiGrid metrics={metrics} />
       {telecaller ? (
         <TelecallerActivityChart
           key={`${range.from}:${range.to}`}
           rows={(d as TelecallerPerformance).daily}
         />
       ) : (
-        <div className="grid gap-4 xl:grid-cols-3">
-          <Chart title="Calls by Day">
-            <EChart
-              kind="line"
-              data={d.daily.map((x) => ({ name: x.name, value: x.calls, secondary: x.connected }))}
-              seriesNames={['Calls', 'Connected Calls']}
-            />
-          </Chart>
-          {!telecaller && (
-            <Chart title="Lead Conversion Funnel">
-              <EChart kind="funnel" data={funnel} funnelMode="staged" />
-            </Chart>
-          )}
-          <Chart title={telecaller ? 'Follow-ups and Sales Handoffs' : 'Appointment Trend'}>
-            <EChart
-              kind="line"
-              data={d.daily.map((x) => ({
-                name: x.name,
-                value: 'followups_completed' in x ? x.followups_completed : x.appointments,
-                secondary: 'transferred' in x ? x.transferred : x.test_drives,
-              }))}
-              seriesNames={
-                telecaller
-                  ? ['Follow-ups Completed', 'Leads Transferred']
-                  : ['Appointments', 'Test Drives']
-              }
-            />
-          </Chart>
-        </div>
+        <SalesActivityChart
+          key={`${range.from}:${range.to}`}
+          rows={(d as SalesPerformance).daily}
+        />
       )}
-      {targeted.length > 0 ? (
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle className="text-base">Target Progress</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            {targeted.map(([key, value, label]) => {
-              const target = d.targets[key];
-              const percent = Math.round((value / target) * 100);
-              return (
-                <div key={key} className="border-r pr-4 last:border-0">
-                  <p className="text-xs text-muted-foreground">{label}</p>
-                  <p className="mt-2 text-lg font-bold">
-                    {value} / {target}
-                  </p>
-                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                    <div
-                      className="h-full bg-blue-600"
-                      style={{ width: `${Math.min(percent, 100)}%` }}
-                    />
-                  </div>
-                  <p className="mt-2 text-xs font-medium text-muted-foreground">
-                    {percent}% of target
-                  </p>
+      <div className={cn('grid gap-4', telecaller ? 'xl:grid-cols-2' : 'xl:grid-cols-3')}>
+        {!telecaller &&
+          // Each step counts what happened in the period, not one group of leads
+          // moving down, so a later step can be larger (bookings from leads
+          // assigned earlier). A funnel would draw 14 bookings under 9 test
+          // drives; bars show the counts as they are.
+          (funnelNarrows(funnel) ? (
+            <Chart title="Lead conversion funnel" description="Leads at each step in the period">
+              <EChart
+                kind="funnel"
+                data={funnel}
+                funnelMode="staged"
+                funnelStages={funnel.length}
+                funnelLabels="side"
+              />
+            </Chart>
+          ) : (
+            <Chart
+              title="Sales steps in the period"
+              description="Each step's count for these dates; bookings can come from leads assigned earlier"
+            >
+              <EChart
+                kind="bar"
+                data={funnel}
+                series={[{ name: 'Count', values: funnel.map((stage) => stage.value) }]}
+              />
+            </Chart>
+          ))}
+        <Chart title="Conversion rates" description={rates.description}>
+          <div className="space-y-4 pt-1">
+            {rates.rows.map((rate) => (
+              <div key={rate.label}>
+                <div className="flex items-baseline justify-between gap-3 text-xs">
+                  <span className="font-medium text-heading-soft">{rate.label}</span>
+                  <span>
+                    <span className="font-semibold text-heading">{rate.percent}%</span>
+                    <span className="ml-1.5 text-muted-foreground">
+                      {rate.part} of {rate.whole}
+                    </span>
+                  </span>
                 </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-      ) : null}
+                <Progress className="mt-1.5 h-1.5" value={Math.min(rate.percent, 100)} />
+              </div>
+            ))}
+          </div>
+        </Chart>
+        <Chart
+          title="Target progress"
+          description={
+            targeted.length
+              ? 'Your targets for this period'
+              : 'Targets set by your manager appear here'
+          }
+        >
+          {targeted.length ? (
+            <div className="space-y-4 pt-1">
+              {targeted.map(([key, value, label]) => {
+                const target = d.targets[key];
+                const percent = Math.round((value / target) * 100);
+                return (
+                  <div key={key}>
+                    <div className="flex items-baseline justify-between gap-3 text-xs">
+                      <span className="font-medium text-heading-soft">{label}</span>
+                      <span>
+                        <span className="font-semibold text-heading">{percent}%</span>
+                        <span className="ml-1.5 text-muted-foreground">
+                          {value} of {target}
+                        </span>
+                      </span>
+                    </div>
+                    <Progress className="mt-1.5 h-1.5" value={Math.min(percent, 100)} />
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex h-full min-h-48 flex-col items-center justify-center gap-2 text-center">
+              <Target className="size-6 text-muted-foreground" />
+              <p className="text-sm font-medium text-heading">No targets for this period</p>
+              <p className="max-w-64 text-xs text-muted-foreground">
+                When your manager sets targets for these dates, your progress against each one shows
+                here.
+              </p>
+            </div>
+          )}
+        </Chart>
+      </div>
       {telecaller ? <SalesHandoffReport preset="TELECALLER" range={range} /> : null}
       <p className="text-center text-xs text-muted-foreground">
         {telecaller
@@ -319,13 +391,22 @@ export function SalesConsultantPerformance({
     </div>
   );
 }
-function Chart({ title, children }: { title: string; children: React.ReactNode }) {
+function Chart({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <Card className="shadow-none">
-      <CardHeader>
+    <Card className="flex flex-col shadow-none">
+      <CardHeader className="pb-3">
         <CardTitle className="text-sm">{title}</CardTitle>
+        {description ? <CardDescription>{description}</CardDescription> : null}
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      <CardContent className="flex-1">{children}</CardContent>
     </Card>
   );
 }

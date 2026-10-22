@@ -8,39 +8,12 @@ const workspace = readFileSync('src/features/leads/lead-workspace.tsx', 'utf8');
 const toggle = readFileSync('src/components/domain/summary-toggle.tsx', 'utf8');
 
 describe('Sales Consultant My Leads summary cards', () => {
-  it('renders exactly five scoped lead metrics on My Leads', () => {
-    const cardFactory = workspace.slice(
-      workspace.indexOf('function salesLeadMetricCards'),
-      workspace.indexOf('function SalesLeadMetricCard'),
-    );
-    for (const label of [
-      'Total my leads',
-      'New today',
-      'Pending action',
-      'Contacted',
-      'Hot leads',
-    ]) {
-      expect(cardFactory).toContain(`label: '${label}'`);
-    }
-    expect(cardFactory.match(/status: '/g)).toHaveLength(5);
-    expect(workspace).toContain("role === 'sales-consultant' && slug === 'my-leads'");
-    expect(workspace).toContain('kpiGridColumns(5)');
-  });
-
   it('uses the existing server-scoped KPI bundle without another query', () => {
-    expect(workspace).toContain('salesLeadMetricCards(workspace.data.kpis)');
-    expect(workspace).toContain('value: kpis.sales_new_today');
-    expect(workspace).toContain('value: kpis.sales_pending');
-    expect(workspace).toContain('value: kpis.sales_contacted');
+    expect(workspace).toContain('leadMetricCards(role, workspace.data.kpis)');
+    expect(workspace).toContain('kpis.sales_new_today');
+    expect(workspace).toContain('kpis.sales_pending');
     expect(workspace).toContain('value: kpis.hot');
-  });
-
-  it('lets every card apply its matching server-side lead filter', () => {
     expect(workspace).toContain('onSelect={() => onStatusChange(card.status)}');
-    expect(workspace).toContain("status: 'sales-new'");
-    expect(workspace).toContain("status: 'sales-pending'");
-    expect(workspace).toContain("status: 'sales-contacted'");
-    expect(workspace).toContain("status: 'hot'");
   });
 
   it('can collapse and restore the KPI row to make more room for the lead table', () => {

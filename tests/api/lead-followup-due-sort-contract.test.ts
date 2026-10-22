@@ -84,7 +84,7 @@ describe('follow-up date range dialog', () => {
     expect(dialog).not.toContain('DayPicker');
     expect(dialog.match(/type="date"/g)).toHaveLength(2);
     expect(dialog).toContain('min={draftFrom || undefined}');
-    expect(dialog).toContain('disabled={inverted || unchanged}');
+    expect(dialog).toContain('disabled={inverted || unchanged || incomplete}');
   });
 
   it('applies a quick range in one click and offers both directions', () => {

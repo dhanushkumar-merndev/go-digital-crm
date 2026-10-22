@@ -647,6 +647,12 @@ const familyConfig: Record<
 
 const readOnlyRoles: RoleKey[] = ['gm-sales', 'business-owner'];
 
+// A page that shares a family's columns but not its job. Stock Check reads the
+// Inventory family, but the consultant cannot move, allocate or age stock.
+const descriptionOverrides: Partial<Record<string, string>> = {
+  'stock-check': 'Check what is available, limited or arriving before you promise a vehicle.',
+};
+
 export function getPageSpec(role: RoleKey, slug: string): PageSpec | null {
   const item = roleNavigation[role].items.find((candidate) => candidate.slug === slug);
   if (!item) return null;
@@ -685,6 +691,7 @@ export function getPageSpec(role: RoleKey, slug: string): PageSpec | null {
         ];
   return {
     ...config,
+    description: descriptionOverrides[slug] ?? config.description,
     title: item.title,
     breadcrumbs,
     category,

@@ -12,7 +12,12 @@ export type MarketingQuery = {
   view: MarketingView;
   search: string;
   sort: MarketingSort;
+  /** Inclusive ISO days in the dealership's timezone; both empty means all time. */
+  from: string;
+  to: string;
 };
+
+const isoDay = /^\d{4}-\d{2}-\d{2}$/;
 
 export function marketingInitialView(slug: string): MarketingView | null {
   if (slug === 'dashboard' || slug === 'lead-sources' || slug === 'lead-source-performance')
@@ -35,6 +40,9 @@ export function parseMarketingQuery(
   const pageSize = Number.parseInt(params.get('pageSize') ?? '', 10);
   const view = (params.get('view') ?? initialView).trim().toUpperCase();
   const sort = params.get('sort');
+  const from = params.get('from') ?? '';
+  const to = params.get('to') ?? '';
+  const ranged = isoDay.test(from) && isoDay.test(to) && from <= to;
   return {
     page: Number.isSafeInteger(page) && page > 0 ? page : 1,
     pageSize: marketingPageSizes.includes(pageSize as MarketingPageSize)
@@ -43,6 +51,8 @@ export function parseMarketingQuery(
     view: marketingViews.includes(view as MarketingView) ? (view as MarketingView) : initialView,
     search: (params.get('q') ?? '').trim().slice(0, 160),
     sort: marketingSorts.includes(sort as MarketingSort) ? (sort as MarketingSort) : 'updated:desc',
+    from: ranged ? from : '',
+    to: ranged ? to : '',
   };
 }
 
@@ -53,5 +63,9 @@ export function toMarketingQueryString(query: MarketingQuery, initialView: Marke
   if (query.view !== initialView) params.set('view', query.view);
   if (query.search) params.set('q', query.search);
   if (query.sort !== 'updated:desc') params.set('sort', query.sort);
+  if (query.from && query.to) {
+    params.set('from', query.from);
+    params.set('to', query.to);
+  }
   return params.toString();
 }

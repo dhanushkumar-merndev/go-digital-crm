@@ -34,6 +34,20 @@ export function leadDetailHref(role: string, leadId: string) {
   return `/${role}/leads/${leadId}`;
 }
 
+/**
+ * My Leads with one lead marked. `focus` alone only marks a row that is already
+ * on the loaded page, and a dashboard lead is often several pages in, so the
+ * customer's mobile goes in as the list search: the lead (or the phone group it
+ * sits in) is then the result, and the focus marks and scrolls to it.
+ */
+export function myLeadsFocusHref(role: string, lead: { id: string; phone: string | null }) {
+  const params = new URLSearchParams({ status: 'all' });
+  const mobile = (lead.phone ?? '').replace(/\D/g, '').slice(-10);
+  if (mobile.length === 10) params.set('q', mobile);
+  params.set('focus', lead.id);
+  return `/${role}/my-leads?${params.toString()}`;
+}
+
 export function notificationDetailHref(
   role: string,
   resourceType: string | null,
