@@ -195,6 +195,7 @@ import {
   openLeadWhatsAppConversation,
   type LeadWhatsAppChannel,
 } from './lead-whatsapp-api';
+import { LostLeadSummary } from './lost-lead-summary';
 import {
   SendReviewRequestDialog,
   type ReviewTarget,
@@ -493,11 +494,12 @@ type SalesLeadMetricCard = {
  */
 function leadMetricCards(role: string, kpis: LeadWorkspaceResult['kpis']): SalesLeadMetricCard[] {
   const sales = role === 'sales-consultant';
-  // A lead handed to Sales has left the telecaller's queue; a consultant keeps
-  // a booked lead, so only lost ones drop out of theirs.
+  const telecaller = role === 'telecaller';
+  // A lead handed to Sales has left the telecaller's queue. A consultant keeps a
+  // booked lead, and a manager still oversees it, so only lost ones drop out.
   const active = Math.max(
     0,
-    kpis.total - kpis.lost_count - (sales ? 0 : kpis.transferred_to_sales_count),
+    kpis.total - kpis.lost_count - (telecaller ? kpis.transferred_to_sales_count : 0),
   );
   const newToday = sales ? kpis.sales_new_today : kpis.new_today;
   const pending = sales ? kpis.sales_pending : kpis.pending;
@@ -509,10 +511,10 @@ function leadMetricCards(role: string, kpis: LeadWorkspaceResult['kpis']): Sales
       icon: Users,
       chip: 'bg-violet-50 text-violet-600',
       rate: leadShare(active, kpis.total),
-      helper: sales ? 'still active' : 'still with you',
+      helper: telecaller ? 'still with you' : 'still active',
       good: true,
       neutral: kpis.total === 0,
-      footnote: `${formatNumber(role === 'telecaller' ? kpis.transferred_to_sales_count : kpis.booking)} ${role === 'telecaller' ? 'transferred' : 'booked'} · ${formatNumber(kpis.lost_count)} lost`,
+      footnote: `${formatNumber(telecaller ? kpis.transferred_to_sales_count : kpis.booking)} ${telecaller ? 'transferred' : 'booked'} · ${formatNumber(kpis.lost_count)} lost`,
     },
     {
       status: sales ? 'sales-new' : 'new-today',
@@ -2416,7 +2418,8 @@ function LeadTable({
         ? [
             {
               id: 'assigned_consultant',
-              header: 'Consultant',
+              // The lead's owner, telecaller or consultant.
+              header: 'Owner',
               cell: ({ row }: { row: { original: LeadRecord } }) => {
                 const isHistoryLead = contextLeadIds.has(row.original.id);
                 return (
@@ -3187,11 +3190,32 @@ function LeadTable({
       togglePhoneHistory,
     ],
   );
+  // A lost lead has no next follow-up, so the Lost view shows why it was lost in
+  // that column instead.
+  const lostView = query.status === 'lost';
+  const shownColumns = useMemo<ColumnDef<LeadRecord>[]>(
+    () =>
+      lostView
+        ? columns.map((column) =>
+            column.id === 'next_followup_at' ||
+            ('accessorKey' in column && column.accessorKey === 'next_followup_at')
+              ? {
+                  id: 'lost_reason',
+                  header: 'Loss reason',
+                  cell: ({ row }) => (
+                    <span className="text-xs">{row.original.lost_reason?.trim() || '—'}</span>
+                  ),
+                }
+              : column,
+          )
+        : columns,
+    [columns, lostView],
+  );
   // TanStack Table returns an imperative model; React Compiler intentionally skips this hook.
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: visibleRecords,
-    columns,
+    columns: shownColumns,
     // Key rows by lead, not position, so a refetch that reorders or narrows the
     // page keeps each row's DOM (and any open row menu) attached to its lead.
     getRowId: (lead) => lead.id,
@@ -4529,7 +4553,7 @@ export function LeadWorkspace({
         actions={
           <>
             {role === 'telecaller' ? <AutoCallToggle /> : null}
-            {permissions?.canCreate ? (
+            {permissions?.canCreate && slug !== 'lost-leads' ? (
               <>
                 <Button variant="outline" onClick={() => setBulkImportOpen(true)}>
                   <FileUp className="size-4" /> Import CSV
@@ -4550,6 +4574,7 @@ export function LeadWorkspace({
           </>
         }
       />
+      {slug === 'lost-leads' ? <LostLeadSummary /> : null}
       {showMyLeadsSummary ? (
         <section aria-label="My Leads summary">
           <div

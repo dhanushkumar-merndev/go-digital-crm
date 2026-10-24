@@ -1103,22 +1103,30 @@ export function SalesDocumentWorkspace({
         />
         {kind === 'quotations' && (
           <div className="flex h-10 gap-2 overflow-x-auto border-b">
-            {(['draft', 'sent', 'pending-approval', 'accepted', 'expired'] as const).map(
-              (status) => {
-                const active = query.status === status;
-                return (
-                  <button
-                    key={status}
-                    type="button"
-                    onClick={() => onQueryChange({ status, page: 1 })}
-                    className={`relative h-full shrink-0 px-3 text-xs font-semibold ${active ? 'text-blue-700' : 'text-heading-soft hover:text-blue-700'}`}
-                    style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
-                  >
-                    {status === 'pending-approval' ? 'Approval pending' : label(status)}
-                  </button>
-                );
-              },
-            )}
+            {(
+              [
+                'all',
+                'draft',
+                'sent',
+                'pending-approval',
+                'accepted',
+                'converted',
+                'expired',
+              ] as const
+            ).map((status) => {
+              const active = query.status === status;
+              return (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => onQueryChange({ status, page: 1 })}
+                  className={`relative h-full shrink-0 px-3 text-xs font-semibold ${active ? 'text-blue-700' : 'text-heading-soft hover:text-blue-700'}`}
+                  style={active ? { boxShadow: 'inset 0 -2px 0 #2563eb' } : undefined}
+                >
+                  {status === 'pending-approval' ? 'Approval pending' : label(status)}
+                </button>
+              );
+            })}
           </div>
         )}
         {kind === 'bookings' && (

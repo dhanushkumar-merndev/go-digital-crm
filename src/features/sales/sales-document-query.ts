@@ -58,12 +58,14 @@ function boundedDate(value: string | null) {
   return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value ? '' : value;
 }
 
-export function defaultSalesDocumentQuery(kind: SalesDocumentKind): SalesDocumentQuery {
+export function defaultSalesDocumentQuery(): SalesDocumentQuery {
   return {
     page: 1,
     pageSize: 25,
     search: '',
-    status: kind === 'quotations' ? 'draft' : 'all',
+    // Every status, like Bookings: the tiles above count all of them, and
+    // opening on Draft showed 19 of a team's 350 quotations.
+    status: 'all',
     // Newest first for both: "Earliest delivery" opened Bookings on May's
     // already-delivered orders. Delivery order is still one click away.
     sort: 'updated:desc',
@@ -78,7 +80,7 @@ export function parseSalesDocumentQuery(
   params: URLSearchParams,
   kind: SalesDocumentKind,
 ): SalesDocumentQuery {
-  const fallback = defaultSalesDocumentQuery(kind);
+  const fallback = defaultSalesDocumentQuery();
   const page = Number.parseInt(params.get('page') ?? '', 10);
   const pageSize = Number.parseInt(params.get('pageSize') ?? '', 10);
   const status = params.get('status');
@@ -112,7 +114,7 @@ export function parseSalesDocumentQuery(
 }
 
 export function toSalesDocumentQueryString(query: SalesDocumentQuery, kind: SalesDocumentKind) {
-  const defaults = defaultSalesDocumentQuery(kind);
+  const defaults = defaultSalesDocumentQuery();
   const params = new URLSearchParams();
   if (query.page > 1) params.set('page', String(query.page));
   if (query.pageSize !== 25) params.set('pageSize', String(query.pageSize));

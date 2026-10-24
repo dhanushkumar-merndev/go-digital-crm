@@ -36,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select,
   SelectContent,
@@ -73,6 +74,18 @@ const appointmentTypes = schedulableAppointmentTypes;
 
 function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * A visit from an earlier day that nobody marked done, missed or cancelled. It
+ * still reads "Scheduled" in the data, which on a past date looked like a
+ * booking still to come.
+ */
+function isOverdueAppointment(record: AppointmentRecord) {
+  if (['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(record.status)) return false;
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  return new Date(record.scheduled_at) < startOfToday;
 }
 
 function monthKey(date: Date) {
@@ -321,6 +334,14 @@ export function AppointmentWorkspaceView({
         signal,
       ),
   });
+  const recordsByDay = useMemo(
+    () => new Map(calendar.data?.days.map((day) => [day.date, day]) ?? []),
+    [calendar.data?.days],
+  );
+  // The month already carries up to three appointments a day, so a day with
+  // three or fewer needs no second request.
+  const monthDay = recordsByDay.get(selectedDay);
+  const monthHasDay = calendar.isSuccess && (!monthDay || monthDay.items.length >= monthDay.total);
   const dayRecords = useQuery({
     queryKey: [
       'appointment-calendar-day',
@@ -347,12 +368,8 @@ export function AppointmentWorkspaceView({
         },
         signal,
       ),
-    enabled: Boolean(selectedDay),
+    enabled: Boolean(selectedDay) && calendar.isSuccess && !monthHasDay,
   });
-  const recordsByDay = useMemo(
-    () => new Map(calendar.data?.days.map((day) => [day.date, day]) ?? []),
-    [calendar.data?.days],
-  );
   const firstWeekday = (displayedMonth.getDay() + 6) % 7;
   const firstCell = new Date(displayedMonth);
   firstCell.setDate(1 - firstWeekday);
@@ -362,7 +379,10 @@ export function AppointmentWorkspaceView({
     return value;
   });
   const today = dateKey(new Date());
-  const selectedItems = dayRecords.data?.days[0]?.items ?? [];
+  const selectedItems = monthHasDay
+    ? (monthDay?.items ?? [])
+    : (dayRecords.data?.days[0]?.items ?? []);
+  const agendaLoading = !monthHasDay && !dayRecords.data;
   // Six tiles, as on every Sales list page, read from the page RPC's own KPI
   // bundle rather than a second per-type summary call.
   const cards: Array<{
@@ -628,7 +648,9 @@ export function AppointmentWorkspaceView({
                             </>
                           )}
                           <TableCell>
-                            <StatusBadge value={record.status} />
+                            <StatusBadge
+                              value={isOverdueAppointment(record) ? 'OVERDUE' : record.status}
+                            />
                           </TableCell>
                           <TableCell>
                             <AppointmentActions
@@ -696,7 +718,9 @@ export function AppointmentWorkspaceView({
             <CardHeader className="border-b p-4">
               <CardTitle className="text-sm">
                 {selectedDay === today ? "Today's agenda" : 'Selected-day agenda'}{' '}
-                <span className="ml-1 text-muted-foreground">{selectedItems.length}</span>
+                {agendaLoading ? null : (
+                  <span className="ml-1 text-muted-foreground">{selectedItems.length}</span>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 p-3">
@@ -726,7 +750,14 @@ export function AppointmentWorkspaceView({
                   </button>
                 );
               })}
-              {!dayRecords.isFetching && !selectedItems.length && (
+              {agendaLoading ? (
+                <div className="space-y-2" aria-label="Loading the day's appointments">
+                  {Array.from({ length: 3 }, (_, index) => (
+                    <Skeleton key={index} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : null}
+              {!agendaLoading && !selectedItems.length && (
                 <p className="py-8 text-center text-xs text-muted-foreground">
                   No appointments for this day.
                 </p>

@@ -4,7 +4,7 @@ import { formatCompactCurrency } from '@/lib/format';
 import { ErrorState } from '@/components/shared/page-states';
 import type { PageSpec } from '@/lib/domain';
 import { PageHeader, PageShell } from '@/components/shared/page-header';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { CalendarDays, CarFront, ChartNoAxesCombined, Target, Trophy } from 'lucide-react';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
@@ -12,6 +12,7 @@ import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
+import { BranchPicker } from '@/components/shared/branch-picker';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { ShowroomTargetSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
@@ -46,10 +47,13 @@ export function ShowroomTargetWorkspace({ spec }: { spec: PageSpec }) {
   const session = useWorkspaceSession();
   const queryScope = workspaceQueryScope(session);
   const [month, setMonth] = useState(currentMonth);
+  // Null opens on the server's default: the caller's first branch by name.
+  const [branchId, setBranchId] = useState<string | null>(null);
   const query = useQuery({
-    queryKey: ['showroom-target', ...queryScope, month],
-    queryFn: ({ signal }) => fetchShowroomTarget(month, signal),
+    queryKey: ['showroom-target', ...queryScope, branchId, month],
+    queryFn: ({ signal }) => fetchShowroomTarget(month, branchId, signal),
     staleTime: 60_000,
+    placeholderData: keepPreviousData,
   });
   if (query.isPending) return <ShowroomTargetSkeleton />;
   if (query.isError || !query.data)
@@ -58,7 +62,7 @@ export function ShowroomTargetWorkspace({ spec }: { spec: PageSpec }) {
         <PageHeader spec={{ ...spec, primaryAction: undefined }} />
         <ErrorState
           title="Showroom target data is unavailable"
-          description="This page requires one authorized showroom branch and sales-view permission."
+          description="This page needs an authorized showroom branch and sales-view permission."
           onRetry={() => void query.refetch()}
         />
       </PageShell>
@@ -126,6 +130,7 @@ export function ShowroomTargetWorkspace({ spec }: { spec: PageSpec }) {
         description={`${data.branch.name}: booked sales against the targets for the month.`}
         actions={
           <>
+            <BranchPicker branches={data.branches} value={data.branch.id} onChange={setBranchId} />
             <Input
               aria-label="Target month"
               className="w-44"

@@ -101,6 +101,15 @@ export type TenantDashboardLeadPreview = z.infer<typeof leadPreviewSchema>;
 /** Prefix for every tenant dashboard query; Realtime invalidates by it. */
 export const tenantDashboardKey = ['tenant-performance-dashboard'] as const;
 
+const dayMs = 24 * 60 * 60 * 1000;
+
+/** How late a follow-up was when the dashboard was built: "18 days overdue". */
+export function overdueText(dueAt: string, generatedAt: string) {
+  const days = Math.floor((new Date(generatedAt).getTime() - new Date(dueAt).getTime()) / dayMs);
+  if (days < 1) return 'overdue';
+  return `${days} ${days === 1 ? 'day' : 'days'} overdue`;
+}
+
 async function readTenantDashboardSummary(signal?: AbortSignal) {
   const request = createClient().rpc('get_tenant_dashboard_summary', {
     target_days: 14,

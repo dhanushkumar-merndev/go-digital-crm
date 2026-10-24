@@ -33,6 +33,8 @@ export function Badge({ label, tone }: { label: string; tone: Tone }) {
 }
 
 export function Avatar({ name, tone, size = 44 }: { name: string; tone: Tone; size?: number }) {
+  // A call or lead known only by its number has no initials; "+919…" read "+".
+  const numberOnly = !/[^\d\s+()-]/.test(name);
   return (
     <View
       style={[
@@ -40,9 +42,13 @@ export function Avatar({ name, tone, size = 44 }: { name: string; tone: Tone; si
         { width: size, height: size, borderRadius: size / 2, backgroundColor: tone.bg },
       ]}
     >
-      <Text style={[styles.avatarText, { color: tone.fg, fontSize: size * 0.34 }]}>
-        {initials(name)}
-      </Text>
+      {numberOnly ? (
+        <Icon name="person" size={size * 0.46} color={tone.fg} />
+      ) : (
+        <Text style={[styles.avatarText, { color: tone.fg, fontSize: size * 0.34 }]}>
+          {initials(name)}
+        </Text>
+      )}
     </View>
   );
 }

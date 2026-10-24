@@ -51,7 +51,6 @@ import {
   TeamManagerPerformance,
   TeamOverviewCard,
 } from '@/features/dashboards/team-manager-performance';
-import { SalesHandoffReport } from '@/features/dashboards/sales-handoff-report';
 import { ClientAdminBranchPerformance } from '@/features/dashboards/client-admin-branch-performance';
 import { TeamCallMonitor } from '@/features/dashboards/team-call-monitor';
 import { ShowroomTargetWorkspace } from '@/features/dashboards/showroom-target-workspace';
@@ -77,7 +76,6 @@ import { OperationalCaseWorkspace } from '@/features/operations/operational-case
 import { OperationalCasePerformance } from '@/features/operations/operational-case-performance';
 import { SalesExchangeWorkspace } from '@/features/operations/sales-exchange-workspace';
 import { operationalCaseRoute } from '@/features/operations/operational-case-query';
-import { PageHeader, PageShell } from '@/components/shared/page-header';
 import { ProductionDataUnavailable } from '@/components/shared/production-data-unavailable';
 import { isRoleKey } from '@/config/navigation';
 import { legacyTabbedPageHref } from '@/config/navigation/legacy-redirects';
@@ -434,18 +432,10 @@ export default async function RolePage({ params }: Props) {
     return <ShowroomTargetWorkspace spec={spec} />;
   if (role === 'showroom-manager' && slug[0] === 'sales-teams' && !isLocalPreviewMode())
     return <ShowroomSalesTeamWorkspace spec={spec} />;
-  // Performance re-rendered the whole dashboard above its report; it now shows
-  // only what the dashboard does not: conversion through the handoff stages.
+  // PRD 54.4 §49-52: every showroom member compared, a funnel, then the
+  // telecaller-to-sales handoffs. Same component as Team Performance, showroom preset.
   if (role === 'showroom-manager' && slug[0] === 'performance' && !isLocalPreviewMode())
-    return (
-      <PageShell>
-        <PageHeader
-          spec={spec}
-          description="How your telecallers hand qualified leads to Sales Consultants, and how many reach a booking."
-        />
-        <SalesHandoffReport preset="SHOWROOM" leadBasePath="/showroom-manager/leads" />
-      </PageShell>
-    );
+    return <TeamManagerPerformance spec={spec} preset="SHOWROOM" showHandoffs />;
   if (
     (role === 'showroom-manager' || role === 'gm-sales') &&
     slug[0] === 'approvals' &&

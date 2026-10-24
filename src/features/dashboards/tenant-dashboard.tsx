@@ -51,6 +51,7 @@ import {
 import { leadStageVariant } from '@/features/leads/lead-stage-variant';
 import { toneStyles, type Tone } from './dashboard-tone';
 import {
+  overdueText,
   tenantDashboardKey,
   type TenantDashboardLeadPreview,
   type TenantDashboardResult,
@@ -470,7 +471,7 @@ function OverdueFollowups({
                       variant={item.severity === 'HIGH' ? 'destructive' : 'warning'}
                       className="px-1.5 py-0 text-[10px] normal-case"
                     >
-                      {item.severity === 'HIGH' ? 'overdue 1 day+' : 'overdue'}
+                      {overdueText(item.sort_at, data.generated_at)}
                     </Badge>
                   </div>
                   <p className="mt-0.5 truncate text-xs font-semibold text-heading">{item.title}</p>
@@ -489,9 +490,33 @@ function OverdueFollowups({
   );
 }
 
-/** Stage names and counts beside the funnel, with each step's conversion. */
+const reachedStageNames: Record<string, string> = {
+  New: 'Open leads',
+  Sales: 'Transferred to sales',
+};
+
+/**
+ * The server sends where each open lead is now, in lifecycle order (Lost is left
+ * out). Drawn as a funnel those snapshots grow and shrink at random, so each step
+ * here counts the leads that reached it or went further. Appointment is folded
+ * into the steps around it: a lead can reach Sales without one.
+ */
+function reachedPipeline(stages: TenantDashboardResult['pipeline']) {
+  let reached = 0;
+  return [...stages]
+    .reverse()
+    .map((stage) => {
+      reached += stage.value;
+      return { name: reachedStageNames[stage.name] ?? stage.name, value: reached };
+    })
+    .reverse()
+    .filter((stage) => stage.name !== 'Appointment');
+}
+
+/** Stage names and counts beside the funnel, each as a share of open leads. */
 function PipelineStages({ stages }: { stages: TenantDashboardResult['pipeline'] }) {
   const shown = stages.slice(0, 6);
+  const total = shown[0]?.value ?? 0;
   return (
     <div
       className="grid h-[260px] w-44 shrink-0 text-[10px]"
@@ -502,8 +527,7 @@ function PipelineStages({ stages }: { stages: TenantDashboardResult['pipeline'] 
         <span>Count</span>
       </div>
       {shown.map((stage, index) => {
-        const previous = shown[index - 1]?.value ?? stage.value;
-        const conversion = previous > 0 ? (stage.value / previous) * 100 : 0;
+        const share = total > 0 ? Math.round((stage.value / total) * 100) : 0;
         return (
           <div
             key={stage.name}
@@ -513,8 +537,8 @@ function PipelineStages({ stages }: { stages: TenantDashboardResult['pipeline'] 
               <span className="block truncate font-medium text-heading-soft" title={stage.name}>
                 {stage.name}
               </span>
-              <span className="block text-[10px] text-emerald-600">
-                {index === 0 ? 'Starting stage' : `${conversion.toFixed(1)}% conversion`}
+              <span className="block text-[10px] text-muted-foreground">
+                {index === 0 ? 'Not lost' : `${share}% of open leads`}
               </span>
             </span>
             <span className="shrink-0 rounded bg-slate-50 px-1.5 py-0.5 font-semibold text-heading-soft">
@@ -648,6 +672,7 @@ export function TenantDashboard({
     data.capabilities.leads &&
     !ownsFunnelElsewhere &&
     data.pipeline.some((stage) => stage.value > 0);
+  const pipeline = reachedPipeline(data.pipeline);
 
   return (
     <div className="mx-auto w-full space-y-5 pb-8">
@@ -687,10 +712,10 @@ export function TenantDashboard({
               <EChart
                 kind="funnel"
                 funnelMode="staged"
-                data={data.pipeline}
+                data={pipeline}
                 className="h-[260px] min-w-0 flex-1"
               />
-              <PipelineStages stages={data.pipeline} />
+              <PipelineStages stages={pipeline} />
             </div>
           </SectionCard>
         ) : null}

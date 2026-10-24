@@ -10,7 +10,6 @@ import { PressableScale } from '@/components/ui/pressable-scale';
 import { RowIcon, RowPressable } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
 import { useCallFlow, useWorkRefresh } from '@/features/call-flow/call-flow';
-import { resetRoleCache } from '@/lib/contact';
 import type { TodayTarget } from '@/lib/today-targets';
 import { supabase } from '@/lib/supabase';
 import { colors, font, priorityTone, radius, shadow, space } from '@/theme';
@@ -18,11 +17,20 @@ import { colors, font, priorityTone, radius, shadow, space } from '@/theme';
 export function useProfile() {
   const [profile, setProfile] = useState<{ name: string; email: string }>();
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => {
+    void supabase.auth.getSession().then(async ({ data }) => {
       const user = data.session?.user;
       if (!user) return;
+      // The profile is where an admin renames a user; the sign-up metadata
+      // keeps the first name forever, so it is only the fallback.
+      const { data: row } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', user.id)
+        .maybeSingle();
       const meta = user.user_metadata as Record<string, unknown> | undefined;
-      const full = typeof meta?.full_name === 'string' ? meta.full_name : '';
+      const full =
+        (typeof row?.full_name === 'string' && row.full_name) ||
+        (typeof meta?.full_name === 'string' ? meta.full_name : '');
       const email = user.email ?? '';
       setProfile({ name: full || email.split('@')[0] || 'there', email });
     });
@@ -121,7 +129,6 @@ function MoreSheet({
         scaleTo={0.98}
         onPress={async () => {
           onClose();
-          resetRoleCache();
           await supabase.auth.signOut({ scope: 'local' });
           router.replace('/');
         }}
@@ -149,13 +156,13 @@ export function KpiTiles({
           android_ripple={{ color: colors.pressed }}
           style={styles.tile}
         >
-          <View style={styles.tileTop}>
-            <Icon name={item.icon} size={14} color={item.tone} />
-            <Text style={styles.tileLabel} numberOfLines={1}>
-              {item.label}
-            </Text>
-          </View>
+          {/* Four tiles share a phone-width row; a label beside the icon was cut
+              to "Calls t…", so it sits under the number and may wrap. */}
+          <Icon name={item.icon} size={16} color={item.tone} />
           <Text style={styles.tileValue}>{item.value.toLocaleString('en-IN')}</Text>
+          <Text style={styles.tileLabel} numberOfLines={2}>
+            {item.label}
+          </Text>
         </Pressable>
       ))}
     </View>
@@ -365,15 +372,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.card,
     borderRadius: radius.lg,
-    paddingHorizontal: space.md,
+    paddingHorizontal: space.sm,
     paddingVertical: space.md,
-    gap: 4,
+    gap: 2,
     overflow: 'hidden',
     ...shadow,
   },
-  tileTop: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   tileValue: { color: colors.text, fontSize: font.display, fontWeight: '700', letterSpacing: -0.4 },
-  tileLabel: { flexShrink: 1, color: colors.muted, fontSize: font.label, fontWeight: '500' },
+  tileLabel: { color: colors.muted, fontSize: font.label, fontWeight: '500', lineHeight: 16 },
   section: { gap: space.sm },
   targets: { padding: space.lg, gap: space.md },
   targetsTitle: { color: colors.text, fontSize: font.heading, fontWeight: '700' },

@@ -20,7 +20,7 @@ describe('quotation and booking URL boundary', () => {
       page: 1,
       pageSize: 25,
       search: 'Aarav',
-      status: 'draft',
+      status: 'all',
       sort: 'updated:desc',
       model: '',
       branchId: '',

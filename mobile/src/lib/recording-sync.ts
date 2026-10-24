@@ -166,8 +166,11 @@ export async function getRecordingFolder(): Promise<RecordingFolder | null> {
   }
 }
 
+// Per user, like the ledger: another account's run says nothing about yours.
 export async function getLastRecordingSync() {
-  const value = await AsyncStorage.getItem(lastRunKey);
+  const userId = await currentUserId();
+  if (!userId) return null;
+  const value = await AsyncStorage.getItem(`${lastRunKey}.${userId}`);
   return value ? Number(value) : null;
 }
 
@@ -526,7 +529,7 @@ export function syncRecordings(options: { userId?: string; scan?: boolean } = {}
         `select count(*) as n from recordings where user_id = ? and status = 'PENDING'`,
         [userId],
       )?.n ?? 0;
-    await AsyncStorage.setItem(lastRunKey, String(Date.now()));
+    await AsyncStorage.setItem(`${lastRunKey}.${userId}`, String(Date.now()));
     return { synced, failed, remaining };
   })().finally(() => {
     running = null;

@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/client';
 const showroomSalesTeamSchema = z.object({
   days: z.coerce.number().int().positive().max(9999),
   branch: z.object({ id: z.uuid(), name: z.string() }),
+  // The caller's branches, for the picker; absent before the branch-choice migration.
+  branches: z.array(z.object({ id: z.uuid(), name: z.string() })).default([]),
   total: z.coerce.number().int().nonnegative(),
   kpis: z.object({
     consultants: z.coerce.number().int().nonnegative(),
@@ -44,7 +46,12 @@ const showroomSalesTeamSchema = z.object({
 export type ShowroomSalesTeamResult = z.infer<typeof showroomSalesTeamSchema>;
 
 export async function fetchShowroomSalesTeam(
-  input: { range: PerformanceDateRange; page: number; pageSize: 25 | 50 | 100 },
+  input: {
+    range: PerformanceDateRange;
+    page: number;
+    pageSize: 25 | 50 | 100;
+    branchId?: string | null;
+  },
   signal?: AbortSignal,
 ): Promise<ShowroomSalesTeamResult> {
   const request = createClient().rpc('get_showroom_sales_team_workspace', {
@@ -52,6 +59,7 @@ export async function fetchShowroomSalesTeam(
     target_page: input.page,
     target_page_size: input.pageSize,
     target_timezone: performanceRpcTimezone(input.range),
+    ...(input.branchId ? { target_branch_id: input.branchId } : {}),
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;

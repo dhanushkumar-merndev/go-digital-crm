@@ -31,6 +31,8 @@ type QueueRow = {
   version: number;
   leadId: string | null;
   phone: string | null;
+  // Who a call reaches; a task's title is the job, not the person.
+  name: string;
   title: string;
   detail: string;
   dueAt: string | null;
@@ -66,6 +68,7 @@ function toRow(kind: QueueKind, record: QueueRecord): QueueRow {
     version: Number(record.version),
     leadId: record.lead_id,
     phone: record.phone,
+    name: record.customer_name || record.phone || 'Customer',
     dueAt: record.due_at,
     priority: record.priority,
   };
@@ -199,7 +202,7 @@ export function MobileWorkQueueScreen({ kind, bare }: { kind: QueueKind; bare?: 
       call({
         leadId: row.leadId,
         phone: row.phone,
-        name: row.title,
+        name: row.name,
         followup: kind === 'followups' ? row : undefined,
       }),
     [call, kind],
@@ -346,7 +349,7 @@ const QueueItem = memo(function QueueItem({
             {row.phone ? (
               <RowIcon
                 icon="call"
-                label={`Call ${row.title}`}
+                label={`Call ${row.name}`}
                 color={colors.primary}
                 filled
                 onPress={() => onCall(row)}

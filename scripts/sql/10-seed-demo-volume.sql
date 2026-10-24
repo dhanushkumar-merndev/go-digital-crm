@@ -643,7 +643,9 @@ select
          'Stock Update', 'Exchange Update', 'Booking Confirmation', 'Document Reminder',
          'General Follow-up'])[1 + lead_row.i % 9],
   lead_row.next_followup_at,
-  case when lead_row.next_followup_at < now() - interval '2 days' and lead_row.i % 4 = 0 then 'OVERDUE' else 'OPEN' end,
+  -- Overdue is derived from due_at; a stored OVERDUE row drops out of every
+  -- follow-up list tab, which all filter on OPEN.
+  'OPEN',
   (array['LOW', 'NORMAL', 'NORMAL', 'HIGH', 'URGENT'])[1 + lead_row.i % 5],
   lead_row.assigned_user_id,
   coalesce(lead_row.first_contacted_at, lead_row.created_at),

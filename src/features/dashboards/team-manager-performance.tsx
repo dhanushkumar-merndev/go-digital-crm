@@ -3,13 +3,15 @@
 import { EmptyState, ErrorState } from '@/components/shared/page-states';
 import type { PageSpec } from '@/lib/domain';
 import { PageHeader, PageShell } from '@/components/shared/page-header';
-import { CarFront, CheckCircle2, Target, Trophy } from 'lucide-react';
+import { CarFront, ClipboardCheck, FileText, Target, Trophy, Users } from 'lucide-react';
+import { keepPreviousData } from '@tanstack/react-query';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
 import {
   useWorkspaceSession,
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
+import { BranchPicker } from '@/components/shared/branch-picker';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PerformanceDateRangeSelector } from '@/components/shared/performance-date-range-selector';
 import {
@@ -34,8 +36,14 @@ import {
 } from '@/components/ui/table';
 import type { Metric } from '@/lib/domain';
 import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-invalidation';
+import { funnelNarrows } from './sales-consultant-performance';
 import { SalesHandoffReport } from './sales-handoff-report';
-import { fetchTeamManagerPerformance, teamPerformanceSchema } from './team-manager-performance-api';
+import {
+  fetchTeamManagerPerformance,
+  isTelecallerMember,
+  teamMemberRole,
+  teamPerformanceSchema,
+} from './team-manager-performance-api';
 
 function formatDuration(seconds: number) {
   return `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(
@@ -52,22 +60,31 @@ function initials(name: string) {
     .join('');
 }
 
+/** TEAM: the managed teams (Team Performance). SHOWROOM: every team in the Sales Manager's branches. */
+type PerformancePreset = 'TEAM' | 'SHOWROOM';
+
 export function TeamManagerPerformance({
   spec,
   showHandoffs = false,
+  preset = 'TEAM',
 }: {
   spec: PageSpec;
   /** The Team Performance page adds the telecaller-to-sales handoff report. */
   showHandoffs?: boolean;
+  preset?: PerformancePreset;
 }) {
   const session = useWorkspaceSession();
   const queryScope = workspaceQueryScope(session);
   const [range, setRange] = useState(() => performanceRangeForLastDays(7));
+  // null: every team in scope.
+  const [branchId, setBranchId] = useState<string | null>(null);
+  const showroom = preset === 'SHOWROOM';
   const query = usePersistedQuery({
-    queryKey: ['team-manager-performance', ...queryScope, range.from, range.to],
-    queryFn: ({ signal }) => fetchTeamManagerPerformance(range, signal),
+    queryKey: ['team-manager-performance', ...queryScope, range.from, range.to, branchId],
+    queryFn: ({ signal }) => fetchTeamManagerPerformance(range, signal, branchId),
     staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
     gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+    placeholderData: keepPreviousData,
     persist: { version: 1, schema: teamPerformanceSchema },
   });
   useTenantRealtimeInvalidation(
@@ -84,59 +101,108 @@ export function TeamManagerPerformance({
       <PageShell>
         <PageHeader spec={{ ...spec, primaryAction: undefined }} />
         <ErrorState
-          title="Team performance is unavailable"
-          description="Confirm that you manage an active team and have the required CRM permissions."
+          title={
+            showroom ? 'Showroom performance is unavailable' : 'Team performance is unavailable'
+          }
+          description={
+            showroom
+              ? 'Confirm that your branches have active sales teams and that you have the required CRM permissions.'
+              : 'Confirm that you manage an active team and have the required CRM permissions.'
+          }
           onRetry={() => void query.refetch()}
         />
       </PageShell>
     );
 
   const data = query.data;
+  const { kpis } = data;
+  const share = (value: number) =>
+    kpis.leads ? `${formatPercent((value * 100) / kpis.leads)} of leads` : 'No leads in period';
   const metrics: Metric[] = [
     {
-      label: 'Team conversion',
-      value: `${data.kpis.conversion.toFixed(1)}%`,
-      helper: 'Bookings from leads created in period',
-      icon: Target,
-      tone: 'bg-violet-50 text-violet-600',
+      label: 'Leads assigned',
+      value: formatNumber(kpis.leads),
+      helper: `${formatNumber(kpis.contacted)} contacted`,
+      icon: Users,
+      tone: 'bg-blue-50 text-blue-600',
     },
     {
-      label: 'Total bookings',
-      value: data.kpis.bookings.toLocaleString('en-IN'),
+      label: 'Qualified',
+      value: kpis.qualified === undefined ? '—' : formatNumber(kpis.qualified),
+      helper: kpis.qualified === undefined ? 'Reached qualification' : share(kpis.qualified),
+      icon: ClipboardCheck,
+      tone: 'bg-teal-50 text-teal-600',
+    },
+    {
+      label: 'Test drives',
+      value: formatNumber(kpis.test_drives),
+      helper: 'Scheduled, not cancelled',
+      icon: Trophy,
+      tone: 'bg-orange-50 text-orange-600',
+    },
+    {
+      label: 'Quotations',
+      value: formatNumber(kpis.quotations),
+      helper: 'Created in period',
+      icon: FileText,
+      tone: 'bg-amber-50 text-amber-600',
+    },
+    {
+      label: 'Bookings',
+      value: formatNumber(kpis.bookings),
       helper: 'Non-cancelled bookings',
       icon: CarFront,
       tone: 'bg-emerald-50 text-emerald-600',
     },
     {
-      label: 'Connected calls',
-      value: data.kpis.connected_calls.toLocaleString('en-IN'),
-      helper: `${data.kpis.calls.toLocaleString('en-IN')} calls logged`,
-      icon: CheckCircle2,
-      tone: 'bg-green-50 text-green-600',
-    },
-    {
-      label: 'Team test drives',
-      value: data.kpis.test_drives.toLocaleString('en-IN'),
-      helper: `${data.kpis.quotations.toLocaleString('en-IN')} quotations created`,
-      icon: Trophy,
-      tone: 'bg-orange-50 text-orange-600',
+      label: showroom ? 'Showroom conversion' : 'Team conversion',
+      value: `${kpis.conversion.toFixed(1)}%`,
+      helper: 'Bookings per lead in period',
+      icon: Target,
+      tone: 'bg-violet-50 text-violet-600',
     },
   ];
-  const leaders = data.leaderboard.slice(0, 3);
+  const funnel = [
+    { name: 'Leads', value: kpis.leads },
+    { name: 'Contacted', value: kpis.contacted },
+    ...(kpis.qualified === undefined ? [] : [{ name: 'Qualified', value: kpis.qualified }]),
+    { name: 'Test drive', value: kpis.test_drives },
+    { name: 'Quotation', value: kpis.quotations },
+    { name: 'Booking', value: kpis.bookings },
+  ];
+  const showTeam = showroom || new Set(data.leaderboard.map((member) => member.team_name)).size > 1;
+  const columnCount = showTeam ? 11 : 10;
+  // Ranked on bookings, which only a consultant makes; a telecaller in the top
+  // three read as a 0% "top performer".
+  const leaders = data.leaderboard.filter((member) => !isTelecallerMember(member)).slice(0, 3);
 
   return (
     <div className="mx-auto w-full space-y-5">
       <PageHeader
         spec={{ ...spec, primaryAction: undefined }}
         description={
-          showHandoffs
-            ? 'Compare your team members on real, authorized activity and their handoffs to Sales.'
-            : 'Compare your team members on real, authorized activity.'
+          showroom
+            ? 'Every telecaller and sales consultant in your showroom teams, compared on the same period.'
+            : showHandoffs
+              ? 'Compare your team members on real, authorized activity and their handoffs to Sales.'
+              : 'Compare your team members on real, authorized activity.'
         }
-        actions={<PerformanceDateRangeSelector value={range} onChange={setRange} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {showroom ? (
+              <BranchPicker
+                branches={data.branches}
+                value={branchId}
+                onChange={setBranchId}
+                allLabel="All branches"
+              />
+            ) : null}
+            <PerformanceDateRangeSelector value={range} onChange={setRange} />
+          </div>
+        }
       />
       <KpiGrid metrics={metrics} />
-      <div className="grid gap-4 xl:grid-cols-[1.05fr_1.35fr]">
+      <div className="grid gap-4 xl:grid-cols-2">
         <SectionCard title="Performance trend">
           <EChart
             kind="line"
@@ -148,52 +214,85 @@ export function TeamManagerPerformance({
             seriesNames={['Calls', 'Test drives']}
           />
         </SectionCard>
-        <SectionCard title="Top performers" contentClassName="grid gap-3 md:grid-cols-3">
-          {leaders.length ? (
-            leaders.map((member, index) => (
-              <div key={member.user_id} className="rounded-lg border p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="grid size-8 place-items-center rounded-full bg-amber-50 text-xs font-bold text-amber-700">
-                    {index + 1}
-                  </span>
-                  <Badge variant={index === 0 ? 'success' : 'outline'}>
-                    {member.conversion.toFixed(1)}%
-                  </Badge>
-                </div>
-                <div className="mt-4 flex items-center gap-2">
-                  <span className="grid size-9 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700">
-                    {initials(member.full_name)}
-                  </span>
-                  <p className="min-w-0 truncate text-sm font-semibold">{member.full_name}</p>
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                  <span>
-                    Leads <b className="ml-1 text-foreground">{member.leads}</b>
-                  </span>
-                  <span>
-                    Bookings <b className="ml-1 text-foreground">{member.bookings}</b>
-                  </span>
-                  <span>
-                    Calls <b className="ml-1 text-foreground">{member.calls}</b>
-                  </span>
-                  <span>
-                    Drives <b className="ml-1 text-foreground">{member.test_drives}</b>
-                  </span>
-                </div>
-              </div>
-            ))
-          ) : (
-            <p className="text-sm text-muted-foreground">No active consultants are assigned.</p>
-          )}
-        </SectionCard>
+        {/* Leads, contacted and qualified follow the leads created in the period;
+            later steps count activity in it, so they can outgrow an earlier step. */}
+        {funnelNarrows(funnel) ? (
+          <SectionCard
+            title="Conversion funnel"
+            description="From leads created in the period to bookings"
+          >
+            <EChart
+              kind="funnel"
+              data={funnel}
+              funnelMode="staged"
+              funnelStages={funnel.length}
+              funnelLabels="side"
+            />
+          </SectionCard>
+        ) : (
+          <SectionCard
+            title="Sales steps in the period"
+            description="Bookings can come from leads assigned before the period"
+          >
+            <EChart
+              kind="bar"
+              data={funnel}
+              series={[{ name: 'Count', values: funnel.map((stage) => stage.value) }]}
+            />
+          </SectionCard>
+        )}
       </div>
-      <SectionCard title="Consultant leaderboard" flush contentClassName="overflow-x-auto">
+      <SectionCard title="Top performers" contentClassName="grid gap-3 md:grid-cols-3">
+        {leaders.length ? (
+          leaders.map((member, index) => (
+            <div key={member.user_id} className="rounded-lg border p-4">
+              <div className="flex items-center justify-between gap-2">
+                <span className="grid size-8 place-items-center rounded-full bg-amber-50 text-xs font-bold text-amber-700">
+                  {index + 1}
+                </span>
+                <Badge variant={index === 0 ? 'success' : 'outline'}>
+                  {member.conversion.toFixed(1)}%
+                </Badge>
+              </div>
+              <div className="mt-4 flex items-center gap-2">
+                <span className="grid size-9 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700">
+                  {initials(member.full_name)}
+                </span>
+                <p className="min-w-0 truncate text-sm font-semibold">{member.full_name}</p>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                <span>
+                  Leads <b className="ml-1 text-foreground">{member.leads}</b>
+                </span>
+                <span>
+                  Bookings <b className="ml-1 text-foreground">{member.bookings}</b>
+                </span>
+                <span>
+                  Calls <b className="ml-1 text-foreground">{member.calls}</b>
+                </span>
+                <span>
+                  Drives <b className="ml-1 text-foreground">{member.test_drives}</b>
+                </span>
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm text-muted-foreground">No active consultants are assigned.</p>
+        )}
+      </SectionCard>
+      <SectionCard
+        title={showroom ? 'Showroom leaderboard' : 'Team leaderboard'}
+        flush
+        contentClassName="overflow-x-auto"
+      >
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Rank</TableHead>
-              <TableHead>Consultant</TableHead>
+              <TableHead>Member</TableHead>
+              {showTeam ? <TableHead>Team</TableHead> : null}
               <TableHead>Leads</TableHead>
+              <TableHead>Qualified</TableHead>
               <TableHead>Calls</TableHead>
               <TableHead>Connected</TableHead>
               <TableHead>Test drives</TableHead>
@@ -211,26 +310,50 @@ export function TeamManagerPerformance({
                     <span className="grid size-8 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700">
                       {initials(member.full_name)}
                     </span>
-                    <span className="font-medium">{member.full_name}</span>
+                    <span className="min-w-0">
+                      <span className="block font-medium">{member.full_name}</span>
+                      {teamMemberRole(member) ? (
+                        <span className="block text-[11px] text-muted-foreground">
+                          {teamMemberRole(member)}
+                        </span>
+                      ) : null}
+                    </span>
                   </div>
                 </TableCell>
+                {showTeam ? (
+                  <TableCell className="text-xs text-muted-foreground">
+                    {member.team_name ?? '—'}
+                  </TableCell>
+                ) : null}
                 <TableCell>{member.leads}</TableCell>
+                <TableCell>{member.qualified ?? '—'}</TableCell>
                 <TableCell>{member.calls}</TableCell>
                 <TableCell>{member.connected_calls}</TableCell>
                 <TableCell>{member.test_drives}</TableCell>
                 <TableCell>{member.quotations}</TableCell>
                 <TableCell>{member.bookings}</TableCell>
                 <TableCell>
-                  <Badge variant={member.conversion >= 10 ? 'success' : 'outline'}>
-                    {member.conversion.toFixed(1)}%
-                  </Badge>
+                  {isTelecallerMember(member) ? (
+                    <span className="text-muted-foreground" title="Telecallers hand leads to Sales">
+                      —
+                    </span>
+                  ) : (
+                    <Badge variant={member.conversion >= 10 ? 'success' : 'outline'}>
+                      {member.conversion.toFixed(1)}%
+                    </Badge>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
             {!data.leaderboard.length && (
               <TableRow>
-                <TableCell colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
-                  No active consultants are assigned to your managed team.
+                <TableCell
+                  colSpan={columnCount}
+                  className="py-10 text-center text-sm text-muted-foreground"
+                >
+                  {showroom
+                    ? 'No active members are assigned to teams in this branch.'
+                    : 'No active members are assigned to your managed team.'}
                 </TableCell>
               </TableRow>
             )}
@@ -238,11 +361,19 @@ export function TeamManagerPerformance({
         </Table>
       </SectionCard>
       {showHandoffs ? (
-        <SalesHandoffReport preset="TEAM" range={range} leadBasePath="/team-manager/leads" />
+        <SalesHandoffReport
+          preset={showroom ? 'SHOWROOM' : 'TEAM'}
+          range={range}
+          branchId={branchId}
+          leadBasePath={showroom ? '/showroom-manager/leads' : '/team-manager/leads'}
+        />
       ) : null}
       <p className="text-center text-xs text-muted-foreground">
-        Results include only records assigned to your active managed team. Talk time:{' '}
-        {formatDuration(data.kpis.talk_seconds)}.
+        {showroom
+          ? 'Results include only records assigned to active teams in your branches.'
+          : 'Results include only records assigned to your active managed team.'}{' '}
+        {formatNumber(kpis.connected_calls)} of {formatNumber(kpis.calls)} calls connected; talk
+        time {formatDuration(kpis.talk_seconds)}.
       </p>
     </div>
   );
@@ -258,7 +389,7 @@ export function TeamOverviewCard() {
   const queryScope = workspaceQueryScope(session);
   const [range] = useState(() => performanceRangeForLastDays(7));
   const query = usePersistedQuery({
-    queryKey: ['team-manager-performance', ...queryScope, range.from, range.to],
+    queryKey: ['team-manager-performance', ...queryScope, range.from, range.to, null],
     queryFn: ({ signal }) => fetchTeamManagerPerformance(range, signal),
     staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
     gcTime: DASHBOARD_QUERY_GC_TIME_MS,
@@ -290,6 +421,7 @@ export function TeamOverviewCard() {
           <TableHeader>
             <TableRow>
               <TableHead>Member</TableHead>
+              <TableHead className="hidden md:table-cell">Role</TableHead>
               <TableHead className="text-right">Leads</TableHead>
               <TableHead className="text-right">Calls</TableHead>
               <TableHead className="text-right">Connected</TableHead>
@@ -303,18 +435,23 @@ export function TeamOverviewCard() {
             {query.data.leaderboard.map((member) => (
               <TableRow key={member.user_id}>
                 <TableCell className="font-medium">{member.full_name}</TableCell>
+                <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
+                  {teamMemberRole(member) ?? '—'}
+                </TableCell>
                 <TableCell className="text-right">{formatNumber(member.leads)}</TableCell>
                 <TableCell className="text-right">{formatNumber(member.calls)}</TableCell>
                 <TableCell className="text-right">{formatNumber(member.connected_calls)}</TableCell>
                 <TableCell className="text-right">{formatNumber(member.test_drives)}</TableCell>
                 <TableCell className="text-right">{formatNumber(member.quotations)}</TableCell>
                 <TableCell className="text-right">{formatNumber(member.bookings)}</TableCell>
-                <TableCell className="text-right">{formatPercent(member.conversion)}</TableCell>
+                <TableCell className="text-right">
+                  {isTelecallerMember(member) ? '—' : formatPercent(member.conversion)}
+                </TableCell>
               </TableRow>
             ))}
             {!query.data.leaderboard.length && (
               <TableRow>
-                <TableCell colSpan={8} className="p-0">
+                <TableCell colSpan={9} className="p-0">
                   <EmptyState
                     bare
                     title="No active members in your managed team"

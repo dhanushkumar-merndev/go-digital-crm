@@ -476,6 +476,7 @@ export default function CustomerDetail() {
         </>
       }
       data={items}
+      cards={tab === 'overview'}
       keyExtractor={(item) => (item.kind === 'line' ? item.line.key : item.key)}
       renderItem={renderItem}
       loading={tab !== 'overview' && section.loading}
@@ -561,7 +562,18 @@ function overviewBlocks(core: Customer360Core): Item[] {
         ),
       });
   }
-  const contacts = core.contacts.filter((contact) => contact.value);
+  // The primary phone, WhatsApp and email are usually also contact rows; list
+  // each number or address once.
+  const contactKey = (value: string) =>
+    value.includes('@') ? value.trim().toLowerCase() : value.replace(/\D/g, '').slice(-10);
+  const shown = new Set(
+    [customer.primary_phone, customer.whatsapp_phone, customer.primary_email]
+      .filter((value): value is string => Boolean(value))
+      .map(contactKey),
+  );
+  const contacts = core.contacts.filter(
+    (contact) => contact.value && !shown.has(contactKey(contact.value)),
+  );
   blocks.push({
     kind: 'block',
     key: 'contact',
@@ -574,7 +586,12 @@ function overviewBlocks(core: Customer360Core): Item[] {
         {contacts.map((contact) => (
           <Fact key={contact.id} label={humanize(contact.type)} value={contact.value} />
         ))}
-        <Fact label="Enquiries" value={String(core.leadOptions.length)} />
+        {/* Counts only enquiries this user can open; after a transfer that can be
+            none, which would read as a customer with no enquiries. */}
+        <Fact
+          label="Enquiries"
+          value={core.leadOptions.length ? String(core.leadOptions.length) : null}
+        />
       </Card>
     ),
   });
@@ -620,7 +637,7 @@ const styles = StyleSheet.create({
   lineTitle: { flexShrink: 1, color: colors.text, fontSize: font.body, fontWeight: '600' },
   lineMeta: { color: colors.muted, fontSize: font.small, marginTop: 2 },
   lineBody: { color: colors.text, fontSize: font.small, marginTop: 4, lineHeight: 18 },
-  block: { gap: space.sm, padding: space.md, marginBottom: space.sm },
+  block: { gap: space.sm, padding: space.md },
   blockTitle: { color: colors.text, fontSize: font.heading, fontWeight: '700' },
   fact: { flexDirection: 'row', justifyContent: 'space-between', gap: space.md },
   factLabel: { color: colors.muted, fontSize: font.small },

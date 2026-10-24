@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/client';
 const showroomTargetSchema = z.object({
   month: z.string(),
   branch: z.object({ id: z.uuid(), name: z.string() }),
+  // The caller's branches, for the picker; absent before the branch-choice migration.
+  branches: z.array(z.object({ id: z.uuid(), name: z.string() })).default([]),
   kpis: z.object({
     sales_target: z.coerce.number().nonnegative(),
     sales_value: z.coerce.number().nonnegative(),
@@ -42,11 +44,12 @@ export type ShowroomTargetResult = z.infer<typeof showroomTargetSchema>;
 
 export async function fetchShowroomTarget(
   month: string,
+  branchId: string | null,
   signal?: AbortSignal,
 ): Promise<ShowroomTargetResult> {
   const request = createClient().rpc('get_showroom_target_workspace', {
     target_month: `${month}-01`,
-    target_branch_id: null,
+    target_branch_id: branchId,
     target_timezone: 'Asia/Kolkata',
   });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);

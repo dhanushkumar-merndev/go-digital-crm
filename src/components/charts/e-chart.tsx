@@ -55,19 +55,30 @@ function optionFor(
   const px = (value: number) => value * scale;
   const grid = { left: px(42), right: px(20), top: px(20), bottom: px(32) };
   const textStyle = { fontSize: px(12) };
+  // Past five slices a bottom legend wraps into the ring; list them beside it instead.
+  const sideLegend = kind === 'donut' && data.length > 5;
   if (kind === 'donut')
     return {
       textStyle,
       tooltip: { trigger: 'item', textStyle },
-      legend: { bottom: 0, textStyle: { color: text, ...textStyle } },
+      legend: sideLegend
+        ? {
+            type: 'scroll' as const,
+            orient: 'vertical' as const,
+            right: 0,
+            top: 'middle',
+            itemGap: px(8),
+            textStyle: { color: text, ...textStyle },
+          }
+        : { bottom: 0, textStyle: { color: text, ...textStyle } },
       color:
         extra.colors ??
         (data.length > 5 ? palette : ['#2563eb', '#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444']),
       series: [
         {
           type: 'pie',
-          radius: ['52%', '72%'],
-          center: ['50%', '43%'],
+          radius: sideLegend ? ['48%', '70%'] : ['52%', '72%'],
+          center: sideLegend ? ['30%', '50%'] : ['50%', '43%'],
           label: { show: false },
           data,
         },
@@ -189,7 +200,7 @@ function optionFor(
       min: anyNegative ? undefined : 0,
       minInterval: allIntegers ? 1 : undefined,
       splitLine: { lineStyle: { color: '#eef1f5' } },
-      axisLabel: { color: text, ...textStyle },
+      axisLabel: { color: text, ...textStyle, formatter: axisValue },
     },
   };
   if ((kind === 'bar' || kind === 'line') && extra.series?.length)
@@ -259,6 +270,14 @@ function optionFor(
       },
     ],
   };
+}
+
+/** Rupee-sized axis values read as 1.8 Cr / 45 L rather than 180,000,000; counts are untouched. */
+function axisValue(value: number) {
+  const size = Math.abs(value);
+  if (size >= 1e7) return `${Number((value / 1e7).toFixed(2))} Cr`;
+  if (size >= 1e5) return `${Number((value / 1e5).toFixed(2))} L`;
+  return value.toLocaleString('en-IN');
 }
 
 export function EChart({

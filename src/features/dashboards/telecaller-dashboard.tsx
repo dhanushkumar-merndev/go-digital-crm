@@ -67,6 +67,7 @@ import { useTenantRealtimeInvalidation } from '@/lib/realtime/use-realtime-inval
 import { cn } from '@/lib/utils';
 import { toneStyles, type Tone } from './dashboard-tone';
 import {
+  overdueText,
   tenantDashboardKey,
   type TenantDashboardLeadPreview,
   type TenantDashboardResult,
@@ -446,7 +447,7 @@ function OverdueQueue({ data, className }: { data: TenantDashboardResult; classN
                               variant={item.severity === 'HIGH' ? 'destructive' : 'warning'}
                               className="px-1.5 py-0 text-[10px] normal-case"
                             >
-                              {item.severity === 'HIGH' ? 'overdue 1 day+' : 'overdue'}
+                              {overdueText(item.sort_at, data.generated_at)}
                             </Badge>
                           </div>
                           <p className="mt-0.5 truncate text-xs font-semibold text-heading">

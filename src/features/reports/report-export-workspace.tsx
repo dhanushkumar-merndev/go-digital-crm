@@ -239,7 +239,14 @@ export function ReportExportWorkspace({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <EChart kind="donut" data={page.data.status_chart} className="h-64" />
+            {page.data.status_chart.some((slice) => slice.value > 0) ? (
+              <EChart kind="donut" data={page.data.status_chart} className="h-64" />
+            ) : (
+              // An empty ring read as a chart that failed to load.
+              <p className="grid h-64 place-items-center text-center text-sm text-muted-foreground">
+                No exports in the last 30 days. Request one to see its status here.
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card

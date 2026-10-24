@@ -166,6 +166,14 @@ export function LeadAssignmentWorkspace({
           : consultant.eligible_for_qualified_leads),
     );
   }, [query.data?.consultants, selectedLead]);
+  // Everyone in the managed teams, with the people who can take the selected
+  // lead first, so the panel never reads as a list of the wrong role.
+  const members = useMemo(() => {
+    const eligibleIds = new Set(eligibleConsultants.map((consultant) => consultant.user_id));
+    return (query.data?.consultants ?? [])
+      .map((consultant) => ({ consultant, eligible: eligibleIds.has(consultant.user_id) }))
+      .sort((left, right) => Number(right.eligible) - Number(left.eligible));
+  }, [eligibleConsultants, query.data?.consultants]);
   const selectedConsultant =
     eligibleConsultants.find((consultant) => consultant.user_id === selectedConsultantId) ??
     eligibleConsultants[0] ??
@@ -360,25 +368,17 @@ export function LeadAssignmentWorkspace({
             </Card>
             <Card className="min-h-[490px] overflow-hidden shadow-none">
               <CardHeader className="border-b">
-                <CardTitle className="text-base">
-                  {selectedLead?.assignment_kind === 'FRESH'
-                    ? 'Eligible telecallers'
-                    : 'Eligible consultants'}
-                </CardTitle>
+                <CardTitle className="text-base">Team members</CardTitle>
                 <CardDescription>
-                  {isShowroom
-                    ? 'Live workload in your authorized showroom teams.'
-                    : 'Live workload within your managed teams.'}
+                  {selectedLead
+                    ? `Who can take this ${selectedLead.assignment_kind === 'FRESH' ? 'new lead (telecallers)' : 'qualified lead (sales consultants)'} is listed first, with live workload.`
+                    : isShowroom
+                      ? 'Live workload in your authorized showroom teams.'
+                      : 'Live workload within your managed teams.'}
                 </CardDescription>
               </CardHeader>
               <CardContent className="max-h-[520px] space-y-2 overflow-y-auto p-3">
-                {query.data.consultants.map((consultant) => {
-                  const eligible =
-                    selectedLead &&
-                    consultant.team_id === selectedLead.team_id &&
-                    (selectedLead.assignment_kind === 'FRESH'
-                      ? consultant.eligible_for_fresh_leads
-                      : consultant.eligible_for_qualified_leads);
+                {members.map(({ consultant, eligible }) => {
                   return (
                     <button
                       key={consultant.user_id}
@@ -403,7 +403,7 @@ export function LeadAssignmentWorkspace({
                           </p>
                         </div>
                         <Badge variant={eligible ? 'success' : 'outline'}>
-                          {eligible ? 'Eligible' : 'Unavailable'}
+                          {eligible ? 'Eligible' : 'Not eligible'}
                         </Badge>
                       </div>
                     </button>

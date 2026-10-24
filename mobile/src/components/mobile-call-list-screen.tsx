@@ -25,6 +25,12 @@ function duration(value: number | null) {
   return `${Math.floor(value / 60)}m ${(value % 60).toString().padStart(2, '0')}s`;
 }
 
+// NO_ANSWER reads "No answer", matching the outcome labels elsewhere.
+function sentenceCase(value: string) {
+  const text = value.replaceAll('_', ' ').toLowerCase();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function outcomeTone(outcome: string): Tone {
   if (/CONNECTED|COMPLETED|ANSWERED/.test(outcome))
     return { fg: colors.successStrong, bg: colors.successSoft };
@@ -48,7 +54,7 @@ const CallRow = memo(function CallRow({ item }: { item: CallItem }) {
           <Text numberOfLines={1} style={styles.name}>
             {name}
           </Text>
-          <Badge label={outcome.replaceAll('_', ' ').toLowerCase()} tone={outcomeTone(outcome)} />
+          <Badge label={sentenceCase(outcome)} tone={outcomeTone(outcome)} />
         </View>
         <Text numberOfLines={1} style={styles.meta}>
           {[

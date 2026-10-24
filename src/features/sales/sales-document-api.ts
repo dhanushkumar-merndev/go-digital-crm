@@ -512,3 +512,23 @@ export async function transitionBooking(input: {
     'booking',
   );
 }
+
+const quotationApprovalSummarySchema = z.object({
+  pending: z.coerce.number().int().nonnegative(),
+  waiting_over_day: z.coerce.number().int().nonnegative(),
+  approved_today: z.coerce.number().int().nonnegative(),
+  rejected_today: z.coerce.number().int().nonnegative(),
+  discount_requested: z.coerce.number().nonnegative(),
+});
+
+export type QuotationApprovalSummary = z.infer<typeof quotationApprovalSummarySchema>;
+
+/** The Approvals tiles: the whole pending queue in the caller's scope and today's decisions. */
+export async function fetchQuotationApprovalSummary(signal?: AbortSignal) {
+  const request = createClient().rpc('get_quotation_approval_summary', {
+    target_timezone: 'Asia/Kolkata',
+  });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return quotationApprovalSummarySchema.parse(data);
+}

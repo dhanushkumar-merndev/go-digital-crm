@@ -30,7 +30,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { Metric } from '@/lib/domain';
-import { fetchTeamManagerPerformance, teamPerformanceSchema } from './team-manager-performance-api';
+import {
+  fetchTeamManagerPerformance,
+  teamMemberRole,
+  teamPerformanceSchema,
+} from './team-manager-performance-api';
 
 function duration(seconds: number) {
   return `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(
@@ -79,6 +83,7 @@ export function TeamCallMonitor({ spec }: { spec: PageSpec }) {
   const average = data.kpis.connected_calls
     ? Math.round(data.kpis.talk_seconds / data.kpis.connected_calls)
     : 0;
+  const hasDailyConnected = data.daily.some((day) => day.connected_calls !== undefined);
   // The same six tiles, in the same order, as every role's Calls page.
   const metrics: Metric[] = [
     {
@@ -132,64 +137,46 @@ export function TeamCallMonitor({ spec }: { spec: PageSpec }) {
         actions={<PerformanceDateRangeSelector value={range} onChange={setRange} />}
       />
       <KpiGrid metrics={metrics} />
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle className="text-base">Team calls by day</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <EChart
-              kind="line"
-              data={data.daily.map((day) => ({
-                name: day.name,
-                value: day.calls,
-                secondary: day.bookings,
-              }))}
-              seriesNames={['Calls', 'Bookings from team']}
-            />
-          </CardContent>
-        </Card>
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle className="text-base">Call quality snapshot</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-lg border bg-emerald-50/50 p-4">
-              <p className="text-xs text-muted-foreground">Connected calls</p>
-              <p className="mt-2 text-2xl font-bold">{data.kpis.connected_calls}</p>
-              <p className="mt-1 text-xs text-emerald-700">{connectionRate}% of logged calls</p>
-            </div>
-            <div className="rounded-lg border bg-blue-50/50 p-4">
-              <p className="text-xs text-muted-foreground">Calls not connected</p>
-              <p className="mt-2 text-2xl font-bold">
-                {Math.max(0, data.kpis.calls - data.kpis.connected_calls)}
-              </p>
-              <p className="mt-1 text-xs text-blue-700">Review outcome in call records</p>
-            </div>
-            <div className="rounded-lg border p-4 sm:col-span-2">
-              <p className="text-xs text-muted-foreground">Team activity context</p>
-              <p className="mt-2 text-sm leading-6 text-slate-700">
-                {data.kpis.test_drives} test drives and {data.kpis.quotations} quotations were
-                created by the same authorized team in this period.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="shadow-none">
+        <CardHeader>
+          <CardTitle className="text-base">Team calls by day</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {/* Bars side by side, as on every Calls page: as lines, Connected sat
+              on top of Calls on a day every call connected. */}
+          <EChart
+            kind={data.daily.length <= 31 ? 'bar' : 'line'}
+            className="h-64"
+            data={data.daily.map((day) => ({ name: day.name, value: day.calls }))}
+            series={[
+              { name: 'Calls', values: data.daily.map((day) => day.calls) },
+              ...(hasDailyConnected
+                ? [
+                    {
+                      name: 'Connected',
+                      values: data.daily.map((day) => day.connected_calls ?? 0),
+                    },
+                  ]
+                : []),
+            ]}
+            colors={['#2563eb', '#14b8a6']}
+          />
+        </CardContent>
+      </Card>
       <Card className="overflow-hidden shadow-none">
         <CardHeader>
-          <CardTitle className="text-base">Consultant call performance</CardTitle>
+          <CardTitle className="text-base">Calls by team member</CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Consultant</TableHead>
+                <TableHead>Member</TableHead>
                 <TableHead>Calls</TableHead>
                 <TableHead>Connected</TableHead>
                 <TableHead>Connection rate</TableHead>
                 <TableHead>Talk time</TableHead>
-                <TableHead>Bookings</TableHead>
+                <TableHead>Average duration</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -204,7 +191,14 @@ export function TeamCallMonitor({ spec }: { spec: PageSpec }) {
                         <span className="grid size-8 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700">
                           {initials(member.full_name)}
                         </span>
-                        <span className="font-medium">{member.full_name}</span>
+                        <span className="min-w-0">
+                          <span className="block font-medium">{member.full_name}</span>
+                          {teamMemberRole(member) ? (
+                            <span className="block text-[11px] text-muted-foreground">
+                              {teamMemberRole(member)}
+                            </span>
+                          ) : null}
+                        </span>
                       </div>
                     </TableCell>
                     <TableCell>{member.calls}</TableCell>
@@ -213,14 +207,20 @@ export function TeamCallMonitor({ spec }: { spec: PageSpec }) {
                       <Badge variant={rate >= 60 ? 'success' : 'outline'}>{rate}%</Badge>
                     </TableCell>
                     <TableCell>{duration(member.talk_seconds)}</TableCell>
-                    <TableCell>{member.bookings}</TableCell>
+                    <TableCell>
+                      {duration(
+                        member.connected_calls
+                          ? Math.round(member.talk_seconds / member.connected_calls)
+                          : 0,
+                      )}
+                    </TableCell>
                   </TableRow>
                 );
               })}
               {!data.leaderboard.length && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
-                    No active consultants are assigned to this team.
+                    No active members are assigned to this team.
                   </TableCell>
                 </TableRow>
               )}

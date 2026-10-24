@@ -24,6 +24,13 @@ import { colors, font, radius, space } from '@/theme';
 
 type ScheduleKind = MobileSalesDashboard['schedule'][number]['kind'];
 
+const finishedStatus = new Set(['COMPLETED', 'DELIVERED', 'CANCELLED', 'NO_SHOW']);
+
+function statusLabel(status: string) {
+  const text = status.replaceAll('_', ' ').toLowerCase();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 const scheduleLook: Record<ScheduleKind, { icon: IconName; label: string; tone: string }> = {
   FOLLOW_UP: { icon: 'alarm', label: 'Follow-up', tone: colors.warning },
   SHOWROOM_VISIT: { icon: 'storefront', label: 'Visit', tone: '#4338ca' },
@@ -183,8 +190,10 @@ export default function Home() {
                 <Card>
                   {dashboard.schedule.slice(0, 6).map((item, index) => {
                     const look = scheduleLook[item.kind];
-                    // Earlier items stay for context but step back visually.
-                    const past = new Date(item.scheduledAt).getTime() < Date.now();
+                    // Earlier and finished items stay for context but step back
+                    // visually; a drive completed early is not still up next.
+                    const finished = finishedStatus.has(item.status);
+                    const past = finished || new Date(item.scheduledAt).getTime() < Date.now();
                     const phone = item.phone;
                     const startCall = phone
                       ? () =>
@@ -229,7 +238,13 @@ export default function Home() {
                                   {item.customerName || look.label}
                                 </Text>
                                 <Text style={styles.slotMeta} numberOfLines={1}>
-                                  {[look.label, item.detail].filter(Boolean).join(' · ')}
+                                  {[
+                                    look.label,
+                                    item.detail,
+                                    finished ? statusLabel(item.status) : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' · ')}
                                 </Text>
                               </View>
                               {item.leadId ? (

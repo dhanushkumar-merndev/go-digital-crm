@@ -209,7 +209,9 @@ export default function Recordings() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
 
-      {older ? (
+      {/* Older files come from this user's own folder; with none chosen there is
+          nothing to sync them from. */}
+      {older && folder ? (
         <Pressable
           style={styles.notice}
           onPress={() => {

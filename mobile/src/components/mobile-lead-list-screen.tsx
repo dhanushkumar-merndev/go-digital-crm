@@ -155,7 +155,7 @@ export function MobileLeadListScreen() {
       title="My Leads"
       subtitle={
         narrowed
-          ? `${list.total.toLocaleString('en-IN')} matches`
+          ? `${list.total.toLocaleString('en-IN')} ${list.total === 1 ? 'match' : 'matches'}`
           : typeof leadCount === 'number'
             ? `Total ${leadCount.toLocaleString('en-IN')} leads`
             : undefined
@@ -178,7 +178,9 @@ export function MobileLeadListScreen() {
               <Chip
                 key={item.value}
                 label={item.label}
-                count={list.counts?.[item.value]}
+                // The counts are the unfiltered totals; beside a narrowed list
+                // they would contradict the "N matches" above.
+                count={narrowed ? undefined : list.counts?.[item.value]}
                 selected={filter === item.value}
                 onPress={() => setFilter(item.value)}
               />
@@ -222,7 +224,7 @@ export function MobileLeadListScreen() {
       errorTitle="Leads could not load"
       emptyTitle={narrowed ? 'No lead matches' : 'No leads here'}
       emptyDetail={
-        narrowed ? 'Try a name, the last digits of the phone, or fewer filters.' : undefined
+        narrowed ? 'Try a name, the start of the phone number, or fewer filters.' : undefined
       }
       emptyIcon="people-outline"
       onRefresh={list.refresh}

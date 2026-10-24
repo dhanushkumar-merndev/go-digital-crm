@@ -1,6 +1,6 @@
 'use client';
 
-import { Clock3, WalletCards } from 'lucide-react';
+import { CircleCheck, CircleX, Clock3, Hourglass, WalletCards } from 'lucide-react';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { ErrorState, EmptyState } from '@/components/shared/page-states';
@@ -25,6 +25,7 @@ import { toast } from '@/components/ui/toast';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import {
   decideQuotationApproval,
+  fetchQuotationApprovalSummary,
   fetchSalesDocumentWorkspace,
   type QuotationRecord,
 } from './sales-document-api';
@@ -60,7 +61,7 @@ export function ManagerApprovalsWorkspace({ spec }: { spec: PageSpec }) {
       fetchSalesDocumentWorkspace(
         'quotations',
         {
-          ...defaultSalesDocumentQuery('quotations'),
+          ...defaultSalesDocumentQuery(),
           status: 'pending-approval',
           search: debouncedSearch,
           page,
@@ -69,6 +70,11 @@ export function ManagerApprovalsWorkspace({ spec }: { spec: PageSpec }) {
         signal,
       ),
     placeholderData: keepPreviousData,
+    staleTime: 30_000,
+  });
+  const summary = useQuery({
+    queryKey: ['manager-approvals', ...queryScope, 'summary'],
+    queryFn: ({ signal }) => fetchQuotationApprovalSummary(signal),
     staleTime: 30_000,
   });
   const records = useMemo(() => query.data?.records ?? [], [query.data]);
@@ -114,7 +120,6 @@ export function ManagerApprovalsWorkspace({ spec }: { spec: PageSpec }) {
       });
     },
   });
-  const pendingValue = records.reduce((sum, record) => sum + record.total_amount, 0);
 
   if (!canDecide)
     return (
@@ -152,11 +157,31 @@ export function ManagerApprovalsWorkspace({ spec }: { spec: PageSpec }) {
             tone: 'amber',
           },
           {
-            // Summed from the rows on screen, so the label says so rather than
-            // passing a page total off as the whole queue.
-            label: 'Value on this page',
-            value: formatCurrency(pendingValue),
-            helper: `Across ${formatNumber(records.length)} listed requests`,
+            label: 'Waiting over a day',
+            value: summary.data ? formatNumber(summary.data.waiting_over_day) : '—',
+            helper: 'Requested more than 24 hours ago',
+            icon: Hourglass,
+            tone: 'rose',
+          },
+          {
+            label: 'Approved today',
+            value: summary.data ? formatNumber(summary.data.approved_today) : '—',
+            helper: 'Discounts approved since midnight',
+            icon: CircleCheck,
+            tone: 'emerald',
+          },
+          {
+            label: 'Rejected today',
+            value: summary.data ? formatNumber(summary.data.rejected_today) : '—',
+            helper: 'Discounts rejected since midnight',
+            icon: CircleX,
+            tone: 'orange',
+          },
+          {
+            // Across the whole pending queue, not only the rows on screen.
+            label: 'Discount requested',
+            value: summary.data ? formatCurrency(summary.data.discount_requested) : '—',
+            helper: 'Total discount awaiting a decision',
             icon: WalletCards,
             tone: 'violet',
           },

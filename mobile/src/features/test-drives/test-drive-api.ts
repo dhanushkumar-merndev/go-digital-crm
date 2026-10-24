@@ -6,6 +6,8 @@ export type TestDriveRecord = {
   id: string;
   version: number;
   status: 'READY' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  // A READY drive resolved against the timezone: OVERDUE, TODAY or UPCOMING.
+  schedule_state: 'OVERDUE' | 'TODAY' | 'UPCOMING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
   customer_name: string;
   phone: string;
   scheduled_at: string;

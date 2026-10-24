@@ -1,6 +1,6 @@
 import { Linking } from 'react-native';
-import { forgetAccessContext } from '@/lib/access-context';
 import { fetchMobileRole, recordMobileLeadContact, type MobileRole } from '@/lib/lead-detail';
+import { supabase } from '@/lib/supabase';
 
 export function dialablePhone(phone: string) {
   return phone.replace(/[^+\d]/g, '');
@@ -30,10 +30,12 @@ export function currentRole() {
   return cachedRole;
 }
 
-export function resetRoleCache() {
+// Every sign-out path (More, Settings, an expired session) and the next
+// sign-in must look the role up again; a Sales Consultant signing in after a
+// Telecaller otherwise keeps the Telecaller's screens.
+supabase.auth.onAuthStateChange(() => {
   cachedRole = undefined;
-  forgetAccessContext();
-}
+});
 
 // Codes that mean "this call does not move the lead", not a failure: the
 // lead is already with Sales or closed for this role.

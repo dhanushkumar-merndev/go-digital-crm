@@ -50,7 +50,7 @@ const duration = (seconds: number) =>
   `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 
 /** Whether every step is at most the one before it, so a funnel shape is honest. */
-function funnelNarrows(stages: Array<{ value: number }>) {
+export function funnelNarrows(stages: Array<{ value: number }>) {
   return stages.every((stage, index) => index === 0 || stage.value <= stages[index - 1]!.value);
 }
 

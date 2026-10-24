@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Chip, EmptyState, SkeletonList } from '@/components/ui/basics';
+import { Badge, Chip, EmptyState, SkeletonList } from '@/components/ui/basics';
 import { dateRange, FilterBar, useFilters } from '@/components/ui/filter-sheet';
 import { orNull, safeSearch, testDriveFilterGroups } from '@/lib/list-filters';
 import {
@@ -22,7 +22,7 @@ import {
   stopTestDriveTracking,
   type TestDriveTrackingState,
 } from '@/lib/test-drive-tracking';
-import { colors, font, radius, shadow, space } from '@/theme';
+import { colors, font, radius, shadow, space, type Tone } from '@/theme';
 import {
   loadTestDrivePage,
   saveTestDriveFeedback,
@@ -83,6 +83,17 @@ function safeMessage(error: unknown) {
     return 'This test drive changed elsewhere. Refresh and try again.';
   return 'The action could not be completed. Check the connection and try again.';
 }
+
+// The Today tab also lists READY drives from earlier days, so the badge shows
+// the schedule state; colours follow the schedule family in AGENTS.md 9.8.
+const scheduleBadge: Record<TestDriveRecord['schedule_state'], { label: string; tone: Tone }> = {
+  OVERDUE: { label: 'Overdue', tone: { fg: colors.dangerStrong, bg: colors.dangerSoft } },
+  TODAY: { label: 'Today', tone: { fg: colors.primary, bg: colors.infoSoft } },
+  UPCOMING: { label: 'Upcoming', tone: { fg: colors.primary, bg: colors.infoSoft } },
+  ACTIVE: { label: 'Active', tone: { fg: colors.warningStrong, bg: colors.warningSoft } },
+  COMPLETED: { label: 'Completed', tone: { fg: colors.successStrong, bg: colors.successSoft } },
+  CANCELLED: { label: 'Cancelled', tone: { fg: colors.dangerStrong, bg: colors.dangerSoft } },
+};
 
 function formatSchedule(value: string) {
   const date = new Date(value);
@@ -357,9 +368,15 @@ export function TestDriveScreen({ bare }: { bare?: boolean } = {}) {
                   <Text style={styles.customer}>{record.customer_name}</Text>
                   <Text style={styles.vehicle}>{vehicleLabel(record)}</Text>
                 </View>
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{record.status}</Text>
-                </View>
+                <Badge
+                  label={scheduleBadge[record.schedule_state]?.label ?? record.status}
+                  tone={
+                    scheduleBadge[record.schedule_state]?.tone ?? {
+                      fg: colors.primary,
+                      bg: colors.infoSoft,
+                    }
+                  }
+                />
               </View>
               <Text style={styles.meta}>{formatSchedule(record.scheduled_at)}</Text>
               <Text style={styles.meta}>
@@ -615,8 +632,6 @@ const styles = StyleSheet.create({
   customer: { color: colors.text, fontSize: font.heading, fontWeight: '600' },
   vehicle: { color: colors.text, fontSize: font.label, fontWeight: '600', marginTop: 3 },
   meta: { color: colors.muted, fontSize: font.caption, lineHeight: 16 },
-  badge: { backgroundColor: '#fff7ed', borderRadius: 20, paddingHorizontal: 9, paddingVertical: 5 },
-  badgeText: { color: colors.warning, fontSize: font.caption, fontWeight: '600' },
   actionPanel: {
     borderTopWidth: 1,
     borderTopColor: colors.border,

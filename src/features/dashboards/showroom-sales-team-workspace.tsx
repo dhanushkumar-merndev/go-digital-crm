@@ -6,7 +6,7 @@ import { SectionCard } from '@/components/shared/section-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { PageSpec } from '@/lib/domain';
 import { PageHeader, PageShell } from '@/components/shared/page-header';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { CircleDot, UsersRound } from 'lucide-react';
 import { useState } from 'react';
 import { EChart } from '@/components/charts/e-chart';
@@ -15,6 +15,7 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
+import { BranchPicker } from '@/components/shared/branch-picker';
 import { PerformanceDateRangeSelector } from '@/components/shared/performance-date-range-selector';
 import { ShowroomSalesTeamSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
@@ -53,10 +54,21 @@ export function ShowroomSalesTeamWorkspace({ spec }: { spec: PageSpec }) {
   const [range, setRange] = useState(() => performanceRangeForLastDays(7));
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
+  // Null opens on the server's default: the caller's first branch by name.
+  const [branchId, setBranchId] = useState<string | null>(null);
   const query = useQuery({
-    queryKey: ['showroom-sales-team', ...queryScope, range.from, range.to, page, pageSize],
-    queryFn: ({ signal }) => fetchShowroomSalesTeam({ range, page, pageSize }, signal),
+    queryKey: [
+      'showroom-sales-team',
+      ...queryScope,
+      branchId,
+      range.from,
+      range.to,
+      page,
+      pageSize,
+    ],
+    queryFn: ({ signal }) => fetchShowroomSalesTeam({ range, page, pageSize, branchId }, signal),
     staleTime: 60_000,
+    placeholderData: keepPreviousData,
   });
   if (query.isPending) return <ShowroomSalesTeamSkeleton />;
   if (query.isError || !query.data)
@@ -65,7 +77,7 @@ export function ShowroomSalesTeamWorkspace({ spec }: { spec: PageSpec }) {
         <PageHeader spec={{ ...spec, primaryAction: undefined }} />
         <ErrorState
           title="Showroom team data is unavailable"
-          description="This page requires a single authorized branch and manager sales permissions."
+          description="This page needs an authorized branch and manager sales permissions."
           onRetry={() => void query.refetch()}
         />
       </PageShell>
@@ -74,7 +86,7 @@ export function ShowroomSalesTeamWorkspace({ spec }: { spec: PageSpec }) {
   const data = query.data;
   const metrics: Metric[] = [
     {
-      label: 'Total consultants',
+      label: 'Team members',
       value: String(data.kpis.consultants),
       helper: data.branch.name,
       icon: UsersRound,
@@ -127,9 +139,17 @@ export function ShowroomSalesTeamWorkspace({ spec }: { spec: PageSpec }) {
     <div className="mx-auto w-full space-y-5">
       <PageHeader
         spec={{ ...spec, primaryAction: undefined }}
-        description={`Consultant workload and sales activity at ${data.branch.name}.`}
+        description={`Workload and sales activity of every team member at ${data.branch.name}.`}
         actions={
           <>
+            <BranchPicker
+              branches={data.branches}
+              value={data.branch.id}
+              onChange={(nextBranchId) => {
+                setBranchId(nextBranchId);
+                setPage(1);
+              }}
+            />
             <PerformanceDateRangeSelector
               value={range}
               onChange={(nextRange) => {
@@ -143,7 +163,7 @@ export function ShowroomSalesTeamWorkspace({ spec }: { spec: PageSpec }) {
       <KpiGrid metrics={metrics} />
       <Card className="overflow-hidden shadow-none">
         <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
-          <CardTitle className="text-base">Consultant performance</CardTitle>
+          <CardTitle className="text-base">Team members</CardTitle>
           <Select
             value={String(pageSize)}
             onValueChange={(value) => {
@@ -166,7 +186,7 @@ export function ShowroomSalesTeamWorkspace({ spec }: { spec: PageSpec }) {
             <TableHeader>
               <TableRow>
                 <TableHead>#</TableHead>
-                <TableHead>Consultant</TableHead>
+                <TableHead>Member</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Activity</TableHead>
                 <TableHead>Open leads</TableHead>
@@ -203,7 +223,14 @@ export function ShowroomSalesTeamWorkspace({ spec }: { spec: PageSpec }) {
                     <TableCell>{record.test_drives}</TableCell>
                     <TableCell>{record.quotations}</TableCell>
                     <TableCell>{record.bookings}</TableCell>
-                    <TableCell>{conversion.toFixed(1)}%</TableCell>
+                    <TableCell>
+                      {/* Telecallers hand leads to Sales; bookings per lead is a consultant's number. */}
+                      {record.member_type === 'TELECALLER_BDC' ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        `${conversion.toFixed(1)}%`
+                      )}
+                    </TableCell>
                     <TableCell>{target === null ? 'Not set' : `${target.toFixed(0)}%`}</TableCell>
                   </TableRow>
                 );
@@ -214,7 +241,7 @@ export function ShowroomSalesTeamWorkspace({ spec }: { spec: PageSpec }) {
                     colSpan={11}
                     className="py-12 text-center text-sm text-muted-foreground"
                   >
-                    No active consultants are assigned to this showroom.
+                    No active team members are assigned to this showroom.
                   </TableCell>
                 </TableRow>
               )}
@@ -283,7 +310,8 @@ export function ShowroomTeamOverviewCard() {
   const queryScope = workspaceQueryScope(session);
   const [range] = useState(() => performanceRangeForLastDays(7));
   const query = useQuery({
-    queryKey: ['showroom-sales-team', ...queryScope, range.from, range.to, 1, 25],
+    // Same key as Sales Teams' first page on its default branch.
+    queryKey: ['showroom-sales-team', ...queryScope, null, range.from, range.to, 1, 25],
     queryFn: ({ signal }) => fetchShowroomSalesTeam({ range, page: 1, pageSize: 25 }, signal),
     staleTime: 60_000,
   });
@@ -291,7 +319,11 @@ export function ShowroomTeamOverviewCard() {
   return (
     <SectionCard
       title="Team overview"
-      description="Last 7 days, top of the showroom"
+      description={
+        query.data
+          ? `Last 7 days at ${query.data.branch.name}, busiest first`
+          : 'Last 7 days, busiest first'
+      }
       actionHref="/showroom-manager/sales-teams"
       actionLabel="Sales teams"
       flush
@@ -327,7 +359,7 @@ export function ShowroomTeamOverviewCard() {
               <TableRow key={member.user_id}>
                 <TableCell className="font-medium">{member.full_name}</TableCell>
                 <TableCell className="text-muted-foreground">
-                  {member.member_type === 'TELECALLER_BDC' ? 'Telecaller' : 'Sales Consultant'}
+                  {roleLabel(member.member_type)}
                 </TableCell>
                 <TableCell className="text-right">{formatNumber(member.active_leads)}</TableCell>
                 <TableCell className="text-right">{formatNumber(member.calls)}</TableCell>
