@@ -940,7 +940,7 @@ $$;
 
 -- -------------------------------------------------------------- patches
 
-create function pg_temp.patch_function(
+create or replace function pg_temp.patch_function(
   target regprocedure,
   marker text,
   anchors text[],

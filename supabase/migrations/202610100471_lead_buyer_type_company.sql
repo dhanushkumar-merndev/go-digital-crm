@@ -400,7 +400,7 @@ grant execute on function public.get_lead_company_suggestion(uuid) to authentica
 -- the result, so a moved target fails loudly instead of silently no-opping.
 -- A patch that changes the argument list creates a second overload; the old
 -- one is dropped and its grants are re-applied to the new one.
-create function pg_temp.patch_function(
+create or replace function pg_temp.patch_function(
   target regprocedure,
   edits text[],
   grant_to text[]

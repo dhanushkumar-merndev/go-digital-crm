@@ -22,6 +22,9 @@ const publicBoundaryFunctions = new Set([
   'provider-webhook-carwale',
   'provider-webhook-cardekho',
   'provider-webhook-justdial',
+  // Customer-facing review page: the signed single-use token is the credential.
+  'public-feedback-logo',
+  'public-review-rephrase',
   'website-widget-config',
   'website-chat-lead',
   'lead-api',
