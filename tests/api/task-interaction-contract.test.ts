@@ -42,8 +42,12 @@ describe('task workspace interaction contract', () => {
     expect(workspace).toContain('pageSize: Number(value) as 25 | 50 | 100, page: 1');
     // The status tabs moved into TaskStatusTabs (below the KPIs, with counts),
     // so they report selection as a tablist rather than a pressed button. The
-    // KPI cards are the remaining aria-pressed toggles and filter the same way.
-    expect(workspace).toContain('aria-pressed={active}');
+    // KPI cards are the remaining aria-pressed toggles and filter the same way;
+    // the toggle is the shared FilterMetricCard.
+    expect(workspace).toContain('<FilterMetricCard');
+    expect(source('src/components/shared/filter-metric-card.tsx')).toContain(
+      'aria-pressed={active}',
+    );
     expect(workspace).toContain('aria-selected={active}');
     expect(workspace).toContain('onStatusChange={(status) => onQueryChange({ status, page: 1 })}');
     // Previous / next live in the shared footer, wired to the same query state.

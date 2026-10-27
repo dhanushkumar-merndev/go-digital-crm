@@ -6,14 +6,17 @@ const workspace = readFileSync('src/features/leads/lead-workspace.tsx', 'utf8');
 
 const cards = workspace.slice(
   workspace.indexOf('function leadMetricCards'),
-  workspace.indexOf('function SalesLeadMetricCard'),
+  workspace.indexOf('function transientLeadTabs'),
 );
 
 describe('My Leads summary cards (canonical Leads set)', () => {
   it('builds every role from one card factory and one card component', () => {
     // One factory and one card: separate per-role copies are how the labels
     // drifted to "Total my leads" / "Pending action" / "New leads".
-    expect(workspace).toContain('<SalesLeadMetricCard');
+    // The tile itself is the shared FilterMetricCard that Follow-ups and Tasks
+    // also use, not a local copy.
+    expect(workspace).toContain('<FilterMetricCard');
+    expect(workspace).not.toContain('function SalesLeadMetricCard');
     expect(cards).toContain('): SalesLeadMetricCard[] {');
     expect(workspace).not.toContain('function telecallerLeadMetricCards');
     expect(workspace).not.toContain('function salesLeadMetricCards');

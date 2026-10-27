@@ -26,6 +26,7 @@ import { SummaryToggle } from '@/components/domain/summary-toggle';
 import { TasksSkeleton } from '@/components/skeletons/sales-consultant-skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { overdueTableRowClassName } from '@/components/shared/table-row-styles';
+import { FilterMetricCard } from '@/components/shared/filter-metric-card';
 import { useSalesConsultantCache } from '@/features/sales-consultant/sales-consultant-cache';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -202,64 +203,6 @@ function taskMetricCards(
       neutral: true,
     },
   ];
-}
-
-function TaskMetricCard({
-  card,
-  active,
-  onSelect,
-}: {
-  card: ReturnType<typeof taskMetricCards>[number];
-  active: boolean;
-  onSelect: () => void;
-}) {
-  const Icon = card.icon;
-  // A share of the list, not a change over time, so no trend arrow.
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={active}
-      className="group min-w-0 rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-    >
-      <Card
-        data-kpi
-        className={cn(
-          'h-full min-w-0 shadow-none transition-all group-hover:-translate-y-0.5 group-hover:border-blue-200 group-hover:shadow-sm',
-          active ? 'border-blue-300 ring-1 ring-blue-200' : 'border-slate-200/90',
-        )}
-      >
-        <CardContent className="p-4">
-          <div className="flex items-center gap-2.5">
-            <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', card.chip)}>
-              <Icon className="size-4" />
-            </span>
-            <p className="min-w-0 text-[11px] font-semibold leading-4 text-heading-soft">
-              {card.label}
-            </p>
-          </div>
-          <p className="mt-3 text-center text-[26px] font-bold leading-none tracking-tight text-heading">
-            {card.value.toLocaleString('en-IN')}
-          </p>
-          <p
-            className={cn(
-              'mt-3 flex flex-wrap items-center justify-center gap-1 text-[10px] font-semibold',
-              card.neutral
-                ? 'text-muted-foreground'
-                : card.good
-                  ? 'text-emerald-600'
-                  : 'text-rose-600',
-            )}
-          >
-            {card.rate}%<span className="font-normal text-muted-foreground">{card.helper}</span>
-          </p>
-          {card.footnote && (
-            <p className="mt-1 text-center text-[10px] text-muted-foreground">{card.footnote}</p>
-          )}
-        </CardContent>
-      </Card>
-    </button>
-  );
 }
 
 /**
@@ -785,7 +728,7 @@ export function TaskWorkspace({ spec, role }: { spec: PageSpec; role: string }) 
           className={cn('grid gap-2.5', kpiGridColumns(6))}
         >
           {taskMetricCards(workspace.data.kpis, workspace.data.status_counts).map((card) => (
-            <TaskMetricCard
+            <FilterMetricCard
               key={card.status}
               card={card}
               active={query.status === card.status}
