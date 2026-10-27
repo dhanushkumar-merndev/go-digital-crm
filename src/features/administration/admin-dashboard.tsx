@@ -141,6 +141,28 @@ function attention(data: AdminOverview, role: RoleKey) {
  * how the dealership is set up and what needs an administrator, read from
  * get_admin_overview within the caller's user.manage scope.
  */
+// PRD 54.6 §8: the sales hierarchy by role, every department role as one
+// "Operational users" slice. Twenty role slices read as slivers.
+const salesRoleGroups: Array<[RegExp, string]> = [
+  [/telecaller|bdc/i, 'Telecaller'],
+  [/sales consultant/i, 'Sales Consultant'],
+  [/team manager/i, 'Team Manager'],
+  [/showroom manager|sales manager/i, 'Sales Manager'],
+  [/\bgm\b|general manager/i, 'GM'],
+  [/system admin/i, 'System Administrator'],
+  [/client admin|business owner/i, 'Administration'],
+];
+
+function roleGroups(roles: Array<{ name: string; value: number }>) {
+  const totals = new Map<string, number>();
+  for (const role of roles) {
+    const group =
+      salesRoleGroups.find(([pattern]) => pattern.test(role.name))?.[1] ?? 'Operational users';
+    totals.set(group, (totals.get(group) ?? 0) + role.value);
+  }
+  return [...totals].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+}
+
 export function AdminDashboard({ spec, role }: { spec: PageSpec; role: RoleKey }) {
   const session = useWorkspaceSession();
   const query = useQuery({
@@ -194,7 +216,7 @@ export function AdminDashboard({ spec, role }: { spec: PageSpec; role: RoleKey }
           actionLabel="Users"
         >
           {data.roles.length ? (
-            <EChart kind="donut" data={data.roles} className="h-[280px]" />
+            <EChart kind="donut" data={roleGroups(data.roles)} className="h-[280px]" />
           ) : (
             <EmptyState bare title="No users in your scope yet" />
           )}

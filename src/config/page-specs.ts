@@ -653,6 +653,60 @@ const readOnlyRoles: RoleKey[] = ['gm-sales', 'business-owner'];
 // Inventory family, but the consultant cannot move, allocate or age stock.
 const descriptionOverrides: Partial<Record<string, string>> = {
   'stock-check': 'Check what is available, limited or arriving before you promise a vehicle.',
+  // Pages in the catch-all configuration family; each says what it is for.
+  'sales-overview':
+    'Organization-wide leads, conversion and bookings by showroom, model and source.',
+  'operations-overview':
+    'Inventory, finance, insurance, RTO, exchange and delivery status across the dealership.',
+  'activity-timeline': 'Calls, messages, follow-ups and stage changes in the order they happened.',
+  messages: 'Customer conversations from the connected WhatsApp, Messenger and Instagram accounts.',
+  reviews:
+    'Ratings customers left on the feedback form, and who has been invited to review on Google.',
+  'competitor-compare':
+    'Compare our models with competitor models on price, specification and features.',
+  'competitor-catalog': 'Maintain the competitor brands and models your teams compare against.',
+  escalations: 'Customer and sales issues that need a manager decision, with their SLA.',
+  'crm-configuration':
+    'Lead lifecycle, temperature, lost reasons, call outcomes and follow-up settings.',
+  'custom-fields': 'Dealership-specific fields on customers, leads, bookings and vehicles.',
+  'company-compliance': 'The dealership profile, tax and dealer details, and compliance documents.',
+  'master-data':
+    'Vehicle catalogue, lead sources, reasons, lenders, insurers and other shared lists.',
+  templates: 'Approved WhatsApp, SMS and email templates and the variables they use.',
+  'automation-rules': 'When-if-then rules that route leads and send notifications.',
+  automations: 'When-if-then rules that route leads and send notifications.',
+  'alerts-notifications': 'Internal alerts, who receives them and how often they repeat.',
+  'backup-data': 'Backup status and data export requests for this dealership.',
+  'ai-business-summary':
+    'An AI summary of the business from aggregated CRM figures; generating uses AI credits.',
+  'onboarding-reviews':
+    'Dealership onboarding submissions waiting for review, with their documents.',
+  'plans-features': 'Commercial plans, their limits and the modules each one includes.',
+  'modules-entitlements': 'Which modules each dealership can use, and how much they use them.',
+  'data-retention': 'Soft-deleted dealerships, their purge dates and any legal holds.',
+  feedback: 'Delivery and service feedback requests, ratings and follow-up on low scores.',
+  'complaints-escalations': 'Customer complaints and escalations, their owner and SLA.',
+  'asset-library': 'Images and files approved for campaigns and social posts.',
+  'ai-content-image':
+    'Generate captions, post variants and images; each generation uses AI credits.',
+};
+
+// Each role's dashboard says what that role watches; the family default is a
+// sales sentence that read wrong on the platform, admin and desk dashboards.
+const dashboardDescriptions: Partial<Record<RoleKey, string>> = {
+  telecaller: 'Your new leads, follow-ups and calls for today.',
+  'sales-consultant': 'Your customers, test drives, quotations and bookings for today.',
+  'team-manager': 'What your team is working on today and what needs your attention.',
+  'showroom-manager': 'Every team in your showrooms: priorities, pipeline and the work due today.',
+  'gm-sales': 'Sales across your showrooms, against this month’s targets.',
+  'client-admin': 'Branches, users, integrations and anything in the setup that needs attention.',
+  'system-administrator': 'Users, access, integrations and system health in your scope.',
+  'super-admin': 'Dealerships, onboarding, provider health and support across the platform.',
+  inventory: 'Stock on hand, allocations, ageing and what needs attention.',
+  'inventory-executive': 'Stock on hand, allocations, ageing and what needs attention.',
+  'customer-care': 'Open customer cases, follow-ups, feedback and complaints.',
+  'customer-relationship-executive': 'Your customer cases, follow-ups and feedback.',
+  'digital-marketing': 'Leads and bookings by source and campaign, with posts and reviews.',
 };
 
 export function getPageSpec(role: RoleKey, slug: string): PageSpec | null {
@@ -693,7 +747,10 @@ export function getPageSpec(role: RoleKey, slug: string): PageSpec | null {
         ];
   return {
     ...config,
-    description: descriptionOverrides[slug] ?? config.description,
+    description:
+      (slug === 'dashboard' ? dashboardDescriptions[role] : undefined) ??
+      descriptionOverrides[slug] ??
+      config.description,
     title: item.title,
     breadcrumbs,
     category,

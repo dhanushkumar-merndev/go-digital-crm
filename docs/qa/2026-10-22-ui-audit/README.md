@@ -17,11 +17,12 @@ against `next dev` (screenshots plus per-page call timings, git-ignored).
 | 4   | Sales Manager                                                                            | Done                         | [sales-manager.md](sales-manager.md) | `202610240191`, `202610240203` applied |
 | 5   | GM Sales                                                                                 | Done, one migration to apply | [gm-sales.md](gm-sales.md)           | `202610270157` **pending**             |
 | 6   | Operations desks (inventory, finance, insurance, RTO, exchange, delivery, customer care) | Done, one migration to apply | [operations.md](operations.md)       | `202610270179` **pending**             |
-| 7   | Digital Marketing                                                                        | Next                         | —                                    | —                                      |
-| 8   | Client Admin                                                                             | To do                        | —                                    | —                                      |
-| 9   | System Administrator                                                                     | To do                        | —                                    | —                                      |
-| 10  | Business Owner                                                                           | To do                        | —                                    | —                                      |
-| 11  | Super Admin                                                                              | To do                        | —                                    | —                                      |
+| 7   | Digital Marketing                                                                        | Done                         | [admin-roles.md](admin-roles.md)     | —                                      |
+| 8   | Client Admin                                                                             | Done                         | [admin-roles.md](admin-roles.md)     | —                                      |
+| 9   | System Administrator                                                                     | Done                         | [admin-roles.md](admin-roles.md)     | —                                      |
+| 10  | Business Owner                                                                           | Done                         | [admin-roles.md](admin-roles.md)     | —                                      |
+| 11  | Super Admin                                                                              | Done                         | [admin-roles.md](admin-roles.md)     | —                                      |
+| 12  | Mobile (Telecaller, Sales Consultant)                                                    | Next                         | —                                    | —                                      |
 
 A migration marked pending is in `supabase/migrations` but not yet run against the
 linked project; the page that needs it shows a fallback ("—" tiles or an

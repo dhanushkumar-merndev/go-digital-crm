@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, CircleAlert, Clock3 } from 'lucide-react';
+import { ArrowRight, CircleAlert, ClipboardCheck, Clock3, PlugZap } from 'lucide-react';
 import Link from 'next/link';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
@@ -25,11 +25,15 @@ function toMetrics(kpis: Awaited<ReturnType<typeof fetchPlatformDashboard>>['kpi
     {
       label: 'Onboarding',
       value: kpis.onboarding.toLocaleString('en-IN'),
+      icon: ClipboardCheck,
+      tone: 'cyan',
       helper: 'Setup or review in progress',
     },
     {
       label: 'Provider attention',
       value: kpis.provider_attention.toLocaleString('en-IN'),
+      icon: PlugZap,
+      tone: 'rose',
       helper: 'Connection errors',
       trend: kpis.provider_attention ? 'down' : 'neutral',
     },

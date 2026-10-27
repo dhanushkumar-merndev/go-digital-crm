@@ -31,6 +31,7 @@ import { AiImageCreationWorkspace } from '@/features/marketing/ai-image-creation
 import { BulkCampaignWorkspace } from '@/features/marketing/bulk-campaign-workspace';
 import { AssetLibraryWorkspace } from '@/features/marketing/asset-library-workspace';
 import { ReportExportWorkspace } from '@/features/reports/report-export-workspace';
+import { PlatformReportsWorkspace } from '@/features/platform/platform-reports-workspace';
 import { AdminDashboard } from '@/features/administration/admin-dashboard';
 import { ExecutiveDashboard } from '@/features/dashboards/executive-dashboard';
 import { TenantDashboard } from '@/features/dashboards/tenant-dashboard';
@@ -191,6 +192,9 @@ export default async function RolePage({ params }: Props) {
     return <SecurityWorkspace spec={spec} />;
   if (role === 'super-admin' && slug[0] === 'audit-logs' && !isLocalPreviewMode())
     return <AuditLogWorkspace spec={spec} />;
+  // Platform reports: a Super Admin has no tenant, so the tenant export queue refused them.
+  if (role === 'super-admin' && slug[0] === 'reports' && !isLocalPreviewMode())
+    return <PlatformReportsWorkspace spec={spec} />;
   if (role === 'super-admin' && slug[0] === 'users-access' && !isLocalPreviewMode())
     return <PlatformUserAccessWorkspace spec={spec} />;
   if (role === 'business-owner' && slug[0] === 'support-maintenance' && !isLocalPreviewMode())

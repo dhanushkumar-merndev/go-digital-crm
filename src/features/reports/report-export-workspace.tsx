@@ -13,7 +13,8 @@ import {
   workspaceQueryScope,
 } from '@/components/providers/workspace-session-provider';
 import { KpiGrid } from '@/components/shared/kpi-grid';
-import { PageHeader } from '@/components/shared/page-header';
+import { PageHeader, PageShell } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/page-states';
 import { ReportExportWorkspaceSkeleton } from '@/components/skeletons';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
@@ -214,9 +215,14 @@ export function ReportExportWorkspace({
     !page.data
   )
     return (
-      <div className="p-6 text-sm text-destructive">
-        Reports could not be loaded. Refresh and try again.
-      </div>
+      <PageShell>
+        <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+        <ErrorState
+          title="Reports are unavailable"
+          description="Confirm your report permission and scope, then try again."
+          onRetry={() => void page.refetch()}
+        />
+      </PageShell>
     );
   const pages = Math.max(1, Math.ceil(page.data.total / query.pageSize));
   return (
