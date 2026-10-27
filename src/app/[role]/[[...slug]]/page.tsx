@@ -76,6 +76,7 @@ import { OperationalCaseWorkspace } from '@/features/operations/operational-case
 import { OperationalCasePerformance } from '@/features/operations/operational-case-performance';
 import { SalesExchangeWorkspace } from '@/features/operations/sales-exchange-workspace';
 import { operationalCaseRoute } from '@/features/operations/operational-case-query';
+import { OperationalDeskDashboard } from '@/features/operations/operational-desk-dashboard';
 import { ProductionDataUnavailable } from '@/components/shared/production-data-unavailable';
 import { isRoleKey } from '@/config/navigation';
 import { legacyTabbedPageHref } from '@/config/navigation/legacy-redirects';
@@ -473,7 +474,7 @@ export default async function RolePage({ params }: Props) {
   // A department dashboard summarises the queue; the case pages list it. The
   // dashboard was the case list itself, so the two pages were identical.
   if (slug[0] === 'dashboard' && operationalCaseRoute(role, slug[0]) && !isLocalPreviewMode())
-    return <TenantDashboard spec={spec} role={role} />;
+    return <OperationalDeskDashboard spec={spec} role={role} />;
   if (slug[0] === 'my-performance' && operationalCaseRoute(role, slug[0]) && !isLocalPreviewMode())
     return <OperationalCasePerformance spec={spec} role={role} />;
   if (operationalCaseRoute(role, slug[0]) && !isLocalPreviewMode())

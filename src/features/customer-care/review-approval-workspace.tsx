@@ -163,7 +163,10 @@ export function ReviewApprovalWorkspace({ spec }: { spec: PageSpec }) {
   const counts = queue.data?.counts;
   return (
     <div className="mx-auto w-full space-y-5">
-      <PageHeader spec={{ ...spec, primaryAction: undefined }} />
+      <PageHeader
+        spec={{ ...spec, primaryAction: undefined }}
+        description="Ratings customers left on the feedback form, and who has been invited to review on Google."
+      />
       <Card className="shadow-none">
         <CardHeader className="border-b p-4">
           <Tabs
