@@ -19,7 +19,7 @@ renders for all 14 roles.
 | Customer Care · Reviews                                              | 1.3–1.8 s RPC; placeholder description "Configure this CRM capability…"                                             | 39–49 ms, same result; describes the page                                                                                                                                                                                                                       |
 | Case lists (all desks), My Performance, Reports, Customer Care pages | Content OK                                                                                                          | —                                                                                                                                                                                                                                                               |
 
-## Migration `202610270179_operations_lists_scope_once` (pending)
+## Migration `202610270179_operations_lists_scope_once` (applied 2026-10-27)
 
 `get_stock_movement_page`, `get_stock_allocation_page` and
 `get_review_approval_queue` called `can_access_branch` once per row (twice per

@@ -25,7 +25,7 @@ Charts across every role benefit: proportional funnels had white labels outside 
 band (invisible on Business Owner and marketing pages too), and short bar charts
 dropped alternate category labels.
 
-## Migration `202610270157_gm_sales_analytics_detail` (pending)
+## Migration `202610270157_gm_sales_analytics_detail` (applied 2026-10-27)
 
 Patches `get_gm_sales_analytics_workspace` (consultant-only ranking, per-model
 activity and stock, branch lost counts, contacted / qualified KPIs) and
@@ -37,5 +37,6 @@ Verified as the demo GM in a rolled-back transaction:
   permission); Sales Manager and Team Manager still `GM_SALES_ACCESS_REQUIRED`.
 - Targets: identical md5 for the current and previous month; 53 ms against 1,235 ms.
 
-Until it is applied the page code falls back: the funnel omits Contacted and
-Qualified, models show leads only, and the Lost column and lost % are hidden.
+The page code still falls back if those fields are ever missing: the funnel omits
+Contacted and Qualified, models show leads only, and the Lost column and lost %
+are hidden.
