@@ -30,7 +30,7 @@ import {
 import { currentRole, openWhatsApp } from '@/lib/contact';
 import { fetchMobileLeadDetail, type MobileLeadDetail, type MobileRole } from '@/lib/lead-detail';
 import { snappy } from '@/motion/springs';
-import { colors, font, radius, space, stageTone, temperatureTone } from '@/theme';
+import { colors, enumLabel, font, radius, space, stageTone, temperatureTone } from '@/theme';
 
 type SheetKind = 'followup' | 'temperature' | 'transfer' | 'test-drive' | null;
 const intakeClosed = new Set(['Lost', 'Transferred to Sales']);
@@ -116,7 +116,12 @@ export default function LeadDetail() {
   const next = detail?.followups.find(
     (item) => item.status === 'OPEN' || item.status === 'OVERDUE',
   );
-  const nextOverdue = next ? new Date(next.due_at).getTime() < Date.now() : false;
+  // After a handoff the open follow-up belongs to the new owner and is not in
+  // the caller's list, but the lead still carries its time; the Leads card
+  // shows it, so say whose it is rather than "No follow-up set".
+  const ownerNextAt = !next ? (lead?.next_followup_at ?? null) : null;
+  const nextAt = next?.due_at ?? ownerNextAt;
+  const nextOverdue = nextAt ? new Date(nextAt).getTime() < Date.now() : false;
   const telecaller = role === 'telecaller';
   const canTransfer = Boolean(
     lead && detail?.access.can_update && !intakeClosed.has(lead.lifecycle_status),
@@ -197,7 +202,7 @@ export default function LeadDetail() {
               >
                 <Icon name="flame" size={16} color={temperatureTone(lead.temperature).fg} />
                 <Text style={[styles.tempText, { color: temperatureTone(lead.temperature).fg }]}>
-                  {lead.temperature ?? 'Set'}
+                  {lead.temperature ? enumLabel(lead.temperature) : 'Set'}
                 </Text>
                 <Icon name="chevron-down" size={14} color={temperatureTone(lead.temperature).fg} />
               </PressableScale>
@@ -233,12 +238,16 @@ export default function LeadDetail() {
             <View style={styles.grow}>
               <Text style={styles.nextLabel}>Next step</Text>
               <Text style={styles.nextValue} numberOfLines={1}>
-                {next ? next.reason : 'No follow-up set'}
+                {next
+                  ? next.reason
+                  : ownerNextAt
+                    ? `${lead.assigned_user_name ?? 'Lead owner'}'s follow-up`
+                    : 'No follow-up set'}
               </Text>
-              {next ? (
+              {nextAt ? (
                 <Text style={[styles.nextWhen, nextOverdue && styles.nextWhenOverdue]}>
                   {nextOverdue ? 'Overdue · ' : ''}
-                  {relativeWhen(next.due_at)}
+                  {relativeWhen(nextAt)}
                 </Text>
               ) : null}
             </View>

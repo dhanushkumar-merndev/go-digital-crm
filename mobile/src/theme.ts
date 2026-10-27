@@ -107,3 +107,8 @@ export function priorityTone(priority: string | null | undefined): Tone {
   if (priority === 'NORMAL') return { fg: '#d97706', bg: '#fffbeb' };
   return { fg: '#2563eb', bg: '#eff6ff' };
 }
+
+// URGENT reads "Urgent" and HOT "Hot", in sentence case like every other badge.
+export function enumLabel(value: string) {
+  return value.charAt(0) + value.slice(1).toLowerCase();
+}

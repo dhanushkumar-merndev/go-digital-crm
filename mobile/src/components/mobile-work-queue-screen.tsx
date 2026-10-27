@@ -22,7 +22,7 @@ import {
   rescheduleFollowup,
   rescheduleTask,
 } from '@/lib/work-actions';
-import { colors, font, priorityTone, space } from '@/theme';
+import { colors, enumLabel, font, priorityTone, space } from '@/theme';
 
 type QueueKind = 'followups' | 'tasks';
 type QueueTab = 'overdue' | 'today' | 'upcoming';
@@ -327,7 +327,9 @@ const QueueItem = memo(function QueueItem({
               <Text numberOfLines={1} style={styles.title}>
                 {row.title}
               </Text>
-              {urgent ? <Badge label={row.priority} tone={priorityTone(row.priority)} /> : null}
+              {urgent ? (
+                <Badge label={enumLabel(row.priority)} tone={priorityTone(row.priority)} />
+              ) : null}
             </View>
             {row.detail ? (
               <Text numberOfLines={1} style={styles.detail}>

@@ -106,7 +106,16 @@ function formatSchedule(value: string) {
 }
 
 function vehicleLabel(record: TestDriveRecord) {
-  const catalog = [record.brand_name, record.model_name, record.variant_name]
+  // Variants are often named after their model ("Demo SUV Premium"); naming the
+  // model again read "Demo SUV Demo SUV Premium".
+  const variantNamesModel = Boolean(
+    record.model_name && record.variant_name?.startsWith(record.model_name),
+  );
+  const catalog = [
+    record.brand_name,
+    variantNamesModel ? null : record.model_name,
+    record.variant_name,
+  ]
     .filter(Boolean)
     .join(' ');
   return catalog || record.vehicle_registration || 'Assigned vehicle';
