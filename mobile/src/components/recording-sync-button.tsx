@@ -68,15 +68,19 @@ export function RecordingSyncButton() {
       onLongPress={() => router.push('/recordings')}
       disabled={busy}
       scaleTo={0.9}
-      style={styles.button}
+      style={styles.hit}
       accessibilityRole="button"
       accessibilityLabel={waiting ? `Sync recordings, ${waiting} waiting` : 'Sync recordings'}
     >
-      {busy ? (
-        <ActivityIndicator size="small" color={colors.primary} />
-      ) : (
-        <Icon name="sync" size={20} color={colors.primary} />
-      )}
+      {/* The round background sits on a plain View: on Android release builds the
+          animated pressable drew its background square, ignoring borderRadius. */}
+      <View style={styles.button}>
+        {busy ? (
+          <ActivityIndicator size="small" color={colors.primary} />
+        ) : (
+          <Icon name="sync" size={20} color={colors.primary} />
+        )}
+      </View>
       {waiting && !busy ? (
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{waiting > 99 ? '99+' : waiting}</Text>
@@ -87,6 +91,7 @@ export function RecordingSyncButton() {
 }
 
 const styles = StyleSheet.create({
+  hit: { width: 42, height: 42 },
   button: {
     width: 42,
     height: 42,
