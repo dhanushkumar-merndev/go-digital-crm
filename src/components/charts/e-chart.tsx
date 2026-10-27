@@ -132,7 +132,19 @@ function optionFor(
                   count: { color: '#101828', fontSize: px(13), fontWeight: 600 },
                 },
               }
-            : { color: '#fff', fontSize: px(11), fontWeight: 500 },
+            : {
+                // Inside the band: ECharts puts funnel labels outside by default,
+                // where white text on the card was invisible.
+                position: 'inside',
+                color: '#fff',
+                fontSize: px(11),
+                fontWeight: 500,
+                formatter:
+                  funnelMode === 'staged'
+                    ? '{b}'
+                    : (params: { name: string; value: number }) =>
+                        `${params.name}  ${Number(params.value).toLocaleString('en-IN')}`,
+              },
           // Every label starts at the same x, so the names and counts read as one column.
           labelLayout: side ? { x: '71%', align: 'left' } : undefined,
           labelLine: { show: false },
@@ -143,6 +155,17 @@ function optionFor(
       ],
     };
   }
+  // A few named bars (showrooms, sources, models) all get a label: ECharts
+  // otherwise drops every other one that would overlap. Long date axes keep its thinning.
+  const categoryLabels =
+    kind === 'bar' && data.length > 1 && data.length <= 6
+      ? { label: { interval: 0, width: px(120), overflow: 'break' as const }, bottom: 44 }
+      : kind === 'bar' && data.length > 6 && data.length <= 12
+        ? {
+            label: { interval: 0, rotate: 30, width: px(90), overflow: 'truncate' as const },
+            bottom: 64,
+          }
+        : { label: {}, bottom: 32 };
   const plotted = extra.series?.length
     ? extra.series.flatMap((series) => series.values)
     : data.flatMap((item) => [item.value, item.secondary]);
@@ -175,7 +198,7 @@ function optionFor(
     grid:
       extra.legendPosition === 'bottom'
         ? { ...grid, left: px(12), bottom: px(52), containLabel: true }
-        : grid,
+        : { ...grid, bottom: px(categoryLabels.bottom) },
     legend:
       extra.legendPosition === 'bottom'
         ? {
@@ -191,7 +214,7 @@ function optionFor(
       data: data.map((item) => item.name),
       axisLine: { lineStyle: { color: '#e5e7eb' } },
       axisTick: { show: false },
-      axisLabel: { color: text, ...textStyle },
+      axisLabel: { color: text, ...textStyle, ...categoryLabels.label },
     },
     yAxis: {
       type: 'value' as const,

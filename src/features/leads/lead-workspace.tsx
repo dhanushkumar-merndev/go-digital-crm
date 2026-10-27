@@ -4553,7 +4553,7 @@ export function LeadWorkspace({
         actions={
           <>
             {role === 'telecaller' ? <AutoCallToggle /> : null}
-            {permissions?.canCreate && slug !== 'lost-leads' ? (
+            {!spec.readOnly && permissions?.canCreate && slug !== 'lost-leads' ? (
               <>
                 <Button variant="outline" onClick={() => setBulkImportOpen(true)}>
                   <FileUp className="size-4" /> Import CSV

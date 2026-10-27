@@ -7,8 +7,13 @@ import { createClient } from '@/lib/supabase/client';
 const analyticsSchema = z.object({
   days: z.coerce.number().int().positive().max(9999),
   generated_at: z.string(),
+  // Fields marked optional arrived with 202610270157; a response cached before
+  // it lacks them and the page falls back.
+  stock_visible: z.boolean().optional(),
   kpis: z.object({
     leads: z.coerce.number().int().nonnegative(),
+    contacted: z.coerce.number().int().nonnegative().optional(),
+    qualified: z.coerce.number().int().nonnegative().optional(),
     calls: z.coerce.number().int().nonnegative(),
     test_drives: z.coerce.number().int().nonnegative(),
     quotations: z.coerce.number().int().nonnegative(),
@@ -24,6 +29,7 @@ const analyticsSchema = z.object({
       test_drives: z.coerce.number().int().nonnegative(),
       quotations: z.coerce.number().int().nonnegative(),
       bookings: z.coerce.number().int().nonnegative(),
+      lost: z.coerce.number().int().nonnegative().optional(),
       conversion: z.coerce.number().nonnegative(),
     }),
   ),
@@ -40,7 +46,19 @@ const analyticsSchema = z.object({
       conversion: z.coerce.number().nonnegative(),
     }),
   ),
-  models: z.array(z.object({ name: z.string(), leads: z.coerce.number().int().nonnegative() })),
+  models: z.array(
+    z.object({
+      name: z.string(),
+      leads: z.coerce.number().int().nonnegative(),
+      test_drives: z.coerce.number().int().nonnegative().optional(),
+      quotations: z.coerce.number().int().nonnegative().optional(),
+      bookings: z.coerce.number().int().nonnegative().optional(),
+      lost: z.coerce.number().int().nonnegative().optional(),
+      // Null when the caller cannot check stock.
+      available: z.coerce.number().int().nonnegative().nullable().optional(),
+      incoming: z.coerce.number().int().nonnegative().nullable().optional(),
+    }),
+  ),
   daily: z.array(
     z.object({
       name: z.string(),

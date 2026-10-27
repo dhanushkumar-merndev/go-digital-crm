@@ -7,7 +7,16 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { replaceQueryString } from '@/lib/navigation/replace-query-string';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { IndianRupee, MoreHorizontal, Pencil, Search } from 'lucide-react';
+import {
+  CarFront,
+  ClipboardCheck,
+  IndianRupee,
+  MoreHorizontal,
+  Pencil,
+  Search,
+  Target,
+  UsersRound,
+} from 'lucide-react';
 import { EChart } from '@/components/charts/e-chart';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PerformanceDateRangeSelector } from '@/components/shared/performance-date-range-selector';
@@ -163,10 +172,34 @@ function workspaceMetrics(result: MarketingWorkspaceResult) {
   if (!result.kpis) return [];
   const kpis = result.kpis;
   return [
-    { label: 'Leads generated', value: String(kpis.leads_generated), helper: 'Authorized scope' },
-    { label: 'Qualified leads', value: String(kpis.qualified_leads), helper: 'Lead lifecycle' },
-    { label: 'Bookings', value: String(kpis.bookings), helper: 'Attributed source leads' },
-    { label: 'Conversion', value: `${kpis.conversion_percent}%`, helper: 'Booking / lead' },
+    {
+      label: 'Leads generated',
+      value: String(kpis.leads_generated),
+      helper: 'Authorized scope',
+      icon: UsersRound,
+      tone: 'blue' as const,
+    },
+    {
+      label: 'Qualified leads',
+      value: String(kpis.qualified_leads),
+      helper: 'Lead lifecycle',
+      icon: ClipboardCheck,
+      tone: 'cyan' as const,
+    },
+    {
+      label: 'Bookings',
+      value: String(kpis.bookings),
+      helper: 'Attributed source leads',
+      icon: CarFront,
+      tone: 'emerald' as const,
+    },
+    {
+      label: 'Conversion',
+      value: `${kpis.conversion_percent}%`,
+      helper: 'Booking / lead',
+      icon: Target,
+      tone: 'violet' as const,
+    },
     // Campaigns is where spend is recorded and shows these tiles either way;
     // elsewhere four "—" tiles only repeated that page, so they wait for data.
     ...(kpis.ad_spend !== null ? spendMetrics(kpis, 'Record spend under Campaigns') : []),

@@ -592,7 +592,13 @@ export function SalesDocumentWorkspace({
     enabled: !useWorkspaceBootstrap,
     staleTime: 60_000,
   });
-  const permissions = bootstrapPermissions ?? legacyPermissions.data;
+  const loadedPermissions = bootstrapPermissions ?? legacyPermissions.data;
+  // A read-only page (GM, Business Owner) monitors; the role's manage grant is
+  // for the pages where they act, so nothing here creates or changes a record.
+  const permissions =
+    loadedPermissions && spec.readOnly
+      ? { ...loadedPermissions, canManage: false }
+      : loadedPermissions;
   useTenantRealtimeInvalidation(permissions?.organizationId, [
     {
       resource: 'sales',

@@ -37,7 +37,9 @@ const salesMetrics = [
 ];
 
 const pageFamily = (slug: string) => {
-  if (slug === 'dashboard' || slug.endsWith('-overview')) return 'dashboard';
+  // Bookings Overview is a bookings list, not a dashboard.
+  if (slug === 'dashboard' || (slug.endsWith('-overview') && !slug.includes('booking')))
+    return 'dashboard';
   if (slug.includes('lead') && !slug.includes('source') && !slug.includes('assignment'))
     return 'leads';
   if (slug.includes('assignment')) return 'assignment';

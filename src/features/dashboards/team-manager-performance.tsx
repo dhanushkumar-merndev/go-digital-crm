@@ -173,8 +173,14 @@ export function TeamManagerPerformance({
   const showTeam = showroom || new Set(data.leaderboard.map((member) => member.team_name)).size > 1;
   const columnCount = showTeam ? 11 : 10;
   // Ranked on bookings, which only a consultant makes; a telecaller in the top
-  // three read as a 0% "top performer".
-  const leaders = data.leaderboard.filter((member) => !isTelecallerMember(member)).slice(0, 3);
+  // three read as a 0% "top performer". Nobody idle in the period is a top performer.
+  const leaders = data.leaderboard
+    .filter(
+      (member) =>
+        !isTelecallerMember(member) &&
+        member.leads + member.calls + member.test_drives + member.quotations + member.bookings > 0,
+    )
+    .slice(0, 3);
 
   return (
     <div className="mx-auto w-full space-y-5">
@@ -277,7 +283,9 @@ export function TeamManagerPerformance({
             </div>
           ))
         ) : (
-          <p className="text-sm text-muted-foreground">No active consultants are assigned.</p>
+          <p className="text-sm text-muted-foreground">
+            No consultant has activity in this period.
+          </p>
         )}
       </SectionCard>
       <SectionCard

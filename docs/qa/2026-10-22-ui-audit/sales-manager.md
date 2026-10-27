@@ -22,10 +22,10 @@ Screenshots and per-page call timings are in the git-ignored
 
 ## Migrations
 
-| Version                               | What                                                                                                                                                                                                                                                   | State                                                                                          |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `202610240191_showroom_branch_choice` | `target_branch_id` on the Sales Teams and Showroom Targets RPCs, checked with `can_access_branch`; opens on the first accessible branch; returns the branch list                                                                                       | Applied                                                                                        |
-| `202610240203_showroom_performance`   | `get_team_manager_performance` serves a Sales Manager over the teams in their branches (optional branch, checked against those teams), adds `qualified` and `team_name`; Showroom Targets lists consultants only; new `get_quotation_approval_summary` | **Pending** — until applied, Performance shows "unavailable" and four Approvals tiles show "—" |
+| Version                               | What                                                                                                                                                                                                                                                   | State              |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
+| `202610240191_showroom_branch_choice` | `target_branch_id` on the Sales Teams and Showroom Targets RPCs, checked with `can_access_branch`; opens on the first accessible branch; returns the branch list                                                                                       | Applied            |
+| `202610240203_showroom_performance`   | `get_team_manager_performance` serves a Sales Manager over the teams in their branches (optional branch, checked against those teams), adds `qualified` and `team_name`; Showroom Targets lists consultants only; new `get_quotation_approval_summary` | Applied 2026-10-27 |
 
 Verified in a rolled-back transaction as the demo users before applying:
 
