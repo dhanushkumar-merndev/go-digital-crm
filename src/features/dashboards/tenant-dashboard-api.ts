@@ -124,10 +124,10 @@ export async function fetchTenantDashboardSummary(
   signal?: AbortSignal,
   options: { manualRefresh?: boolean; direct?: boolean } = {},
 ): Promise<TenantDashboardSummaryResult> {
-  // An own-records summary is about 170 ms in PostgreSQL, while the Redis hop
-  // through the Edge function costs 380–840 ms even on a hit and shares
-  // nothing across users. A manual refresh still goes through Edge, which is
-  // where its quota is enforced.
+  // An own-records summary is about 170 ms in PostgreSQL and a team or
+  // showroom one about 300 ms, while the Redis hop through the Edge function
+  // costs 380–900 ms even on a hit and shares nothing across users. A manual
+  // refresh still goes through Edge, which is where its quota is enforced.
   if (options.direct && !options.manualRefresh) return readTenantDashboardSummary(signal);
   try {
     const { result, cache, manualRefresh } = await fetchCachedDashboard({

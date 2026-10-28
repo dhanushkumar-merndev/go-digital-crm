@@ -109,8 +109,17 @@ describe('tenant performance dashboard backend contract', () => {
 });
 
 describe('tenant dashboard web contract', () => {
+  it('reads team and showroom summaries directly and keeps org-wide ones on Redis', () => {
+    // Measured 2026-10-28: team/showroom summary ~300 ms in PostgreSQL vs a
+    // 400–900 ms Edge hit; GM/owner/admin summaries 0.8–1.8 s, where Redis wins.
+    expect(workspace).toContain("direct: role === 'team-manager' || role === 'showroom-manager'");
+    expect(api).toContain(
+      'if (options.direct && !options.manualRefresh) return readTenantDashboardSummary(signal);',
+    );
+  });
+
   it('uses TanStack Query, shadcn cards and Apache ECharts only', () => {
-    expect(workspace).toContain('useTenantDashboard(dashboardKey, manualRefreshRequest)');
+    expect(workspace).toContain('useTenantDashboard(dashboardKey, manualRefreshRequest, {');
     expect(dashboardHook).toContain("from '@tanstack/react-query'");
     expect(workspace).toContain("from '@/components/shared/section-card'");
     expect(workspace).toContain("from '@/components/charts/e-chart'");

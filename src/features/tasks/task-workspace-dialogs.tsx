@@ -115,9 +115,6 @@ const dueSummaryFormat = new Intl.DateTimeFormat('en-IN', {
 
 type TaskFormErrors = { lead?: string; title?: string; due?: string };
 
-const chipClassName =
-  'h-7 rounded-full border px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
-
 export function TaskFormDialog({
   record,
   initialLead,

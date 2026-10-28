@@ -35,18 +35,12 @@ export async function fetchSalesPerformance(range: PerformanceDateRange, signal?
     target_days: performanceRangeDays(range),
     target_timezone: performanceRpcTimezone(range),
   };
-  return fetchCachedAggregate({
-    resource: 'sales-consultant-performance',
-    schema: schema,
-    params,
-    signal,
-    direct: async () => {
-      const request = createClient().rpc('get_sales_consultant_performance', params);
-      const { data, error } = await (signal ? request.abortSignal(signal) : request);
-      if (error) throw error;
-      return schema.parse(data);
-    },
-  });
+  // A consultant's own numbers take about 150 ms in PostgreSQL against a
+  // 400–500 ms Redis hit through Edge (entries are per user), so read directly.
+  const request = createClient().rpc('get_sales_consultant_performance', params);
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return schema.parse(data);
 }
 
 const telecallerSchema = z.object({

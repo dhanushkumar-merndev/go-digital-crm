@@ -24,6 +24,19 @@ against `next dev` (screenshots plus per-page call timings, git-ignored).
 | 11  | Super Admin                                                                              | Done   | [admin-roles.md](admin-roles.md)     | —                                      |
 | 12  | Mobile (Telecaller, Sales Consultant)                                                    | Done   | [mobile.md](mobile.md)               | `202610270193`, `202610270211` applied |
 
+## Regression run 2026-10-28
+
+- Web: all 24 roles, 223 pages and tabs, pass the harness (warm median 1.27 s to settled).
+- Mobile (emulator release build): Telecaller Today / Leads / Follow-ups / Tasks / lead detail and
+  Sales Consultant Today / Leads / Schedule (follow-ups, visits, test drives) / Tasks render with
+  counts matching web; cold start to first frame about 0.2 s.
+- Latency, measured as each demo user: Team Manager and Sales Manager dashboards read the summary
+  directly (~300 ms) instead of the per-user Edge cache (400–900 ms hit, 1.6–7 s cold); the Sales
+  Consultant's own Performance likewise (~150 ms). GM, Business Owner and Client Admin keep Redis,
+  since their org-wide summary is 0.8–1.8 s in PostgreSQL.
+- `get_inventory_dashboard` resolves branch scope once: 1.2–1.6 s → ~45 ms, identical output.
+  Migration `202610280101` **pending**.
+
 A migration marked pending is in `supabase/migrations` but not yet run against the
 linked project; the page that needs it shows a fallback ("—" tiles or an
 "unavailable" state) until it is. Apply one file without `db push` (other

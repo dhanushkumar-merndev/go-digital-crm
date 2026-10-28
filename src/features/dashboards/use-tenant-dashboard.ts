@@ -28,7 +28,7 @@ export function useTenantDashboard(
   dashboardKey: readonly unknown[],
   manualRefreshRequest: RefObject<boolean>,
   options: {
-    /** Read PostgreSQL directly for an own-records summary; see fetchTenantDashboardSummary. */
+    /** Read PostgreSQL directly for a narrow-scope summary; see fetchTenantDashboardSummary. */
     direct?: boolean;
   } = {},
 ) {

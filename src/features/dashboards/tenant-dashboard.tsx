@@ -605,7 +605,12 @@ export function TenantDashboard({
     [session],
   );
   // Browser first: memory, then the IndexedDB copy, then Redis, then PostgreSQL.
-  const dashboard = useTenantDashboard(dashboardKey, manualRefreshRequest);
+  // A team or showroom summary is about 300 ms in PostgreSQL, faster than the
+  // Redis hop (400–900 ms on a hit; entries are per user). Organisation-wide
+  // summaries take 0.8–1.8 s, where a Redis hit still wins.
+  const dashboard = useTenantDashboard(dashboardKey, manualRefreshRequest, {
+    direct: role === 'team-manager' || role === 'showroom-manager',
+  });
   const realtimeSubscriptions = useMemo(() => subscriptions(dashboard.data), [dashboard.data]);
   useTenantRealtimeInvalidation(dashboard.data?.organization_id, realtimeSubscriptions);
   const [manualRefreshRemaining, setManualRefreshRemaining] = useState(3);

@@ -7,10 +7,7 @@ const migration = readFileSync(
   'utf8',
 );
 const followupStart = migration.indexOf('if can_view_followups then');
-const followupBlock = migration.slice(
-  followupStart,
-  migration.indexOf('end if;', followupStart),
-);
+const followupBlock = migration.slice(followupStart, migration.indexOf('end if;', followupStart));
 
 describe('dashboard follow-up counts match the follow-up list', () => {
   it('counts a follow-up assigned to the caller past the lead and customer checks', () => {

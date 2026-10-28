@@ -725,7 +725,7 @@ function WorkTable({
       },
     ];
     return definitions;
-  }, [kind, managerial, onAction, onEdit, permissions, role]);
+  }, [kind, managerial, onAction, onEdit, permissions, query.status, role]);
 
   // TanStack Table intentionally returns an imperative model; React Compiler skips this hook.
   // eslint-disable-next-line react-hooks/incompatible-library
