@@ -45,7 +45,7 @@ against `next dev` (screenshots plus per-page call timings, git-ignored).
   `E2E_LOGIN_BASE_URL=http://localhost:3100 E2E_BASE_URL=<next start>`): 24/24 pass, 223 pages,
   median 1.08 s per full page load.
 - `get_inventory_dashboard` resolves branch scope once: 1.2–1.6 s → ~45 ms, identical output.
-  Migration `202610280101` **pending**.
+  Migration `202610280101` applied 2026-10-28; live call 1.5 s → 65–130 ms.
 
 A migration marked pending is in `supabase/migrations` but not yet run against the
 linked project; the page that needs it shows a fallback ("—" tiles or an
