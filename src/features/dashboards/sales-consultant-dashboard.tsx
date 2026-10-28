@@ -60,6 +60,8 @@ import { AiDashboardSummary } from './ai-dashboard-summary';
 import { cn } from '@/lib/utils';
 import {
   fetchSalesConsultantDashboard,
+  fetchSalesConsultantDashboardDirect,
+  fetchSalesConsultantModelImages,
   salesConsultantDashboardKey,
   type SalesConsultantDashboardResult,
 } from './sales-consultant-dashboard-api';
@@ -537,7 +539,22 @@ function TodaySchedule({
   );
 }
 
-function TopModels({ models }: { models: SalesConsultantDashboardResult['top_models'] }) {
+function TopModels({
+  models,
+  images,
+  imagesPending,
+}: {
+  models: SalesConsultantDashboardResult['top_models'];
+  images: Record<string, string> | undefined;
+  imagesPending: boolean;
+}) {
+  // A stock photo still being signed shows an empty tile, not the stand-in
+  // artwork, so the thumbnail does not swap from one picture to another.
+  const imageFor = (model: SalesConsultantDashboardResult['top_models'][number]) => {
+    const signed = model.image_url ?? (model.model_id ? images?.[model.model_id] : undefined);
+    if (signed) return signed;
+    return model.image_object_file_id && imagesPending ? null : fallbackVehicleImage(model.name);
+  };
   return (
     <Card className="shadow-none">
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
@@ -558,11 +575,12 @@ function TopModels({ models }: { models: SalesConsultantDashboardResult['top_mod
                 role="img"
                 aria-label={`${model.name} inventory vehicle`}
                 className="h-8 w-12 rounded-md bg-slate-100 bg-contain bg-center bg-no-repeat"
-                style={{
-                  backgroundImage: `url(${JSON.stringify(
-                    model.image_url ?? fallbackVehicleImage(model.name),
-                  ).slice(1, -1)})`,
-                }}
+                style={(() => {
+                  const image = imageFor(model);
+                  return image
+                    ? { backgroundImage: `url(${JSON.stringify(image).slice(1, -1)})` }
+                    : undefined;
+                })()}
               />
               <span className="min-w-0">
                 <span className="block truncate text-xs font-semibold text-heading-soft">
@@ -785,16 +803,27 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
   const manualRefreshRequest = useRef(false);
   const dashboard = useQuery({
     queryKey: dashboardQueryKey,
+    // An ordinary read goes straight to PostgreSQL (~250 ms); Refresh goes
+    // through Edge, where its quota is enforced. Kept in memory for 30 minutes,
+    // never in IndexedDB: this payload carries customer rows.
     queryFn: ({ signal }) =>
-      fetchSalesConsultantDashboard(signal, { manualRefresh: manualRefreshRequest.current }),
-    // Memory for 30 minutes, then Redis, which rebuilds from PostgreSQL only
-    // when its data version moved. Refresh forces a rebuild. Not persisted to
-    // IndexedDB: this payload carries customer rows and signed image URLs.
+      manualRefreshRequest.current
+        ? fetchSalesConsultantDashboard(signal, { manualRefresh: true })
+        : fetchSalesConsultantDashboardDirect(signal),
     staleTime: DASHBOARD_QUERY_STALE_TIME_MS,
     gcTime: DASHBOARD_QUERY_GC_TIME_MS,
     // Another request is rebuilding the entry; check back once it has.
     refetchInterval: (query) =>
       query.state.data?.cache.status === 'STALE' ? AGGREGATE_REALTIME_MIN_INTERVAL_MS : false,
+  });
+  // The stock thumbnails are private Tigris files only the Edge function can
+  // sign. They load alongside the counts and fill in when ready; the 5-minute
+  // links are kept for 4 so a cached dashboard never shows an expired one.
+  const modelImages = useQuery({
+    queryKey: ['sales-consultant-model-images', ...workspaceQueryScope(workspaceSession)],
+    queryFn: ({ signal }) => fetchSalesConsultantModelImages(signal),
+    staleTime: 4 * 60_000,
+    gcTime: 4 * 60_000,
   });
   const leadMetricsQueryKey = useMemo(
     () => ['lead-workspace-meta', ...workspaceQueryScope(workspaceSession), 'dashboard'] as const,
@@ -1075,7 +1104,11 @@ export function SalesConsultantDashboard({ spec }: { spec: PageSpec }) {
               </CardContent>
             </Card>
             <div className="space-y-4 lg:col-span-5">
-              <TopModels models={data.top_models} />
+              <TopModels
+                models={data.top_models}
+                images={modelImages.data}
+                imagesPending={modelImages.isPending}
+              />
               <Card className="shadow-none">
                 <CardHeader className="border-b px-4 py-3">
                   <CardTitle className="text-sm">Quick actions</CardTitle>

@@ -6,8 +6,20 @@ const migration = readFileSync(
   'utf8',
 );
 const api = readFileSync('src/features/dashboards/sales-consultant-dashboard-api.ts', 'utf8');
+const workspace = readFileSync('src/features/dashboards/sales-consultant-dashboard.tsx', 'utf8');
 
 describe('Sales Consultant dashboard read path', () => {
+  it('reads the counts directly and signs the stock thumbnails through Edge alongside', () => {
+    // Measured 2026-10-28: direct ~250 ms vs 0.5–1.6 s for an Edge hit (up to
+    // 7.5 s cold). Refresh still goes through Edge, where its quota lives.
+    expect(workspace).toContain(
+      '? fetchSalesConsultantDashboard(signal, { manualRefresh: true })\n        : fetchSalesConsultantDashboardDirect(signal)',
+    );
+    expect(workspace).toContain("queryKey: ['sales-consultant-model-images'");
+    expect(workspace).toContain('staleTime: 4 * 60_000');
+    expect(api).toContain('export async function fetchSalesConsultantModelImages');
+  });
+
   it('bundles the scoped summary, live rows and task count in one authenticated RPC', () => {
     expect(migration).toContain('get_sales_consultant_dashboard_summary(target_timezone)');
     expect(migration).toContain('get_sales_consultant_dashboard_live(target_timezone)');

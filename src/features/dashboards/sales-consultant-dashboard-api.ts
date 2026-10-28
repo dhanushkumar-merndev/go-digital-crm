@@ -176,8 +176,12 @@ async function edgeErrorDetails(error: unknown) {
   }
 }
 
-/** Direct PostgreSQL read, used only when the Edge cache path is unreachable. */
-async function fetchSalesConsultantDashboardDirect(signal?: AbortSignal) {
+/**
+ * Direct PostgreSQL read (~250 ms, against 0.5–1.6 s for an Edge hit and more
+ * when the function is cold). It cannot sign the private stock thumbnails;
+ * fetchSalesConsultantModelImages adds those.
+ */
+export async function fetchSalesConsultantDashboardDirect(signal?: AbortSignal) {
   const request = createClient().rpc('get_sales_consultant_dashboard_page', {
     target_timezone: 'Asia/Kolkata',
   });
@@ -269,4 +273,19 @@ export async function generateDashboardAiSummary(
     throw new DashboardAiSummaryError(body?.error?.code ?? 'SALES_SUMMARY_FAILED');
   }
   return aiSummaryEnvelopeSchema.parse(data).data;
+}
+
+/**
+ * Signed stock thumbnails by model id, from the Edge path, which signs Tigris
+ * URLs server-side. The links last 5 minutes, so callers keep them briefly.
+ */
+export async function fetchSalesConsultantModelImages(
+  signal?: AbortSignal,
+): Promise<Record<string, string>> {
+  const result = await fetchSalesConsultantDashboard(signal);
+  return Object.fromEntries(
+    result.top_models.flatMap((model) =>
+      model.model_id && model.image_url ? [[model.model_id, model.image_url]] : [],
+    ),
+  );
 }

@@ -82,7 +82,11 @@ describe('sales consultant dashboard contract', () => {
   });
 
   it('shows existing local vehicle artwork when a stock image has not been uploaded', () => {
-    expect(workspace).toContain('model.image_url ?? fallbackVehicleImage(model.name)');
+    // Stand-in artwork only once no signed photo is coming; a photo still being
+    // signed shows an empty tile so the thumbnail does not swap pictures.
+    expect(workspace).toContain(
+      'return model.image_object_file_id && imagesPending ? null : fallbackVehicleImage(model.name);',
+    );
     expect(vehicleImage).toContain('/demo/vehicles/graphite-family-suv.png');
     expect(vehicleImage).toContain('/demo/vehicles/electric-coupe-suv.png');
     expect(readFileSync('src/features/inventory/inventory-workspace.tsx', 'utf8')).toContain(

@@ -35,8 +35,9 @@ against `next dev` (screenshots plus per-page call timings, git-ignored).
   Consultant's own Performance likewise (~150 ms). GM, Business Owner and Client Admin keep Redis,
   since their org-wide summary is 0.8–1.8 s in PostgreSQL.
 - Team and Sales Manager Performance read `get_team_manager_performance` directly (100–550 ms vs
-  300–1,200 ms Edge hit). The Sales Consultant dashboard stays on Edge: it signs the stock
-  thumbnails, which the direct RPC does not.
+  300–1,200 ms Edge hit). The Sales Consultant dashboard reads its RPC directly (~0.25 s)
+  and fetches the Edge-signed stock thumbnails alongside (kept 4 min; links last 5): settled
+  9.4 s → 3.6 s warm on the production build.
 - Production build (`next build` + `next start`, real login form, non-MFA roles): 93 pages, median
   ~0.82 s and p90 ~1.34 s from sidebar click to rendered page.
 - Final dev run after all changes: 24/24 roles pass, median 1.19 s.
