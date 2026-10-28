@@ -152,6 +152,8 @@ function auditName(href) {
 
 async function auditPage(page, role, name, calls, startedAt, manifest) {
   if (!auditDir) return;
+  // Measured before the full-page screenshot, which takes seconds on a long page.
+  const settledMs = Date.now() - startedAt;
   const dir = path.join(auditDir, role);
   fs.mkdirSync(dir, { recursive: true });
   await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: true });
@@ -159,7 +161,7 @@ async function auditPage(page, role, name, calls, startedAt, manifest) {
   manifest.push({
     page: name,
     url: new URL(page.url()).pathname + new URL(page.url()).search,
-    settledMs: Date.now() - startedAt,
+    settledMs,
     kpiTiles: await page.locator('main [data-kpi]').count(),
     supabaseCalls: taken.length,
     slowestMs: Math.max(0, ...taken.map((call) => call.ms)),
@@ -210,6 +212,10 @@ for (const role of roles) {
     await signInAs(page, role);
     await page.goto(`${baseURL}/${role}/dashboard`, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('aside nav a').first()).toBeVisible();
+    // Let the landing load finish, or its in-flight calls are counted against
+    // the first audited page (the same dashboard).
+    if (auditDir)
+      await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => undefined);
     const hrefs = await sidebarHrefs(page, role);
     expect(hrefs.length, `${role} has sidebar pages`).toBeGreaterThan(1);
 
