@@ -34,6 +34,12 @@ against `next dev` (screenshots plus per-page call timings, git-ignored).
   directly (~300 ms) instead of the per-user Edge cache (400–900 ms hit, 1.6–7 s cold); the Sales
   Consultant's own Performance likewise (~150 ms). GM, Business Owner and Client Admin keep Redis,
   since their org-wide summary is 0.8–1.8 s in PostgreSQL.
+- Team and Sales Manager Performance read `get_team_manager_performance` directly (100–550 ms vs
+  300–1,200 ms Edge hit). The Sales Consultant dashboard stays on Edge: it signs the stock
+  thumbnails, which the direct RPC does not.
+- Production build (`next build` + `next start`, real login form, non-MFA roles): 93 pages, median
+  ~0.82 s and p90 ~1.34 s from sidebar click to rendered page.
+- Final dev run after all changes: 24/24 roles pass, median 1.19 s.
 - `get_inventory_dashboard` resolves branch scope once: 1.2–1.6 s → ~45 ms, identical output.
   Migration `202610280101` **pending**.
 

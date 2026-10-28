@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { PerformanceDateRange } from '@/lib/performance-date-range';
 import { performanceRangeDays, performanceRpcTimezone } from '@/lib/performance-date-range';
-import { fetchCachedAggregate } from '@/lib/query/cached-dashboard-api';
 import { createClient } from '@/lib/supabase/client';
 
 const teamPerformanceSchema = z.object({
@@ -82,24 +81,15 @@ export async function fetchTeamManagerPerformance(
     target_days: performanceRangeDays(range),
     target_timezone: performanceRpcTimezone(range),
   };
-  const direct = async () => {
-    const request = createClient().rpc('get_team_manager_performance', {
-      ...params,
-      ...(branchId ? { target_branch_id: branchId } : {}),
-    });
-    const { data, error } = await (signal ? request.abortSignal(signal) : request);
-    if (error) throw error;
-    return teamPerformanceSchema.parse(data);
-  };
-  // The Edge cache takes only the window; a single branch is one small direct read.
-  if (branchId) return direct();
-  return fetchCachedAggregate({
-    resource: 'team-manager-performance',
-    schema: teamPerformanceSchema,
-    params,
-    signal,
-    direct,
+  // Read directly: about 100–550 ms in PostgreSQL for a team or showroom,
+  // against 300–1,200 ms for a Redis hit through Edge (entries are per user).
+  const request = createClient().rpc('get_team_manager_performance', {
+    ...params,
+    ...(branchId ? { target_branch_id: branchId } : {}),
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  return teamPerformanceSchema.parse(data);
 }
 
 /** Exported for the IndexedDB copy, which is re-validated before it is shown. */
