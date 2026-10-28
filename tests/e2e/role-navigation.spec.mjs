@@ -11,6 +11,7 @@ import { test, expect as baseExpect } from '@playwright/test';
 //
 // Needs `next dev` with DEMO_ROLE_LOGIN_ENABLED=true (E2E_BASE_URL, default :3000).
 // E2E_ROLES=finance,gm-sales limits the run to some roles.
+// E2E_LOGIN_BASE_URL=<dev server> signs in there and audits E2E_BASE_URL (e.g. `next start`).
 // E2E_AUDIT_DIR=<dir> also saves a full-page screenshot of every page and tab and a
 // <dir>/<role>/manifest.json with each page's Supabase calls, their durations and
 // its KPI tile count, for the manual UI and latency audit.
@@ -43,6 +44,9 @@ if (process.env.E2E_CHROMIUM_EXECUTABLE) {
 }
 
 const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
+// A production build (`next start`) has no demo login, so sign in through a dev
+// server on another port: localhost cookies are shared across ports.
+const loginBaseURL = process.env.E2E_LOGIN_BASE_URL ?? baseURL;
 const allRoles = [
   'telecaller',
   'sales-consultant',
@@ -164,7 +168,7 @@ async function auditPage(page, role, name, calls, startedAt, manifest) {
 }
 
 async function signInAs(page, role) {
-  const response = await page.request.post(`${baseURL}/api/development/demo-role-login`, {
+  const response = await page.request.post(`${loginBaseURL}/api/development/demo-role-login`, {
     data: { role, organization: 'demo' },
   });
   expect(response.ok(), `demo login for ${role}: ${response.status()}`).toBeTruthy();

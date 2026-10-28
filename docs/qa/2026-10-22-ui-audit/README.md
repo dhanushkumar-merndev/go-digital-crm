@@ -40,6 +40,9 @@ against `next dev` (screenshots plus per-page call timings, git-ignored).
 - Production build (`next build` + `next start`, real login form, non-MFA roles): 93 pages, median
   ~0.82 s and p90 ~1.34 s from sidebar click to rendered page.
 - Final dev run after all changes: 24/24 roles pass, median 1.19 s.
+- Production build, all 24 roles incl. MFA ones (signed in via the dev server with
+  `E2E_LOGIN_BASE_URL=http://localhost:3100 E2E_BASE_URL=<next start>`): 24/24 pass, 223 pages,
+  median 1.08 s per full page load.
 - `get_inventory_dashboard` resolves branch scope once: 1.2–1.6 s → ~45 ms, identical output.
   Migration `202610280101` **pending**.
 
